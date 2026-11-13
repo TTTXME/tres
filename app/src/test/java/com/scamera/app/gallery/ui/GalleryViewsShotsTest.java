@@ -117,7 +117,7 @@ public class GalleryViewsShotsTest {
         long id = library.size() + 1;
         GalleryItem g = new GalleryItem(new ImageFile(id, null, name, when, bytes, "/storage/emulated/0/DCIM/Camera/" + name));
         library.add(g);
-        if (size != null || route != null || uhdr) ItemMeta.put(g.getFile(), new ItemMeta.Info(size, route, uhdr));
+        if (size != null || route != null || uhdr) ItemMeta.put(g.mediaFile(), new ItemMeta.Info(size, route, uhdr));
         if (videoMs > 0) {
             try {
                 java.lang.reflect.Method m = com.scamera.app.gallery.files.GalleryVideo.class.getDeclaredMethod("remember", long.class, long.class);
@@ -207,7 +207,7 @@ public class GalleryViewsShotsTest {
             GalleryLayout.setMode(context, mode);
             GalleryLayout.setLevel(context, level);
             items = library();
-            final String last = GalleryView.key(items.get(3).getFile());
+            final String last = GalleryView.key(items.get(3).mediaFile());
             root.setBackgroundColor(GalleryUi.BG);
             LinearLayout column = new LinearLayout(context);
             column.setOrientation(LinearLayout.VERTICAL);
@@ -303,9 +303,9 @@ public class GalleryViewsShotsTest {
     // ---------------------------------------------------------------- albums
 
     private AlbumsPage.Album album(String title, List<GalleryItem> files, int icon) {
-        GalleryItem folder = new GalleryItem(files.get(0).getFile());
-        folder.setDisplayName(title);
-        folder.getFiles().addAll(files);
+        GalleryItem folder = new GalleryItem(files.get(0).mediaFile());
+        folder.setShownName(title);
+        folder.groupedItems().addAll(files);
         return new AlbumsPage.Album(title, folder, icon);
     }
 
@@ -313,7 +313,7 @@ public class GalleryViewsShotsTest {
         List<GalleryItem> all = library();
         List<GalleryItem> camera = all.subList(0, 20), videos = new ArrayList<>(), raws = new ArrayList<>();
         for (GalleryItem g : all) {
-            GalleryFormat f = GalleryFormat.of(g.getFile().getDisplayName(), false);
+            GalleryFormat f = GalleryFormat.of(g.mediaFile().displayName(), false);
             if (f == GalleryFormat.VIDEO) videos.add(g);
             if (f == GalleryFormat.RAW) raws.add(g);
         }

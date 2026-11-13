@@ -180,8 +180,8 @@ public final class LibraryAdapter extends RecyclerView.Adapter<RecyclerView.View
 
     /** A row's identity: its day for a header, its file for a photo. */
     static String keyOf(Row r, List<GalleryItem> items) {
-        if (r.type == HEADER) return "d" + (r.item < items.size() ? dayKey(items.get(r.item).getFile().getLastModified()) : r.label);
-        return r.item < items.size() ? com.scamera.app.gallery.model.GalleryView.key(items.get(r.item).getFile()) : "?";
+        if (r.type == HEADER) return "d" + (r.item < items.size() ? dayKey(items.get(r.item).mediaFile().modifiedMs()) : r.label);
+        return r.item < items.size() ? com.scamera.app.gallery.model.GalleryView.key(items.get(r.item).mediaFile()) : "?";
     }
 
     /** P498: the thumbnails' decode size (px), from the cell width (the column count). */
@@ -214,10 +214,10 @@ public final class LibraryAdapter extends RecyclerView.Adapter<RecyclerView.View
         List<Row> out = new ArrayList<>();
         int i = 0;
         while (i < items.size()) {
-            long day = dayKey(items.get(i).getFile().getLastModified());
+            long day = dayKey(items.get(i).mediaFile().modifiedMs());
             int j = i;
-            while (j < items.size() && dayKey(items.get(j).getFile().getLastModified()) == day) j++;
-            out.add(new Row(HEADER, i, GalleryUi.dayLabel(items.get(i).getFile().getLastModified(), now), j - i));
+            while (j < items.size() && dayKey(items.get(j).mediaFile().modifiedMs()) == day) j++;
+            out.add(new Row(HEADER, i, GalleryUi.dayLabel(items.get(i).mediaFile().modifiedMs(), now), j - i));
             for (int k = i; k < j; ++k) out.add(new Row(PHOTO, k, null, 0));
             i = j;
         }
@@ -261,7 +261,7 @@ public final class LibraryAdapter extends RecyclerView.Adapter<RecyclerView.View
     public long getItemId(int position) {
         Row r = rows.get(position);
         // P498: the same id for the same day / file wherever it moves (a delete or a filter animates the cells on)
-        if (r.type == HEADER) return -2 - dayKey(items.get(r.item).getFile().getLastModified());
+        if (r.type == HEADER) return -2 - dayKey(items.get(r.item).mediaFile().modifiedMs());
         return keyOf(r, items).hashCode() * 2L + 1;
     }
 
@@ -282,7 +282,7 @@ public final class LibraryAdapter extends RecyclerView.Adapter<RecyclerView.View
         if (holder instanceof HeaderHolder) {
             int videos = 0; // P498: «3 фото · 1 видео»
             for (int k = r.item; k < r.item + r.count && k < items.size(); ++k)
-                if (com.scamera.app.gallery.files.GalleryVideo.isVideo(items.get(k).getFile())) ++videos;
+                if (com.scamera.app.gallery.files.GalleryVideo.isVideo(items.get(k).mediaFile())) ++videos;
             ((HeaderHolder) holder).bind(r, videos);
             ((HeaderHolder) holder).applySelecting(host.selecting());
             holder.itemView.setOnClickListener(v -> {
@@ -434,10 +434,10 @@ public final class LibraryAdapter extends RecyclerView.Adapter<RecyclerView.View
             Context c = cell.getContext();
             GalleryFormat format = GalleryFormat.of(item, rawBases);
             badges.removeAllViews();
-            if (format == GalleryFormat.VIDEO) badges.addView(videoBadge(c, com.scamera.app.gallery.files.GalleryVideo.durationMs(item.getFile())));
+            if (format == GalleryFormat.VIDEO) badges.addView(videoBadge(c, com.scamera.app.gallery.files.GalleryVideo.durationMs(item.mediaFile())));
             else badges.addView(badge(c, format.icon));
             heart.setVisibility(host.isFavourite(item) ? View.VISIBLE : View.GONE);
-            Uri uri = item.getFile().getFileUri();
+            Uri uri = item.mediaFile().contentUri();
             float seen = format == GalleryFormat.VIDEO && uri != null ? com.scamera.app.gallery.video.VideoResume.progress(c, uri.toString()) : -1;
             watched.setVisibility(seen > 0 ? View.VISIBLE : View.GONE);
             if (seen > 0) watchedLine.setScaleX(seen);
@@ -451,7 +451,7 @@ public final class LibraryAdapter extends RecyclerView.Adapter<RecyclerView.View
 
         /** The cell's picture; P89: after the camera has finished writing the file. */
         private void loadThumb(GalleryItem it, Uri uri) {
-            if (GalleryKeys.waitForFile(image, it.getFile(), () -> {
+            if (GalleryKeys.waitForFile(image, it.mediaFile(), () -> {
                 if (item == it) loadThumb(it, uri);
             })) {
                 Glide.with(image).clear(image);
@@ -460,7 +460,7 @@ public final class LibraryAdapter extends RecyclerView.Adapter<RecyclerView.View
             // P620: the cheapest large-enough source (GalleryThumb / ThumbDecoder), not cropped (the view crops), shared with
             // the viewer's film strip and its first picture; visible cells before the preloads
             com.bumptech.glide.RequestBuilder<android.graphics.Bitmap> request = com.scamera.app.gallery.glide.GalleryThumb
-                    .request(Glide.with(image), com.scamera.app.gallery.glide.GalleryThumb.of(it.getFile()), thumbPx)
+                    .request(Glide.with(image), com.scamera.app.gallery.glide.GalleryThumb.of(it.mediaFile()), thumbPx)
                     .priority(com.bumptech.glide.Priority.HIGH);
             if (GalleryOpenTrace.countingThumbs()) request = request.listener(THUMB_TRACE); // P617: the first screen's timing
             request.into(image);
@@ -540,10 +540,10 @@ public final class LibraryAdapter extends RecyclerView.Adapter<RecyclerView.View
     }
 
     String describe(GalleryItem item, GalleryFormat format, boolean uhdr) {
-        StringBuilder s = new StringBuilder(GalleryUi.dayTime(item.getFile().getLastModified(), now));
+        StringBuilder s = new StringBuilder(GalleryUi.dayTime(item.mediaFile().modifiedMs(), now));
         if (format == GalleryFormat.VIDEO) {
             s.append(", ").append(com.scamera.app.util.Lang.t("видео", "video"));
-            long d = com.scamera.app.gallery.files.GalleryVideo.durationMs(item.getFile());
+            long d = com.scamera.app.gallery.files.GalleryVideo.durationMs(item.mediaFile());
             if (d > 0) s.append(" ").append(com.scamera.app.gallery.files.GalleryVideo.clock(d));
         }
         if (!format.label.isEmpty()) s.append(", ").append(format.label);
@@ -558,7 +558,7 @@ public final class LibraryAdapter extends RecyclerView.Adapter<RecyclerView.View
     }
 
     static boolean isJpeg(GalleryItem item) {
-        String ext = GalleryFormat.extension(item.getFile().getDisplayName());
+        String ext = GalleryFormat.extension(item.mediaFile().displayName());
         return "jpg".equals(ext) || "jpeg".equals(ext);
     }
 

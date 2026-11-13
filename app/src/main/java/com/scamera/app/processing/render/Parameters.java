@@ -92,11 +92,11 @@ public class Parameters {
      */
     @Nullable
     public String filmRecipe;
-    /** P27: linear factor the RAW frames were binned by (RawBin) before the merge; 1 = as captured. Set before FillConstParameters. */
+    /** P27: linear factor the RAW frames were binned by (RawBin) before the merge; 1 = as captured. Set before fillFromCamera. */
     public int rawBinning = 1;
     /**
      * P162: the part of the frames RawCrop kept (in the frame as captured, {@link #rawCropFull} in size), null when they are
-     * whole: the lens shading map and the hot pixels follow it. Set before FillDynamicParameters.
+     * whole: the lens shading map and the hot pixels follow it. Set before fillFromFrame.
      */
     public com.scamera.app.processing.RawCrop.Area rawCrop;
     public Point rawCropFull;
@@ -148,21 +148,23 @@ public class Parameters {
     public float dngFieldZoom, photoFieldZoom;
     /** P618: the photo is the 4:3 crop of the frame (ImageSaver.iszAspect4x3): the DNG declares it as its DefaultCrop. */
     public boolean photoAspect4x3;
-    public boolean usedDynamic = false;
-    public float[] blackLevel = new float[4];
-    public float[] whitePoint = new float[3];
+    /** The black came from the frame's dynamic tag (RawLevels.Levels.dynamicBlack). */
+    public boolean dynamicBlackUsed = false;
+    /** RAW black per CFA site (R, Gr, Gb, B order of the stream's 2x2), and the camera neutral (AsShotNeutral) of the shot. */
+    public float[] cfaBlack = new float[4];
+    public float[] asShotNeutral = new float[3];
     /** Correlated colour temperature of the scene light (K): the DNG estimate, or the neutral-based one on the OPPO HAL. */
     public float sceneCct = 6504f;
     /** P370 (B1): where {@link #sceneCct} came from (log, README), and the Duv of the DNG estimate (NaN: not computed). */
     public String sceneCctSource = "";
     public float sceneDuv = Float.NaN;
     /**
-     * P370 (B1): the route that rendered the shot's colour, one of {@link ColourSource} by name ("" before ReCalcColor), and why
+     * P370 (B1): the route that rendered the shot's colour, one of {@link ColourSource} by name ("" before resolveColour), and why
      * when it is a fallback.
      */
     public String colourSource = "";
     public String colourSourceWhy = "";
-    /** P370 (B1): the colour routes ReCalcColor can take (README colourSource=). */
+    /** P370 (B1): the colour routes resolveColour can take (README colourSource=). */
     public enum ColourSource {
         /** the active DCP profile */ DCP,
         /** P408: a colour matrix profile of the reference app's registry (CcmPresets) */ CCM_PRESET,
@@ -200,16 +202,18 @@ public class Parameters {
      * sharpens the 3x3-smoothed luma (R1).
      */
     public int mosaicBlock = 1;
-    public static int mergeWhiteLevel = 65535;
-    public int realWL = -1;
-    public boolean hasGainMap;
+    /** The frame's lens shading map is real (not the flat placeholder) and the development applies it. */
+    public boolean shadingMapUsed;
     /** The OPPO PHY110 tuned ISP matrix (bright-scene group) rendered the shot instead of the DNG matrices. */
     public boolean oppoTunedCcm;
-    public Point mapSize;
-    public Rect sensorPix;
-    public float[] gainMap;
-    public float[] proPhotoToSRGB = new float[9];
-    public float[] sensorToProPhoto = new float[9];
+    /** Lens shading: the grid (columns x rows) and its gains, four per cell; flat 1x1 when the frame has none. */
+    public Point shadingGrid;
+    public float[] shadingMap;
+    /** The active array in the frame's pixels. */
+    public Rect activeArea;
+    /** Output matrices: ProPhoto to sRGB and the camera's RGB to ProPhoto (row-major 3x3). */
+    public float[] proPhotoToSrgb = new float[9];
+    public float[] cameraToProPhoto = new float[9];
     /**
      * P243: the colour tags of the DNG being written when they carry the JPEG's own colour (DngColour.jpegProfile: ColorMatrix1,
      * ForwardMatrix1, one illuminant), set by ScamProcessor around its DNG writes; null: the camera's dual profile (DngCreator).
@@ -217,46 +221,35 @@ public class Parameters {
     public com.scamera.app.processing.color.DngColour.Profile dngColour;
     /** 0..1 user control for retaining short-frame highlight headroom in SDR tone mapping. */
     public float highlightSuppressionStrength = 1.0f;
-    public Point[] hotPixels;
-    public float focalLength;
-    public float aperture;
-    public int cameraRotation;
-    public NoiseModeler noiseModeler;
+    /** Hot pixels of the frame (STATISTICS_HOT_PIXEL_MAP, in the kept part's coordinates). */
+    public Point[] hotSites;
+    /** The shot's optics: focal length (mm) and f-number, the placeholders 4.75 mm / f/1.8 when unknown. */
+    public float focalMm;
+    public float fNumber;
+    /** Degrees the saved photo is turned by. */
+    public int rotationDeg;
+    public NoiseModeler noiseModel;
     public double effectiveStackSamples=Double.NaN;
-    public ColorCorrectionTransform CCT;
-    public SizeF sensorSize;
-    public double angleX;
-    public double angleY;
-    public double perXAngle;
-    public double perYAngle;
-    public double XPerMm;
-    public double YPerMm;
-    public double[] cameraIntrinsic = new double[9];
-    public double[] cameraIntrinsicRev = new double[9];
-    public float[][] tonemapCurves = new float[3][];
-    public float gammaCurve = 2.0f;
+    public ColorCorrectionTransform colorTransform;
+    /** SENSOR_INFO_PHYSICAL_SIZE, mm. */
+    public SizeF sensorSizeMm;
+    /** Per-channel tone curves of a lab shot (null rows: none). */
+    public float[][] toneCurves = new float[3][];
 
-    public int tile = 16;
-    public int tilesX = 0;
-    public Point alignmentSize = new Point(0, 0);
+    /** The camera's DNG colour tags: reference illuminants (EXIF light source codes, -1: none) and the 3x3 matrices. */
+    public int refIlluminant1 = -1, refIlluminant2 = -1;
+    public float[] cameraCalibration1 = new float[9], cameraCalibration2 = new float[9];
+    public float[] forwardMatrix1 = new float[9], forwardMatrix2 = new float[9];
+    public float[] colorMatrix1 = new float[9], colorMatrix2 = new float[9];
 
-    public int calibrationIlluminant1 = -1;
-    public int calibrationIlluminant2 = -1;
-
-    public float[] calibrationTransform1 = new float[9];
-    public float[] ForwardTransform1 = new float[9];
-    public float[] ColorMatrix1 = new float[9];
-    public float[] ColorMatrix2 = new float[9];
-    public float[] calibrationTransform2 = new float[9];
-    public float[] ForwardTransform2 = new float[9];
-
-    public boolean mirror = false;
-    public String cameraID = ScameraApp.getSettings().mCameraID;
+    /** A front camera's photo is mirrored (unless «Disable front mirror»). */
+    public boolean mirrored = false;
+    public String cameraID = ScameraApp.getSettings().cameraId;
     public int physicalID = 0;
     public int logicalID = 0;
     /**
      * The shot's camera (Settings.mCameraID at its press, ImageSaver.cameraIdAtPress; null: the one open now) and the
-     * characteristics it was captured with (FillConstParameters'): a shot queued behind a merge is processed after a lens switch
+     * characteristics it was captured with (fillFromCamera'): a shot queued behind a merge is processed after a lens switch
      * replaced the open camera (CaptureController.mCameraCharacteristics) - its levels, matrices and module settings stay its
      * own. Transient: not in a lab shot's parameters.
      */
@@ -315,8 +308,7 @@ public class Parameters {
     )
     boolean useDynamicWhiteLevel;
 
-    @SensorConfig(title = "White Level Override",
-            defaultValue = -1, min = -1, max = 65535, step = 1,
+    @SensorConfig(title = "White Level Override", min = -1, max = 65535, step = 1, defaultValue = -1,
             description = "Белый уровень RAW вручную, в единицах RAW этого модуля; Авто — от камеры и по отсчётам кадра. Больше — снимок темнее; меньше — света выгорают раньше.")
     int whiteLevelOverride;
     /** P320: the camera's declared white of this frame (the session's measured clip belongs to that camera only). */
@@ -335,25 +327,23 @@ public class Parameters {
     )
     float blackLevelOverride;
 
-    public void FillConstParameters(CameraCharacteristics characteristics, Point size) {
+    public void fillFromCamera(CameraCharacteristics characteristics, Point size) {
         com.scamera.app.settings.TunableInjector.inject(this);
         shotCharacteristics = characteristics;
-        cameraID = cameraIdAtPress != null ? cameraIdAtPress : ScameraApp.getSettings().mCameraID;
+        cameraID = cameraIdAtPress != null ? cameraIdAtPress : ScameraApp.getSettings().cameraId;
         // "logical-physical" for a lens of a logical camera, else one id for both
         final int dash = cameraID.indexOf('-');
         logicalID = Integer.parseInt(dash >= 0 ? cameraID.substring(0, dash) : cameraID);
         physicalID = Integer.parseInt(dash >= 0 ? cameraID.substring(dash + 1).split("-")[0] : cameraID);
-        com.scamera.app.settings.SensorConfigInjector.applyToSensor(String.valueOf(physicalID), this);
+        com.scamera.app.settings.SensorConfigInjector.fillForModule(String.valueOf(physicalID), this);
 
         rawSize = size;
-        alignmentSize = new Point(size.x / tile + 1, size.y / tile + 1);
-        tilesX = rawSize.x / 800 + 1;
         final Integer maxAnalogue = characteristics.get(CameraCharacteristics.SENSOR_MAX_ANALOG_SENSITIVITY);
         analogIso = maxAnalogue != null ? maxAnalogue : 100;
-        java.util.Arrays.fill(blackLevel, 0, 4, 64);
+        java.util.Arrays.fill(cfaBlack, 0, 4, 64);
         final Integer arrangement = characteristics.get(CameraCharacteristics.SENSOR_INFO_COLOR_FILTER_ARRANGEMENT);
         if (arrangement != null) cfaPattern = (byte) (int) arrangement;
-        final int forcedCfa = ScameraApp.getSettings().cfaPattern;
+        final int forcedCfa = ScameraApp.getSettings().forcedCfa;
         if (forcedCfa >= 0) cfaPattern = (byte) forcedCfa;
         baseCfaPattern = cfaPattern >= 0 && cfaPattern <= 3 ? cfaPattern : 0;
 
@@ -363,37 +353,17 @@ public class Parameters {
         lensFacing = characteristics.get(CameraCharacteristics.LENS_FACING);
         focalLengthOfShot = apertureOfShot = false;
         final float focal = lensFocalLengths != null && lensFocalLengths.length > 0 ? lensFocalLengths[0] : 4.75f;
-        sensorSize = characteristics.get(CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE);
-        XPerMm = rawSize.x / sensorSize.getWidth();
-        YPerMm = rawSize.y / sensorSize.getHeight();
-        fillIntrinsics(focal);
-        // the horizontal field of view (both angles from the sensor width)
-        angleX = angleY = 2 * Math.atan(sensorSize.getWidth() / ((double) focal * 2));
-        perXAngle = rawSize.x / angleX;
-        perYAngle = rawSize.y / angleY;
-        focalLength = focal;
-        aperture = lensApertures != null && lensApertures.length > 0 ? lensApertures[0] : 1.8f;
-        Log.d(TAG, "Focal Length:" + focal + " Aperture:" + aperture);
+        sensorSizeMm = characteristics.get(CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE);
+        focalMm = focal;
+        fNumber = lensApertures != null && lensApertures.length > 0 ? lensApertures[0] : 1.8f;
+        Log.d(TAG, "lens: " + focalMm + " mm, f/" + fNumber + ", sensor " + sensorSizeMm + " mm");
 
         final Integer white = characteristics.get(CameraCharacteristics.SENSOR_INFO_WHITE_LEVEL);
         if (white != null) whiteLevel = white;
-        hasGainMap = false;
-        mapSize = new Point(1, 1);
-        gainMap = new float[]{1.f, 1.f, 1.f, 1.f};
-        sensorPix = activeArray(characteristics);
-        final Integer facing = characteristics.get(CameraCharacteristics.LENS_FACING);
-        if (facing != null && facing == CameraCharacteristics.LENS_FACING_FRONT) mirror = true;
-        if (disableMirror) mirror = false;
-    }
-
-    /** The pinhole camera of the frame (focal length in mm, principal point at its centre) and its reverse. */
-    private void fillIntrinsics(double focal) {
-        final double cx = rawSize.x / 2.0, cy = rawSize.y / 2.0;
-        final double[] k = {focal, 0, cx, 0, focal, cy, 0, 0, 1};
-        final double[] reverse = {1, 0, -cx, 0, 1, -cy, 0, 0, focal};
-        System.arraycopy(k, 0, cameraIntrinsic, 0, 9);
-        System.arraycopy(reverse, 0, cameraIntrinsicRev, 0, 9);
-        Log.d(TAG, "IntrinsicMatrix: " + java.util.Arrays.toString(cameraIntrinsic));
+        flatShading();
+        activeArea = activeArray(characteristics);
+        if (lensFacing != null && lensFacing == CameraCharacteristics.LENS_FACING_FRONT) mirrored = true;
+        if (disableMirror) mirrored = false;
     }
 
     /**
@@ -415,16 +385,23 @@ public class Parameters {
     /**
      * P320: rebuilds the noise model of a DCG shot at ISO / dcgIsoScale (NoiseModeler.withIsoScale: a chosen profile and the
      * no-profile fallback read the gain the photons saw, the HAL profile stays as reported). dcgIsoScale is known only after
-     * FillDynamicParameters (ScamProcessor.dcgLinearity), so this runs right after it is set; a no-op for any other shot, a
+     * fillFromFrame (ScamProcessor.dcgLinearity), so this runs right after it is set; a no-op for any other shot, a
      * scale <= 1 or no model, and idempotent (the rebuild always starts from the reported ISO).
      */
     public void applyDcgIsoScale() {
-        if (!dcgShot || !(dcgIsoScale > 1f) || noiseModeler == null) return;
-        noiseModeler = noiseModeler.withIsoScale(dcgIsoScale);
+        if (!dcgShot || !(dcgIsoScale > 1f) || noiseModel == null) return;
+        noiseModel = noiseModel.withIsoScale(dcgIsoScale);
     }
 
     private static <T> T orElse(T value, T fallback) {
         return value != null ? value : fallback;
+    }
+
+    /** No lens shading correction: one flat cell (gain 1 at the four sites) and the map not applied. */
+    private void flatShading() {
+        shadingGrid = new Point(1, 1);
+        shadingMap = new float[]{1f, 1f, 1f, 1f};
+        shadingMapUsed = false;
     }
 
     /**
@@ -432,26 +409,21 @@ public class Parameters {
      * site's first channel) is a placeholder: no gain map; on a Huawei the averaged static map (Const) stands in for it.
      */
     private void takeShadingMap(LensShadingMap lensMap, boolean isHuawei) {
-        gainMap = new float[lensMap.getGainFactorCount()];
-        mapSize = new Point(lensMap.getColumnCount(), lensMap.getRowCount());
-        lensMap.copyGainFactors(gainMap, 0);
-        final int n = gainMap.length;
-        final int[] probes = {n / 8, n / 2, n / 2 + n / 8};
+        final float[] gains = new float[lensMap.getGainFactorCount()];
+        lensMap.copyGainFactors(gains, 0);
+        shadingGrid = new Point(lensMap.getColumnCount(), lensMap.getRowCount());
+        shadingMap = gains;
+        final int n = gains.length;
         boolean flat = true;
-        for (int at : probes) flat &= gainMap[at - at % 4] == 1.0;
-        hasGainMap = !flat;
+        for (int at : new int[]{n / 8, n / 2, n / 2 + n / 8}) flat &= gains[at - at % 4] == 1.0;
+        shadingMapUsed = !flat;
         if (!flat || !isHuawei) return;
         Log.d(TAG, "placeholder lens shading map: the static Huawei map instead");
-        final double[] stored = Const.gainMap;
-        gainMap = new float[stored.length];
-        for (int site = 0; site < stored.length; site += 4) {
-            final float mean = ((float) stored[site] + (float) stored[site + 1] + (float) stored[site + 2] + (float) stored[site + 3]) / 4.f;
-            java.util.Arrays.fill(gainMap, site, site + 4, mean);
-        }
-        mapSize = Const.mapSize;
+        shadingMap = FallbackShading.gains();
+        shadingGrid = new Point(FallbackShading.COLUMNS, FallbackShading.ROWS);
     }
 
-    public void FillDynamicParameters(CaptureResult result, CaptureRequest request, int ISO) {
+    public void fillFromFrame(CaptureResult result, CaptureRequest request, int ISO) {
         portraitEnabled = portraitLookAtPress != null ? portraitLookAtPress.portraitEnabled : PreferenceKeys.isPortraitEnabled();
         portraitSkinWarmth = portraitLookAtPress != null ? portraitLookAtPress.portraitSkinWarmth : PreferenceKeys.isPortraitSkinWarmthEnabled();
         portraitFaceDetected = false;
@@ -471,8 +443,8 @@ public class Parameters {
         }
         // Selection may change the reference after the first metadata pass.
         // Missing tags must not retain another frame's dynamic calibration.
-        usedDynamic = false;
-        hasGainMap = false;
+        dynamicBlackUsed = false;
+        shadingMapUsed = false;
         Integer staticWhite = camera().get(CameraCharacteristics.SENSOR_INFO_WHITE_LEVEL);
         if (staticWhite != null) whiteLevel = staticWhite;
         declaredWhite = staticWhite == null ? 0 : staticWhite;
@@ -481,7 +453,7 @@ public class Parameters {
         final int sensitivity = reportedIso != null ? reportedIso : orElse(request.get(CaptureRequest.SENSOR_SENSITIVITY), ISO);
         iso = sensitivity;
         postRawBoost = com.scamera.app.processing.opengl.postpipeline.RawBoost.of(result); // P501
-        noiseModeler = new NoiseModeler(NoiseModeler.sanitizedOffsets(result.get(CaptureResult.SENSOR_NOISE_PROFILE), whiteLevel), analogIso, sensitivity, cfaPattern);
+        noiseModel = new NoiseModeler(NoiseModeler.sanitizedOffsets(result.get(CaptureResult.SENSOR_NOISE_PROFILE), whiteLevel), analogIso, sensitivity, cfaPattern);
         final Long reportedExposure = result.get(CaptureResult.SENSOR_EXPOSURE_TIME);
         exposureTime = ExposureIndex.time2sec(reportedExposure != null ? reportedExposure
                 : orElse(request.get(CaptureRequest.SENSOR_EXPOSURE_TIME), 1_000_000_000L / 30));
@@ -494,67 +466,51 @@ public class Parameters {
             Log.i(TAG, "black level static=" + level + " dynamic=" + java.util.Arrays.toString(reportedBlack)
                     + " whiteDynamic=" + result.get(CaptureResult.SENSOR_DYNAMIC_WHITE_LEVEL));
             try {
-                gainMap = new float[]{1.f, 1.f, 1.f, 1.f};
-                mapSize = new Point(1, 1);
+                shadingGrid = new Point(1, 1);
+                shadingMap = new float[]{1f, 1f, 1f, 1f};
                 final LensShadingMap lensMap = result.get(CaptureResult.STATISTICS_LENS_SHADING_CORRECTION_MAP);
                 if (lensMap == null) applyStoredShading(result);
                 else takeShadingMap(lensMap, isHuawei);
             } catch (Exception e){
                 Log.d(TAG, "Error retrieving lens shading map, disabling gain map: " + Log.getStackTraceString(e));
             }
-            if (hasGainMap && rawShadingAlreadyApplied(camera())) {
+            if (shadingMapUsed && rawShadingAlreadyApplied(camera())) {
                 // The HAL delivered RAW with lens shading already corrected; applying the
                 // map again brightens the edges up to ~5x and lifts their blacks.
                 Log.i(TAG, "RAW lens shading already applied by HAL, gain map skipped");
-                gainMap = new float[]{1.f, 1.f, 1.f, 1.f};
-                mapSize = new Point(1, 1);
-                hasGainMap = false;
+                flatShading();
             }
             // P118 «16:9»: the frames are a centred crop (Wide169) and the map covers the whole frame: its rows of the crop only
             // (P162: of the frame as captured, before RawCrop)
             final com.scamera.app.api.Settings s = ScameraApp.getSettings();
             final Point captured = rawCrop != null && rawCropFull != null ? rawCropFull : rawSize;
-            if (hasGainMap && mapSize.y > 1 && s != null && s.aspect169 && captured != null && sensorPix != null
-                    && captured.x > captured.y && sensorPix.width() > 0) {
-                final int full = (int) Math.round((double) captured.x * sensorPix.height() / sensorPix.width());
+            if (shadingMapUsed && shadingGrid.y > 1 && s != null && s.wide169 && captured != null && activeArea != null
+                    && captured.x > captured.y && activeArea.width() > 0) {
+                final int full = (int) Math.round((double) captured.x * activeArea.height() / activeArea.width());
                 if (com.scamera.app.processing.Wide169.rows(captured.x, full) == captured.y)
-                    gainMap = com.scamera.app.processing.Wide169.cropGainMap(gainMap, mapSize.x, mapSize.y, full,
+                    shadingMap = com.scamera.app.processing.Wide169.cropGainMap(shadingMap, shadingGrid.x, shadingGrid.y, full,
                             com.scamera.app.processing.Wide169.firstRow(captured.x, full), captured.y);
                 else Log.w(TAG, "16:9 frame " + captured + " is not the crop of " + captured.x + "x" + full + ": lens shading map kept");
             }
             // P162: the map over the kept part of the frame only
-            if (hasGainMap && rawCrop != null && rawCropFull != null)
-                gainMap = com.scamera.app.processing.RawCrop.cropGainMap(gainMap, mapSize.x, mapSize.y,
+            if (shadingMapUsed && rawCrop != null && rawCropFull != null)
+                shadingMap = com.scamera.app.processing.RawCrop.cropGainMap(shadingMap, shadingGrid.x, shadingGrid.y,
                         rawCropFull.x, rawCropFull.y, rawCropSensorShiftY == 0 ? rawCrop
                                 : new com.scamera.app.processing.RawCrop.Area(rawCrop.x, rawCrop.y + rawCropSensorShiftY,
                                 rawCrop.width, rawCrop.height));
-            hotPixels = result.get(CaptureResult.STATISTICS_HOT_PIXEL_MAP);
-            if (rawBinning > 1) hotPixels = new Point[0]; // sensor coordinates; a binned site averages it away
-            else if (hotPixels != null && rawCrop != null) hotPixels = keptHotPixels(hotPixels, rawCrop);
-            ReCalcColor(false, result);
+            hotSites = result.get(CaptureResult.STATISTICS_HOT_PIXEL_MAP);
+            if (rawBinning > 1) hotSites = new Point[0]; // sensor coordinates; a binned site averages it away
+            else if (hotSites != null && rawCrop != null) hotSites = keptHotPixels(hotSites, rawCrop);
+            resolveColour(false, result);
         }
         frameLevels(result, staticWhite, level, true);
-        Float aperture = result.get(CaptureResult.LENS_APERTURE);
-        if (aperture == null) {
-            aperture = request == null ? null : request.get(CaptureRequest.LENS_APERTURE);
-            if (aperture == null) {
-                aperture = 1.8f; // Default to f/1.8 if not available
-            }
-        }
-        apertureOfShot = result.get(CaptureResult.LENS_APERTURE) != null
-                || request != null && request.get(CaptureRequest.LENS_APERTURE) != null;
-        this.aperture = aperture;
-
-        Float focalLength = result.get(CaptureResult.LENS_FOCAL_LENGTH);
-        if (focalLength == null) {
-            focalLength = request == null ? null : request.get(CaptureRequest.LENS_FOCAL_LENGTH);
-            if (focalLength == null) {
-                focalLength = 4.75f; // Default to 4.75mm if not available
-            }
-        }
-        focalLengthOfShot = result.get(CaptureResult.LENS_FOCAL_LENGTH) != null
-                || request != null && request.get(CaptureRequest.LENS_FOCAL_LENGTH) != null;
-        this.focalLength = focalLength;
+        // the optics of the shot: its result, else its request, else the f/1.8, 4.75 mm placeholders (never written as the lens)
+        final Float shotF = shotValue(result, CaptureResult.LENS_APERTURE, request, CaptureRequest.LENS_APERTURE);
+        apertureOfShot = shotF != null;
+        fNumber = apertureOfShot ? shotF : 1.8f;
+        final Float shotFocal = shotValue(result, CaptureResult.LENS_FOCAL_LENGTH, request, CaptureRequest.LENS_FOCAL_LENGTH);
+        focalLengthOfShot = shotFocal != null;
+        focalMm = focalLengthOfShot ? shotFocal : 4.75f;
 
         binnedLevels();
     }
@@ -562,13 +518,13 @@ public class Parameters {
     /**
      * P440 (owner, 2026-10-27: «нам нужно иметь как минимум не хуже скорость обработки чем у Why камеры»): the RAW levels of one
      * frame alone - black, white, their bit depth and source, the declared white, the binned scale - exactly as
-     * {@link #FillDynamicParameters} sets them for {@code result}, nothing else and without its log lines. ScamProcessor's first
-     * metadata pass (the last burst callback) ran the whole FillDynamicParameters (lens shading, noise model, colour: ReCalcColor
+     * {@link #fillFromFrame} sets them for {@code result}, nothing else and without its log lines. ScamProcessor's first
+     * metadata pass (the last burst callback) ran the whole fillFromFrame (lens shading, noise model, colour: resolveColour
      * and ~70 log lines); the reference frame's pass replaced every one of its values before anything read them, except these
      * levels: the darkest frame's black floor is measured at them (refineBlackLevel) and the reference frame's pass reuses that
-     * measurement. A null result throws as FillDynamicParameters' first read of it did.
+     * measurement. A null result throws as fillFromFrame' first read of it did.
      */
-    public void FillFrameLevels(CaptureResult result) {
+    public void fillLevelsOnly(CaptureResult result) {
         java.util.Objects.requireNonNull(result, "result");
         final Integer staticWhite = camera().get(CameraCharacteristics.SENSOR_INFO_WHITE_LEVEL);
         if (staticWhite != null) whiteLevel = staticWhite;
@@ -579,8 +535,8 @@ public class Parameters {
 
     /**
      * P127: black and white at the bit depth of the stream (RawLevels: declared levels, the frame's dynamic ones in their own
-     * units, what the session's samples proved), then the user's overrides. P440: one method for FillDynamicParameters and
-     * FillFrameLevels; {@code log}: its lines (FillDynamicParameters only).
+     * units, what the session's samples proved), then the user's overrides. P440: one method for fillFromFrame and
+     * fillLevelsOnly; {@code log}: its lines (fillFromFrame only).
      */
     private void frameLevels(@Nullable CaptureResult result, @Nullable Integer staticWhite, @Nullable BlackLevelPattern level,
                              boolean log) {
@@ -593,9 +549,9 @@ public class Parameters {
                         staticWhite == null ? 0 : staticWhite,
                         result == null ? null : result.get(CaptureResult.SENSOR_DYNAMIC_BLACK_LEVEL),
                         dynamicWhite == null ? 0 : dynamicWhite, useDynamicBlackLevel, useDynamicWhiteLevel);
-        System.arraycopy(levels.black, 0, blackLevel, 0, 4);
+        System.arraycopy(levels.black, 0, cfaBlack, 0, 4);
         whiteLevel = levels.white;
-        usedDynamic = levels.dynamicBlack;
+        dynamicBlackUsed = levels.dynamicBlack;
         levelBits = levels.bits;
         levelSource = levels.source;
         // P320: a module's hand-set levels are the plain mode's; a DCG frame keeps the levels its own data resolved
@@ -605,7 +561,7 @@ public class Parameters {
         } else {
             if (whiteLevelOverride >= 0) whiteLevel = whiteLevelOverride;
             if (blackLevelOverride >= 0) {
-                for (int i = 0; i < 4; i++) blackLevel[i] = blackLevelOverride;
+                for (int i = 0; i < 4; i++) cfaBlack[i] = blackLevelOverride;
             }
         }
         if (log) Log.i(TAG, "RAW levels: " + levels + (whiteLevelOverride >= 0 ? ", white override " + whiteLevelOverride : "")
@@ -614,12 +570,17 @@ public class Parameters {
 
     /** The levels of a binned (2x2 summed, Allocator.binning) frame: four times black and white. */
     private void binnedLevels() {
-        if (Allocator.binning) {
-            for (int i = 0; i < blackLevel.length; i++) {
-                blackLevel[i] = Math.min(blackLevel[i] * 4f, 65535f);
-            }
-            whiteLevel = Math.min(whiteLevel * 4, 65535);
-        }
+        if (!Allocator.binning) return;
+        for (int c = 0; c < cfaBlack.length; c++) cfaBlack[c] = Math.min(4f * cfaBlack[c], 65535f);
+        whiteLevel = Math.min(4 * whiteLevel, 65535);
+    }
+
+    /** The shot's value of a lens key: its result's, else its request's (null: neither has it). */
+    @Nullable
+    private static <T> T shotValue(CaptureResult result, CaptureResult.Key<T> resultKey, @Nullable CaptureRequest request,
+                                   CaptureRequest.Key<T> requestKey) {
+        final T own = result.get(resultKey);
+        return own != null || request == null ? own : request.get(requestKey);
     }
 
 
@@ -673,7 +634,7 @@ public class Parameters {
         // black is padding or a masked area, never a drift of the black level (the OPPO's drift is 64 -> ~60): a block with
         // one is left out (blocks on the border of the padding hold both).
         float reportedMin = Float.MAX_VALUE;
-        for (float b : blackLevel) reportedMin = Math.min(reportedMin, b);
+        for (float b : cfaBlack) reportedMin = Math.min(reportedMin, b);
         final float paddingBelow = reportedMin > 4f ? reportedMin * 0.25f : -1f;
         final int blocks = bw * bh;
         // P386: the level at or below which a floor is the black itself (~3 DN of a 10-bit range), counted per block by the scan
@@ -846,7 +807,7 @@ public class Parameters {
     boolean clipWhiteToPlateau(int plateau) {
         if (whiteOverride() || plateau <= 0 || !PreferenceKeys.scamDevSwitch("raw_white_plateau", true)) return false;
         float black = 0f;
-        for (float b : blackLevel) black = Math.max(black, b);
+        for (float b : cfaBlack) black = Math.max(black, b);
         final int tol = Math.max(2, whiteLevel / 1000);
         if (plateau >= whiteLevel - tol || plateau <= 2f * black) return false;
         Log.i(TAG, "RAW white level from data: the frame clips at " + plateau + " under the white " + whiteLevel + " (P558)");
@@ -1017,11 +978,11 @@ public class Parameters {
             return false;
         final int from = levelBits > 0 ? levelBits : com.scamera.app.processing.RawLevels.bitsOfWhite(whiteLevel);
         float black = Float.MAX_VALUE;
-        for (float b : blackLevel) black = Math.min(black, b);
+        for (float b : cfaBlack) black = Math.min(black, b);
         final int bits = com.scamera.app.processing.RawLevels.sampledBits(secondMax, whiteLevel, black, lowestBlock);
         if (from <= 0 || bits <= from) return false;
         final int k = bits - from;
-        if (!blackOverride()) for (int i = 0; i < 4; i++) blackLevel[i] = Math.min(65535f, blackLevel[i] * (1 << k));
+        if (!blackOverride()) for (int i = 0; i < 4; i++) cfaBlack[i] = Math.min(65535f, cfaBlack[i] * (1 << k));
         whiteLevel = (int) Math.min(65535L, ((whiteLevel + 1L) << k) - 1);
         // P320: the scaled white of a DCG frame is a guess; the clip its session measured is the real one (X300 Ultra: 8694)
         final int clip = com.scamera.app.processing.RawLevels.saturationFor(declaredWhite);
@@ -1032,7 +993,7 @@ public class Parameters {
         levelBits = bits;
         levelSource += ", widened to the frame's samples (" + secondMax + ")";
         Log.i(TAG, "RAW levels: the frame's samples reach " + secondMax + ": " + from + " -> " + bits + " bit, black "
-                + Arrays.toString(blackLevel) + ", white " + whiteLevel);
+                + Arrays.toString(cfaBlack) + ", white " + whiteLevel);
         return true;
     }
 
@@ -1059,7 +1020,7 @@ public class Parameters {
         String black = blackOverride() ? "override" : blackFloorSource != null && blackFloorEstimate != Float.MAX_VALUE
                 ? "data floor (" + blackFloorEstimate + (pedestalRemembered ? ", the stream's RAW without its pedestal"
                 : pedestalGone ? ", the RAW without its pedestal" : "")
-                + (blackFloorBlock > 1 ? ", colour block " + blackFloorBlock : "") + ")" : usedDynamic ? "dynamic" : "static";
+                + (blackFloorBlock > 1 ? ", colour block " + blackFloorBlock : "") + ")" : dynamicBlackUsed ? "dynamic" : "static";
         String white = whiteOverride() ? "override" : useDynamicWhiteLevel ? "dynamic if reported" : "static";
         return levelBits + " bit, black=" + black + " white=" + white + " [" + levelSource + "]";
     }
@@ -1069,12 +1030,12 @@ public class Parameters {
         // ~1 DN of a 10-bit range; below that it is noise in the estimate, not a wrong black.
         float margin = Math.max(1f, whiteLevel / 1023f);
         boolean changed = false;
-        float[] before = blackLevel.clone();
+        float[] before = cfaBlack.clone();
         for (int i = 0; i < 4; i++) {
-            if (blackLevel[i] > estimate + margin) { blackLevel[i] = estimate; changed = true; }
+            if (cfaBlack[i] > estimate + margin) { cfaBlack[i] = estimate; changed = true; }
         }
         if (changed) Log.i(TAG, "RAW black level from data: " + Arrays.toString(before)
-                + " -> " + Arrays.toString(blackLevel) + " (data floor " + estimate + ")");
+                + " -> " + Arrays.toString(cfaBlack) + " (data floor " + estimate + ")");
     }
 
     /**
@@ -1103,9 +1064,9 @@ public class Parameters {
         final com.scamera.app.capture.OppoPlainState.Shading stored =
                 com.scamera.app.capture.OppoPlainState.shading(String.valueOf(physicalID), rawSize.x, rawSize.y, neutral);
         if (stored == null) return false;
-        gainMap = stored.gains.clone();
-        mapSize = new Point(stored.cols, stored.rows);
-        hasGainMap = true;
+        shadingMap = stored.gains.clone();
+        shadingGrid = new Point(stored.cols, stored.rows);
+        shadingMapUsed = true;
         Log.i(TAG, "lens shading map " + stored + " (stored, the camera's plain session)");
         return true;
     }
@@ -1165,14 +1126,14 @@ public class Parameters {
     /**
      * P212g (W7 = M12): a mosaic shot takes the plain-session table's matrix when no tuned one renders it and the result's transform
      * does not fit its neutral - our own neutral (the ISP's matrix was picked at the camera's), or none the ISP branch accepts (the
-     * vivo mosaic results' identity). P212z: ReCalcColor asks the table only when PlainColourMemory.wanted - P366: every mosaic shot
+     * vivo mosaic results' identity). P212z: resolveColour asks the table only when PlainColourMemory.wanted - P366: every mosaic shot
      * by default ("mosaic_ccm_table 2"; the owner's green X200U ISZ photos were the A/B), FULLRES only with 1.
      */
     static boolean plainTableApplies(boolean mosaicShot, boolean oppoTuned, boolean ownNeutral, boolean ispUsable) {
         return mosaicShot && !oppoTuned && (ownNeutral || !ispUsable);
     }
 
-    /** P212f (W2): the white point {G / R, 1, G / B} of hand-set gains (the formula of ReCalcColor's AWB-off branch); null: none. */
+    /** P212f (W2): the white point {G / R, 1, G / B} of hand-set gains (the formula of resolveColour's AWB-off branch); null: none. */
     @androidx.annotation.Nullable
     static float[] handSetNeutral(@androidx.annotation.Nullable android.hardware.camera2.params.RggbChannelVector gains) {
         if (gains == null) return null;
@@ -1184,11 +1145,11 @@ public class Parameters {
 
     /**
      * P212f (W2 = M3): a mosaic shot (ISZ / FULLRES) keeps a hand-set white balance (P201) instead of its own estimate - the
-     * mosaic white balance replaced it on every such photo and its DNG (ReCalcColor(true) skips the AWB-off branch): the gains at
+     * mosaic white balance replaced it on every such photo and its DNG (resolveColour(true) skips the AWB-off branch): the gains at
      * the press ({@link #manualWbAtPress}) first, else those of a result that says AWB OFF (an OPPO native result carries the
      * inverse of the neutral complete() filled - exactly the hand-set one, OppoNativeFullRes.setNeutral / OppoNativeWb.hand),
      * else, AWB OFF without gains, the white point already read. Sets {@link #customNeutral} (ownNeutral false: the ISP's colour
-     * transform stays usable as on a 12 MP shot); the caller runs ReCalcColor(true). False: automatic white balance.
+     * transform stays usable as on a 12 MP shot); the caller runs resolveColour(true). False: automatic white balance.
      */
     public boolean keepHandSetWhiteBalance(@androidx.annotation.Nullable CaptureResult meta) {
         float[] hand = handSetNeutral(manualWbAtPress);
@@ -1199,8 +1160,8 @@ public class Parameters {
             hand = handSetNeutral(meta.get(CaptureResult.COLOR_CORRECTION_GAINS));
             how = "the result's gains (AWB off)";
             if (hand == null) {
-                if (!usableNeutral(whitePoint)) return false;
-                hand = whitePoint.clone();
+                if (!usableNeutral(asShotNeutral)) return false;
+                hand = asShotNeutral.clone();
                 how = "the result's neutral (AWB off)";
             }
         }
@@ -1210,40 +1171,40 @@ public class Parameters {
         return true;
     }
 
-    public void ReCalcColor(boolean customNeutr, CaptureResult result) {
+    public void resolveColour(boolean customNeutr, CaptureResult result) {
         final CameraCharacteristics characteristics = camera();
         final Rational[] reportedNeutral = result.get(CaptureResult.SENSOR_NEUTRAL_COLOR_POINT);
         final Integer awbMode = result.get(CaptureResult.CONTROL_AWB_MODE);
         final android.hardware.camera2.params.RggbChannelVector gains = result.get(CaptureResult.COLOR_CORRECTION_GAINS);
         colourFrame(result);
-        whitePoint = customNeutr ? customNeutral : resultNeutral(reportedNeutral, gains, awbMode);
+        asShotNeutral = customNeutr ? customNeutral : resultNeutral(reportedNeutral, gains, awbMode);
         // P370 (A5): the neutral with green 1 (the HALs report it so; the white estimate and the white balance read it so)
-        if (whitePoint != null && whitePoint.length >= 3 && whitePoint[1] > 0f && whitePoint[1] != 1f && Float.isFinite(whitePoint[1])) {
-            Log.i(TAG, "the neutral " + Arrays.toString(whitePoint) + " is normalised to green 1");
-            final float g = whitePoint[1];
-            whitePoint = new float[]{whitePoint[0] / g, 1f, whitePoint[2] / g};
+        if (asShotNeutral != null && asShotNeutral.length >= 3 && asShotNeutral[1] > 0f && asShotNeutral[1] != 1f && Float.isFinite(asShotNeutral[1])) {
+            Log.i(TAG, "the neutral " + Arrays.toString(asShotNeutral) + " is normalised to green 1");
+            final float g = asShotNeutral[1];
+            asShotNeutral = new float[]{asShotNeutral[0] / g, 1f, asShotNeutral[2] / g};
         }
         final ColourTags tags = new ColourTags(characteristics);
         final int ref1 = tags.ref1, ref2 = tags.ref2;
-        calibrationIlluminant1 = tags.ref1;
-        calibrationIlluminant2 = tags.ref2;
+        refIlluminant1 = tags.ref1;
+        refIlluminant2 = tags.ref2;
         final boolean sameForward = tags.sameForward, noForward = tags.noForward;
         if (tags.missing.length() > 0)
             Log.w(TAG, "camera colour tags missing or unusable:" + tags.missing + " (the other calibration stands in)");
-        Converter.convertColorspaceTransform(tags.cc1, calibrationTransform1);
-        Converter.convertColorspaceTransform(tags.cc2, calibrationTransform2);
-        Converter.convertColorspaceTransform(tags.fm1, ForwardTransform1);
-        Converter.convertColorspaceTransform(tags.fm2, ForwardTransform2);
+        Converter.convertColorspaceTransform(tags.cc1, cameraCalibration1);
+        Converter.convertColorspaceTransform(tags.cc2, cameraCalibration2);
+        Converter.convertColorspaceTransform(tags.fm1, forwardMatrix1);
+        Converter.convertColorspaceTransform(tags.fm2, forwardMatrix2);
         final boolean colourMatrices = tags.cm1 != null;
         if (colourMatrices) {
-            Converter.convertColorspaceTransform(tags.cm1, ColorMatrix1);
-            Converter.convertColorspaceTransform(tags.cm2, ColorMatrix2);
+            Converter.convertColorspaceTransform(tags.cm1, colorMatrix1);
+            Converter.convertColorspaceTransform(tags.cm2, colorMatrix2);
         } else {
-            Arrays.fill(ColorMatrix1, 0f);
-            Arrays.fill(ColorMatrix2, 0f);
+            Arrays.fill(colorMatrix1, 0f);
+            Arrays.fill(colorMatrix2, 0f);
         }
-        float[] normalizedForwardTransform1 = rowsToD50(ForwardTransform1);
-        float[] normalizedForwardTransform2 = rowsToD50(ForwardTransform2);
+        float[] normalizedForwardTransform1 = rowsToD50(forwardMatrix1);
+        float[] normalizedForwardTransform2 = rowsToD50(forwardMatrix2);
         // P370 (A1): the scene light and the interpolation weight from the DNG SDK's white estimate (DngColor: each ColorMatrix
         // normalised as one, the xy iteration, CCT and Duv off the Planckian locus); a white more than DUV_GUARD off the locus is
         // the matrices' artefact, not a light: unknown (scene light 0, the daylight calibration). scam_dev "dng_white_spec 0": the
@@ -1255,19 +1216,19 @@ public class Parameters {
         com.scamera.app.gallery.dng.DngColor dngWhite = null;
         // P370 (review): both colour matrices placeholders (the Pixel 7: CM2 is XYZ -> sRGB, CM1 x XYZ(A) = 1.001 / 1 / 0.998): the
         // spec estimate reads no light off them (|Duv| 0.033 - 0.038 at real neutrals), the former estimate gave the phone its light
-        final boolean placeholderCms = colourMatrices && placeholderColorMatrix(ColorMatrix1, ref1)
-                && placeholderColorMatrix(ColorMatrix2, ref2);
+        final boolean placeholderCms = colourMatrices && placeholderColorMatrix(colorMatrix1, ref1)
+                && placeholderColorMatrix(colorMatrix2, ref2);
         try {
             if (!colourMatrices) throw new IllegalArgumentException("no colour matrix");
             if (whiteSpec() && !placeholderCms) {
                 dngWhite = dngWhite(ref1, ref2);
                 if (!dngWhite.usable()) throw new IllegalArgumentException("singular or non-finite colour matrices");
                 // P370 (review): no silent D50 for a white the matrices cannot place (an XYZ sum <= 0, a singular step)
-                final double[] xy = dngWhite.estimateXy(toDouble(whitePoint));
-                if (xy == null) throw new IllegalArgumentException("no chromaticity for the neutral " + Arrays.toString(whitePoint));
+                final double[] xy = dngWhite.estimateXy(toDouble(asShotNeutral));
+                if (xy == null) throw new IllegalArgumentException("no chromaticity for the neutral " + Arrays.toString(asShotNeutral));
                 final double[] cd = com.scamera.app.gallery.dng.DngColor.cctDuv(xy);
                 if (!(cd[0] > 0) || !Double.isFinite(cd[0]) || !Double.isFinite(cd[1]))
-                    throw new IllegalArgumentException("no colour temperature for the neutral " + Arrays.toString(whitePoint));
+                    throw new IllegalArgumentException("no colour temperature for the neutral " + Arrays.toString(asShotNeutral));
                 sceneDuv = (float) cd[1];
                 if (Math.abs(cd[1]) > DUV_GUARD) {
                     // P370 (review): the calibration keeps the spec's weight (the DNG SDK has no such guard: the colour chain would
@@ -1286,11 +1247,11 @@ public class Parameters {
                         cd[0], cd[1], interpolationFactor, ref1, ref2));
             } else {
                 // the former estimate: each colour matrix scaled by rows like a forward matrix, Converter's McCamy iteration
-                final float[] rowCm1 = rowsToD50(ColorMatrix1), rowCm2 = rowsToD50(ColorMatrix2);
-                Log.d(TAG, "former white estimate: CC " + Arrays.toString(calibrationTransform1) + " / " + Arrays.toString(calibrationTransform2)
+                final float[] rowCm1 = rowsToD50(colorMatrix1), rowCm2 = rowsToD50(colorMatrix2);
+                Log.d(TAG, "former white estimate: CC " + Arrays.toString(cameraCalibration1) + " / " + Arrays.toString(cameraCalibration2)
                         + ", row-scaled CM " + Arrays.toString(rowCm1) + " / " + Arrays.toString(rowCm2));
-                interpolationFactor = Converter.findDngInterpolationFactor(ref1, ref2, calibrationTransform1, calibrationTransform2,
-                        rowCm1, rowCm2, whitePoint);
+                interpolationFactor = Converter.findDngInterpolationFactor(ref1, ref2, cameraCalibration1, cameraCalibration2,
+                        rowCm1, rowCm2, asShotNeutral);
                 float mired1 = 1e6f / OppoTunedColor.cct(ref1), mired2 = 1e6f / OppoTunedColor.cct(ref2);
                 sceneCct = 1e6f / (mired1 + (float) interpolationFactor * (mired2 - mired1));
                 sceneCctSource = placeholderCms && whiteSpec()
@@ -1310,12 +1271,12 @@ public class Parameters {
         if (OppoTunedColor.applies()) {
             // P212g (W7 = M12 item 4): a sensor without a measured 6500 K anchor (22.36 mm, 3.23 mm) takes the one its plain table learned
             final String camera = String.valueOf(physicalID);
-            float cctK = OppoTunedColor.estimateCct(characteristics, whitePoint, camera);
+            float cctK = OppoTunedColor.estimateCct(characteristics, asShotNeutral, camera);
             {
                 float[] fl = characteristics.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS);
                 float f0 = fl != null && fl.length > 0 ? fl[0] : 0f;
                 Log.i(TAG, String.format(java.util.Locale.ROOT, "OPPO CCT: focal %.2f mm neutral R/G %.4f B/G %.4f ln(R/B) %.4f anchor %s -> %.0f K",
-                        f0, whitePoint[0] / whitePoint[1], whitePoint[2] / whitePoint[1], Math.log(whitePoint[0] / whitePoint[2]),
+                        f0, asShotNeutral[0] / asShotNeutral[1], asShotNeutral[2] / asShotNeutral[1], Math.log(asShotNeutral[0] / asShotNeutral[2]),
                         OppoTunedColor.describeAnchor(f0, camera), cctK));
             }
             sceneCct = cctK;
@@ -1359,17 +1320,17 @@ public class Parameters {
         // P315: a camera whose DNG forward matrices are the sRGB -> XYZ placeholder (X8U camera 2) never renders a mosaic shot through
         // them: the plain-session table off FULLRES as well, else the ISP's matrix even with our own neutral. P370 (A3): known on
         // every shot (a 12 MP shot that would end on them takes the fallbacks below)
-        final boolean placeholderFm = OppoTunedColor.placeholderForward(ForwardTransform1)
-                && OppoTunedColor.placeholderForward(ForwardTransform2);
+        final boolean placeholderFm = OppoTunedColor.placeholderForward(forwardMatrix1)
+                && OppoTunedColor.placeholderForward(forwardMatrix2);
         if (placeholderFm) Log.i(TAG, "the DNG forward matrices are the sRGB -> XYZ placeholder: the plain-session table or the ISP matrix (P315)");
         final boolean plainTableWanted = com.scamera.app.processing.color.PlainColourMemory.wanted(fullResRequested > 0)
                 || placeholderFm;
         if (plainTableApplies(mosaicShot, oppoTuned, ownNeutral, ispUsable) && plainTableWanted) {
             plainTableAsked = true;
-            plainTable = com.scamera.app.processing.color.PlainColourMemory.lookup(String.valueOf(physicalID), whitePoint);
+            plainTable = com.scamera.app.processing.color.PlainColourMemory.lookup(String.valueOf(physicalID), asShotNeutral);
             if (plainTable != null) CST = plainTable.transform();
         }
-        final int colorMethod = ScameraApp.getSettings().colorMethod;
+        final int colorMethod = ScameraApp.getSettings().colourMethod;
         boolean capturedTransform = legacyCaptured(sameForward, colorMethod, CST, oppoTuned);
         // vivo X200 Ultra: the DNG matrices in the characteristics are generic (the interpolation always lands near D65), but the
         // HAL reports the colour transform its ISP tuning uses at the scene's colour temperature, together with the
@@ -1386,7 +1347,7 @@ public class Parameters {
                     : "Using the ISP colour transform of the capture result (camera " + physicalID + ")");
         }
         if (capturedTransform && !ispBranch) route = ColourSource.LEGACY_CAPTURED;
-        final float[] dcpXyz = com.scamera.app.processing.color.DcpProfiles.activeToXyz(whitePoint);
+        final float[] dcpXyz = com.scamera.app.processing.color.DcpProfiles.activeToXyz(asShotNeutral);
         float[] cmOnly = null;
         if (chainFailed && !capturedTransform && dcpXyz == null) {
             // P370 (A5): the DNG chain failed: the result's transform when its shape is a colour matrix's, else the white balance alone
@@ -1411,7 +1372,7 @@ public class Parameters {
                 capturedTransform = true;
                 route = ColourSource.ISP_CST_PLACEHOLDER;
                 why += ": the result's transform (isp_ccm / SCAM / the colour source setting set aside)";
-            } else if ((table = com.scamera.app.processing.color.PlainColourMemory.lookup(String.valueOf(physicalID), whitePoint)) != null) {
+            } else if ((table = com.scamera.app.processing.color.PlainColourMemory.lookup(String.valueOf(physicalID), asShotNeutral)) != null) {
                 plainTable = table;
                 CST = table.transform();
                 capturedTransform = true;
@@ -1434,26 +1395,26 @@ public class Parameters {
             whiteBalanceOnly();
             Log.d(TAG, "colour: the white balance alone before the transform");
         } else if (cmOnly != null) {
-            System.arraycopy(cmOnly, 0, sensorToProPhoto, 0, 9);
+            System.arraycopy(cmOnly, 0, cameraToProPhoto, 0, 9);
             Log.d(TAG, "Using the colour matrices alone");
         } else {
             Log.d(TAG, "colour: the DNG camera -> ProPhoto chain");
         }
-        Log.d(TAG, "sensorToProPhoto " + Arrays.toString(sensorToProPhoto));
-        proPhotoToSrgbOfProPhoto(proPhotoToSRGB);
+        Log.d(TAG, "sensorToProPhoto " + Arrays.toString(cameraToProPhoto));
+        proPhotoToSrgbOfProPhoto(proPhotoToSrgb);
         if (CST != null && capturedTransform) {
             // the result's transform, each row scaled to sum 1 (a grey stays grey)
-            Converter.convertColorspaceTransform(CST, proPhotoToSRGB);
-            if (!normalize(proPhotoToSRGB)) Log.w(TAG, "a row of the transform sums to about 0: kept as it is " + Arrays.toString(proPhotoToSRGB));
+            Converter.convertColorspaceTransform(CST, proPhotoToSrgb);
+            if (!normalize(proPhotoToSrgb)) Log.w(TAG, "a row of the transform sums to about 0: kept as it is " + Arrays.toString(proPhotoToSrgb));
         } else if (route == ColourSource.IDENTITY_FALLBACK) {
-            proPhotoToSRGB = new float[]{1f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 1f};
+            proPhotoToSrgb = new float[]{1f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 1f};
         }
-        renderWith(proPhotoToSRGB);
+        renderWith(proPhotoToSrgb);
         if (dcpXyz != null) {
             // a DCP profile: its camera -> XYZ, then the standard ProPhoto -> sRGB
-            Converter.multiply(Converter.sXYZtoProPhoto, dcpXyz, sensorToProPhoto);
-            proPhotoToSrgbOfProPhoto(proPhotoToSRGB);
-            renderWith(proPhotoToSRGB);
+            Converter.multiply(Converter.sXYZtoProPhoto, dcpXyz, cameraToProPhoto);
+            proPhotoToSrgbOfProPhoto(proPhotoToSrgb);
+            renderWith(proPhotoToSrgb);
             route = ColourSource.DCP;
             why = "";
         } else {
@@ -1484,7 +1445,7 @@ public class Parameters {
                 sceneCct = plainTable.cct;
                 sceneCctSource = "the plain-session AWB labels";
             } else {
-                float wbCct = com.scamera.app.processing.color.SceneIlluminant.cct(physical, whitePoint, CCT.matrix);
+                float wbCct = com.scamera.app.processing.color.SceneIlluminant.cct(physical, asShotNeutral, colorTransform.matrix);
                 if (wbCct > 0f) {
                     Log.d(TAG, "Scene light from the white balance: " + wbCct + " K (DNG estimate " + sceneCct + " K, camera " + physical + ")");
                     sceneCct = wbCct;
@@ -1509,20 +1470,20 @@ public class Parameters {
                     ? (route == ColourSource.LEGACY_CAPTURED ? "the result's transform (LEGACY_CAPTURED: FM1 == FM2 or colour source 2, capture)"
                     : route + " (" + why + ")")
                     : mosaicMatrixSource(dcpXyz != null, oppoTuned, plainTable, ispRendered, ownNeutral && placeholderFm,
-                    plainTableAsked, plainTableWanted, String.valueOf(physicalID), whitePoint);
+                    plainTableAsked, plainTableWanted, String.valueOf(physicalID), asShotNeutral);
             Log.i(TAG, "mosaic colour matrix: " + mosaicMatrixSource + String.format(java.util.Locale.ROOT, ", scene %.0f K", sceneCct));
         }
     }
 
     /**
-     * The white point of the result (ReCalcColor without a custom neutral): its SENSOR_NEUTRAL_COLOR_POINT written into the
+     * The white point of the result (resolveColour without a custom neutral): its SENSOR_NEUTRAL_COLOR_POINT written into the
      * current {@link #whitePoint} (as many entries as both have); P212e (W1) a NaN / missing neutral never reaches the photo (the
      * OPPO native mode's, with nothing to fill it: unusableNeutralFallback); with AWB off and gains, the gains' {G / R, 1, G / B}.
      */
     private float[] resultNeutral(@androidx.annotation.Nullable Rational[] reported,
                                   @androidx.annotation.Nullable android.hardware.camera2.params.RggbChannelVector gains,
                                   @androidx.annotation.Nullable Integer awbMode) {
-        float[] n = whitePoint;
+        float[] n = asShotNeutral;
         if (reported != null) {
             final int count = Math.min(reported.length, n.length);
             for (int i = 0; i < count; i++) n[i] = reported[i].floatValue();
@@ -1549,7 +1510,7 @@ public class Parameters {
     }
 
     /**
-     * The camera's DNG colour tags as ReCalcColor renders with them. P370 (A5): a missing tag never loses the shot - no
+     * The camera's DNG colour tags as resolveColour renders with them. P370 (A5): a missing tag never loses the shot - no
      * illuminant 1: D65; no second calibration: the first one (CM, CC); a missing or zero forward matrix takes the other one,
      * never the identity. P580 (CCM audit): an all-zero or non-finite matrix of a bad HAL is no matrix (it was taken as one: the
      * white estimate failed, the daylight weight then picked the zero calibration and the chain fell to camera RGB as sRGB),
@@ -1645,12 +1606,12 @@ public class Parameters {
     private void forwardChain(float[] forward1, float[] forward2, double weight2) {
         Log.d(TAG, "row-scaled forward matrices " + Arrays.toString(forward1) + " / " + Arrays.toString(forward2));
         final float[] toXyz = new float[9];
-        Converter.calculateCameraToXYZD50Transform(forward1, forward2, calibrationTransform1, calibrationTransform2, whitePoint,
+        Converter.calculateCameraToXYZD50Transform(forward1, forward2, cameraCalibration1, cameraCalibration2, asShotNeutral,
                 weight2, toXyz);
         for (float v : toXyz)
             if (!Float.isFinite(v)) throw new IllegalArgumentException("non-finite camera -> XYZ " + Arrays.toString(toXyz));
         Log.d(TAG, "camera -> XYZ D50 " + Arrays.toString(toXyz));
-        Converter.multiply(Converter.sXYZtoProPhoto, toXyz, sensorToProPhoto);
+        Converter.multiply(Converter.sXYZtoProPhoto, toXyz, cameraToProPhoto);
     }
 
     /**
@@ -1677,7 +1638,7 @@ public class Parameters {
 
     /** Camera RGB -> ProPhoto as the white balance alone: diag(1 / whitePoint). */
     private void whiteBalanceOnly() {
-        for (int i = 0; i < 9; i++) sensorToProPhoto[i] = i % 4 == 0 ? 1f / whitePoint[i / 3] : 0f;
+        for (int i = 0; i < 9; i++) cameraToProPhoto[i] = i % 4 == 0 ? 1f / asShotNeutral[i / 3] : 0f;
     }
 
     /** The standard ProPhoto -> XYZ -> linear sRGB into {@code out}. */
@@ -1687,9 +1648,9 @@ public class Parameters {
 
     /** {@code matrix} as the render's ProPhoto -> sRGB and a new {@link #CCT} carrying it. */
     private void renderWith(float[] matrix) {
-        proPhotoToSRGB = matrix;
-        CCT = new ColorCorrectionTransform();
-        CCT.matrix = matrix;
+        proPhotoToSrgb = matrix;
+        colorTransform = new ColorCorrectionTransform();
+        colorTransform.matrix = matrix;
     }
 
     /** P408: «Профиль матрицы» (pref_scam_hybrid_why_ccm_profile; 0 the system matrix, the shot's own route). */
@@ -1752,8 +1713,8 @@ public class Parameters {
 
     /** P370 (A1): the DNG white estimate of the camera's colour matrices and calibrations as read (DngColor.forCamera). */
     private com.scamera.app.gallery.dng.DngColor dngWhite(int ref1, int ref2) {
-        return com.scamera.app.gallery.dng.DngColor.forCamera(toDouble(ColorMatrix1), toDouble(ColorMatrix2),
-                toDouble(calibrationTransform1), toDouble(calibrationTransform2), ref1, ref2);
+        return com.scamera.app.gallery.dng.DngColor.forCamera(toDouble(colorMatrix1), toDouble(colorMatrix2),
+                toDouble(cameraCalibration1), toDouble(cameraCalibration2), ref1, ref2);
     }
 
     static double[] toDouble(float[] f) {
@@ -1783,10 +1744,10 @@ public class Parameters {
     @androidx.annotation.Nullable
     private float[] colourMatrixRoute(int ref1, int ref2, @androidx.annotation.Nullable com.scamera.app.gallery.dng.DngColor dc) {
         try {
-            if (placeholderColorMatrix(ColorMatrix1, ref1) || placeholderColorMatrix(ColorMatrix2, ref2)) return null;
+            if (placeholderColorMatrix(colorMatrix1, ref1) || placeholderColorMatrix(colorMatrix2, ref2)) return null;
             if (dc == null) dc = dngWhite(ref1, ref2);
             if (!dc.usable()) return null;
-            final double[] n = toDouble(whitePoint);
+            final double[] n = toDouble(asShotNeutral);
             final double[] xy = dc.estimateXy(n);
             if (xy == null) return null;
             final double[] cd = com.scamera.app.gallery.dng.DngColor.cctDuv(xy);
@@ -1860,8 +1821,8 @@ public class Parameters {
      * without a ForwardMatrix, instead of taking camera RGB as sRGB).
      */
     public boolean dngForwardMatrices() {
-        return !(OppoTunedColor.placeholderForward(ForwardTransform1) && OppoTunedColor.placeholderForward(ForwardTransform2)
-                && !placeholderColorMatrix(ColorMatrix1, calibrationIlluminant1) && !placeholderColorMatrix(ColorMatrix2, calibrationIlluminant2));
+        return !(OppoTunedColor.placeholderForward(forwardMatrix1) && OppoTunedColor.placeholderForward(forwardMatrix2)
+                && !placeholderColorMatrix(colorMatrix1, refIlluminant1) && !placeholderColorMatrix(colorMatrix2, refIlluminant2));
     }
 
     /**
@@ -1879,7 +1840,7 @@ public class Parameters {
 
     /** P370 (review): the camera's ColorMatrix1 is one a DNG may carry ({@link #dngColourMatrixUsable}). */
     public boolean dngColourMatrices() {
-        return dngColourMatrixUsable(ColorMatrix1);
+        return dngColourMatrixUsable(colorMatrix1);
     }
 
     /** Every row of the matrix sums to at least 0.25 in magnitude (Parameters.normalize scales it). */
@@ -1917,7 +1878,7 @@ public class Parameters {
         awbLabelK = com.scamera.app.processing.color.PlainColourMemory.label(label);
         final ColorSpaceTransform cst = result.get(CaptureResult.COLOR_CORRECTION_TRANSFORM);
         resultCst = cst == null ? null : rowMajor(cst);
-        final CameraCharacteristics c = camera(); // the shot's characteristics (ReCalcColor's)
+        final CameraCharacteristics c = camera(); // the shot's characteristics (resolveColour's)
         if (c == null) return;
         final StringBuilder t = new StringBuilder();
         t.append("illuminants ").append(c.get(CameraCharacteristics.SENSOR_REFERENCE_ILLUMINANT1)).append(" / ")
@@ -1953,13 +1914,13 @@ public class Parameters {
     /**
      * P370 (B1): camera RGB -> linear sRGB of the render before the «Цвет» look, row-major: CCT.matrix x sensorToProPhoto (the
      * shaders multiply the white-balanced input by the neutral first: camera RGB = ScamRgb x whitePoint). Null before
-     * ReCalcColor. SceneIlluminant keeps the post-white-balance CCT.matrix (this product would apply the white balance twice).
+     * resolveColour. SceneIlluminant keeps the post-white-balance CCT.matrix (this product would apply the white balance twice).
      */
     @androidx.annotation.Nullable
     public float[] cameraToSrgb() {
-        if (CCT == null || CCT.matrix == null) return null;
+        if (colorTransform == null || colorTransform.matrix == null) return null;
         final float[] out = new float[9];
-        Converter.multiply(CCT.matrix, sensorToProPhoto, out);
+        Converter.multiply(colorTransform.matrix, cameraToProPhoto, out);
         return out;
     }
 
@@ -1967,7 +1928,7 @@ public class Parameters {
     public String colourSummary() {
         return String.format(java.util.Locale.ROOT, "colour: %s%s, scene %.0f K (%s%s), neutral %s, frame ts %d ISO %d AWB label %d K",
                 colourSource, colourSourceWhy.isEmpty() ? "" : " (" + colourSourceWhy + ")", sceneCct, sceneCctSource,
-                Float.isNaN(sceneDuv) ? "" : String.format(java.util.Locale.ROOT, ", Duv %.4f", sceneDuv), Arrays.toString(whitePoint),
+                Float.isNaN(sceneDuv) ? "" : String.format(java.util.Locale.ROOT, ", Duv %.4f", sceneDuv), Arrays.toString(asShotNeutral),
                 colourFrameTimestamp, colourFrameIso, awbLabelK);
     }
 
@@ -2057,15 +2018,6 @@ public class Parameters {
         return com.scamera.app.processing.color.PhotoMatrix.normaliseRows(in);
     }
 
-    private static void PrintMat(float[] mat) {
-        StringBuilder outp = new StringBuilder();
-        for (int i = 0; i < mat.length; i++) {
-            outp.append(mat[i]).append(" ");
-            if (i % 3 == 2) outp.append("\n");
-        }
-        Log.d(TAG, "matrix:\n" + outp);
-    }
-
     /**
      * P576: the shot's frames were cut to {@code plan.area} of the {@link #rawSize} frame (SabreCrop): the RAW size, the lens
      * shading map (the window's part, the same grid), the hot pixels and the face boxes follow the window; the RAW crop area is
@@ -2076,9 +2028,9 @@ public class Parameters {
         if (plan == null || rawSize == null) return;
         final com.scamera.app.processing.RawCrop.Area a = plan.area;
         final int fw = rawSize.x, fh = rawSize.y;
-        if (gainMap != null && mapSize != null && mapSize.x >= 2 && mapSize.y >= 2)
-            gainMap = com.scamera.app.processing.RawCrop.cropGainMap(gainMap, mapSize.x, mapSize.y, fw, fh, a);
-        if (hotPixels != null) hotPixels = keptHotPixels(hotPixels, a);
+        if (shadingMap != null && shadingGrid != null && shadingGrid.x >= 2 && shadingGrid.y >= 2)
+            shadingMap = com.scamera.app.processing.RawCrop.cropGainMap(shadingMap, shadingGrid.x, shadingGrid.y, fw, fh, a);
+        if (hotSites != null) hotSites = keptHotPixels(hotSites, a);
         if (portraitFaces != null && portraitFaces.length > 0)
             portraitFaces = com.scamera.app.processing.portrait.PortraitFaces.crop(portraitFaces,
                     a.x / (float) fw, a.y / (float) fh, a.width / (float) fw, a.height / (float) fh);
@@ -2089,12 +2041,6 @@ public class Parameters {
             rawCropFull = new Point(fw, fh);
         }
         rawSize = new Point(a.width, a.height);
-        alignmentSize = new Point(a.width / tile + 1, a.height / tile + 1);
-        tilesX = a.width / 800 + 1;
-        cameraIntrinsic[2] = a.width / 2.0;
-        cameraIntrinsic[5] = a.height / 2.0;
-        cameraIntrinsicRev[2] = -a.width / 2.0;
-        cameraIntrinsicRev[5] = -a.height / 2.0;
         sabreCrop = plan;
     }
 
@@ -2109,53 +2055,63 @@ public class Parameters {
         return kept.toArray(new Point[0]);
     }
 
-    protected Parameters Build() {
-        Parameters params = new Parameters();
-        params.multiFrameCount = multiFrameCount;
-        params.cfaPattern = cfaPattern;
-        params.baseCfaPattern = baseCfaPattern;
-        params.usedDynamic = usedDynamic;
-        params.blackLevel = blackLevel.clone();
-        params.whitePoint = whitePoint.clone();
-        params.sceneCct = sceneCct;
-        params.whiteLevel = whiteLevel;
-        params.levelBits = levelBits;
-        params.levelSource = levelSource;
-        params.finishSnr = finishSnr;
-        params.finishNoiseS = finishNoiseS;
-        params.finishNoiseO = finishNoiseO;
-        params.mosaicBlock = mosaicBlock;
-        params.realWL = realWL;
-        params.hasGainMap = hasGainMap;
-        params.mapSize = new Point(mapSize);
-        params.sensorPix = new Rect(sensorPix);
-        params.rawBinning = rawBinning;
-        params.dcgShot = dcgShot;
-        params.dcgIsoScale = dcgIsoScale;
-        params.dcgNoise = dcgNoise == null ? null : dcgNoise.clone();
-        params.rawCrop = rawCrop;
-        params.rawCropFull = rawCropFull == null ? null : new Point(rawCropFull);
-        params.rawCropSensorShiftY = rawCropSensorShiftY;
-        params.portraitEnabled = portraitEnabled;
-        params.portraitSkinWarmth = portraitSkinWarmth;
-        params.portraitFaceDetected = portraitFaceDetected;
-        params.portraitFaces = portraitFaces.clone();
-        params.gainMap = gainMap.clone();
-        params.proPhotoToSRGB = proPhotoToSRGB.clone();
-        params.sensorToProPhoto = sensorToProPhoto.clone();
-        params.hotPixels = hotPixels.clone();
-        params.focalLength = focalLength;
-        params.focalLengthOfShot = focalLengthOfShot;
-        params.apertureOfShot = apertureOfShot;
-        params.lensFocalLengths = lensFocalLengths;
-        params.lensApertures = lensApertures;
-        params.lensFacing = lensFacing;
-        params.captureTimeMs = captureTimeMs;
-        params.cameraRotation = cameraRotation;
-        params.CCT = CCT;
-        params.shotCharacteristics = shotCharacteristics;
-        params.cameraIdAtPress = cameraIdAtPress;
-        return params;
+    /**
+     * The post pipeline's own copy of the shot's development state: the arrays and points are cloned (the next frame's pass must
+     * not reach into a shot being developed), the noise model, the colour transform and the characteristics are shared (never
+     * changed after they are made). Fields not listed keep their defaults, as the post pipeline never reads them.
+     */
+    protected Parameters postCopy() {
+        final Parameters c = new Parameters();
+        c.multiFrameCount = multiFrameCount;
+        c.cfaPattern = cfaPattern;
+        c.baseCfaPattern = baseCfaPattern;
+        // levels and the light
+        c.dynamicBlackUsed = dynamicBlackUsed;
+        c.cfaBlack = cfaBlack.clone();
+        c.asShotNeutral = asShotNeutral.clone();
+        c.sceneCct = sceneCct;
+        c.whiteLevel = whiteLevel;
+        c.levelBits = levelBits;
+        c.levelSource = levelSource;
+        c.finishSnr = finishSnr;
+        c.finishNoiseS = finishNoiseS;
+        c.finishNoiseO = finishNoiseO;
+        c.mosaicBlock = mosaicBlock;
+        // lens shading over the active area
+        c.shadingMapUsed = shadingMapUsed;
+        c.shadingGrid = new Point(shadingGrid);
+        c.shadingMap = shadingMap.clone();
+        c.activeArea = new Rect(activeArea);
+        // what was done to the frames before the merge
+        c.rawBinning = rawBinning;
+        c.dcgShot = dcgShot;
+        c.dcgIsoScale = dcgIsoScale;
+        c.dcgNoise = dcgNoise == null ? null : dcgNoise.clone();
+        c.rawCrop = rawCrop;
+        c.rawCropFull = rawCropFull == null ? null : new Point(rawCropFull);
+        c.rawCropSensorShiftY = rawCropSensorShiftY;
+        c.hotSites = hotSites.clone();
+        // the portrait look
+        c.portraitEnabled = portraitEnabled;
+        c.portraitSkinWarmth = portraitSkinWarmth;
+        c.portraitFaceDetected = portraitFaceDetected;
+        c.portraitFaces = portraitFaces.clone();
+        // colour
+        c.proPhotoToSrgb = proPhotoToSrgb.clone();
+        c.cameraToProPhoto = cameraToProPhoto.clone();
+        c.colorTransform = colorTransform;
+        // the lens and the moment, for the EXIF
+        c.focalMm = focalMm;
+        c.focalLengthOfShot = focalLengthOfShot;
+        c.apertureOfShot = apertureOfShot;
+        c.lensFocalLengths = lensFocalLengths;
+        c.lensApertures = lensApertures;
+        c.lensFacing = lensFacing;
+        c.captureTimeMs = captureTimeMs;
+        c.rotationDeg = rotationDeg;
+        c.shotCharacteristics = shotCharacteristics;
+        c.cameraIdAtPress = cameraIdAtPress;
+        return c;
     }
 
     @NonNull
@@ -2179,13 +2135,13 @@ public class Parameters {
 
     /** P618: the shot's focal length for EXIF: the shot's own, else the camera's declared one; NaN when neither is known. */
     public double exifFocalLength() {
-        if (focalLengthOfShot && focalLength > 0) return focalLength;
+        if (focalLengthOfShot && focalMm > 0) return focalMm;
         return lensFocalLengths != null && lensFocalLengths.length > 0 && lensFocalLengths[0] > 0 ? lensFocalLengths[0] : Double.NaN;
     }
 
     /** P618: the shot's f-number for EXIF: the shot's own, else the camera's declared one; NaN when neither is known. */
     public double exifAperture() {
-        if (apertureOfShot && aperture > 0) return aperture;
+        if (apertureOfShot && fNumber > 0) return fNumber;
         return lensApertures != null && lensApertures.length > 0 && lensApertures[0] > 0 ? lensApertures[0] : Double.NaN;
     }
 

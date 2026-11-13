@@ -21,7 +21,7 @@ import android.hardware.camera2.CameraManager;
 import android.os.Handler;
 import android.os.Looper;
 
-import com.scamera.app.api.CameraEventsListener;
+import com.scamera.app.api.CameraEvents;
 import com.scamera.app.api.CameraManager2;
 import com.scamera.app.api.Settings;
 import com.scamera.app.app.ScameraApp;
@@ -55,7 +55,7 @@ public class CameraDisconnectTest {
     private CaptureController controller;
     private MockedStatic<ScameraApp> appStatic;
     private MockedConstruction<CameraManager2> managers;
-    private CameraEventsListener events;
+    private CameraEvents events;
     private CameraManager manager;
     private Activity activity;
 
@@ -89,7 +89,7 @@ public class CameraDisconnectTest {
         activity = mock(Activity.class);
         manager = mock(CameraManager.class);
         when(activity.getSystemService(Context.CAMERA_SERVICE)).thenReturn(manager);
-        events = mock(CameraEventsListener.class);
+        events = mock(CameraEvents.class);
         controller = new CaptureController(activity, mock(ExecutorService.class), events);
         CaptureController.isProcessing = false;
     }
@@ -128,12 +128,12 @@ public class CameraDisconnectTest {
     public void disconnectWhileResumedReopensWhenTheCameraIsBack() throws Exception {
         final CameraManager.AvailabilityCallback callback = disconnect("3");
         callback.onCameraAvailable("5");
-        verify(events, never()).onCameraRestarted();
+        verify(events, never()).cameraRestarted();
         callback.onCameraAvailable("3");
-        verify(events, times(1)).onCameraRestarted();
+        verify(events, times(1)).cameraRestarted();
         verify(manager).unregisterAvailabilityCallback(callback);
         callback.onCameraAvailable("3");
-        verify(events, times(1)).onCameraRestarted();
+        verify(events, times(1)).cameraRestarted();
     }
 
     @Test
@@ -141,10 +141,10 @@ public class CameraDisconnectTest {
         final CameraManager.AvailabilityCallback callback = disconnect("3");
         when(activity.hasWindowFocus()).thenReturn(false);
         callback.onCameraAccessPrioritiesChanged();
-        verify(events, never()).onCameraRestarted();
+        verify(events, never()).cameraRestarted();
         when(activity.hasWindowFocus()).thenReturn(true);
         callback.onCameraAccessPrioritiesChanged();
-        verify(events, times(1)).onCameraRestarted();
+        verify(events, times(1)).cameraRestarted();
     }
 
     /**
@@ -156,10 +156,10 @@ public class CameraDisconnectTest {
         final CameraManager.AvailabilityCallback callback = disconnect("3");
         when(activity.hasWindowFocus()).thenReturn(false);
         callback.onCameraAccessPrioritiesChanged();
-        verify(events, never()).onCameraRestarted();
+        verify(events, never()).cameraRestarted();
         when(activity.hasWindowFocus()).thenReturn(true);
         idle(CaptureController.CAMERA_BACK_FOCUS_MS);
-        verify(events, times(1)).onCameraRestarted();
+        verify(events, times(1)).cameraRestarted();
         verify(manager).unregisterAvailabilityCallback(callback);
     }
 
@@ -170,10 +170,10 @@ public class CameraDisconnectTest {
         when(activity.hasWindowFocus()).thenReturn(false);
         callback.onCameraAccessPrioritiesChanged();
         idle(CaptureController.CAMERA_BACK_FOCUS_MS * 2);
-        verify(events, never()).onCameraRestarted();
+        verify(events, never()).cameraRestarted();
         assertSame(callback, get(controller, "mCameraBackCallback"));
         callback.onCameraAvailable("3");
-        verify(events, times(1)).onCameraRestarted();
+        verify(events, times(1)).cameraRestarted();
     }
 
     /**
@@ -183,16 +183,16 @@ public class CameraDisconnectTest {
     @Test
     public void aDisconnectRightAfterAReopenIsWaitedFor() throws Exception {
         disconnect("3").onCameraAvailable("3");
-        verify(events, times(1)).onCameraRestarted();
+        verify(events, times(1)).cameraRestarted();
         final CameraManager.AvailabilityCallback again = disconnect("3", 2);
         assertSame(again, get(controller, "mCameraBackCallback"));
         again.onCameraAvailable("3");
         again.onCameraAvailable("3");
-        verify(events, times(1)).onCameraRestarted();
+        verify(events, times(1)).cameraRestarted();
         idle(CaptureController.CAMERA_BACK_MIN_MS / 2);
-        verify(events, times(1)).onCameraRestarted();
+        verify(events, times(1)).cameraRestarted();
         idle(CaptureController.CAMERA_BACK_MIN_MS);
-        verify(events, times(2)).onCameraRestarted();
+        verify(events, times(2)).cameraRestarted();
         verify(manager).unregisterAvailabilityCallback(again);
     }
 
@@ -205,10 +205,10 @@ public class CameraDisconnectTest {
         again.onCameraAvailable("3");
         again.onCameraUnavailable("3");
         idle(CaptureController.CAMERA_BACK_MIN_MS * 2);
-        verify(events, times(1)).onCameraRestarted();
+        verify(events, times(1)).cameraRestarted();
         assertSame(again, get(controller, "mCameraBackCallback"));
         again.onCameraAvailable("3");
-        verify(events, times(2)).onCameraRestarted();
+        verify(events, times(2)).cameraRestarted();
     }
 
     /** Closing the camera while a reopen is held back cancels it. */
@@ -218,7 +218,7 @@ public class CameraDisconnectTest {
         disconnect("3", 2).onCameraAvailable("3");
         controller.closeCamera();
         idle(CaptureController.CAMERA_BACK_MIN_MS * 2);
-        verify(events, times(1)).onCameraRestarted();
+        verify(events, times(1)).cameraRestarted();
     }
 
     @Test
@@ -229,7 +229,7 @@ public class CameraDisconnectTest {
         verify(manager).unregisterAvailabilityCallback(callback);
         assertNull(get(controller, "mCameraBackCallback"));
         callback.onCameraAvailable("3");
-        verify(events, never()).onCameraRestarted();
+        verify(events, never()).cameraRestarted();
     }
 
     @Test

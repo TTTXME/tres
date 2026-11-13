@@ -43,7 +43,7 @@ public class ManualModeConsoleImpl implements ManualModeConsole {
     private final ManualModeModel panel = new ManualModeModel();
     private final KnobModel ruler = new KnobModel();
     private final ManualParamModel params = new ManualParamModel();
-    /** The models by parameter (ManualPanelState order); null before {@link #init}. */
+    /** The models by parameter (ManualPanelState order); null before {@link #attachCamera}. */
     private final ManualModel<?>[] byParam = new ManualModel<?>[COUNT];
     /** The parameter whose ruler is open, or null. */
     private ManualModel<?> open;
@@ -90,12 +90,12 @@ public class ManualModeConsoleImpl implements ManualModeConsole {
     // ───── set-up
 
     @Override
-    public void init(Activity activity, CameraCharacteristics camera) {
+    public void attachCamera(Activity activity, CameraCharacteristics camera) {
         context = activity;
         view = new ViewObserver(activity);
         observe();
         build(activity, camera);
-        for (int p : new int[]{EV, FOCUS, SHUTTER, ISO, WB}) if (byParam[p] != null) byParam[p].setAutoTxt();
+        for (int p : new int[]{EV, FOCUS, SHUTTER, ISO, WB}) if (byParam[p] != null) byParam[p].showAutoLabel();
         for (int p : new int[]{FOCUS, EV, ISO, SHUTTER, WB}) if (byParam[p] != null) byParam[p].restoreModuleValue();
         view.bind(models(), params, evStep, actions);
         view.setMetered(meteredIso, meteredExposure, meteredFocus, meteredKelvin);
@@ -118,7 +118,7 @@ public class ManualModeConsoleImpl implements ManualModeConsole {
         exposureRange = ranges.expRange;
         open = null; // a new module: the old parameter's ruler is gone
         byParam[WB] = new WhiteBalanceModel(c, camera, params, panel::setWbText, v);
-        whiteBalanceSupported = byParam[WB].getKnobInfoList().size() > 1;
+        whiteBalanceSupported = byParam[WB].stopList().size() > 1;
         view.setWhiteBalanceSupported(whiteBalanceSupported);
         ruler.setKnobVisible(false);
         panel.setCheckedTextViewId(-1);
@@ -177,7 +177,7 @@ public class ManualModeConsoleImpl implements ManualModeConsole {
 
     private boolean available(int param) {
         ManualModel<?> m = byParam[param];
-        return m != null && m.getKnobInfoList().size() > 1 && (param != WB || whiteBalanceSupported);
+        return m != null && m.stopList().size() > 1 && (param != WB || whiteBalanceSupported);
     }
 
     private boolean evBlocked(int param) {
@@ -208,7 +208,7 @@ public class ManualModeConsoleImpl implements ManualModeConsole {
         ManualModel<?> m = byParam[param];
         if (m == open) {
             closeRuler();
-        } else if (m.getKnobInfoList().size() > 1) {
+        } else if (m.stopList().size() > 1) {
             ruler.setManualModel(m);
             ruler.setKnobVisible(true);
             panel.setCheckedTextViewId(chip.getId());
@@ -250,7 +250,7 @@ public class ManualModeConsoleImpl implements ManualModeConsole {
     }
 
     @Override
-    public void retractAllKnobs() {
+    public void collapseKnobs() {
         ruler.setKnobVisible(false);
         open = null;
         for (int p : new int[]{FOCUS, SHUTTER, ISO, EV, WB}) if (byParam[p] != null) byParam[p].resetModel();
@@ -261,16 +261,16 @@ public class ManualModeConsoleImpl implements ManualModeConsole {
 
     @Override
     public float evCompensation() {
-        KnobItemInfo now = byParam[EV] == null ? null : byParam[EV].getCurrentInfo();
-        return now == null ? 0f : (float) now.value;
+        KnobItemInfo now = byParam[EV] == null ? null : byParam[EV].chosenStop();
+        return now == null ? 0f : (float) now.cameraValue;
     }
 
     @Override
     public float[] evRange() {
         float lo = 0f, hi = 0f;
-        if (byParam[EV] != null) for (KnobItemInfo s : byParam[EV].getKnobInfoList()) {
-            lo = Math.min(lo, (float) s.value);
-            hi = Math.max(hi, (float) s.value);
+        if (byParam[EV] != null) for (KnobItemInfo s : byParam[EV].stopList()) {
+            lo = Math.min(lo, (float) s.cameraValue);
+            hi = Math.max(hi, (float) s.cameraValue);
         }
         return new float[]{lo, hi};
     }
@@ -285,10 +285,10 @@ public class ManualModeConsoleImpl implements ManualModeConsole {
         ManualModel<?> m = byParam[EV];
         if (m == null || evLocked()) return;
         KnobItemInfo nearest = null;
-        for (KnobItemInfo s : m.getKnobInfoList())
-            if (nearest == null || Math.abs(s.value - ev) < Math.abs(nearest.value - ev)) nearest = s;
-        if (nearest == null || nearest == m.getCurrentInfo()) return;
-        m.choose(m.getCurrentInfo(), nearest);
+        for (KnobItemInfo s : m.stopList())
+            if (nearest == null || Math.abs(s.cameraValue - ev) < Math.abs(nearest.cameraValue - ev)) nearest = s;
+        if (nearest == null || nearest == m.chosenStop()) return;
+        m.choose(m.chosenStop(), nearest);
         onStateChanged();
     }
 
@@ -322,19 +322,19 @@ public class ManualModeConsoleImpl implements ManualModeConsole {
     }
 
     @Override
-    public void onResume() {
+    public void resumePanel() {
         if (view != null) view.enableOrientationListener();
         observe();
     }
 
     @Override
-    public void onPause() {
+    public void pausePanel() {
         if (view != null) view.disableOrientationListener();
         unobserve();
     }
 
     @Override
-    public void onDestroy() {
+    public void destroyPanel() {
         shared = null;
     }
 
@@ -351,49 +351,49 @@ public class ManualModeConsoleImpl implements ManualModeConsole {
     }
 
     @Override
-    public void addParamObserver(Observer observer) {
+    public void observeValues(Observer observer) {
         params.addObserver(observer);
     }
 
     @Override
-    public void removeParamObservers() {
+    public void stopObservingValues() {
         params.deleteObservers();
     }
 
     @Override
-    public ManualParamModel getManualParamModel() {
+    public ManualParamModel valueModel() {
         return params;
     }
 
     @Override
-    public void setPanelVisibility(boolean visible) {
+    public void setPanelShown(boolean visible) {
         panel.setManualPanelVisible(visible);
         if (!visible) params.reset();
     }
 
     @Override
-    public boolean isManualMode() {
-        return params.isManualMode();
+    public boolean offAuto() {
+        return params.offAuto();
     }
 
     @Override
-    public void resetAllValues() {
+    public void clearValues() {
         params.reset();
     }
 
     @Override
-    public boolean isPanelVisible() {
+    public boolean isPanelShown() {
         return panel.isManualPanelVisible();
     }
 
     @Override
-    public boolean isFocusParameterSelected() {
+    public boolean focusKnobOpen() {
         return open instanceof FocusModel;
     }
 
     @Override
-    public boolean isManualFocusModeActive() {
-        KnobItemInfo now = byParam[FOCUS] == null ? null : byParam[FOCUS].getCurrentInfo();
-        return now != null && now.value != ManualParamModel.FOCUS_AUTO;
+    public boolean manualFocusOn() {
+        KnobItemInfo now = byParam[FOCUS] == null ? null : byParam[FOCUS].chosenStop();
+        return now != null && now.cameraValue != ManualParamModel.FOCUS_AUTO_DIOPTERS;
     }
 }

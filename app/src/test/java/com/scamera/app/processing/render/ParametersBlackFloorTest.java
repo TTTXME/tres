@@ -42,7 +42,7 @@ public class ParametersBlackFloorTest {
 
     private static Parameters parameters() throws Exception {
         Parameters p = new Parameters();
-        p.whiteLevel = 1023; p.blackLevel = new float[]{64, 64, 64, 64};
+        p.whiteLevel = 1023; p.cfaBlack = new float[]{64, 64, 64, 64};
         Field override = Parameters.class.getDeclaredField("blackLevelOverride");
         override.setAccessible(true); override.setFloat(p, -1f);
         Field white = Parameters.class.getDeclaredField("whiteLevelOverride");
@@ -66,17 +66,17 @@ public class ParametersBlackFloorTest {
         Parameters p = parameters();
         // 4096x3072 with the image in 4000x3000, like camera 2 of the X200 Pro (scaled by 1/4 both ways)
         p.refineBlackLevel(raw(1024, 768, 1000, 750, 64, 0), 1024, 768);
-        for (float b : p.blackLevel) assertEquals(64f, b, 0f);
+        for (float b : p.cfaBlack) assertEquals(64f, b, 0f);
     }
 
     @Test public void realFloorBelowReportedBlackStillLowersIt() throws Exception {
         Parameters p = parameters();
         // OPPO Find X8 Ultra: the reported 64 sits above the data floor (~60): lowered as before, padding or not
         p.refineBlackLevel(raw(1024, 768, 1000, 750, 60, 0), 1024, 768);
-        for (float b : p.blackLevel) assertEquals(60f, b, 1.01f);
+        for (float b : p.cfaBlack) assertEquals(60f, b, 1.01f);
         Parameters q = parameters();
         q.refineBlackLevel(raw(1024, 768, 1024, 768, 60, 0), 1024, 768);
-        for (float b : q.blackLevel) assertEquals(60f, b, 1.01f);
+        for (float b : q.cfaBlack) assertEquals(60f, b, 1.01f);
     }
 
     @Test public void noisyDarkFrameKeepsTheDriftCorrection() throws Exception {
@@ -97,7 +97,7 @@ public class ParametersBlackFloorTest {
         p.refineBlackLevel(b, w, h);
         // lowered from 64 as without the padding rule; the third-lowest block mean is a low noise quantile (about 56 here,
         // the same value the estimator gave before the rule)
-        for (float v : p.blackLevel) assertTrue("black " + v, v > 52f && v < 62f);
+        for (float v : p.cfaBlack) assertTrue("black " + v, v > 52f && v < 62f);
     }
     /** w x h RAW16: pedestal + Gaussian noise (clipped at 0) where {@code dark}, pedestal + 300 elsewhere; zeros outside validW x validH. */
     private static ByteBuffer scene(int w, int h, int validW, int validH, int pedestal, double sigma, java.util.function.BiPredicate<Integer, Integer> dark) {
@@ -119,7 +119,7 @@ public class ParametersBlackFloorTest {
         // and kept 64 (in the owner's frames 18-23 DN): teal shadows. Now the black follows the data down to ~1 DN.
         Parameters p = parameters();
         p.refineBlackLevel(scene(1024, 768, 1024, 768, 0, 3, (x, y) -> (x / 64 + y / 64) % 3 != 0), 1024, 768);
-        for (float v : p.blackLevel) assertTrue("black " + v, v < 5f);
+        for (float v : p.cfaBlack) assertTrue("black " + v, v < 5f);
     }
 
     @Test public void noisyNightWithPaddingKeepsItsPedestal() throws Exception {
@@ -128,7 +128,7 @@ public class ParametersBlackFloorTest {
         // its border blocks stay out, the black stays near 64 (it must not fall to the half-padding border blocks' ~30).
         Parameters p = parameters();
         p.refineBlackLevel(scene(1024, 768, 928, 696, 64, 30, (x, y) -> true), 1024, 768);
-        for (float v : p.blackLevel) assertTrue("black " + v, v > 50f);
+        for (float v : p.cfaBlack) assertTrue("black " + v, v > 50f);
     }
     /**
      * P127: the shot's own frame holds samples its resolved white cannot (a session that had not shown its 14 bits yet): black
@@ -142,7 +142,7 @@ public class ParametersBlackFloorTest {
         p.refineBlackLevel(lit(1024, 768, 1024, 1500, 20), 1024, 768);
         assertEquals(14, p.levelBits);
         assertEquals(16383, p.whiteLevel);
-        for (float v : p.blackLevel) assertEquals(1024f, v, 30f);
+        for (float v : p.cfaBlack) assertEquals(1024f, v, 30f);
 
         Parameters q = parameters();
         q.levelBits = 10;
@@ -150,7 +150,7 @@ public class ParametersBlackFloorTest {
         q.refineBlackLevel(lit(1024, 768, 256, 1500, 10), 1024, 768);
         assertEquals(12, q.levelBits);
         assertEquals(4095, q.whiteLevel);
-        for (float v : q.blackLevel) assertEquals(256f, v, 10f);
+        for (float v : q.cfaBlack) assertEquals(256f, v, 10f);
     }
 
     /** w x h RAW16: the left half at the pedestal, the right half {@code light} above it, Gaussian noise. */
@@ -209,7 +209,7 @@ public class ParametersBlackFloorTest {
         // (its block means still hold the twigs' light: ~6 DN of red) give the true black, ~0. The old code gave 23.7 here.
         Parameters p = parameters();
         p.refineBlackLevel(daylight(2, 0, 21), 1024, 768, 2);
-        for (float v : p.blackLevel) assertTrue("black " + v, v < 3f);
+        for (float v : p.cfaBlack) assertTrue("black " + v, v < 3f);
         assertTrue(p.levelSources(), p.levelSources().contains("without its pedestal"));
     }
 
@@ -218,7 +218,7 @@ public class ParametersBlackFloorTest {
         // rest (the wall's red: 18.8 DN)
         Parameters p = parameters();
         p.refineBlackLevel(daylight(1, 0, 22), 1024, 768);
-        for (float v : p.blackLevel) assertTrue("black " + v, v < 3f);
+        for (float v : p.cfaBlack) assertTrue("black " + v, v < 3f);
     }
 
     @Test public void daylightWithItsPedestalKeepsIt() throws Exception {
@@ -226,7 +226,7 @@ public class ParametersBlackFloorTest {
         for (int block : new int[]{1, 2}) {
             Parameters p = parameters();
             p.refineBlackLevel(daylight(block, 64, 23 + block), 1024, 768, block);
-            for (float v : p.blackLevel) assertEquals("block " + block, 64f, v, 0f);
+            for (float v : p.cfaBlack) assertEquals("block " + block, 64f, v, 0f);
             assertFalse(p.levelSources(), p.levelSources().contains("without its pedestal"));
         }
     }
@@ -247,7 +247,7 @@ public class ParametersBlackFloorTest {
         assertTrue("and P114's would not", scan.padding <= blocks / 2);
         Parameters p = parameters();
         p.refineBlackLevel(b, w, h);
-        for (float v : p.blackLevel) assertTrue("black " + v, v > 52f && v < 62f);
+        for (float v : p.cfaBlack) assertTrue("black " + v, v > 52f && v < 62f);
         assertFalse(p.levelSources(), p.levelSources().contains("without its pedestal"));
     }
 }

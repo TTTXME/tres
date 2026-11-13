@@ -21,21 +21,21 @@ public class ShutterModel extends ManualModel<Long> {
 
     @Override
     protected void addStops() {
-        chosen = makeAutoStop(ManualParamModel.EXPOSURE_AUTO, null);
-        getKnobInfoList().add(chosen);
+        chosen = makeAutoStop(ManualParamModel.SHUTTER_AUTO_NS, null);
+        stopList().add(chosen);
         if (range == null) return;
         List<Long> times = ManualStops.shutter(range.getLower().longValue(), range.getUpper().longValue());
         for (int i = 0; i < times.size(); i++) {
             long ns = times.get(i);
             KnobItemInfo stop = new KnobItemInfo(ManualStops.shutterLabel(ns), i + 1, ns);
             stop.majorTick = i == 0 || i == times.size() - 1 || ManualStops.majorShutter(ns);
-            getKnobInfoList().add(stop);
+            stopList().add(stop);
         }
     }
 
     @Override
     public void onSelectedKnobItemChanged(KnobItemInfo stop) {
         chosen = stop;
-        params.setCurrentExposureValue(chosen.value);
+        params.setShutterValueNs(chosen.cameraValue);
     }
 }

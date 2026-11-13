@@ -1,56 +1,108 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+<!--
+  SCAMERA: the camera (a launcher entry of its own), its settings and helper screens, the gallery (a second launcher entry, the
+  photo viewer / picker / editor other apps call), and the services that keep a shot's processing and the vivo SDK lease alive.
+-->
+<manifest
+    xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
     <!-- androidx.heifwriter declares minSdk 28: HEIC output is offered and used only on API 28+ (PhotoFormat). -->
-    <uses-sdk tools:overrideLibrary="androidx.heifwriter" />
+    <uses-sdk
+        tools:overrideLibrary="androidx.heifwriter" />
 
-    <uses-permission android:name="android.permission.CAMERA" />
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <!-- Storage: read for gallery (system camera images). Write only via SAF on Android 11+. -->
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
-            android:maxSdkVersion="32" />
-    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
-    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
-
-    <!-- Android 10 writes the photos straight into DCIM: that needs the legacy storage mode (requestLegacyExternalStorage
-         below; ignored from Android 11 on). Without it every save failed with ImageSavingError (Nubia NX563J, Android 10). -->
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
-            android:maxSdkVersion="29" />
-    <!-- P475: «Доступ ко всем файлам» (Android 11+): scam_dev.txt and the other Download/SCAMERA files a PC, adb or an earlier
-         package made (AllFilesAccess asks once at the first launch) -->
-    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" tools:ignore="ScopedStorage" />
-
-    <uses-permission android:name="android.permission.HIGH_SAMPLING_RATE_SENSORS" tools:ignore="HighSamplingRate" />
-    <uses-permission android:name="android.permission.WAKE_LOCK" />
-    <!-- P92: photo processing keeps running behind the screen (a foreground service while a shot is processed) -->
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
-    <uses-permission android:name="android.permission.RECORD_AUDIO" />
-    
-
+    <!-- ── what the camera needs: the camera, the gyro at full rate (shake gating), the microphone (video) ── -->
+    <uses-permission
+        android:name="android.permission.CAMERA" />
+    <uses-permission
+        android:name="android.permission.HIGH_SAMPLING_RATE_SENSORS"
+        tools:ignore="HighSamplingRate" />
+    <uses-permission
+        android:name="android.permission.RECORD_AUDIO" />
     <uses-feature
         android:name="android.hardware.camera"
         android:required="true" />
-    <uses-feature android:name="android.hardware.camera.autofocus"
+    <uses-feature
+        android:name="android.hardware.camera.autofocus"
         android:required="true"
         tools:ignore="UnnecessaryRequiredFeature" />
-    <uses-feature android:name="android.hardware.camera.capability.raw" />
+    <uses-feature
+        android:name="android.hardware.camera.capability.raw" />
+
+    <!-- ── storage. Read for the gallery (system camera images too); written through SAF on Android 11+. ── -->
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+    <uses-permission
+        android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission
+        android:name="android.permission.READ_MEDIA_VIDEO" />
+    <!-- Android 10 writes the photos straight into DCIM: that needs the legacy storage mode (requestLegacyExternalStorage
+         below; ignored from Android 11 on). Without it every save failed with ImageSavingError (Nubia NX563J, Android 10). -->
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="29" />
+    <!-- P475: «Доступ ко всем файлам» (Android 11+): scam_dev.txt and the other Download/SCAMERA files a PC, adb or an earlier
+         package made (AllFilesAccess asks once at the first launch) -->
+    <uses-permission
+        android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+        tools:ignore="ScopedStorage" />
+
+    <!-- ── work behind the screen. P92: a shot's processing runs on as a foreground service (its notification); the video
+         player's playback service. ── -->
+    <uses-permission
+        android:name="android.permission.WAKE_LOCK" />
+    <uses-permission
+        android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission
+        android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission
+        android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission
+        android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
 
     <application
         android:name=".app.ScameraApp"
+        android:label="@string/app_name"
+        android:icon="@mipmap/scamera_launcher"
+        android:roundIcon="@mipmap/scamera_launcher_round"
+        android:theme="@style/Theme.Scamera.BaseApp"
         android:launchMode="singleTask"
         android:taskAffinity=""
         android:hardwareAccelerated="true"
-        android:icon="@mipmap/scamera_launcher"
-        android:roundIcon="@mipmap/scamera_launcher_round"
-        android:label="@string/app_name"
         android:largeHeap="true"
         android:requestLegacyExternalStorage="true"
         android:supportsRtl="true"
-        android:theme="@style/Theme.Scamera.BaseApp"
         tools:targetApi="q">
+
+        <!-- ════ the camera ════ -->
+        <activity
+            android:name=".ui.SplashActivity"
+            android:theme="@style/Theme.Scamera.Splash"
+            android:exported="true">
+            <intent-filter>
+                <action
+                    android:name="android.intent.action.MAIN" />
+                <category
+                    android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- other apps' «open the camera». No IMAGE_CAPTURE / STILL_IMAGE_CAMERA_SECURE: the camera has no
+                 capture-for-result mode (EXTRA_OUTPUT, setResult) and no lock-screen mode, so the calling app got
+                 RESULT_CANCELED at once. Only with such a mode. -->
+            <intent-filter>
+                <action
+                    android:name="android.media.action.STILL_IMAGE_CAMERA" />
+                <category
+                    android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            <!-- P140: long press on the launcher icon -> «Настройки» -->
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/shortcuts" />
+        </activity>
+        <activity
+            android:name=".ui.camera.CameraActivity"
+            android:configChanges="orientation|keyboardHidden|screenSize" />
         <activity
             android:name=".ui.settings.SettingsActivity"
             android:theme="@style/Theme.Scamera.SettingsActivity" />
@@ -59,94 +111,116 @@
             android:label="@string/lens_discovery_title"
             android:theme="@style/Theme.Scamera.SettingsActivity" />
         <activity
-            android:name=".ui.SplashActivity"
-            android:theme="@style/Theme.Scamera.Splash"
-                android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
+            android:name=".ui.settings.ScamActivity"
+            android:exported="false"
+            android:process=":scam"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
 
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-            <!-- P140: long press on the launcher icon -> «Настройки» -->
-            <meta-data
-                android:name="android.app.shortcuts"
-                android:resource="@xml/shortcuts" />
-            <!-- No IMAGE_CAPTURE / STILL_IMAGE_CAMERA_SECURE: the camera has no capture-for-result mode (EXTRA_OUTPUT, setResult)
-                 and no lock-screen mode, so the calling app got RESULT_CANCELED at once. Only with such a mode. -->
-            <intent-filter>
-                <action android:name="android.media.action.STILL_IMAGE_CAMERA" />
-                <category android:name="android.intent.category.DEFAULT" />
-            </intent-filter>
-        </activity>
-
+        <!-- ════ the gallery ════ -->
         <activity
-                android:name="com.scamera.app.gallery.ui.GalleryActivity"
-                android:label="@string/gallery_name"
-                android:taskAffinity=""
-                android:finishOnTaskLaunch="true"
-                android:theme="@style/Theme.Scamera.BaseApp"
-                android:icon="@mipmap/ic_gallery_launcher"
-                android:roundIcon="@mipmap/ic_gallery_launcher_round"
-                android:exported="true">
-            <!-- REVIEW intent - Camera apps use this to review captured images; P621: and videos (the gallery's player), and
-                 MediaStore.ACTION_REVIEW / ACTION_REVIEW_SECURE (the secure one: that item alone over the lock screen) -->
+            android:name="com.scamera.app.gallery.ui.GalleryActivity"
+            android:label="@string/gallery_name"
+            android:icon="@mipmap/ic_gallery_launcher"
+            android:roundIcon="@mipmap/ic_gallery_launcher_round"
+            android:theme="@style/Theme.Scamera.BaseApp"
+            android:taskAffinity=""
+            android:finishOnTaskLaunch="true"
+            android:exported="true">
+            <!-- REVIEW: what a camera app sends to show the photo it took; P621: videos too (the gallery's player), and
+                 MediaStore.ACTION_REVIEW / ACTION_REVIEW_SECURE (the secure one: that item alone over the lock screen).
+                 The <data> of a filter combine: file and content URIs of images and videos. -->
             <intent-filter>
-                <action android:name="com.android.camera.action.REVIEW" />
-                <action android:name="android.provider.action.REVIEW" />
-                <action android:name="android.provider.action.REVIEW_SECURE" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <data android:scheme="file" />
-                <data android:scheme="content" />
-                <data android:mimeType="image/*" />
-                <data android:mimeType="video/*" />
+                <action
+                    android:name="com.android.camera.action.REVIEW" />
+                <action
+                    android:name="android.provider.action.REVIEW" />
+                <action
+                    android:name="android.provider.action.REVIEW_SECURE" />
+                <data
+                    android:scheme="file"
+                    android:mimeType="image/*" />
+                <data
+                    android:scheme="content"
+                    android:mimeType="video/*" />
+                <category
+                    android:name="android.intent.category.DEFAULT" />
             </intent-filter>
-
-            <!-- VIEW intent - View specific images from other apps; P621: videos too (played by the gallery's player) -->
+            <!-- VIEW of a photo from another app; P621: a video too (played by the gallery's player) -->
             <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="file" />
-                <data android:scheme="content" />
-                <data android:mimeType="image/*" />
-                <data android:mimeType="video/*" />
+                <action
+                    android:name="android.intent.action.VIEW" />
+                <data
+                    android:scheme="file"
+                    android:mimeType="image/*" />
+                <data
+                    android:scheme="content"
+                    android:mimeType="video/*" />
+                <category
+                    android:name="android.intent.category.DEFAULT" />
+                <category
+                    android:name="android.intent.category.BROWSABLE" />
             </intent-filter>
-
+            <!-- VIEW of a folder of photos: the gallery app itself -->
+            <intent-filter>
+                <action
+                    android:name="android.intent.action.VIEW" />
+                <data
+                    android:mimeType="vnd.android.cursor.dir/image" />
+                <category
+                    android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
             <!-- P621: PICK / GET_CONTENT of a photo or a video: the library opens, a tap returns that item (one; the grid's
                  type and the asked type must agree). Not MediaStore.ACTION_PICK_IMAGES: that is the system photo picker's
                  contract (several items, its extras), which this single pick does not keep. -->
             <intent-filter>
-                <action android:name="android.intent.action.PICK" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <data android:mimeType="image/*" />
-                <data android:mimeType="video/*" />
-                <data android:mimeType="vnd.android.cursor.dir/image" />
-                <data android:mimeType="vnd.android.cursor.dir/video" />
+                <action
+                    android:name="android.intent.action.PICK" />
+                <data
+                    android:mimeType="image/*" />
+                <data
+                    android:mimeType="video/*" />
+                <data
+                    android:mimeType="vnd.android.cursor.dir/image" />
+                <data
+                    android:mimeType="vnd.android.cursor.dir/video" />
+                <category
+                    android:name="android.intent.category.DEFAULT" />
             </intent-filter>
             <intent-filter>
-                <action android:name="android.intent.action.GET_CONTENT" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.OPENABLE" />
-                <data android:mimeType="image/*" />
-                <data android:mimeType="video/*" />
+                <action
+                    android:name="android.intent.action.GET_CONTENT" />
+                <data
+                    android:mimeType="image/*" />
+                <data
+                    android:mimeType="video/*" />
+                <category
+                    android:name="android.intent.category.DEFAULT" />
+                <category
+                    android:name="android.intent.category.OPENABLE" />
             </intent-filter>
-
-            <!-- Gallery app intent - Registers as a gallery app -->
+            <!-- P351: other apps can edit a photo in the gallery's editor (the copy's URI comes back with RESULT_OK) -->
             <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <data android:mimeType="vnd.android.cursor.dir/image" />
+                <action
+                    android:name="android.intent.action.EDIT" />
+                <data
+                    android:scheme="file"
+                    android:mimeType="image/*" />
+                <data
+                    android:scheme="content" />
+                <category
+                    android:name="android.intent.category.DEFAULT" />
             </intent-filter>
             <!-- P352: camera RAWs that file managers send as application/octet-stream (or with no type) are recognised by their
                  extension; other binary files are not claimed. image/x-* RAW types are image/* above. -->
             <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="file" />
-                <data android:scheme="content" />
-                <data android:host="*" />
-                <data android:mimeType="application/octet-stream" />
+                <action
+                    android:name="android.intent.action.VIEW" />
+                <data
+                    android:scheme="file"
+                    android:host="*"
+                    android:mimeType="application/octet-stream" />
+                <data
+                    android:scheme="content" />
                 <data android:pathPattern=".*\.dng" />
                 <data android:pathPattern=".*\..*\.dng" />
                 <data android:pathPattern=".*\.DNG" />
@@ -251,12 +325,17 @@
                 <data android:pathPattern=".*\..*\.mos" />
                 <data android:pathPattern=".*\.MOS" />
                 <data android:pathPattern=".*\..*\.MOS" />
+                <category
+                    android:name="android.intent.category.DEFAULT" />
+                <category
+                    android:name="android.intent.category.BROWSABLE" />
             </intent-filter>
             <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <data android:scheme="file" />
-                <data android:host="*" />
+                <action
+                    android:name="android.intent.action.VIEW" />
+                <data
+                    android:scheme="file"
+                    android:host="*" />
                 <data android:pathPattern=".*\.dng" />
                 <data android:pathPattern=".*\..*\.dng" />
                 <data android:pathPattern=".*\.DNG" />
@@ -361,58 +440,36 @@
                 <data android:pathPattern=".*\..*\.mos" />
                 <data android:pathPattern=".*\.MOS" />
                 <data android:pathPattern=".*\..*\.MOS" />
-            </intent-filter>
-            <!-- P351: other apps can edit a photo in the gallery's editor (the copy's URI comes back with RESULT_OK) -->
-            <intent-filter>
-                <action android:name="android.intent.action.EDIT" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <data android:scheme="file" />
-                <data android:scheme="content" />
-                <data android:mimeType="image/*" />
+                <category
+                    android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
-
-        <!-- Activity alias for launcher icon - can be enabled/disabled programmatically -->
+        <!-- the gallery's launcher entry (an alias, so that it can be switched off) -->
         <activity-alias
-                android:name=".gallery.ui.GalleryActivityLauncher"
-                android:targetActivity="com.scamera.app.gallery.ui.GalleryActivity"
-                android:label="@string/gallery_name"
-                android:icon="@mipmap/ic_gallery_launcher"
-                android:roundIcon="@mipmap/ic_gallery_launcher_round"
-                android:enabled="true"
-                android:exported="true">
-            <!-- Launcher intent - Shows SGallery in app drawer -->
+            android:name=".gallery.ui.GalleryActivityLauncher"
+            android:targetActivity="com.scamera.app.gallery.ui.GalleryActivity"
+            android:label="@string/gallery_name"
+            android:icon="@mipmap/ic_gallery_launcher"
+            android:roundIcon="@mipmap/ic_gallery_launcher_round"
+            android:enabled="true"
+            android:exported="true">
             <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
+                <action
+                    android:name="android.intent.action.MAIN" />
+                <category
+                    android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
             <!-- P621: the system's / a launcher's «gallery app» (Intent.CATEGORY_APP_GALLERY): the library -->
             <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.APP_GALLERY" />
+                <action
+                    android:name="android.intent.action.MAIN" />
+                <category
+                    android:name="android.intent.category.DEFAULT" />
+                <category
+                    android:name="android.intent.category.APP_GALLERY" />
             </intent-filter>
         </activity-alias>
-
-        <activity
-            android:name=".ui.camera.CameraActivity"
-            android:configChanges="orientation|keyboardHidden|screenSize" />
-
-        <provider
-            android:name="androidx.core.content.FileProvider"
-            android:authorities="${applicationId}.provider"
-            android:exported="false"
-            android:grantUriPermissions="true">
-            <meta-data
-                android:name="android.support.FILE_PROVIDER_PATHS"
-                android:resource="@xml/filepaths" />
-        </provider>
-
-        <uses-native-library android:name="libcdsprpc.so" android:required="false" />
-        <activity android:name=".ui.settings.ScamActivity"
-            android:exported="false" android:process=":scam"
-            android:configChanges="orientation|screenSize|keyboardHidden" />
-        <!-- P499: the gallery's own video player (its own task, so it can float in picture-in-picture) -->
+        <!-- P499: the gallery's own video player (its own task, so it can float in picture-in-picture) and its playback -->
         <activity
             android:name=".gallery.video.VideoPlayerActivity"
             android:exported="false"
@@ -423,15 +480,12 @@
             android:resizeableActivity="true"
             android:supportsPictureInPicture="true"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|keyboard|navigation|uiMode" />
-        <!-- P640: the vivo SDK lease's guard, a process of its own: gives the phone's values back when the camera process dies -->
-        <service
-            android:name="com.scamera.app.capture.LeaseGuardService"
-            android:exported="false"
-            android:process=":leaseguard" />
         <service
             android:name=".gallery.video.VideoPlaybackService"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
+
+        <!-- ════ behind the screen ════ -->
         <service
             android:name=".processing.ProcessingKeepAlive"
             android:exported="false"
@@ -440,5 +494,24 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Finishing the merge and the save of a photo taken just before the app was left" />
         </service>
+        <!-- P640: the vivo SDK lease's guard, a process of its own: gives the phone's values back when the camera process dies -->
+        <service
+            android:name="com.scamera.app.capture.LeaseGuardService"
+            android:exported="false"
+            android:process=":leaseguard" />
+        <!-- shared files (a photo sent to another app) -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.provider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/filepaths" />
+        </provider>
+        <!-- the Qualcomm DSP RPC library of the neural worker, where the phone has it -->
+        <uses-native-library
+            android:name="libcdsprpc.so"
+            android:required="false" />
     </application>
 </manifest>

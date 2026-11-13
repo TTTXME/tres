@@ -28,17 +28,17 @@ public final class WhyHlDezipper extends Node {
         this.mask = mask;
     }
 
-    @Override public void Compile() {}
+    @Override public void bindShader() {}
 
     @Override
-    public void Run() {
-        final PostPipeline pipeline = (PostPipeline) basePipeline;
-        final GLTexture input = previousNode.WorkingTexture;
-        WorkingTexture = input;
-        glProg.closed = true;
-        final Point size = input.mSize;
+    public void runPass() {
+        final PostPipeline pipeline = (PostPipeline) hostPipeline;
+        final GLTexture input = prevPass.passOut;
+        passOut = input;
+        shaderProg.closed = true;
+        final Point size = input.size;
         // P501: the Sabre scale of the merged RGB (1, 1.5 or 2; the reference's u_sabre_scale), the mask the sensor's HALF grid
-        final float s = Math.max(1f, Math.min(2f, pipeline.mParameters.outputScale));
+        final float s = Math.max(1f, Math.min(2f, pipeline.shotParams.outputScale));
         if (mask == null || Math.abs(mask.width * 2 * s - size.x) > 4 * s || Math.abs(mask.height * 2 * s - size.y) > 4 * s
                 || mask.halves.capacity() < (long) mask.width * mask.height * 2) {
             Log.w("SCAM_PIPELINE", "why-hl-dezipper: skipped (mask " + (mask == null ? "none" : mask.width + "x" + mask.height)
@@ -50,7 +50,7 @@ public final class WhyHlDezipper extends Node {
         try {
             m = new GLTexture(new Point(mask.width, mask.height), new GLFormat(GLFormat.DataType.FLOAT_16, 1), null, GL_LINEAR, GL_CLAMP_TO_EDGE);
             android.opengl.GLES30.glPixelStorei(android.opengl.GLES30.GL_UNPACK_ALIGNMENT, 1);
-            android.opengl.GLES30.glBindTexture(android.opengl.GLES30.GL_TEXTURE_2D, m.mTextureID);
+            android.opengl.GLES30.glBindTexture(android.opengl.GLES30.GL_TEXTURE_2D, m.id);
             final java.nio.ByteBuffer halves = mask.halves.duplicate();
             halves.position(0);
             android.opengl.GLES30.glTexSubImage2D(android.opengl.GLES30.GL_TEXTURE_2D, 0, 0, 0, mask.width, mask.height,
@@ -63,15 +63,15 @@ public final class WhyHlDezipper extends Node {
             }
             GLTexture out = pipeline.getMain();
             if (out == input) out = pipeline.getMain();
-            glProg.useAssetProgram("scamdn/hl_dezipper", false);
-            glProg.setTexture("u_merged_rgb", input);
-            glProg.setTexture("u_highlight_mask", m);
-            glProg.setVar("u_tex_size", size.x, size.y, 1f / size.x, 1f / size.y);
-            glProg.setVar("u_sabre_scale", s);
-            glProg.setVar("u_inv_zoom", 1f);
-            glProg.drawBlocks(out);
-            glProg.closed = true;
-            WorkingTexture = out;
+            shaderProg.useAssetProgram("scamdn/hl_dezipper", false);
+            shaderProg.setTexture("u_merged_rgb", input);
+            shaderProg.setTexture("u_highlight_mask", m);
+            shaderProg.setVar("u_tex_size", size.x, size.y, 1f / size.x, 1f / size.y);
+            shaderProg.setVar("u_sabre_scale", s);
+            shaderProg.setVar("u_inv_zoom", 1f);
+            shaderProg.drawBlocks(out);
+            shaderProg.closed = true;
+            passOut = out;
             Log.i("SCAM_PIPELINE", "why-hl-dezipper " + size.x + "x" + size.y + " mask " + mask.width + "x" + mask.height + " grid " + s
                     + " ms=" + (System.nanoTime() - started) / 1_000_000);
         } finally {

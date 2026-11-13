@@ -4,9 +4,9 @@
 // the linear frame, into two textures whose mip levels are then the blur pyramid (lensfilter_live.glsl samples them as the photo
 // samples its G1..G6 / V4..V6). uLfSqrt 1: 8-bit targets, the square root stored (no banding in the dark halo).
 precision highp float;
+uniform float uGain;
 uniform samplerExternalOES sTexture;
 uniform bool mirror;
-uniform float uGain;
 uniform float uLfKnee;
 uniform int uLfSqrt;
 in vec2 texCoord;

@@ -50,7 +50,7 @@ public final class TimelineSections {
     }
 
     private static long when(List<GalleryItem> items, int i) {
-        return items.get(i).getFile().getLastModified();
+        return items.get(i).mediaFile().modifiedMs();
     }
 
     /** Every photo: a month header (label «Ноябрь 2026», its count) and the month's photos. */

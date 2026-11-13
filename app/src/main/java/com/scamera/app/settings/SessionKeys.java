@@ -83,7 +83,7 @@ public final class SessionKeys {
     /** Classes whose {@code @SensorConfig} fields are injected when the session is built. */
     static final List<Class<?>> SESSION_CLASSES = Collections.unmodifiableList(Collections.singletonList(
             com.scamera.app.capture.CaptureController.class));
-    /** Classes whose {@code @SensorConfig} fields are injected for each shot (Parameters.FillConstParameters). */
+    /** Classes whose {@code @SensorConfig} fields are injected for each shot (Parameters.fillFromCamera). */
     static final List<Class<?>> PER_SHOT_CLASSES = Collections.unmodifiableList(Collections.singletonList(
             com.scamera.app.processing.render.Parameters.class));
 
@@ -183,8 +183,8 @@ public final class SessionKeys {
         StringBuilder out = new StringBuilder();
         Set<String> sent = new HashSet<>(Arrays.asList("CaptureRequest", VendorTagUtils.TunableKey.TYPE_SESSION));
         for (VendorTagUtils.TunableKey k : keys)
-            if (k != null && k.enabled && sent.contains(k.type))
-                out.append(k.type).append('|').append(k.name).append('|').append(k.valueType).append('|').append(k.value).append(';');
+            if (k != null && k.enabled && sent.contains(k.kind))
+                out.append(k.kind).append('|').append(k.tag).append('|').append(k.typeName).append('|').append(k.text).append(';');
         return out.toString();
     }
 

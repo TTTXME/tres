@@ -56,10 +56,10 @@ public final class FullResRecipePlan {
         Output(Stream stream, int width, int height, int format, long usage, long useCase, int[] pixelModes) {
             this.stream = stream;
             this.width = width;
-            this.height = height;
-            this.format = format;
             this.usage = usage;
+            this.height = height;
             this.useCase = useCase;
+            this.format = format;
             this.pixelModes = pixelModes;
         }
 

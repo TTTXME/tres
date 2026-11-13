@@ -26,7 +26,7 @@ import static android.opengl.GLES20.GL_NEAREST;
  */
 public final class WhyV2Stats extends Node {
     public WhyV2Stats() { super("", "WhyV2Stats"); }
-    @Override public void Compile() {}
+    @Override public void bindShader() {}
 
     /** What the V2 nodes hand on (PostPipeline.whyV2). */
     public static final class State {
@@ -208,43 +208,43 @@ public final class WhyV2Stats extends Node {
     }
 
     @Override
-    public void Run() {
-        final PostPipeline pipeline = (PostPipeline) basePipeline;
-        WorkingTexture = previousNode.WorkingTexture;
-        glProg.closed = true;
+    public void runPass() {
+        final PostPipeline pipeline = (PostPipeline) hostPipeline;
+        passOut = prevPass.passOut;
+        shaderProg.closed = true;
         final long started = System.currentTimeMillis();
         // WhyLumaSharpen's state (the exposure, the input scale); dropped, not closed, if an earlier shot left one (as WhyStats)
         final WhyTone.State st = new WhyTone.State();
         pipeline.why = st;
-        st.factor = WhyTone.lowFactor(pipeline.mParameters);
+        st.factor = WhyTone.lowFactor(pipeline.shotParams);
         st.inScale = (float) Math.pow(2.0, WhyTone.value("input_ev", 0f));
         final State v2 = new State();
         pipeline.whyV2 = v2;
-        final Point size = WorkingTexture.mSize;
+        final Point size = passOut.size;
         GLTexture gainMap = pipeline.GainMap;
         GLTexture fallback = null;
         if (gainMap == null) {
             fallback = new GLTexture(new Point(1, 1), new GLFormat(GLFormat.DataType.FLOAT_16, 4),
-                    BufferUtils.getFrom(new float[]{1f, 1f, 1f, 1f}), GL_LINEAR, GL_CLAMP_TO_EDGE);
+                    BufferUtils.floatBuffer(new float[]{1f, 1f, 1f, 1f}), GL_LINEAR, GL_CLAMP_TO_EDGE);
             gainMap = fallback;
         }
         GLTexture samples = null;
         try {
             // LINEAR as the reference's RGB texture (hr_extract reads it bilinear at half the grid; the rest texelFetch)
             v2.clean = new GLTexture(size, new GLFormat(GLFormat.DataType.FLOAT_16, 4), null, GL_LINEAR, GL_CLAMP_TO_EDGE);
-            glProg.useAssetProgram("why/v2_clean", false);
-            glProg.setTexture("InputBuffer", WorkingTexture);
-            WhyTone.setColour(glProg, pipeline, gainMap, st.inScale);
-            glProg.drawBlocks(v2.clean);
+            shaderProg.useAssetProgram("why/v2_clean", false);
+            shaderProg.setTexture("InputBuffer", passOut);
+            WhyTone.setColour(shaderProg, pipeline, gainMap, st.inScale);
+            shaderProg.drawBlocks(v2.clean);
             final int stride = WhyV2Ae.stride(size.x, size.y);
             final int sw = WhyV2Ae.samples(size.x, stride), sh = WhyV2Ae.samples(size.y, stride);
             samples = new GLTexture(new Point(sw, sh), new GLFormat(GLFormat.DataType.FLOAT_16, 4), null, GL_NEAREST, GL_CLAMP_TO_EDGE);
-            glProg.useAssetProgram("why/v2_stride", false);
-            glProg.setTexture("u_tex_rgb", v2.clean);
-            glProg.setVar("u_stride", stride);
-            glProg.drawBlocks(samples);
-            glProg.closed = true;
-            samples.BufferLoad();
+            shaderProg.useAssetProgram("why/v2_stride", false);
+            shaderProg.setTexture("u_tex_rgb", v2.clean);
+            shaderProg.setVar("u_stride", stride);
+            shaderProg.drawBlocks(samples);
+            shaderProg.closed = true;
+            samples.renderInto();
             final ByteBuffer px = samples.textureBuffer(new GLFormat(GLFormat.DataType.FLOAT_16, 4));
             px.order(ByteOrder.nativeOrder());
             final FloatBuffer f = px.asFloatBuffer();
@@ -269,7 +269,7 @@ public final class WhyV2Stats extends Node {
                 }
             }
             // the reference's AE noise: the one-frame mean of the camera's noise profile (not our stacked model, pipeline.noiseS / O)
-            final float[] noise = referenceNoise(pipeline.mParameters.noiseModeler);
+            final float[] noise = referenceNoise(pipeline.shotParams.noiseModel);
             final WhyV2Ae.Result r = WhyV2Ae.finish(h, v2.params, ceiling, noise[0], noise[1]);
             v2.ae = r;
             final WhyAe.Result shim = new WhyAe.Result();

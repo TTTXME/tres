@@ -1,11 +1,9 @@
-precision highp sampler2D;
-precision highp int;
-precision highp float;
-// Per-channel histograms (scripts/GLHistogram): every SCALE-th texel of inTexture, scaled by `exposure` (bins - 1 per unit),
+precision highp sampler2D; precision highp int; precision highp float;
+// Per-channel histograms (scripts/GLHistogram): every SCALE-th texel of inTexture, scaled by `binScale` (bins - 1 per unit),
 // counted into HISTSIZE bins - first in the work group's shared counters, then added to the channel's buffer.
 // P317: memoryBarrierShared() with every barrier() (ESSL 3.10 8.14, as why/aestats.glsl).
+uniform vec4 binScale;
 uniform sampler2D inTexture;
-uniform vec4 exposure;
 #define COL_R 1
 #define COL_G 1
 #define COL_B 1
@@ -56,7 +54,7 @@ void main() {
     ivec2 at = ivec2(gl_GlobalInvocationID.xy) * SCALE;
     ivec2 size = textureSize(inTexture, 0).xy;
     if (all(lessThan(at, size))) {
-        uvec4 bin = clamp(uvec4(exposure * texture(inTexture, (vec2(at) + 0.5) / vec2(size))), uvec4(0), uvec4(HISTSIZE - 1));
+        uvec4 bin = clamp(uvec4(binScale * texture(inTexture, (vec2(at) + 0.5) / vec2(size))), uvec4(0), uvec4(HISTSIZE - 1));
         #if COL_R == 1
         atomicAdd(groupR[bin.r], 1u);
         #endif

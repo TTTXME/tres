@@ -1,37 +1,22 @@
 package com.scamera.app.api;
 
-import androidx.annotation.StringRes;
-
-import com.scamera.app.R;
-import com.scamera.app.app.ScameraApp;
-
-import java.util.stream.Stream;
-
+/**
+ * The capture modes. The screen offers {@link #MOTION} only (shown as «Фото»); the others stay for the number older builds stored
+ * (the preference holds the ordinal, so the order below is fixed) and read back as MOTION where they are retired.
+ */
 public enum CameraMode {
-    UNLIMITED(R.string.mode_unlimited),
-    RAWVIDEO(R.string.mode_rawvideo),
-    MOTION(R.string.mode_motion),
-    PHOTO(R.string.mode_photo),
-    NIGHT(R.string.mode_night),
-    VIDEO(R.string.mode_video);
+    /** retired: no processor any more */ UNLIMITED,
+    /** retired: no processor any more */ RAWVIDEO,
+    /** the photo mode on screen */ MOTION,
+    PHOTO,
+    /** retired (P25, owner's answer 4: it differed only by the tripod detection) */ NIGHT,
+    VIDEO;
 
-    int stringId;
-
-    CameraMode(@StringRes int stringId) {
-        this.stringId = stringId;
-    }
-
-    /**
-     * The stored mode; the retired UNLIMITED / RAWVIDEO modes (no processor any more) and Night (P25, owner's answer 4:
-     * Photo is the only mode on screen) read as MOTION, which the screen shows as «Фото».
-     */
-    public static CameraMode valueOf(int modeOrdinal) {
-        for (CameraMode mode : values()) {
-            if (modeOrdinal == mode.ordinal()) {
-                return mode == UNLIMITED || mode == RAWVIDEO || mode == NIGHT ? MOTION : mode;
-            }
-        }
-        return MOTION;
+    /** The stored mode (an ordinal); a retired one or a number no mode has reads as MOTION. */
+    public static CameraMode valueOf(int stored) {
+        final CameraMode[] all = values();
+        final CameraMode mode = stored >= 0 && stored < all.length ? all[stored] : MOTION;
+        return mode == UNLIMITED || mode == RAWVIDEO || mode == NIGHT ? MOTION : mode;
     }
 
     /** Still photo modes (the ZSL routes); tripod detection runs in them. */
@@ -44,9 +29,9 @@ public enum CameraMode {
         return new CameraMode[]{MOTION};
     }
 
+    /** The user mode at {@code index}, clamped to the ones there are. */
     public static CameraMode userModeAt(int index) {
-        CameraMode[] modes = userModes();
+        final CameraMode[] modes = userModes();
         return modes[Math.max(0, Math.min(index, modes.length - 1))];
     }
-
 }

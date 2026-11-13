@@ -21,8 +21,8 @@ public final class GalleryKeys {
     /** The key of {@code file}'s pictures; {@code prefix} keeps different renditions apart (the histogram's). */
     @NonNull
     public static Key of(@NonNull MediaFile file, @NonNull String prefix) {
-        long length = file.getSize(), modified = file.getLastModified();
-        final String path = file.getAbsolutePath();
+        long length = file.sizeBytes(), modified = file.modifiedMs();
+        final String path = file.filePath();
         final File f = path != null ? new File(path) : null;
         if (f != null && f.isAbsolute()) { // a DATA path (a content URI string of an opened file is not)
             final long l = f.length(), m = f.lastModified();
@@ -31,7 +31,7 @@ public final class GalleryKeys {
                 modified = m;
             }
         }
-        return new ObjectKey(key(prefix, file.getDisplayName(), modified, length));
+        return new ObjectKey(key(prefix, file.displayName(), modified, length));
     }
 
     @NonNull
@@ -45,7 +45,7 @@ public final class GalleryKeys {
      * comes out partly black and would be shown, and cached, as it is).
      */
     public static boolean waitForFile(@NonNull android.view.View view, @NonNull MediaFile file, @NonNull Runnable then) {
-        final String path = file.getAbsolutePath();
+        final String path = file.filePath();
         if (!com.scamera.app.processing.SavingFiles.writing(path)) return false;
         final long until = android.os.SystemClock.uptimeMillis() + 180_000;
         view.postDelayed(new Runnable() {

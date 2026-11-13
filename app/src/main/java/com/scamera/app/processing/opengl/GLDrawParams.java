@@ -3,9 +3,9 @@ package com.scamera.app.processing.opengl;
 /** Shared sizes of the processing passes. */
 public class GLDrawParams {
     /** Rows of one tile of a block read-back (GLCoreBlockProcessing) and of the tiled passes. */
-    public static int TileSize = 256;
+    public static int TILE_ROWS = 256; // set per shot (PostPipeline: 8 rows for a picture under SMALL_PIXELS)
     /** Channels of the pipeline's working textures (RGBA). */
-    public final static int WorkDim = 4;
+    public final static int WORK_CHANNELS = 4;
 
     /** The processing contexts' EGL display, pbuffer config (RGBA8888, no depth / stencil, ES 2+) and ES 3 context. */
     final static int EGLDisplay = android.opengl.EGL14.EGL_DEFAULT_DISPLAY;

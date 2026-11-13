@@ -250,10 +250,7 @@ final class LiveLensFilter {
             for (int tex : t) {
                 GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, tex);
                 GLES30.glTexStorage2D(GLES20.GL_TEXTURE_2D, levels(w, h), half ? GLES30.GL_RGBA16F : GLES30.GL_RGBA8, w, h);
-                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR_MIPMAP_LINEAR);
-                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR);
-                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE);
-                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE);
+                ViewfinderPrograms.edgeClampedSampling(GLES20.GL_LINEAR_MIPMAP_LINEAR, GLES20.GL_LINEAR);
             }
             GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, 0);
             int[] f = new int[1];

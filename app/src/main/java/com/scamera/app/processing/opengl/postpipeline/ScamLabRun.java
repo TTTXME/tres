@@ -494,7 +494,7 @@ public final class ScamLabRun {
             pipeline.record = record;
             Bitmap photo;
             try {
-                photo = pipeline.Run(null, p);
+                photo = pipeline.develop(null, p);
             } finally {
                 pipeline.close();
             }
@@ -542,12 +542,10 @@ public final class ScamLabRun {
                         burst.crop[2] / (float) shot.width, burst.crop[3] / (float) shot.height)
                 : new float[0];
         p.rawSize = new Point(ow, oh);
-        p.sensorPix = new android.graphics.Rect(0, 0, ow, oh);
-        if (p.gainMap != null && p.mapSize != null)
-            p.gainMap = RawCrop.cropGainMap(p.gainMap, p.mapSize.x, p.mapSize.y, shot.width, shot.height,
+        p.activeArea = new android.graphics.Rect(0, 0, ow, oh);
+        if (p.shadingMap != null && p.shadingGrid != null)
+            p.shadingMap = RawCrop.cropGainMap(p.shadingMap, p.shadingGrid.x, p.shadingGrid.y, shot.width, shot.height,
                     new RawCrop.Area(crop[0], crop[1], crop[2], crop[3]));
-        p.alignmentSize = new Point(ow / Math.max(1, p.tile) + 1, oh / Math.max(1, p.tile) + 1);
-        p.tilesX = ow / 800 + 1;
         return p;
     }
 

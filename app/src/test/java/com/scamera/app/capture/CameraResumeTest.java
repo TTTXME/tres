@@ -2,7 +2,7 @@ package com.scamera.app.capture;
 
 import com.scamera.app.processing.RingFrame;
 
-import com.scamera.app.api.CameraEventsListener;
+import com.scamera.app.api.CameraEvents;
 import android.app.Activity;
 import android.app.Application;
 import android.content.Context;
@@ -37,7 +37,7 @@ public class CameraResumeTest {
     private CaptureController controller;
     private MockedStatic<ScameraApp> appStatic;
     private MockedConstruction<CameraManager2> managers;
-    private CameraEventsListener events;
+    private CameraEvents events;
     private static Object get(Object o,String name) throws Exception {Field f=CaptureController.class.getDeclaredField(name);f.setAccessible(true);return f.get(o);}
     private static void put(Object o,String name,Object value) throws Exception {Field f=CaptureController.class.getDeclaredField(name);f.setAccessible(true);f.set(o,value);}
     private static CaptureRequest.Builder newRequestBuilder() throws Exception {
@@ -59,7 +59,7 @@ public class CameraResumeTest {
         managers=mockConstruction(CameraManager2.class,(mock,c)->when(mock.getCameraIdList()).thenReturn(new String[]{"3"}));
         Activity activity=mock(Activity.class);CameraManager manager=mock(CameraManager.class);
         when(activity.getSystemService(Context.CAMERA_SERVICE)).thenReturn(manager);
-        events=mock(CameraEventsListener.class);
+        events=mock(CameraEvents.class);
         controller=new CaptureController(activity,mock(ExecutorService.class),events);
         CaptureController.isProcessing=false;
     }
@@ -220,27 +220,27 @@ public class CameraResumeTest {
         for(com.scamera.app.api.CameraMode mode:new com.scamera.app.api.CameraMode[]{
                 com.scamera.app.api.CameraMode.MOTION,com.scamera.app.api.CameraMode.PHOTO,
                 com.scamera.app.api.CameraMode.NIGHT}) {
-            ScameraApp.getSettings().selectedMode=mode;assertTrue(controller.isZslMode());
+            ScameraApp.getSettings().mode=mode;assertTrue(controller.isZslMode());
         }
-        ScameraApp.getSettings().selectedMode=com.scamera.app.api.CameraMode.RAWVIDEO;
+        ScameraApp.getSettings().mode=com.scamera.app.api.CameraMode.RAWVIDEO;
         assertFalse(controller.isZslMode());
     }
     @Test public void shutterWaitsForFreshMetadataThenSubmitsWithoutRestart() throws Exception {
-        ScameraApp.getSettings().selectedMode=com.scamera.app.api.CameraMode.RAWVIDEO; // the shutter path without the ZSL ring
+        ScameraApp.getSettings().mode=com.scamera.app.api.CameraMode.RAWVIDEO; // the shutter path without the ZSL ring
         CameraCaptureSession session=mock(CameraCaptureSession.class);
         put(controller,"isCameraResumed",true);put(controller,"mCaptureSession",session);
         put(controller,"mConfiguredSessionGeneration",0);
         put(controller,"mCameraDevice",mock(CameraDevice.class));
-        put(controller,"mCameraAfModes",new int[]{0});
+        put(controller,"afModesOfCamera",new int[]{0});
         controller.mPreviewRequestBuilder=newRequestBuilder();
 
         controller.takePicture();
-        verify(events).onProcessingError(any());verifyNoInteractions(session);
+        verify(events).processingFailed(any());verifyNoInteractions(session);
         assertEquals(false,get(controller,"mShotInProgress"));
         CaptureController.mPreviewCaptureResult=mock(TotalCaptureResult.class);
         controller.takePicture();
         verify(session).setRepeatingRequest(any(CaptureRequest.class),any(),isNull());
-        verify(events,never()).onCameraRestarted();
+        verify(events,never()).cameraRestarted();
         assertEquals(true,get(controller,"mShotInProgress"));
     }
     @Test public void busyShutterDeclinesWithoutStartingOrCancellingExistingWork() throws Exception {
@@ -255,19 +255,19 @@ public class CameraResumeTest {
         verifyNoInteractions(events);
     }
     @Test public void rejectedAuxiliaryPreviewRequestReleasesPendingShot() throws Exception {
-        ScameraApp.getSettings().selectedMode=com.scamera.app.api.CameraMode.RAWVIDEO; // the shutter path without the ZSL ring
+        ScameraApp.getSettings().mode=com.scamera.app.api.CameraMode.RAWVIDEO; // the shutter path without the ZSL ring
         CameraCaptureSession session=mock(CameraCaptureSession.class);
         put(controller,"isCameraResumed",true);put(controller,"mCaptureSession",session);
         put(controller,"mConfiguredSessionGeneration",0);
         put(controller,"mCameraDevice",mock(CameraDevice.class));
-        put(controller,"mCameraAfModes",new int[]{0});
+        put(controller,"afModesOfCamera",new int[]{0});
         controller.mPreviewRequestBuilder=newRequestBuilder();
         CaptureController.mPreviewCaptureResult=mock(TotalCaptureResult.class);
         when(session.setRepeatingRequest(any(),any(),isNull()))
                 .thenThrow(new IllegalStateException("session closed"));
         assertFalse(controller.takePicture());
         assertEquals(false,get(controller,"mShotInProgress"));
-        verify(events).onProcessingError(contains("session closed"));
+        verify(events).processingFailed(contains("session closed"));
         // Retrying is accepted once the HAL is ready; no app restart required.
         doReturn(1).when(session).setRepeatingRequest(any(),any(),isNull());
         assertTrue(controller.takePicture());
@@ -282,19 +282,19 @@ public class CameraResumeTest {
         ((java.util.concurrent.atomic.AtomicInteger)get(controller,"mSessionGeneration")).incrementAndGet();
         assertFalse(controller.takePicture());
         verifyNoInteractions(session);
-        verify(events).onProcessingError(any());
+        verify(events).processingFailed(any());
         assertEquals(false,get(controller,"mShotInProgress"));
     }
     @Test public void restartUsesTheNormalPreparedResumePath() throws Exception {
         var spy=spy(controller);
         doNothing().when(spy).startBackgroundThread();
-        doNothing().when(spy).resumeCamera();
+        doNothing().when(spy).screenResumed();
         spy.restartCamera();
         var order=inOrder(spy,events);
         order.verify(spy).closeCamera(true,true); // P662: the restart keeps the ring and closes the device off the main thread
-        order.verify(events).onCameraRestarted();
+        order.verify(events).cameraRestarted();
         order.verify(spy).startBackgroundThread();
-        order.verify(spy).resumeCamera();
+        order.verify(spy).screenResumed();
     }
 
     @SuppressWarnings("unchecked")
@@ -373,7 +373,7 @@ public class CameraResumeTest {
 
     /** OPPO PHY110 modules: back0 "2x" and back4 "1x" on the main camera 2, back3 "2.8x" on the hidden tele 4. */
     private Settings oppoModules() {
-        Settings settings=new Settings();settings.mCameraID="4";
+        Settings settings=new Settings();settings.cameraId="4";
         appStatic.when(ScameraApp::getSettings).thenReturn(settings);
         android.content.SharedPreferences.Editor e=ScameraApp.getSettingsManagerStatic().getDefaultPreferences().edit();
         for(String[] r:new String[][]{{"back0","2","2\u00d7"},{"back3","4","2.8\u00d7"},{"back4","2","1\u00d7"},{"front0","1","1\u00d7"}})
@@ -401,7 +401,7 @@ public class CameraResumeTest {
         var method=CaptureController.class.getDeclaredMethod("requestedCharacteristics");method.setAccessible(true);
         assertSame(main,method.invoke(controller));
         assertEquals("2",get(controller,"physicalID"));assertEquals("2",get(controller,"logicalID"));
-        assertEquals("2",settings.mCameraID);assertEquals("2",PreferenceKeys.getCameraID());
+        assertEquals("2",settings.cameraId);assertEquals("2",PreferenceKeys.getCameraID());
         assertEquals("back4",ModuleRegistry.active());
         // the requested module comes back when its camera appears
         verify(manager).registerAvailabilityCallback(any(CameraManager.AvailabilityCallback.class),any(android.os.Handler.class));
@@ -420,7 +420,7 @@ public class CameraResumeTest {
         error.setLong(controller,android.os.SystemClock.elapsedRealtime());
         var method=CaptureController.class.getDeclaredMethod("requestedCharacteristics");method.setAccessible(true);
         assertNull("not opened in its place yet",method.invoke(controller));
-        assertEquals("4",settings.mCameraID);
+        assertEquals("4",settings.cameraId);
         assertEquals("the module stays","back3",ModuleRegistry.active());
         verify(manager,never()).registerAvailabilityCallback(any(CameraManager.AvailabilityCallback.class),any(android.os.Handler.class));
     }
@@ -435,7 +435,7 @@ public class CameraResumeTest {
         var method=CaptureController.class.getDeclaredMethod("requestedCharacteristics");method.setAccessible(true);
         assertSame(tele,method.invoke(controller));
         assertSame(tele,map.get("4"));
-        assertEquals("4",get(controller,"physicalID"));assertEquals("4",settings.mCameraID);
+        assertEquals("4",get(controller,"physicalID"));assertEquals("4",settings.cameraId);
         assertEquals("back3",ModuleRegistry.active());
     }
 

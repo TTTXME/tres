@@ -12,9 +12,9 @@ import static org.junit.Assert.assertTrue;
 
 /**
  * The wiring behind ScamProcessorFailureTest's helpers, read from ScamProcessor's source (Run and processBurst need a camera).
- * Run()'s finally tears down the pipeline a failed shot left open, then the deferred one, and frees the reference RAW only
+ * runPass()'s finally tears down the pipeline a failed shot left open, then the deferred one, and frees the reference RAW only
  * after both (a pass may still read it). Every path that frees the reference RAW itself clears referenceRaw first: a free left
- * without it is freed a second time by Run()'s finally, and the arena's view count (Allocator.arenaSlotRefs, which ZslRing
+ * without it is freed a second time by runPass()'s finally, and the arena's view count (Allocator.arenaSlotRefs, which ZslRing
  * relies on) drops below the views still in use. A pipeline that is deferred or closed is no longer the open one, so a later
  * failure does not tear it down again.
  */
@@ -46,7 +46,7 @@ public class ScamProcessorTeardownOrderTest {
 
     @Test
     public void runTearsDownTheOpenPipelineThenFreesTheReference() throws IOException {
-        final String run = method(source(), "public void Run()");
+        final String run = method(source(), "public void runPass()");
         final int end = run.indexOf("ScamLab.endShot();");
         final int fin = run.lastIndexOf("} finally {", end);
         assertTrue("the shot's finally, after its catch", end > 0 && fin > run.indexOf("} catch (Exception | OutOfMemoryError e) {"));

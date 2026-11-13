@@ -40,7 +40,7 @@ public class TunableKeyDialog {
 
         LinearLayout body = SettingsStyle.sheetBody(c, adding ? Lang.t(c, "Новый vendor tag", "New vendor tag") : "Vendor tag", null);
         body.addView(label(c, Lang.t(c, "Имя ключа", "Key name")));
-        EditText name = field(c, existing != null ? existing.name : "", "vendor_name");
+        EditText name = field(c, existing != null ? existing.tag : "", "vendor_name");
         name.setHint("vivo.control.forceSensorMode");
         body.addView(name, fieldParams(c));
 
@@ -48,7 +48,7 @@ public class TunableKeyDialog {
         List<String> kinds = new ArrayList<>();
         kinds.add(TYPE_REQUEST);
         kinds.add(VendorTagUtils.TunableKey.TYPE_SESSION);
-        String type = existing != null && existing.type != null ? existing.type : TYPE_REQUEST;
+        String type = existing != null && existing.kind != null ? existing.kind : TYPE_REQUEST;
         if (!kinds.contains(type)) kinds.add(type);
         final String[] chosenType = {type};
         body.addView(label(c, Lang.t(c, "Тип ключа", "Key type")));
@@ -86,7 +86,7 @@ public class TunableKeyDialog {
         body.addView(typeRow, new LinearLayout.LayoutParams(-1, -2));
 
         body.addView(label(c, Lang.t(c, "Тип значения", "Value type")));
-        final String[] valueType = {existing != null && existing.valueType != null ? existing.valueType : "Integer"};
+        final String[] valueType = {existing != null && existing.typeName != null ? existing.typeName : "Integer"};
         TextView valueTypeRow = SettingsStyle.text(c, valueType[0], 17, SettingsStyle.ROW_TITLE);
         valueTypeRow.setBackground(SettingsStyle.shape(c, SettingsStyle.ROW, 0, 12));
         valueTypeRow.setPadding(SettingsStyle.dp(c, 16), SettingsStyle.dp(c, 14), SettingsStyle.dp(c, 16), SettingsStyle.dp(c, 14));
@@ -102,7 +102,7 @@ public class TunableKeyDialog {
         body.addView(valueTypeRow, fieldParams(c));
 
         body.addView(label(c, Lang.t(c, "Значение", "Value")));
-        EditText value = field(c, existing != null ? existing.value : "0", "vendor_value");
+        EditText value = field(c, existing != null ? existing.text : "0", "vendor_value");
         value.setHint(Lang.t(c, "массив — через запятую: 1,0,2", "an array: comma separated, 1,0,2"));
         body.addView(value, fieldParams(c));
 
@@ -127,19 +127,19 @@ public class TunableKeyDialog {
             }
             String text = value.getText().toString().trim();
             try {
-                VendorTagUtils.TunableKey.parseValue(valueType[0], text);
+                VendorTagUtils.TunableKey.parse(valueType[0], text);
             } catch (RuntimeException wrong) {
                 ScameraApp.showToast(Lang.t(c, "Значение не подходит к типу " + valueType[0], "The value does not fit " + valueType[0]));
                 return;
             }
             VendorTagUtils.TunableKey key = new VendorTagUtils.TunableKey();
-            key.type = chosenType[0];
-            key.name = n;
-            key.valueType = valueType[0];
-            key.value = text;
-            key.tested = existing != null && existing.tested;
+            key.kind = chosenType[0];
+            key.tag = n;
+            key.typeName = valueType[0];
+            key.text = text;
+            key.sent = existing != null && existing.sent;
             key.enabled = existing == null || existing.enabled;
-            key.supported = existing != null && existing.supported;
+            key.known = existing != null && existing.known;
             List<VendorTagUtils.TunableKey> list = TunableKeyManager.loadKeys(c, sensorId);
             if (adding) list.add(key);
             else if (slot < list.size()) list.set(slot, key);

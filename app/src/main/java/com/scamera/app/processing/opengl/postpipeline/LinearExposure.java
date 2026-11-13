@@ -13,15 +13,15 @@ public class LinearExposure extends Node {
     }
 
     @Override
-    public void Compile() {}
+    public void bindShader() {}
 
     @Override
-    public void Run() {
-        PostPipeline pipeline = (PostPipeline) basePipeline;
+    public void runPass() {
+        PostPipeline pipeline = (PostPipeline) hostPipeline;
         if (pipeline.captureDemosaic) {
-            pipeline.captureDemosaicLinear(previousNode.WorkingTexture, glProg);
+            pipeline.captureDemosaicLinear(prevPass.passOut, shaderProg);
         }
-        WorkingTexture = previousNode.WorkingTexture;
-        glProg.closed = true;
+        passOut = prevPass.passOut;
+        shaderProg.closed = true;
     }
 }

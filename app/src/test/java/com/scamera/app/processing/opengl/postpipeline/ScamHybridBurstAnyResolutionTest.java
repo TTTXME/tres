@@ -76,7 +76,7 @@ public class ScamHybridBurstAnyResolutionTest {
     }
     private static Parameters parameters(int w, int h) {
         Parameters p = new Parameters();
-        p.rawSize = new Point(w, h); p.cfaPattern = 0; p.whiteLevel = 1023; p.blackLevel = new float[]{64, 64, 64, 64};
+        p.rawSize = new Point(w, h); p.cfaPattern = 0; p.whiteLevel = 1023; p.cfaBlack = new float[]{64, 64, 64, 64};
         return p;
     }
     private static ScamHybridBurst burst(List<ImageFrame> frames, Parameters p) throws Exception {

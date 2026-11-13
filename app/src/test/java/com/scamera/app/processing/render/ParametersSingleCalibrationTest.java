@@ -26,7 +26,7 @@ import org.robolectric.RobolectricTestRunner;
 import org.robolectric.annotation.Config;
 
 /**
- * P370 (A5): ReCalcColor never loses a shot. A HAL with one calibration (no *2 keys), an illuminant code Converter's table lacks,
+ * P370 (A5): resolveColour never loses a shot. A HAL with one calibration (no *2 keys), an illuminant code Converter's table lacks,
  * a singular colour matrix or calibration, a transform whose row sums to about 0: the photo is rendered (the other calibration
  * stands in, the DNG SDK's kelvin, an unknown light, the white balance alone) and the reason is logged; the forward matrix 2
  * never becomes the identity.
@@ -43,7 +43,7 @@ public class ParametersSingleCalibrationTest {
 
     @Before public void setUp() {
         settings = new com.scamera.app.api.Settings();
-        settings.colorMethod = 1;
+        settings.colourMethod = 1;
         app = mockStatic(com.scamera.app.app.ScameraApp.class);
         app.when(com.scamera.app.app.ScameraApp::getSettings).thenReturn(settings);
         prefsKeys = mockStatic(PreferenceKeys.class, invocation -> {
@@ -68,7 +68,7 @@ public class ParametersSingleCalibrationTest {
     private static Parameters shot(ColorSpaceTransform transform, float[] n) {
         final Parameters p = new Parameters();
         p.physicalID = 2;
-        p.ReCalcColor(false, result(transform, n));
+        p.resolveColour(false, result(transform, n));
         return p;
     }
 
@@ -92,18 +92,18 @@ public class ParametersSingleCalibrationTest {
         final float[] cc = rowMajor(cst(128, 127, 0, 0, 0, 128, 0, 0, 0, 130)), ccInv = new float[9];
         assertTrue(Converter.invert(cc, ccInv));
         final float[] ref = new float[3];
-        for (int r = 0; r < 3; r++) ref[r] = ccInv[r * 3] * p.whitePoint[0] + ccInv[r * 3 + 1] * p.whitePoint[1] + ccInv[r * 3 + 2] * p.whitePoint[2];
+        for (int r = 0; r < 3; r++) ref[r] = ccInv[r * 3] * p.asShotNeutral[0] + ccInv[r * 3 + 1] * p.asShotNeutral[1] + ccInv[r * 3 + 2] * p.asShotNeutral[2];
         final float max = Math.max(ref[0], Math.max(ref[1], ref[2]));
         final float[] d = {max / ref[0], 0, 0, 0, max / ref[1], 0, 0, 0, max / ref[2]}, dcc = new float[9], c2x = new float[9], want = new float[9];
         Converter.multiply(d, ccInv, dcc);
         Converter.multiply(fm, dcc, c2x);
         Converter.multiply(Converter.sXYZtoProPhoto, c2x, want);
         for (int i = 0; i < 9; i++) {
-            assertTrue(Float.isFinite(p.sensorToProPhoto[i]));
-            assertEquals("element " + i, want[i], p.sensorToProPhoto[i], 1e-5f);
+            assertTrue(Float.isFinite(p.cameraToProPhoto[i]));
+            assertEquals("element " + i, want[i], p.cameraToProPhoto[i], 1e-5f);
         }
         // the copied forward matrix 2 is FM1, never the identity
-        for (int i = 0; i < 9; i++) assertEquals(p.ForwardTransform1[i], p.ForwardTransform2[i], 0f);
+        for (int i = 0; i < 9; i++) assertEquals(p.forwardMatrix1[i], p.forwardMatrix2[i], 0f);
         assertTrue("one calibration: its own light", p.sceneCct > 0f);
     }
 
@@ -144,7 +144,7 @@ public class ParametersSingleCalibrationTest {
         final Parameters p = shot(IDENTITY, new float[]{0.5f, 1f, 0.6f});
         assertEquals(0f, p.sceneCct, 0f);
         assertTrue(p.sceneCctSource, p.sceneCctSource.contains("white estimate failed"));
-        for (float v : p.sensorToProPhoto) assertTrue(Float.isFinite(v));
+        for (float v : p.cameraToProPhoto) assertTrue(Float.isFinite(v));
         // no colour matrix at all
         when(c.get(CameraCharacteristics.SENSOR_COLOR_TRANSFORM1)).thenReturn(null);
         when(c.get(CameraCharacteristics.SENSOR_COLOR_TRANSFORM2)).thenReturn(null);
@@ -156,8 +156,8 @@ public class ParametersSingleCalibrationTest {
         when(c.get(CameraCharacteristics.SENSOR_CALIBRATION_TRANSFORM2)).thenReturn(cst(1, 0, 0, 0, 0, 1, 0, 0, 0, 1));
         final Parameters singular = shot(IDENTITY, new float[]{0.5f, 1f, 0.6f});
         assertEquals("IDENTITY_FALLBACK", singular.colourSource);
-        assertEquals(1f / singular.whitePoint[0], singular.sensorToProPhoto[0], 1e-6f);
-        assertEquals(1f, singular.CCT.matrix[0], 0f);
+        assertEquals(1f / singular.asShotNeutral[0], singular.cameraToProPhoto[0], 1e-6f);
+        assertEquals(1f, singular.colorTransform.matrix[0], 0f);
         // ... and a full transform renders it instead
         final Parameters isp = shot(cst(128, 200, -62, -10, -17, 172, -27, 8, -70, 191), new float[]{0.5f, 1f, 0.6f});
         assertEquals("ISP_CST", isp.colourSource);
@@ -165,7 +165,7 @@ public class ParametersSingleCalibrationTest {
 
     /** «Источник цвета» «Захват» (2) with a transform whose row sums to 0.01: refused (it gave inf), the DNG route renders. */
     @Test public void aTransformRowSummingToZeroIsRefused() {
-        settings.colorMethod = 2;
+        settings.colourMethod = 2;
         prefsKeys.close();
         prefsKeys = mockStatic(PreferenceKeys.class, invocation -> {
             final String name = invocation.getMethod().getName();
@@ -176,12 +176,12 @@ public class ParametersSingleCalibrationTest {
         final ColorSpaceTransform bad = cst(100, 150, -60, -89, -20, 140, -20, 5, -60, 155); // the first row sums to 0.01
         final Parameters p = shot(bad, new float[]{0.5f, 1f, 0.6f});
         assertEquals("DNG_FM", p.colourSource);
-        for (float v : p.CCT.matrix) assertTrue(Float.isFinite(v));
-        for (float v : p.sensorToProPhoto) assertTrue(Float.isFinite(v));
+        for (float v : p.colorTransform.matrix) assertTrue(Float.isFinite(v));
+        for (float v : p.cameraToProPhoto) assertTrue(Float.isFinite(v));
         // a good transform is still taken by «Захват»
         final Parameters good = shot(cst(128, 200, -62, -10, -17, 172, -27, 8, -70, 191), new float[]{0.5f, 1f, 0.6f});
         assertEquals("LEGACY_CAPTURED", good.colourSource);
-        assertNotEquals(1f, good.CCT.matrix[0], 0.1f);
+        assertNotEquals(1f, good.colorTransform.matrix[0], 0.1f);
         // the row normalisation itself keeps such a row instead of dividing by it
         final float[] m = {1.5f, -0.49f, -1.0f, 0.3f, 0.4f, 0.3f, 0f, 0f, 1f};
         assertFalse(Parameters.normalize(m));
@@ -195,9 +195,9 @@ public class ParametersSingleCalibrationTest {
         when(res.get(android.hardware.camera2.CaptureResult.SENSOR_NEUTRAL_COLOR_POINT)).thenReturn(new android.util.Rational[]{
                 new android.util.Rational(1, 1), new android.util.Rational(2, 1), new android.util.Rational(6, 5)});
         final Parameters p = new Parameters();
-        p.ReCalcColor(false, res);
-        assertEquals(0.5f, p.whitePoint[0], 1e-6f);
-        assertEquals(1f, p.whitePoint[1], 0f);
-        assertEquals(0.6f, p.whitePoint[2], 1e-6f);
+        p.resolveColour(false, res);
+        assertEquals(0.5f, p.asShotNeutral[0], 1e-6f);
+        assertEquals(1f, p.asShotNeutral[1], 0f);
+        assertEquals(0.6f, p.asShotNeutral[2], 1e-6f);
     }
 }

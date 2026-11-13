@@ -23,8 +23,8 @@ final class PortraitGpu {
 
     private static PortraitSkin.Result measure(GLProg prog, GLTexture source, float[] faces, PostPipeline pipeline) {
         if (faces == null || faces.length < 4) return null;
-        final int side = Math.max(source.mSize.x, source.mSize.y);
-        final Point size = new Point(Math.max(1, source.mSize.x * 192 / side), Math.max(1, source.mSize.y * 192 / side));
+        final int side = Math.max(source.size.x, source.size.y);
+        final Point size = new Point(Math.max(1, source.size.x * 192 / side), Math.max(1, source.size.y * 192 / side));
         try (GLTexture sample = new GLTexture(size, new GLFormat(GLFormat.DataType.FLOAT_32, 4), null,
                 GLES20.GL_NEAREST, GLES20.GL_CLAMP_TO_EDGE)) {
             if (pipeline != null) prog.setDefine("CAMERA_SOURCE", 1);
@@ -46,7 +46,7 @@ final class PortraitGpu {
             Log.w("SCAM_PIPELINE", "Portrait skin sample skipped: " + e);
             return null;
         } finally {
-            source.BufferLoad();
+            source.renderInto();
             prog.closed = true;
         }
     }

@@ -1,6 +1,4 @@
-precision highp float;
-precision highp int;
-precision highp sampler2D;
+precision highp float; precision highp int; precision highp sampler2D;
 uniform sampler2D u_tex_rgb;
 uniform int u_width; uniform int u_height;
 uniform float u_quad_speckle_strength; uniform float u_quad_speckle_threshold;

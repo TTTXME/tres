@@ -22,7 +22,7 @@ public class GalleryItem implements Checkable {
 
     public GalleryItem(MediaFile file) {
         this.file = file;
-        shownName = file.getDisplayName();
+        shownName = file.displayName();
         badge = badgeOf(shownName);
     }
 
@@ -39,28 +39,31 @@ public class GalleryItem implements Checkable {
         return ext.toUpperCase(Locale.ROOT);
     }
 
-    public String getMediaTypeTag() {
+    /** The badge of the grid cell: «RAW», a format's extension, "" for a JPEG. */
+    public String typeTag() {
         return badge;
     }
 
-    public MediaFile getFile() {
+    /** The photo (an empty placeholder's has no row). P637: replaced by its MediaStore row once the scanner filed it. */
+    public MediaFile mediaFile() {
         return file;
     }
 
-    /** P637: the same photo under its MediaStore row once the scanner filed it (it was known by its path only). */
-    public void setFile(MediaFile file) {
+    public void replaceFile(MediaFile file) {
         this.file = file;
     }
 
-    public ArrayList<GalleryItem> getFiles() {
+    /** The items grouped under this one (a burst's other frames); empty for a single photo. */
+    public ArrayList<GalleryItem> groupedItems() {
         return grouped;
     }
 
-    public String getDisplayName() {
+    /** The name the grid shows (the file's, until a rename). */
+    public String shownName() {
         return shownName;
     }
 
-    public void setDisplayName(String name) {
+    public void setShownName(String name) {
         shownName = name;
     }
 

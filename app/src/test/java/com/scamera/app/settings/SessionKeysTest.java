@@ -11,7 +11,7 @@ import androidx.preference.PreferenceManager;
 import androidx.preference.PreferenceScreen;
 
 import com.scamera.app.R;
-import com.scamera.app.api.CameraEventsListener;
+import com.scamera.app.api.CameraEvents;
 import com.scamera.app.api.CameraManager2;
 import com.scamera.app.app.ScameraApp;
 import com.scamera.app.capture.CaptureController;
@@ -120,7 +120,7 @@ public class SessionKeysTest {
     public void everySensorConfigClassIsPlaced() {
         Set<Class<?>> session = new HashSet<>(SessionKeys.SESSION_CLASSES), shot = new HashSet<>(SessionKeys.PER_SHOT_CLASSES);
         assertTrue("one place each", Collections.disjoint(session, shot));
-        Set<Class<?>> registry = new HashSet<>(Arrays.asList(SensorConfigRegistry.SENSOR_CONFIG_CLASSES));
+        Set<Class<?>> registry = new HashSet<>(Arrays.asList(SensorConfigRegistry.OWNERS));
         for (Class<?> c : registry) assertTrue(c.getName(), session.contains(c) || shot.contains(c));
         for (Class<?> c : session) assertTrue(c.getName(), registry.contains(c) && !sensorFields(c).isEmpty());
         for (Class<?> c : shot) assertTrue(c.getName(), registry.contains(c) && !sensorFields(c).isEmpty());
@@ -254,7 +254,7 @@ public class SessionKeysTest {
                 (mock, c) -> when(mock.getCameraIdList()).thenReturn(new String[]{"3"}))) {
             Activity activity = mock(Activity.class);
             when(activity.getSystemService(Context.CAMERA_SERVICE)).thenReturn(mock(CameraManager.class));
-            CaptureController controller = new CaptureController(activity, mock(ExecutorService.class), mock(CameraEventsListener.class));
+            CaptureController controller = new CaptureController(activity, mock(ExecutorService.class), mock(CameraEvents.class));
             assertEquals("no session built yet", Collections.emptyList(), controller.sessionSettingsChanged());
             assertFalse(controller.sessionRunning());
             Field id = CaptureController.class.getDeclaredField("physicalID");

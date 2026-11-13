@@ -62,7 +62,7 @@ public final class GalleryUndo {
                 ContentResolver r = app.getContentResolver();
                 // P502: into the system's trash («Недавно удаленные», 30 days) where there is one; else deleted as before
                 java.util.List<android.net.Uri> uris = new java.util.ArrayList<>();
-                for (ImageFile f : files) uris.add(f.getFileUri());
+                for (ImageFile f : files) uris.add(f.contentUri());
                 if (com.scamera.app.gallery.files.GalleryTrash.setOwnTrashed(app, uris, true)) {
                     MAIN.post(() -> {
                         GalleryView.unhide(files);
@@ -72,10 +72,10 @@ public final class GalleryUndo {
                 }
                 for (ImageFile f : files) {
                     try {
-                        r.delete(f.getFileUri(), Build.VERSION.SDK_INT >= Build.VERSION_CODES.R ? null : MediaStore.MediaColumns._ID + "= ?",
-                                Build.VERSION.SDK_INT >= Build.VERSION_CODES.R ? null : new String[]{String.valueOf(f.getId())});
+                        r.delete(f.contentUri(), Build.VERSION.SDK_INT >= Build.VERSION_CODES.R ? null : MediaStore.MediaColumns._ID + "= ?",
+                                Build.VERSION.SDK_INT >= Build.VERSION_CODES.R ? null : new String[]{String.valueOf(f.rowId())});
                     } catch (RuntimeException e) {
-                        com.scamera.app.util.Log.w("GalleryUndo", "delete " + f.getFileUri() + ": " + e);
+                        com.scamera.app.util.Log.w("GalleryUndo", "delete " + f.contentUri() + ": " + e);
                     }
                 }
                 MAIN.post(() -> {

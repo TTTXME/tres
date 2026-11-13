@@ -6,7 +6,7 @@ import android.content.Context;
 import android.hardware.camera2.CameraDevice;
 import android.hardware.camera2.CameraManager;
 
-import com.scamera.app.api.CameraEventsListener;
+import com.scamera.app.api.CameraEvents;
 import com.scamera.app.api.CameraManager2;
 import com.scamera.app.api.CameraMode;
 import com.scamera.app.api.Settings;
@@ -60,7 +60,7 @@ public class VivoSdkFullResModeTest {
         app.when(() -> ScameraApp.getInstance(any(Context.class))).thenReturn(instance);
         PreferenceKeys.initialise(manager);
         settings = new Settings();
-        settings.mCameraID = "3";
+        settings.cameraId = "3";
         app.when(ScameraApp::getSettings).thenReturn(settings);
         preferences = mockStatic(PreferenceKeys.class);
         preferences.when(PreferenceKeys::isScamEnabled).thenReturn(true);
@@ -76,7 +76,7 @@ public class VivoSdkFullResModeTest {
                 (mock, call) -> when(mock.getCameraIdList()).thenReturn(new String[]{"3"}));
         Activity activity = mock(Activity.class);
         when(activity.getSystemService(Context.CAMERA_SERVICE)).thenReturn(mock(CameraManager.class));
-        controller = new CaptureController(activity, mock(ExecutorService.class), mock(CameraEventsListener.class));
+        controller = new CaptureController(activity, mock(ExecutorService.class), mock(CameraEvents.class));
     }
 
     @After public void cleanup() throws Exception {
@@ -106,8 +106,8 @@ public class VivoSdkFullResModeTest {
     }
 
     @Test public void thePhotoModeShownByTheUiActuallyOpensSdkAndUsesFutureRaw() throws Exception {
-        settings.selectedMode = CameraMode.userModeAt(0);
-        assertEquals(CameraMode.MOTION, settings.selectedMode);
+        settings.mode = CameraMode.userModeAt(0);
+        assertEquals(CameraMode.MOTION, settings.mode);
         prepare();
         sdk.verify(VivoSdkRawSession::open);
         assertNotNull(session());
@@ -118,7 +118,7 @@ public class VivoSdkFullResModeTest {
 
     @Test public void videoAndRetiredUnlimitedModesNeverOpenTheSdkPhotoGraph() throws Exception {
         for (CameraMode mode : new CameraMode[]{CameraMode.VIDEO, CameraMode.RAWVIDEO, CameraMode.UNLIMITED}) {
-            settings.selectedMode = mode;
+            settings.mode = mode;
             prepare();
             assertNull(session());
         }
@@ -128,7 +128,7 @@ public class VivoSdkFullResModeTest {
     }
 
     @Test public void sdkPreviewKeepsVariableFpsInsteadOfTheMotionRingRate() throws Exception {
-        settings.selectedMode = CameraMode.userModeAt(0);
+        settings.mode = CameraMode.userModeAt(0);
         prepare();
         android.util.Range<Integer> auto = new android.util.Range<>(15, 30);
         Field fps = CaptureController.class.getDeclaredField("FpsRangeAuto");
@@ -164,7 +164,7 @@ public class VivoSdkFullResModeTest {
             requested.set(call.getArgument(0));
             return null;
         });
-        settings.selectedMode = CameraMode.userModeAt(0);
+        settings.mode = CameraMode.userModeAt(0);
         prepare();
         assertNotNull(session());
         Method refuse = CaptureController.class.getDeclaredMethod("retryWithoutVivoSdkFullRes",

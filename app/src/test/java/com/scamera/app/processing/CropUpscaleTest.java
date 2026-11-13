@@ -44,8 +44,8 @@ public class CropUpscaleTest {
         int dng = s.indexOf("if (!yuvShot && (mosaicDngOnly || ((rawSaving >= 1) && alignMode != 2))) {", flag);
         int check = s.indexOf("final boolean mosaicDng = mosaicDngOnly;", dng);
         int merged = s.indexOf("if (scamMergedDng != null) {", check);
-        int stacked = s.indexOf("imageSaved = mosaicDng ? ImageSaver.Util.saveStackedRaw(dngFile, scamMergedDng, processingParameters, true)", merged);
-        int reference = s.indexOf("imageSaved = mosaicDng ? ImageSaver.Util.saveSingleRaw(dngFile, output, processingParameters, true)", stacked);
+        int stacked = s.indexOf("imageSaved = mosaicDng ? ImageSaver.Util.saveStackedRaw(dngPath, scamMergedDng, processingParameters, true)", merged);
+        int reference = s.indexOf("imageSaved = mosaicDng ? ImageSaver.Util.saveSingleRaw(dngPath, output, processingParameters, true)", stacked);
         int end = s.indexOf("if (rawSaving == 2 || mosaicDngOnly) {", reference);
         int pipeline = s.indexOf("PostPipeline pipeline = new PostPipeline();", end);
         assertTrue(block > 0 && flag > block && dng > flag && check > dng && merged > check && stacked > merged && reference > stacked
@@ -70,15 +70,15 @@ public class CropUpscaleTest {
         String d = src("src/main/java/com/scamera/app/processing/DngCreator.java");
         int params = d.indexOf("public void setParameters(Parameters p) {");
         int block = d.indexOf("setMosaicBlock(p.dngMosaicBlock);", params);
-        int gain = d.indexOf("setGainMap(p.gainMap,", params);
+        int gain = d.indexOf("setGainMap(p.shadingMap,", params);
         assertTrue("the block before the GainMap", params > 0 && block > params && gain > block);
         String s = src("src/main/java/com/scamera/app/processing/processor/ScamProcessor.java");
         int ref = s.indexOf("referenceDngBlock = yuvShot ? 1 : com.scamera.app.processing.opengl.postpipeline.ScamHybridBurst.lastStreamBlock;");
         int merged = s.indexOf("processingParameters.dngMosaicBlock = mergedDngBlock;", ref);
-        int mergedSave = s.indexOf("ImageSaver.Util.saveStackedRaw(dngFile, scamMergedDng, processingParameters, true)", merged);
+        int mergedSave = s.indexOf("ImageSaver.Util.saveStackedRaw(dngPath, scamMergedDng, processingParameters, true)", merged);
         int mergedReset = s.indexOf("processingParameters.dngMosaicBlock = 1;", mergedSave);
         int reference = s.indexOf("processingParameters.dngMosaicBlock = referenceDngBlock;", mergedReset);
-        int referenceSave = s.indexOf("ImageSaver.Util.saveSingleRaw(dngFile, output, processingParameters, true)", reference);
+        int referenceSave = s.indexOf("ImageSaver.Util.saveSingleRaw(dngPath, output, processingParameters, true)", reference);
         int referenceReset = s.indexOf("processingParameters.dngMosaicBlock = 1;", referenceSave);
         assertTrue(ref > 0 && merged > ref && mergedSave > merged && mergedReset > mergedSave && reference > mergedReset
                 && referenceSave > reference && referenceReset > referenceSave);

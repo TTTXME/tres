@@ -118,61 +118,53 @@ android {
         if (graph.hasTask(assembleDebug) || graph.hasTask(assembleRelease)) autoIncrementBuildNumber()
     }
 
+    // P662: both build types are shrunk by R8 without renaming (proguard-rules.pro: -dontobfuscate; the keeps for reflection,
+    // JNI, GSON, the su launcher's main) and with unused resources removed (res/raw/keep.xml); unit tests still run on the
+    // javac classes. Native code is never debuggable, the APK is zip-aligned.
+    buildTypes.configureEach {
+        minifyEnabled = true
+        shrinkResources = true
+        proguardFiles(getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro')
+        jniDebuggable = false
+        zipAlignEnabled = true
+    }
     buildTypes {
-        release {
-            minifyEnabled true
-            shrinkResources true
-            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            jniDebuggable = false
-            zipAlignEnabled = true
-            signingConfig signingConfigs.debug
-        }
+        // The shipped variant (CI and local packaging use assembleDebug). Not debuggable: ART compiles the app instead of
+        // interpreting it, and the JNI libraries (RAW copy/convert, DNG writer) are built optimised - the Debug CMake type
+        // built them at -O0.
         debug {
-            // This is the shipped variant (CI and local packaging use assembleDebug).
-            // Not debuggable: ART compiles the app instead of interpreting it, and the
-            // JNI libraries (RAW copy/convert, DNG writer) are built optimised - the
-            // Debug CMake type built them at -O0.
-            debuggable false
-            // P662: shrunk by R8 without renaming (proguard-rules.pro: -dontobfuscate; the keeps for reflection, JNI, GSON, the su
-            // launcher's main) and with unused resources removed (res/raw/keep.xml); unit tests still run on the javac classes.
-            minifyEnabled true
-            shrinkResources true
-            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            jniDebuggable = false
-            zipAlignEnabled = true
-            externalNativeBuild {
-                cmake {
-                    arguments "-DCMAKE_BUILD_TYPE=Release"
-                }
+            debuggable = false
+            externalNativeBuild.cmake {
+                arguments '-DCMAKE_BUILD_TYPE=Release'
             }
         }
-    }
-
-    externalNativeBuild {
-        cmake {
-            version System.getenv('SCAMERA_LOCAL_CMAKE_VERSION') ?: "3.22.1"
-            path "src/main/cpp/CMakeLists.txt"
+        release {
+            signingConfig = signingConfigs.debug
         }
     }
 
+    // the JNI libraries (CMake: the SDK's pinned 3.22.1 unless a local build substitutes its own)
+    externalNativeBuild.cmake {
+        path = file('src/main/cpp/CMakeLists.txt')
+        version = System.getenv('SCAMERA_LOCAL_CMAKE_VERSION') ?: '3.22.1'
+    }
+
+    def javaLevel = JavaVersion.VERSION_17
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
+        sourceCompatibility = javaLevel
+        targetCompatibility = javaLevel
     }
+    // Lint reports but never fails the build; the shipped debug variant is not debuggable, so lintVital is skipped on assemble.
     lint {
-        abortOnError false
-        // The shipped debug variant is not debuggable; skip lintVital on assemble.
-        checkReleaseBuilds false
+        abortOnError = false
+        checkReleaseBuilds = false
     }
-    namespace 'com.scamera.app'
-    applicationVariants.all {
-        variant -> variant.outputs.all {
-            outputFileName = "SCAMERA-${versionName}-${variant.versionCode}-${variant.name}.apk"
-        }
+    namespace = 'com.scamera.app'
+    // APK name SCAMERA-<versionName>-<versionCode>-<variant>.apk; every assembled APK is checked (gradle/verify-apk.gradle)
+    applicationVariants.all { variant ->
+        variant.outputs.all { outputFileName = "SCAMERA-${versionName}-${variant.versionCode}-${variant.name}.apk" }
         variant.assembleProvider.configure {
-            doLast {
-                variant.outputs.each { output -> verifyApkCode(output.outputFile) }
-            }
+            doLast { variant.outputs.each { verifyApkCode(it.outputFile) } }
         }
     }
     testOptions {
@@ -216,51 +208,56 @@ tasks.configureEach {
     if (name.startsWith('merge') && name.endsWith('JniLibFolders')) dependsOn(buildScamNeuralWorker)
 }
 
-dependencies {
+// The libraries, by role. Versions are pinned (offline CI cache).
+def appLibraries = [
+        // AndroidX UI and preferences
+        'androidx.appcompat:appcompat:1.7.1',
+        'androidx.constraintlayout:constraintlayout:2.2.1',
+        'androidx.preference:preference-ktx:1.2.1',
+        'androidx.recyclerview:recyclerview:1.4.0',
+        'androidx.core:core-ktx:1.18.0',
+        'androidx.navigation:navigation-fragment-ktx:2.9.7',
+        'androidx.navigation:navigation-ui-ktx:2.9.7',
+        'com.google.android.material:material:1.13.0',
+        // photos: EXIF, HEIC output (API 28+; the library's minSdk 28 is overridden in the manifest and every use is guarded),
+        // the gallery's decoding, zoomable viewer and storage access
+        'androidx.exifinterface:exifinterface:1.4.2',
+        'androidx.heifwriter:heifwriter:1.1.0',
+        'com.github.bumptech.glide:glide:5.0.5',
+        'com.davemorrissey.labs:subsampling-scale-image-view-androidx:3.10.0',
+        'com.anggrayudi:storage:2.2.0',
+        // P504 (owner, 2026-11-05: «Поиск должен искать текст на фото … копировать текст с фото на любом языке»): Tesseract 5 OCR
+        // (Apache-2.0) with the tessdata_fast models in assets/tessdata
+        'com.github.adaptech-cz.Tesseract4Android:tesseract4android-openmp:4.8.0',
+        // the rest
+        'com.github.mohammadatif:Animatoo:master',
+        'commons-io:commons-io:20030203.000550',
+        'com.google.code.gson:gson:2.13.2',
+        'org.jetbrains:annotations:26.1.0',
+        "org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlin_version",
+]
+def hostTestLibraries = [
+        'junit:junit:4.13.2',
+        'org.junit.jupiter:junit-jupiter:6.0.3',
+        'org.mockito:mockito-core:5.23.0',
+        'org.robolectric:robolectric:4.17',
+]
+def deviceTestLibraries = [
+        'androidx.test:core:1.7.0',
+        'androidx.test:runner:1.6.2',
+        'androidx.test.ext:junit:1.3.0',
+        'org.testng:testng:7.12.0',
+]
 
+dependencies {
+    implementation project(':circularbarlib')
     implementation fileTree(dir: 'libs', include: ['*.jar'])
-    implementation project(path: ':circularbarlib')
-    implementation 'androidx.appcompat:appcompat:1.7.1'
-    implementation 'androidx.constraintlayout:constraintlayout:2.2.1'
-    implementation 'androidx.preference:preference-ktx:1.2.1'
-    implementation 'org.jetbrains:annotations:26.1.0'
-    implementation 'androidx.exifinterface:exifinterface:1.4.2'
-    // HEIC photo output (API 28+; the library's minSdk 28 is overridden in the manifest and every use is guarded)
-    implementation 'androidx.heifwriter:heifwriter:1.1.0'
-    implementation 'androidx.recyclerview:recyclerview:1.4.0'
-    implementation 'com.github.mohammadatif:Animatoo:master'
-    implementation 'com.github.bumptech.glide:glide:5.0.5'
+    appLibraries.each { implementation it }
     annotationProcessor 'com.github.bumptech.glide:compiler:5.0.5'
-    implementation group: 'commons-io', name: 'commons-io', version: '20030203.000550'
-    implementation 'com.google.code.gson:gson:2.13.2'
-    // Navigation Component
-    implementation "androidx.navigation:navigation-fragment-ktx:2.9.7"
-    implementation "androidx.navigation:navigation-ui-ktx:2.9.7"
-    //Subsampling image view
-    implementation 'com.davemorrissey.labs:subsampling-scale-image-view-androidx:3.10.0'
-    //Google Material
-    implementation 'com.google.android.material:material:1.13.0'
-    implementation "androidx.core:core-ktx:1.18.0"
-    implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlin_version"
-    implementation "com.anggrayudi:storage:2.2.0"
-    // P504 (owner, 2026-11-05: «Поиск должен искать текст на фото … копировать текст с фото на любом языке»): Tesseract 5 OCR
-    // (Apache-2.0) with the tessdata_fast models in assets/tessdata
-    implementation 'com.github.adaptech-cz.Tesseract4Android:tesseract4android-openmp:4.8.0'
-    //implementation 'com.microsoft.onnxruntime:onnxruntime-android:latest.release'
-    //Leak Canary
-    //Use this lib to detect memory leaks when debugging
-    //debugImplementation 'com.squareup.leakcanary:leakcanary-android:2.6'
-    //For Testing
-    testImplementation 'org.mockito:mockito-core:5.23.0'
-    testImplementation 'org.junit.jupiter:junit-jupiter:6.0.3'
-    testImplementation 'junit:junit:4.13.2'
-    testImplementation 'org.robolectric:robolectric:4.17'
+    hostTestLibraries.each { testImplementation it }
     // Robolectric delegates javax.* to the host loader; EGL context tests need these API classes there.
     testRuntimeOnly 'org.khronos:opengl-api:gl1.1-android-2.1_r1'
-    androidTestImplementation 'org.testng:testng:7.12.0'
-    androidTestImplementation 'androidx.test:runner:1.6.2'
-    androidTestImplementation 'androidx.test:core:1.7.0'
-    androidTestImplementation 'androidx.test.ext:junit:1.3.0'
+    deviceTestLibraries.each { androidTestImplementation it }
 }
 repositories {
     mavenCentral()

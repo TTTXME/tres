@@ -41,10 +41,7 @@
 namespace scam {
 
 static const char* kLaGlslCommon = R"(
-precision highp float;
-precision highp int;
-precision highp sampler2D;
-precision highp image2D;
+precision highp float; precision highp int; precision highp sampler2D; precision highp image2D;
 )";
 
 // gray of one canonical quad (laGrayRow): the quad's four sites normalised by black / white of each phase and clamped to [0, 1],

@@ -121,7 +121,7 @@ public final class OplusDcg {
     @Nullable
     private static String currentCamera() {
         try {
-            return com.scamera.app.app.ScameraApp.getSettings().mCameraID;
+            return com.scamera.app.app.ScameraApp.getSettings().cameraId;
         } catch (RuntimeException e) {
             return null;
         }

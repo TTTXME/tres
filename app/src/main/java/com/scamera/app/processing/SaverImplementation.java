@@ -28,7 +28,7 @@ import java.util.HashMap;
 
 /**
  * A saver of one image format (ImageSaverSelector picks it): the frames it takes become {@link ImageFrame}s in the shared
- * {@link #IMAGE_BUFFER}; the RAW route's subclass (DefaultSaver) then hands the burst to the processing. This base turns a
+ * {@link #FRAME_QUEUE}; the RAW route's subclass (DefaultSaver) then hands the burst to the processing. This base turns a
  * camera {@link Image} into a frame ({@link #getFrame}) and does nothing with the burst itself.
  */
 public class SaverImplementation {
@@ -37,11 +37,11 @@ public class SaverImplementation {
     private static final int RAW10 = 0x25, RAW12 = 0x26;
 
     /** The frames of the burst being collected (the capture's, until ImageSaver.detachForQueue moves them to a saver of its own). */
-    public static ArrayList<ImageFrame> IMAGE_BUFFER = new ArrayList<>();
+    public static ArrayList<ImageFrame> FRAME_QUEUE = new ArrayList<>();
     /** Set while DefaultSaver takes the burst; the RAW saver clears it once a frame is in (DefaultSaver waits on it). */
     public volatile boolean bufferLock = true;
     public int frameCount;
-    public final ProcessingEventsListener processingEventsListener;
+    public final ProcessingEvents processingEventsListener;
 
     // ---- the shot's state (ImageSaver hands it over) ----
 
@@ -72,20 +72,20 @@ public class SaverImplementation {
 
     /** The processing's start and end as CaptureController.isProcessing (the UI's busy state); a failure ends it too. */
     static final ProcessorBase.ProcessingCallback processingCallback = new ProcessorBase.ProcessingCallback() {
-        @Override public void onStarted() {
+        @Override public void started() {
             CaptureController.isProcessing = true;
         }
 
-        @Override public void onFinished() {
+        @Override public void finished() {
             CaptureController.isProcessing = false;
         }
 
-        @Override public void onFailed() {
-            onFinished();
+        @Override public void failed() {
+            finished();
         }
     };
 
-    public SaverImplementation(ProcessingEventsListener listener) {
+    public SaverImplementation(ProcessingEvents listener) {
         processingEventsListener = listener;
     }
 
@@ -121,7 +121,7 @@ public class SaverImplementation {
         if (!payload.plain() && rows.format == ImageFormat.RAW_SENSOR) payload = unpackedLayout(image, buffer, camera, payload, rows);
         if (!payload.plain()) {
             Log.w(TAG, "post-shutter " + payload.error);
-            RawPayloadCheck.dumpOnce(image, payload, ScameraApp.getSettings().mCameraID);
+            RawPayloadCheck.dumpOnce(image, payload, ScameraApp.getSettings().cameraId);
         }
         // P635 / P635b: a recipe shot's truth check on the whole buffer, before any crop
         final FullResRecipeShot recipe = recipeShot;
@@ -130,7 +130,7 @@ public class SaverImplementation {
             if (truth.verdict == FullResTruth.Verdict.UPSCALED || truth.verdict == FullResTruth.Verdict.PARTIAL)
                 return recipeFrame(image, buffer, rows, truth);
         }
-        if (!iszAspect4x3 && ScameraApp.getSettings().aspect169 && rows.width > rows.height) cropTo169(image, rows);
+        if (!iszAspect4x3 && ScameraApp.getSettings().wide169 && rows.width > rows.height) cropTo169(image, rows);
         Allocator.binning = ScameraApp.getSettings().binning;
         if (tetraBin) return tetraBinned(image, buffer, rows.format, payload, rows.stride, rows.height);
         final ImageFrame frame = new ImageFrame(buffer, rows.format, rows.width, rows.stride, rows.offset, rows.capacity, shotArena);
@@ -273,6 +273,6 @@ public class SaverImplementation {
                              CaptureRequest captureRequest, int cameraRotation) {
     }
 
-    public void processEnd() {
+    public void finishShot() {
     }
 }

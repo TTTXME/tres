@@ -129,19 +129,19 @@ public class Gyro {
             framePath += Math.abs(dx);
             framePath += Math.abs(dy);
             framePath += Math.abs(dz);
-            if (frameSamples < frame.movementss[0].length) {
-                frame.movementss[0][frameSamples] = dx;
-                frame.movementss[1][frameSamples] = dy;
-                frame.movementss[2][frameSamples] = dz;
+            if (frameSamples < frame.angleSteps[0].length) {
+                frame.angleSteps[0][frameSamples] = dx;
+                frame.angleSteps[1][frameSamples] = dy;
+                frame.angleSteps[2][frameSamples] = dz;
                 frameSamples++;
             }
         } else {
             synchronized (ringLock) {
                 ringNext %= RING;
-                ring.movementss[0][ringNext] = dx;
-                ring.movementss[1][ringNext] = dy;
-                ring.movementss[2][ringNext] = dz;
-                ring.timestampss[ringNext] = ts;
+                ring.angleSteps[0][ringNext] = dx;
+                ring.angleSteps[1][ringNext] = dy;
+                ring.angleSteps[2][ringNext] = dz;
+                ring.sampleTimes[ringNext] = ts;
                 ringStepStarts[ringNext] = previousTs;
                 ringNext++;
             }
@@ -307,11 +307,11 @@ public class Gyro {
         if (!collecting) return;
         collecting = false;
         final GyroBurst done = frame;
-        done.shakiness = Math.min(framePath * framePath, Float.MAX_VALUE);
-        done.samples = frameSamples;
-        done.integrated[0] = -sumX;
-        done.integrated[1] = sumY;
-        done.integrated[2] = sumZ;
+        done.shakeScore = Math.min(framePath * framePath, Float.MAX_VALUE);
+        done.sampleCount = frameSamples;
+        done.integratedAngles[0] = -sumX;
+        done.integratedAngles[1] = sumY;
+        done.integratedAngles[2] = sumZ;
         seriesFrames.add(done.compactCopy());
     }
 
@@ -327,7 +327,7 @@ public class Gyro {
             for (long frameTs : frameTimestamps) {
                 final GyroBurst motion = GyroExposureWindow.extract(ringStepStarts, ring, ringNext, frameTs, exposureTimeNs, comparableClock);
                 result.add(motion);
-                shake.append(' ').append(motion.shakiness).append('/').append(motion.samples);
+                shake.append(' ').append(motion.shakeScore).append('/').append(motion.sampleCount);
             }
             Log.d(TAG, "ZSL gyro: frames=" + frameTimestamps.length + " exposure=" + exposureTimeNs + " comparableClock=" + comparableClock
                     + " shake/samples:" + shake);
@@ -338,7 +338,7 @@ public class Gyro {
     public float zslShake(long frameTs, long exposureNs, boolean comparableClock) {
         synchronized (ringLock) {
             final GyroBurst motion = GyroExposureWindow.extract(ringStepStarts, ring, ringNext, frameTs, exposureNs, comparableClock);
-            return motion.samples > 0 ? motion.shakiness : Float.NaN;
+            return motion.sampleCount > 0 ? motion.shakeScore : Float.NaN;
         }
     }
 
@@ -352,8 +352,8 @@ public class Gyro {
         // to the burst average or interpolate unknown motion from other frames.
         final StringBuilder shake = new StringBuilder();
         for (GyroBurst done : seriesFrames) {
-            done.recalculateShakiness();
-            shake.append(' ').append(done.shakiness).append('/').append(done.samples);
+            done.recomputeShake();
+            shake.append(' ').append(done.shakeScore).append('/').append(done.sampleCount);
         }
         // W1.0: one line instead of one per frame.
         Log.d(TAG, "GyroBurst Shakiness/sampleCount (" + seriesFrames.size() + "):" + shake);
@@ -392,7 +392,7 @@ public class Gyro {
 
     /** On a tripod in a photo mode (P25: the detection moved from the retired Night mode to Photo). */
     public boolean getTripod() {
-        return tripodShakiness < TRIPOD_SHAKE && CameraMode.isStill(ScameraApp.getSettings().selectedMode);
+        return tripodShakiness < TRIPOD_SHAKE && CameraMode.isStill(ScameraApp.getSettings().mode);
     }
 
     // ---- the horizon's angles --------------------------------------------------------------------------------------

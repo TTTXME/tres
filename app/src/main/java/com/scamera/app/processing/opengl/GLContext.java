@@ -33,10 +33,9 @@ public class GLContext implements AutoCloseable {
     private EGLContext context;
     private EGLSurface surface;
     private boolean holdsKept;
-    public GLProg mProgram;
-    /** The tile target of GLCoreBlockProcessing (its framebuffer and renderbuffer). */
-    public final int[] bindFB = new int[1];
-    public final int[] bindRB = new int[1];
+    public GLProg program;
+    /** The tile target of GLCoreBlockProcessing: its framebuffer and renderbuffer names. */
+    public final int[] tileFramebuffer = new int[1], tileRenderbuffer = new int[1];
 
     public GLContext(int surfaceWidth, int surfaceHeight) {
         createContext(surfaceWidth, surfaceHeight);
@@ -65,7 +64,7 @@ public class GLContext implements AutoCloseable {
             display = keptDisplay;
             context = keptContext;
             surface = keptSurface;
-            mProgram = keptProgram;
+            program = keptProgram;
             holdsKept = true;
         }
         resetState();
@@ -91,7 +90,7 @@ public class GLContext implements AutoCloseable {
             keptDisplay = display;
             keptContext = context;
             keptSurface = surface;
-            keptProgram = mProgram;
+            keptProgram = program;
             keptTaken = true;
             holdsKept = true;
         }
@@ -141,7 +140,7 @@ public class GLContext implements AutoCloseable {
         surface = EGL14.eglCreatePbufferSurface(display, config[0],
                 new int[]{EGL14.EGL_WIDTH, width, EGL14.EGL_HEIGHT, height, EGL14.EGL_NONE}, 0);
         EGL14.eglMakeCurrent(display, surface, surface, context);
-        mProgram = new GLProg();
+        program = new GLProg();
     }
 
     private int pbufferSide(EGLConfig config, int limitAttribute, int wanted) {
@@ -200,7 +199,7 @@ public class GLContext implements AutoCloseable {
             synchronized (GLContext.class) { keptTaken = false; }
             return;
         }
-        quietly(() -> { if (mProgram != null) mProgram.close(); });
+        quietly(() -> { if (program != null) program.close(); });
         quietly(() -> EGL14.eglMakeCurrent(d, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_CONTEXT));
         quietly(() -> { if (c != null) EGL14.eglDestroyContext(d, c); });
         quietly(() -> { if (s != null) EGL14.eglDestroySurface(d, s); });

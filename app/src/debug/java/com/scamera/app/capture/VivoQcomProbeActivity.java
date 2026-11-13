@@ -401,14 +401,14 @@ public final class VivoQcomProbeActivity extends Activity {
     private void installCtsEndConfigureGate(CameraDevice opened) throws Exception {
         com.scamera.app.api.NativeEngine.initialize();
         java.lang.reflect.Field wrapperField = com.scamera.app.api.NativeEngine
-                .getCameraField(opened.getClass(), "mRemoteDevice");
+                .findField(opened.getClass(), "mRemoteDevice");
         if (wrapperField == null) throw new NoSuchFieldException("CameraDeviceImpl.mRemoteDevice");
         wrapperField.setAccessible(true);
         Object wrapper = wrapperField.get(opened);
         if (wrapper == null || !"android.hardware.camera2.impl.ICameraDeviceUserWrapper".equals(wrapper.getClass().getName()))
             throw new IllegalStateException("CTS endConfigure wrapper type differs");
         java.lang.reflect.Field remoteField = com.scamera.app.api.NativeEngine
-                .getCameraField(wrapper.getClass(), "mRemoteDevice");
+                .findField(wrapper.getClass(), "mRemoteDevice");
         if (remoteField == null) throw new NoSuchFieldException("ICameraDeviceUserWrapper.mRemoteDevice");
         remoteField.setAccessible(true);
         Object original = remoteField.get(wrapper);

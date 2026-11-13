@@ -71,11 +71,11 @@ final class ViewfinderHud {
             final int shownIso = iso != null ? iso : controller.mPreviewIso;
             return new String[]{ExposureIndex.sec2string(ExposureIndex.time2sec(shownNs)) + "s", isoPrefix + shownIso};
         }
-        final IsoExpoSelector.ExpoPair pair = IsoExpoSelector.GenerateExpoPair(-1, controller);
+        final IsoExpoSelector.ExpoPair pair = IsoExpoSelector.meteredPair(-1, controller);
         final String shutterMark = pair.isShutterTripodBypassed ? " · UNLMT"
                 : pair.isShutterLimited ? " · LMT" : pair.isShutterManualOverLimit ? " · >LMT" : "";
         final String isoMark = pair.isIsoLimited ? " · LMT" : pair.isIsoManualOverLimit ? " · >LMT" : "";
-        return new String[]{pair.ExposureString() + "s" + shutterMark, isoPrefix + pair.iso + isoMark};
+        return new String[]{pair.timeText() + "s" + shutterMark, isoPrefix + pair.iso + isoMark};
     }
 
     /**
@@ -123,20 +123,12 @@ final class ViewfinderHud {
         final String mode = afMode != null && afMode == CaptureRequest.CONTROL_AF_MODE_AUTO ? "AF-S"
                 : afMode != null && afMode == CaptureRequest.CONTROL_AF_MODE_MACRO ? "AF-Macro" : "AF-C";
         if (afState == null) return mode;
-        switch (afState) {
-            case CaptureResult.CONTROL_AF_STATE_PASSIVE_SCAN:
-            case CaptureResult.CONTROL_AF_STATE_ACTIVE_SCAN:
-                return mode + " · SCAN";
-            case CaptureResult.CONTROL_AF_STATE_PASSIVE_FOCUSED:
-            case CaptureResult.CONTROL_AF_STATE_FOCUSED_LOCKED:
-                return mode + " · LOCK";
-            case CaptureResult.CONTROL_AF_STATE_NOT_FOCUSED_LOCKED:
-                return mode + " · FAIL";
-            case CaptureResult.CONTROL_AF_STATE_PASSIVE_UNFOCUSED:
-                return mode + " · LOST";
-            default:
-                return mode;
-        }
+        final int state = afState;
+        final String tag = state == CaptureResult.CONTROL_AF_STATE_ACTIVE_SCAN || state == CaptureResult.CONTROL_AF_STATE_PASSIVE_SCAN ? "SCAN"
+                : state == CaptureResult.CONTROL_AF_STATE_FOCUSED_LOCKED || state == CaptureResult.CONTROL_AF_STATE_PASSIVE_FOCUSED ? "LOCK"
+                : state == CaptureResult.CONTROL_AF_STATE_NOT_FOCUSED_LOCKED ? "FAIL"
+                : state == CaptureResult.CONTROL_AF_STATE_PASSIVE_UNFOCUSED ? "LOST" : null;
+        return tag == null ? mode : mode + " · " + tag;
     }
 
     /**

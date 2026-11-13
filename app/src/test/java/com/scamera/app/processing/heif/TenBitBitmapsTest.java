@@ -122,16 +122,16 @@ public class TenBitBitmapsTest {
         final GLImage image = new GLImage(src);
         final ByteBuffer expected = ByteBuffer.allocate(33 * 70 * 4);
         TenBitBitmaps.toArgb8888(src).copyPixelsToBuffer(expected);
-        assertEquals(33 * 70 * 4, image.byteBuffer.capacity());
+        assertEquals(33 * 70 * 4, image.pixelData.capacity());
         for (int i = 0; i < 33 * 70 * 4; i++)
-            assertEquals(i + "", expected.get(i) & 0xFF, image.byteBuffer.get(i) & 0xFF, 1);
+            assertEquals(i + "", expected.get(i) & 0xFF, image.pixelData.get(i) & 0xFF, 1);
         // an ARGB_8888 bitmap still uploads its own bytes
         final Bitmap eight = TenBitBitmaps.toArgb8888(src);
         final GLImage raw = new GLImage(eight);
         final ByteBuffer own = ByteBuffer.allocate(eight.getByteCount());
         eight.copyPixelsToBuffer(own);
         own.rewind();
-        assertEquals(own, raw.byteBuffer);
+        assertEquals(own, raw.pixelData);
     }
 
     @Test

@@ -541,7 +541,7 @@ public final class SensorConfigPreferenceGenerator {
     /** The page's fields in {@link #rank} order (getDeclaredFields() has no defined order). */
     private static List<FieldSpec> scanFields() {
         List<FieldSpec> fields = new ArrayList<>();
-        for (Class<?> c : SensorConfigRegistry.SENSOR_CONFIG_CLASSES) fields.addAll(FieldSpec.sensorConfigs(c));
+        for (Class<?> c : SensorConfigRegistry.OWNERS) fields.addAll(FieldSpec.sensorConfigs(c));
         fields.sort(java.util.Comparator.comparingInt(s -> rank(s.name)));
         return fields;
     }

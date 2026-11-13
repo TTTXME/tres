@@ -40,7 +40,7 @@ public class OcrIndexTest {
     public void pendingSkipsWhatWasReadAndWhatIsNotAPhoto() {
         Context c = RuntimeEnvironment.getApplication();
         ImageFile read = file(1, "a.jpg"), left = file(2, "b.jpg"), video = file(3, "c.mp4"), changed = file(4, "d.jpg");
-        OcrIndex.put(c, 1, read.getLastModified(), "EXIT");
+        OcrIndex.put(c, 1, read.modifiedMs(), "EXIT");
         OcrIndex.put(c, 4, 1, "old"); // the photo changed since it was read
         List<MediaFile> todo = OcrIndex.pending(Arrays.asList(read, left, video, changed));
         assertEquals(Arrays.asList(left, changed), todo);

@@ -21,14 +21,14 @@ public final class WhiteBalanceModel extends ManualModel<Integer> {
     @Override
     protected void addStops() {
         chosen = makeAutoStop(0, null);
-        getKnobInfoList().add(chosen);
+        stopList().add(chosen);
         if (!ManualWhiteBalance.isSupported(cameraCharacteristics)) return;
-        for (int k = COOLEST, stop = 1; k <= WARMEST; k += STEP, stop++) getKnobInfoList().add(new KnobItemInfo(k + "K", stop, k));
+        for (int k = COOLEST, stop = 1; k <= WARMEST; k += STEP, stop++) stopList().add(new KnobItemInfo(k + "K", stop, k));
     }
 
     @Override
     public void onSelectedKnobItemChanged(KnobItemInfo stop) {
         chosen = stop;
-        params.setWhiteBalanceKelvin((int) chosen.value);
+        params.setKelvinSetting((int) chosen.cameraValue);
     }
 }

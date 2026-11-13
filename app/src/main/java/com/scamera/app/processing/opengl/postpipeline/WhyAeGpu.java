@@ -26,7 +26,7 @@ final class WhyAeGpu {
 
     @Nullable
     static WhyAe.Stats stats(GLProg prog, GLTexture low, int mode) {
-        final int w = low.mSize.x, h = low.mSize.y;
+        final int w = low.size.x, h = low.size.y;
         final int gx = (w + TILE - 1) / TILE, gy = (h + TILE - 1) / TILE;
         final GLFormat u32 = new GLFormat(GLFormat.DataType.UNSIGNED_32);
         while (GLES31.glGetError() != GLES31.GL_NO_ERROR) {
@@ -103,7 +103,7 @@ final class WhyAeGpu {
 
     @Nullable
     static Pending begin(GLProg prog, GLTexture low, int mode) {
-        final int w = low.mSize.x, h = low.mSize.y;
+        final int w = low.size.x, h = low.size.y;
         final int gx = (w + TILE - 1) / TILE, gy = (h + TILE - 1) / TILE;
         final GLFormat u32 = new GLFormat(GLFormat.DataType.UNSIGNED_32);
         while (GLES31.glGetError() != GLES31.GL_NO_ERROR) {

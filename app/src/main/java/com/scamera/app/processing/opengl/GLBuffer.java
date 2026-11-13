@@ -22,56 +22,54 @@ import static com.scamera.app.processing.opengl.GLCoreBlockProcessing.checkEglEr
  * index; it matched the shader only when the driver handed out the names 1..n, as Adreno does).
  */
 public class GLBuffer implements AutoCloseable {
-    public int mBufferID;
-    /** Elements and bytes of the store. */
-    public int size;
-    public int byteSize;
-    /** The usage hint of glBufferData. */
-    public int mode;
-    public GLFormat mFormat;
+    /** The GL buffer name. */
+    public int bufferId;
+    /** Elements and bytes of the store, the usage hint of glBufferData and the element format. */
+    public int elementCount, bytes, usageHint;
+    public GLFormat elementFormat;
     /** The client copy the store is (re)filled from: zeros unless a caller wrote into it. */
-    public ByteBuffer byteBuffer;
+    public ByteBuffer clientCopy;
 
     public GLBuffer(int elements, GLFormat format) {
         this(elements, format, GL_STATIC_DRAW);
     }
 
     public GLBuffer(int elements, GLFormat format, int usage) {
-        mFormat = new GLFormat(format);
-        size = elements;
-        byteSize = elements * format.mFormat.mSize;
-        mode = usage;
-        byteBuffer = ByteBuffer.allocateDirect(byteSize).order(ByteOrder.nativeOrder());
+        elementFormat = new GLFormat(format);
+        elementCount = elements;
+        bytes = elements * format.mFormat.mSize;
+        usageHint = usage;
+        clientCopy = ByteBuffer.allocateDirect(bytes).order(ByteOrder.nativeOrder());
         final int[] name = new int[1];
         glGenBuffers(1, name, 0);
-        mBufferID = name[0];
+        bufferId = name[0];
         Bind();
         Buffering();
     }
 
     public void Bind() {
-        glBindBuffer(GL_SHADER_STORAGE_BUFFER, mBufferID);
-        checkEglError("bind buffer:" + mBufferID);
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, bufferId);
+        checkEglError("bind buffer:" + bufferId);
     }
 
     /** Binds this buffer at {@code index} of the indexed target {@code target} (GL_SHADER_STORAGE_BUFFER, ...). */
     public void BindBase(int index, int target) {
         Bind();
-        glBindBufferBase(target, index, mBufferID);
-        checkEglError("bind buffer base:" + mBufferID);
+        glBindBufferBase(target, index, bufferId);
+        checkEglError("bind buffer base:" + bufferId);
     }
 
     /** The whole store from {@link #byteBuffer} again (the bound buffer). */
     public void Buffering() {
-        glBufferData(GL_SHADER_STORAGE_BUFFER, byteSize, byteBuffer.asIntBuffer(), mode);
-        checkEglError("clear buffer:" + mBufferID);
+        glBufferData(GL_SHADER_STORAGE_BUFFER, bytes, clientCopy.asIntBuffer(), usageHint);
+        checkEglError("clear buffer:" + bufferId);
     }
 
     /** The store as native-order ints (null when it could not be mapped); {@code clear}: refilled from byteBuffer after. */
     public int[] readBufferIntegers(boolean clear) {
         Bind();
         checkEglError("bind SSBO");
-        final ByteBuffer mapped = (ByteBuffer) glMapBufferRange(GL_SHADER_STORAGE_BUFFER, 0, byteSize, GL_MAP_READ_BIT);
+        final ByteBuffer mapped = (ByteBuffer) glMapBufferRange(GL_SHADER_STORAGE_BUFFER, 0, bytes, GL_MAP_READ_BIT);
         checkEglError("getByteBuffer");
         int[] values = null;
         if (mapped != null) {
@@ -80,15 +78,15 @@ public class GLBuffer implements AutoCloseable {
             ints.get(values);
         }
         glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
-        checkEglError("unmap buffer:" + mBufferID);
+        checkEglError("unmap buffer:" + bufferId);
         if (clear) Buffering();
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
-        checkEglError("unbind buffer:" + mBufferID);
+        checkEglError("unbind buffer:" + bufferId);
         return values;
     }
 
     @Override
     public void close() {
-        glDeleteBuffers(1, new int[]{mBufferID}, 0);
+        glDeleteBuffers(1, new int[]{bufferId}, 0);
     }
 }

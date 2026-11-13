@@ -78,7 +78,7 @@ public class WhyWindowTest {
         assertTrue(shader.contains("#define WINDOW 0\n"));
         assertTrue(shader.contains("if (share > 0.0) fusedL = mix(fusedL, texelFetch(Fused31, xy, 0).r, share);"));
         final String fusion = read("src/main/java/com/scamera/app/processing/opengl/postpipeline/WhyFusion.java");
-        assertTrue(fusion.contains("if (winLevel > 0) glProg.setDefine(\"WINDOW\", 1);"));
+        assertTrue(fusion.contains("if (winLevel > 0) shaderProg.setDefine(\"WINDOW\", 1);"));
         assertTrue(fusion.contains("fused31 = pyramid(st, exposures31(r), LAYERS_31091.clone(), r.ae, CENTER_31091, new float[6], started,"));
         assertTrue(read("src/main/java/com/scamera/app/processing/opengl/postpipeline/WhyTone.java").contains("value(\"window_31091\", 1f)"));
         assertTrue(read("src/main/java/com/scamera/app/settings/DevKeys.java").contains("\"hybrid_why_window_31091\", \"1.0\""));

@@ -15,12 +15,12 @@ import java.nio.file.Path;
  * last one of a measured burst is written as well before the burst is let go.
  */
 public class JPEGSaver extends DefaultSaver {
-    public JPEGSaver(ProcessingEventsListener listener) {
+    public JPEGSaver(ProcessingEvents listener) {
         super(listener);
     }
 
     private static Path writeJpeg(ByteBuffer jpeg) throws IOException {
-        final Path file = PhotoFormat.JPEG.fileFor(ImagePath.newImageFilePath()); // the camera's own bytes: always .jpg
+        final Path file = PhotoFormat.JPEG.fileFor(ImagePath.newPhotoPath()); // the camera's own bytes: always .jpg
         final byte[] bytes = new byte[jpeg.remaining()];
         jpeg.get(bytes);
         Files.write(file, bytes);
@@ -31,18 +31,18 @@ public class JPEGSaver extends DefaultSaver {
     public void addImage(Image image) {
         final ByteBuffer jpeg = image.getPlanes()[0].getBuffer();
         try {
-            IMAGE_BUFFER.add(getFrame(image));
+            FRAME_QUEUE.add(getFrame(image));
             final boolean single = ScameraApp.getSettings().frameCount == 1;
-            if (!single && IMAGE_BUFFER.size() == ScameraApp.getCaptureController().mMeasuredFrameCnt) {
+            if (!single && FRAME_QUEUE.size() == ScameraApp.getCaptureController().mMeasuredFrameCnt) {
                 writeJpeg(jpeg.duplicate());
-                IMAGE_BUFFER.clear();
+                FRAME_QUEUE.clear();
             }
             if (single) {
-                IMAGE_BUFFER.clear();
+                FRAME_QUEUE.clear();
                 final Path file = writeJpeg(jpeg);
                 image.close();
-                processingEventsListener.onProcessingFinished("JPEG: Single Frame, Not Processed!");
-                processingEventsListener.notifyImageSavedStatus(true, file);
+                processingEventsListener.processingFinished("JPEG: Single Frame, Not Processed!");
+                processingEventsListener.imageSaved(true, file);
             }
         } catch (IOException | NullPointerException e) {
             Log.e("JPEGSaver", "JPEG not saved: " + e);

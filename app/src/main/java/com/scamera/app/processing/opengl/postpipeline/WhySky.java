@@ -38,15 +38,15 @@ final class WhySky {
         st.sky = null;
         st.skyMask = null;
         final long started = System.currentTimeMillis();
-        final String skip = skip(pipeline, src.mSize);
+        final String skip = skip(pipeline, src.size);
         if (skip != null) {
             if (!skip.isEmpty()) Log.i("SCAM_PIPELINE", "WHY sky: none (" + skip + ")");
             return;
         }
-        final Parameters p = pipeline.mParameters;
+        final Parameters p = pipeline.shotParams;
         final WhyAe.Result r = st.ae;
-        final float ev = WhySkyMask.evOffset(p.iso, p.exposureTime, p.aperture, st.inScale);
-        final Point low = src.mSize;
+        final float ev = WhySkyMask.evOffset(p.iso, p.exposureTime, p.fNumber, st.inScale);
+        final Point low = src.size;
         // P378 review: a lab fragment decides on the whole frame's cells at its place
         final LabFrame frozen = fragment(pipeline, low) ? pipeline.frozen : null;
         // the brightest whyLow value short of daylight: no cell can pass (a night, a room), the passes are not drawn
@@ -71,7 +71,7 @@ final class WhySky {
                 final int cell = WhySkyMask.cellPx(low.x, low.y);
                 final Point grid = new Point((low.x + cell - 1) / cell, (low.y + cell - 1) / cell);
                 if (pipeline.record == null && com.scamera.app.settings.PreferenceKeys.hybridValue("why_sky_seed_gate", 1f) > 0f
-                        && !topCanSeed(glProg, src, grid, cell, WhySkyMask.topEdge(p.cameraRotation, p.mirror), ev, ceiling)) {
+                        && !topCanSeed(glProg, src, grid, cell, WhySkyMask.topEdge(p.rotationDeg, p.mirrored), ev, ceiling)) {
                     Log.i("SCAM_PIPELINE", "WHY sky: none (no seed on the photo's top edge) ms=" + (System.currentTimeMillis() - started));
                     return;
                 }
@@ -101,7 +101,7 @@ final class WhySky {
                     pipeline.record.skyGrid = new int[]{c.nx, c.ny, c.cell, c.step};
                 }
             }
-            final WhySkyMask.Scene scene = new WhySkyMask.Scene(ev, WhySkyMask.topEdge(p.cameraRotation, p.mirror), ceiling);
+            final WhySkyMask.Scene scene = new WhySkyMask.Scene(ev, WhySkyMask.topEdge(p.rotationDeg, p.mirrored), ceiling);
             final WhySkyMask.Decision d = WhySkyMask.decide(c, scene);
             if (d.mask == null) {
                 Log.i("SCAM_PIPELINE", "WHY sky: " + d.log + (frozen != null ? " (lab fragment: the whole frame's cells)" : "")
@@ -111,7 +111,7 @@ final class WhySky {
             // the cells' weights bilinear (a soft edge between cells), the fine mask made before its samplers are bound: RG16F at
             // whyLow size up to 12 MP, its longer side kept at ~2048 px above (50 MP: 12 MB instead of 100 MB of RGBA16F)
             final Point cellGrid = new Point(c.nx, c.ny);
-            cells = new GLTexture(cellGrid, new GLFormat(GLFormat.DataType.FLOAT_16, 4), BufferUtils.getFrom(d.mask.cells), GL_LINEAR, GL_CLAMP_TO_EDGE);
+            cells = new GLTexture(cellGrid, new GLFormat(GLFormat.DataType.FLOAT_16, 4), BufferUtils.floatBuffer(d.mask.cells), GL_LINEAR, GL_CLAMP_TO_EDGE);
             final int box = maskBox(low.x, low.y);
             mask = new GLTexture(WhyTone.reduced(low, box), new GLFormat(GLFormat.DataType.FLOAT_16, 2), null, GL_LINEAR, GL_CLAMP_TO_EDGE);
             final float[] origin = cellOrigin(p, frozen);
@@ -193,7 +193,7 @@ final class WhySky {
     static String skip(PostPipeline pipeline, Point low) {
         return skip(WhyTone.sky(), pipeline.film != null, com.scamera.app.processing.opengl.PostGlMode.legacy(),
                 fragment(pipeline, low), pipeline.frozen != null && pipeline.frozen.skyCells != null
-                        && pipeline.mParameters != null && pipeline.mParameters.labOrigin != null);
+                        && pipeline.shotParams != null && pipeline.shotParams.labOrigin != null);
     }
 
     /** {@link #skip(PostPipeline, Point)} on its inputs (WhySkyTest). */

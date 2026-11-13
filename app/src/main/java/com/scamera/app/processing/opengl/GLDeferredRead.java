@@ -39,8 +39,8 @@ public final class GLDeferredRead {
      * false when it could not be queued (any GL error: nothing is queued, the bindings are as before).
      */
     public static boolean queue(GLTexture texture, int type, int bytesPerPixel, Reader reader) {
-        if (texture == null || texture.mTextureID == 0) return false;
-        final int w = texture.mSize.x, h = texture.mSize.y;
+        if (texture == null || texture.id == 0) return false;
+        final int w = texture.size.x, h = texture.size.y;
         final long bytes = (long) w * h * bytesPerPixel;
         if (w <= 0 || h <= 0 || bytes > (64L << 20)) return false;
         final int[] oldRead = new int[1], oldPack = new int[1], fb = new int[1], pbo = new int[1];
@@ -51,7 +51,7 @@ public final class GLDeferredRead {
             for (int i = 0; i < 16 && GLES30.glGetError() != GLES30.GL_NO_ERROR; i++) { } // not this read's
             GLES30.glGenFramebuffers(1, fb, 0);
             GLES30.glBindFramebuffer(GLES30.GL_READ_FRAMEBUFFER, fb[0]);
-            GLES30.glFramebufferTexture2D(GLES30.GL_READ_FRAMEBUFFER, GLES30.GL_COLOR_ATTACHMENT0, GLES30.GL_TEXTURE_2D, texture.mTextureID, 0);
+            GLES30.glFramebufferTexture2D(GLES30.GL_READ_FRAMEBUFFER, GLES30.GL_COLOR_ATTACHMENT0, GLES30.GL_TEXTURE_2D, texture.id, 0);
             if (GLES30.glCheckFramebufferStatus(GLES30.GL_READ_FRAMEBUFFER) != GLES30.GL_FRAMEBUFFER_COMPLETE) return false;
             GLES30.glGenBuffers(1, pbo, 0);
             GLES30.glBindBuffer(GLES30.GL_PIXEL_PACK_BUFFER, pbo[0]);

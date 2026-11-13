@@ -76,7 +76,7 @@ public class ManualPanelUiTest {
     }
 
     private ManualParamModel params() {
-        return h.console.getManualParamModel();
+        return h.console.valueModel();
     }
 
     /** Opens the parameter's ruler and steps it {@code steps} stops right (a key press each), as a user would. */
@@ -131,7 +131,7 @@ public class ManualPanelUiTest {
         assertEquals(ManualChipView.MANUAL, chip(ManualPanelState.ISO).getChipState());
         assertEquals("800", chip(ManualPanelState.ISO).getValueView().getText().toString());
         assertEquals("the state by colour, the name stays", "ISO", chip(ManualPanelState.ISO).getNameView().getText().toString());
-        assertEquals(800, params().getCurrentISOValue(), 0);
+        assertEquals(800, params().isoSetting(), 0);
         assertTrue(panel.isManualDotShown());
         assertEquals(View.VISIBLE, h.find(R.id.manual_all_auto).getVisibility());
         assertEquals("800", ((TextView) h.find(R.id.manual_ruler_value)).getText().toString());
@@ -153,13 +153,13 @@ public class ManualPanelUiTest {
     public void longPressReturnsTheParameterToAuto() {
         set(ManualPanelState.WB, 3);
         assertEquals(ManualChipView.MANUAL, chip(ManualPanelState.WB).getChipState());
-        assertTrue(params().getWhiteBalanceKelvin() > 0);
+        assertTrue(params().kelvinSetting() > 0);
         assertTrue(chip(ManualPanelState.WB).performLongClick());
         assertEquals(ManualChipView.AUTO, chip(ManualPanelState.WB).getChipState());
-        assertEquals(0, params().getWhiteBalanceKelvin());
+        assertEquals(0, params().kelvinSetting());
         assertEquals("Цвет: авто", last());
         ManualModel<?> wb = console.models()[ManualPanelState.WB];
-        assertEquals(0, wb.getCurrentInfo().value, 0);
+        assertEquals(0, wb.chosenStop().cameraValue, 0);
         // the ruler (still open) follows to auto
         assertTrue(ruler().isAuto());
     }
@@ -167,7 +167,7 @@ public class ManualPanelUiTest {
     @Test
     public void evLocksWithIsoAndShutterManualAndComesBack() {
         set(ManualPanelState.EV, 2);
-        double storedEv = params().getCurrentEvValue();
+        double storedEv = params().evIndex();
         assertNotEquals(0, storedEv, 0);
         assertEquals(ManualChipView.MANUAL, chip(ManualPanelState.EV).getChipState());
         set(ManualPanelState.ISO, 1);
@@ -182,14 +182,14 @@ public class ManualPanelUiTest {
         ev.onInitializeAccessibilityNodeInfo(info);
         assertFalse(info.isEnabled());
         assertEquals("Экспокоррекция: недоступна, ISO и выдержка заданы вручную", ev.getContentDescription().toString());
-        assertEquals(storedEv, params().getCurrentEvValue(), 0);
+        assertEquals(storedEv, params().evIndex(), 0);
         // a tap or a long press explains, opens nothing and resets nothing
         ev.performClick();
         assertEquals("Яркость авто: ISO и выдержка ручные", last());
         assertNotEquals(ManualPanelState.EV, console.selectedParam());
         ev.performLongClick();
         assertEquals("Яркость авто: ISO и выдержка ручные", last());
-        assertEquals(storedEv, params().getCurrentEvValue(), 0);
+        assertEquals(storedEv, params().evIndex(), 0);
         // left out of the summary
         ManualSummaryView summary = h.find(R.id.manual_summary);
         assertEquals(2, summary.itemCount());
@@ -208,7 +208,7 @@ public class ManualPanelUiTest {
         assertEquals(ManualPanelState.EV, console.selectedParam());
         // the shutter turns manual while the EV ruler is open (as the stored value of another module would)
         ManualModel<?> shutter = console.models()[ManualPanelState.SHUTTER];
-        shutter.choose(shutter.getKnobInfoList().get(3));
+        shutter.choose(shutter.stopList().get(3));
         assertEquals(-1, console.selectedParam());
         assertEquals(View.GONE, h.find(R.id.knobViewContainer).getVisibility());
         assertEquals(ManualChipView.LOCKED, chip(ManualPanelState.EV).getChipState());
@@ -233,7 +233,7 @@ public class ManualPanelUiTest {
             assertEquals(ManualChipView.AUTO, chip(p).getChipState());
             assertFalse(com.scamera.app.circularbarlib.ui.ViewObserver.isManual(console.models()[p], p));
         }
-        assertFalse(params().isManualMode());
+        assertFalse(params().offAuto());
         assertEquals("Всё на авто", last());
         assertEquals(View.GONE, allAuto.getVisibility());
         // nothing manual: dimmed to 40 %, a tap only says so

@@ -1,5 +1,4 @@
-precision highp float;
-precision highp sampler2D;
+precision highp float; precision highp sampler2D;
 
 // Ultra HDR scene-luma plane: linear scene luminance sampled from the captured
 // post-demosaic buffer, with the exact same mirror / rotate / crop transform
@@ -13,10 +12,9 @@ precision highp sampler2D;
 
 uniform sampler2D InputBuffer;
 uniform sampler2D GainMap;
+uniform ivec2 cropSize, rawSize;
 uniform int rotate;
 uniform bool mirror;
-uniform ivec2 cropSize;
-uniform ivec2 rawSize;
 // P370 (B3): the luminance weights of the white-balanced camera RGB the plane reads - LUMA^T . intermediateToSRGB .
 // sensorToProPhoto . diag(neutral) (PostPipeline: the render's own colour matrix): Rec.709 weights on camera RGB gave the
 // HDR boost by hue (the X8U's blue +0.41 EV, orange -0.14 EV). Unset (0): Rec.709 on the input as before.
@@ -30,7 +28,7 @@ uniform int skyRatioU;
 
 out vec4 Output;
 
-#define lum709(x) dot(x, vec3(0.2126, 0.7152, 0.0722))
+#define luma709(x) dot(x, vec3(0.2126, 0.7152, 0.0722))
 #import interpolation
 
 void main() {
@@ -60,7 +58,7 @@ void main() {
     // the lens shading of that texel (R, the greens' mean, B), averaged: the scene's light before the shading correction
     vec4 g = textureBicubicHardware(GainMap, vec2(at) / vec2(rawSize));
     float shading = dot(vec3(g.r, (g.g + g.b) / 2.0, g.a), vec3(1.0 / 3.0));
-    float l = (wU == vec3(0.0) ? lum709(max(c, vec3(0.0))) : max(dot(wU, c), 0.0)) * shading;
+    float l = (wU == vec3(0.0) ? luma709(max(c, vec3(0.0))) : max(dot(wU, c), 0.0)) * shading;
     if (skyRatioU == 1) l *= max(texture(SkyRatio, (vec2(at) + 0.5) / vec2(last + 1)).r, 0.0);
     Output = vec4(l, l, l, 1.0);
 }

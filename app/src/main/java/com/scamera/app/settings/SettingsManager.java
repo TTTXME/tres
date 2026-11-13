@@ -39,8 +39,9 @@ import java.util.concurrent.ConcurrentHashMap;
 public class SettingsManager {
     public static final String SCOPE_GLOBAL = "default_scope";
 
-    private final Context appContext;
+    /** The default preferences (SCOPE_GLOBAL) and the application context the scoped files are opened with. */
     private final SharedPreferences global;
+    private final Context appContext;
     /** Watchers as registered, and the preference-level callbacks wrapping them (same order). */
     private final List<OnSettingChangedListener> watchers = new ArrayList<>();
     private final List<SharedPreferences.OnSharedPreferenceChangeListener> bridges = new ArrayList<>();

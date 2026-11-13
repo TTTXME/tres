@@ -95,9 +95,9 @@ public final class RowText {
     public static int[] tally(List<GalleryItem> files) {
         int photos = 0, videos = 0, raws = 0;
         if (files != null) for (GalleryItem i : files) {
-            if (i == null || i.getFile() == null) continue;
-            String n = i.getFile().getDisplayName();
-            if (GalleryVideo.isVideo(i.getFile())) ++videos;
+            if (i == null || i.mediaFile() == null) continue;
+            String n = i.mediaFile().displayName();
+            if (GalleryVideo.isVideo(i.mediaFile())) ++videos;
             else {
                 ++photos;
                 if (GalleryFormat.of(n, false) == GalleryFormat.RAW) ++raws;

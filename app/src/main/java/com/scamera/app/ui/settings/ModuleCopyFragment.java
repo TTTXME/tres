@@ -24,7 +24,7 @@ public class ModuleCopyFragment extends ModuleConceptFragment {
         PreferenceManager pm=new PreferenceManager(requireContext());pm.setSharedPreferencesName("module_copy_catalog");
         tree=pm.inflateFromResource(requireContext(),R.xml.preferences,null);pm.setPreferences(tree);
         TunableSettingsManager.ensureTunableClassesRegistered();
-        for(Class<?> cls:TunableRegistry.TUNABLE_CLASSES)TunablePreferenceGenerator.registerTunableClass(cls);
+        for(Class<?> cls:TunableRegistry.OWNERS)TunablePreferenceGenerator.registerTunableClass(cls);
         TunablePreferenceGenerator.generatePreferences(requireContext(),tree);
         PreferenceScreen manual=pm.createPreferenceScreen(requireContext());manual.setTitle(Lang.t(getContext(),"Ручные настройки","Manual settings"));manual.setKey("manual_copy_group");
         PreferenceGroup capture=tree.findPreference(ModuleRows.LENS);capture.addPreference(manual);   // P413: the lens page
@@ -39,7 +39,7 @@ public class ModuleCopyFragment extends ModuleConceptFragment {
         if(sensorGroup!=null){sensors=pm.createPreferenceScreen(requireContext());sensors.setKey("module_sensor_copy");sensorGroup.addPreference(sensors);}
         if(sensors!=null){sensors.setTitle(getString(R.string.module_sensor_copy_title));
             java.util.List<java.lang.reflect.Field> fields=new ArrayList<>();
-            for(Class<?> cls:SensorConfigRegistry.SENSOR_CONFIG_CLASSES)fields.addAll(java.util.Arrays.asList(cls.getDeclaredFields()));
+            for(Class<?> cls:SensorConfigRegistry.OWNERS)fields.addAll(java.util.Arrays.asList(cls.getDeclaredFields()));
             fields.sort(java.util.Comparator.comparingInt(f->SensorConfigPreferenceGenerator.rank(f.getName()))); // the sensor page's order
             for(java.lang.reflect.Field f:fields){
                 com.scamera.app.settings.annotations.SensorConfig a=f.getAnnotation(com.scamera.app.settings.annotations.SensorConfig.class);

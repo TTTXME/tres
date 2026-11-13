@@ -29,6 +29,17 @@ final class ViewfinderPrograms {
     }
 
     /**
+     * The sampling of the bound GL_TEXTURE_2D of a viewfinder pass: {@code minFilter} / {@code magFilter}, clamped to the edge
+     * on both axes.
+     */
+    static void edgeClampedSampling(int minFilter, int magFilter) {
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, minFilter);
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, magFilter);
+        for (int axis : new int[]{GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_TEXTURE_WRAP_T})
+            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, axis, GLES20.GL_CLAMP_TO_EDGE);
+    }
+
+    /**
      * Compiles the keys whose driver binary is not kept, on a background thread (once per key at a time). Called on the
      * viewfinder's GL thread (a current context: the driver string of the binaries' names); never throws.
      */

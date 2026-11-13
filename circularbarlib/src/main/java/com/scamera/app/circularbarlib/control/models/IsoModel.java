@@ -21,21 +21,21 @@ public class IsoModel extends ManualModel<Integer> {
 
     @Override
     protected void addStops() {
-        chosen = makeAutoStop(ManualParamModel.ISO_AUTO, null);
-        getKnobInfoList().add(chosen);
+        chosen = makeAutoStop(ManualParamModel.ISO_AUTO_VALUE, null);
+        stopList().add(chosen);
         if (range == null) return;
         List<Long> isos = ManualStops.iso(range.getLower().longValue(), range.getUpper().longValue());
         for (int i = 0; i < isos.size(); i++) {
             long iso = isos.get(i);
             KnobItemInfo stop = new KnobItemInfo(String.valueOf(iso), i + 1, iso);
             stop.majorTick = i == 0 || i == isos.size() - 1 || ManualStops.majorIso(iso);
-            getKnobInfoList().add(stop);
+            stopList().add(stop);
         }
     }
 
     @Override
     public void onSelectedKnobItemChanged(KnobItemInfo stop) {
         chosen = stop;
-        params.setCurrentISOValue(chosen.value);
+        params.setIsoSetting(chosen.cameraValue);
     }
 }

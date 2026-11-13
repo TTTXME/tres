@@ -227,7 +227,7 @@ public class FullResRecipeStoreTest {
                 "recipeBinned(image, buffer, rows.stride, rows.height, truth);",
                 "FullResTruth.halve(out, buffer, 0, width, height, rowStride, truth.phase)");
         assertTrue(new String(Files.readAllBytes(Paths.get("src/main/java/com/scamera/app/processing/ImageSaver.java")), StandardCharsets.UTF_8)
-                .contains("implementation.recipeShot = recipeShot;"));
+                .contains("saverImpl.recipeShot = recipeShot;"));
     }
 
     /**
@@ -263,7 +263,7 @@ public class FullResRecipeStoreTest {
         // a still and the proof still keep a hand-set focus (the template alone would let the lens go)
         ordered(src, "private void sendRecipeProof() {", "VendorTagUtils.builderSessionApply(b, true, false, physicalID);", "recipeFocus(b);");
         ordered(src, "private void takeStill() {", "if (recipePlan != null) frameCount = Math.min(frameCount, recipePlan.recipe.frames);",
-                "cameraEventsListener.onFrameCountSet(frameCount);", "if(recipePlan!=null) plan=plan.limitedTo(recipePlan.recipe.frames);",
+                "cameraEventsListener.burstSize(frameCount);", "if(recipePlan!=null) plan=plan.limitedTo(recipePlan.recipe.frames);",
                 "if(recipePlan!=null) recipeFocus(stillRequest);");
         ordered(src, "private void recipeFocus(CaptureRequest.Builder still) {", "af != CaptureRequest.CONTROL_AF_MODE_OFF",
                 "still.set(CaptureRequest.LENS_FOCUS_DISTANCE, distance);");

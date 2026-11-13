@@ -126,7 +126,7 @@ public class ImageAdapter extends PagerAdapter {
     @Override
     public Object instantiateItem(@NonNull ViewGroup container, int position) {
         GalleryItem galleryItem = items.get(position);
-        String fileName = galleryItem.getFile().getDisplayName();
+        String fileName = galleryItem.mediaFile().displayName();
 
         CustomSSIV pageView = new CustomSSIV(container.getContext());
         pageView.setId(getSsivId(position));
@@ -150,7 +150,7 @@ public class ImageAdapter extends PagerAdapter {
 
     /** The page's picture; P89: after the camera has finished writing the file. */
     private void loadPage(CustomSSIV pageView, GalleryItem galleryItem, String fileName) {
-        if (GalleryKeys.waitForFile(pageView, galleryItem.getFile(), () -> {
+        if (GalleryKeys.waitForFile(pageView, galleryItem.mediaFile(), () -> {
             if (!released && pageView.getParent() != null) loadPage(pageView, galleryItem, fileName);
         })) return;
         if (GalleryDecodeRetry.shouldUseTiledDecode(fileName)) {
@@ -172,10 +172,10 @@ public class ImageAdapter extends PagerAdapter {
      * ViewerPreview.TIMEOUT_MS).
      */
     private void tilesWithPreview(CustomSSIV page, GalleryItem item) {
-        final android.net.Uri uri = item.getFile().getFileUri();
+        final android.net.Uri uri = item.mediaFile().contentUri();
         final Context app = page.getContext().getApplicationContext();
         PREVIEW_EXECUTOR.execute(() -> {
-            final ViewerPreview.Result p = released ? null : ViewerPreview.load(app, item.getFile());
+            final ViewerPreview.Result p = released ? null : ViewerPreview.load(app, item.mediaFile());
             page.post(() -> {
                 if (released || page.getParent() == null || page.hasImage()) { // gone, or an Ultra HDR / fallback picture already
                     if (p != null) p.bitmap.recycle();
@@ -203,26 +203,26 @@ public class ImageAdapter extends PagerAdapter {
     private void loadGlideBitmap(SubsamplingScaleImageView page, GalleryItem item, int retryCount,
                                  SubsamplingScaleImageView.OnImageEventListener listener) {
         if (released || page.getParent() == null) {
-            com.scamera.app.util.Log.d(GALLERY_TAG, "no decode of " + item.getFile().getDisplayName()
+            com.scamera.app.util.Log.d(GALLERY_TAG, "no decode of " + item.mediaFile().displayName()
                     + (released ? ": the viewer is gone" : ": the page is not in the pager"));
             return;
         }
-        final String name = item.getFile().getDisplayName();
+        final String name = item.mediaFile().displayName();
         final Context app = page.getContext().getApplicationContext();
         // P620: a DNG / camera RAW read in place by the thumbnail decoder (DngGlideDecoder copied the whole file from a stream
         // first); every page shows the grid's cached thumbnail until its picture is decoded
         final boolean raw = com.scamera.app.gallery.raw.RawFormats.isRawName(name);
         Glide.with(app)
                 .asBitmap()
-                .load(raw ? com.scamera.app.gallery.glide.GalleryThumb.fit(item.getFile()) : item.getFile().getFileUri())
+                .load(raw ? com.scamera.app.gallery.glide.GalleryThumb.fit(item.mediaFile()) : item.mediaFile().contentUri())
                 // P637: not only when cached - a new photo's embedded picture (its EXIF thumbnail, a DNG's preview) at once
-                .thumbnail(com.scamera.app.gallery.glide.GalleryThumb.first(Glide.with(app), app, item.getFile(), raw))
+                .thumbnail(com.scamera.app.gallery.glide.GalleryThumb.first(Glide.with(app), app, item.mediaFile(), raw))
                 // P621: another app's DNG whose descriptor cannot be mapped (a pipe): its stream through Glide's decoders, as before
-                .error(raw ? Glide.with(app).asBitmap().load(item.getFile().getFileUri())
-                        .apply(RequestOptions.signatureOf(GalleryKeys.of(item.getFile())))
+                .error(raw ? Glide.with(app).asBitmap().load(item.mediaFile().contentUri())
+                        .apply(RequestOptions.signatureOf(GalleryKeys.of(item.mediaFile())))
                         .override(GalleryDecodeRetry.FALLBACK_MAX_SIDE, GalleryDecodeRetry.FALLBACK_MAX_SIDE)
                         .downsample(SAMPLED_INSIDE).disallowHardwareConfig() : null)
-                .apply(RequestOptions.signatureOf(GalleryKeys.of(item.getFile())))
+                .apply(RequestOptions.signatureOf(GalleryKeys.of(item.mediaFile())))
                 // Zoomable but bounded: at most 4096 px on the long side (~50 MB), never upscaled. P620: a 50 / 200 MP picture
                 // sampled to about 4096 by the decoder itself (CENTER_INSIDE decoded 50 MP whole, 200 MB, before scaling it)
                 .override(GalleryDecodeRetry.FALLBACK_MAX_SIDE, GalleryDecodeRetry.FALLBACK_MAX_SIDE)
@@ -275,7 +275,7 @@ public class ImageAdapter extends PagerAdapter {
         if (page == null || released || !inBounds(position) || !gaveUp[position] || page.isImageLoaded()) return;
         gaveUp[position] = false;
         final GalleryItem item = items.get(position);
-        com.scamera.app.util.Log.d(GALLERY_TAG, "decoding " + item.getFile().getDisplayName() + " again");
+        com.scamera.app.util.Log.d(GALLERY_TAG, "decoding " + item.mediaFile().displayName() + " again");
         loadGlideBitmap(page, item, 0, onImageEvent); // a JPEG page here has already failed its tiled decode
     }
 
@@ -323,7 +323,7 @@ public class ImageAdapter extends PagerAdapter {
                 return;
             }
             fellBack = true;
-            final String name = item.getFile().getDisplayName();
+            final String name = item.mediaFile().displayName();
             com.scamera.app.util.Log.w(GALLERY_TAG, "tiled decode failed for " + name + ": " + e
                     + " - decoding one bitmap through Glide");
             loadGlideBitmap(page, item, 0, host);
@@ -420,7 +420,7 @@ public class ImageAdapter extends PagerAdapter {
         }
         GalleryItem galleryItem = items.get(position);
         // Ultra HDR is a JPEG container (the camera writes it only into JPEG files): DNG, HEIC, WebP and AVIF pages skip the scan.
-        String ext = FileUtils.getExtension(galleryItem.getFile().getDisplayName());
+        String ext = FileUtils.getExtension(galleryItem.mediaFile().displayName());
         if (!ext.equalsIgnoreCase("jpg") && !ext.equalsIgnoreCase("jpeg")) {
             return;
         }
@@ -431,7 +431,7 @@ public class ImageAdapter extends PagerAdapter {
         }
         HDR_EXECUTOR.execute(() -> {
             boolean candidate = UltraHdrGalleryUtil.isUltraHdrJpeg(context,
-                    galleryItem.getFile().getFileUri());
+                    galleryItem.mediaFile().contentUri());
             pageView.post(() -> {
                 if (released || !is(position, ASKED) || !inBounds(position)) {
                     return;
@@ -460,7 +460,7 @@ public class ImageAdapter extends PagerAdapter {
         boolean wasActive = is(position, SHOWN);
         releaseHdrResources(pageView.getContext(), position);
         if (wasActive) {
-            pageView.setImage(ImageSource.uri(items.get(position).getFile().getFileUri()));
+            pageView.setImage(ImageSource.uri(items.get(position).mediaFile().contentUri()));
             tellShown(position, false);
         }
     }
@@ -520,7 +520,7 @@ public class ImageAdapter extends PagerAdapter {
         // pushing out hundreds of grid thumbnails)
         Glide.with(pageView.getContext())
                 .asBitmap()
-                .load(galleryItem.getFile().getFileUri())
+                .load(galleryItem.mediaFile().contentUri())
                 .apply(new RequestOptions()
                         .diskCacheStrategy(DiskCacheStrategy.NONE)
                         .skipMemoryCache(true)
@@ -543,13 +543,13 @@ public class ImageAdapter extends PagerAdapter {
             return;
         }
         GalleryItem galleryItem = items.get(position);
-        if (FileUtils.getExtension(galleryItem.getFile().getDisplayName()).equalsIgnoreCase("dng")
-                || com.scamera.app.gallery.files.GalleryVideo.isVideo(galleryItem.getFile())) { // P498: a video's poster frame
+        if (FileUtils.getExtension(galleryItem.mediaFile().displayName()).equalsIgnoreCase("dng")
+                || com.scamera.app.gallery.files.GalleryVideo.isVideo(galleryItem.mediaFile())) { // P498: a video's poster frame
             colour[position] = 1 + UltraHdrGalleryUtil.COLOUR_SRGB;
             return;
         }
         final Context app = context.getApplicationContext();
-        final android.net.Uri uri = galleryItem.getFile().getFileUri();
+        final android.net.Uri uri = galleryItem.mediaFile().contentUri();
         final android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
         HDR_EXECUTOR.execute(() -> {
             final int kind = UltraHdrGalleryUtil.colourOf(app, uri);

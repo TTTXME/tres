@@ -1,5 +1,4 @@
-precision highp float;
-precision highp sampler2D;
+precision highp float; precision highp sampler2D;
 // Clip-band chroma (ScamRgb, hybrid shots with the worker's clip flags): along the border of a clipped area the
 // merge gives a colour either from the clipped mean (flags bits 0-2: every nearby sample of that colour clipped) or from
 // the few unclipped samples left (bit 3: low, they sit on the darker side). Where a slanted edge crosses the Bayer rows

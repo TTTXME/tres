@@ -26,15 +26,15 @@ public class WhyCombineTextureOrderTest {
     @Test
     public void outputMadeBeforeTheCombineSamplersAreBound() throws IOException {
         final String run = WhyCombineUniformParityTest.method(
-                read("src/main/java/com/scamera/app/processing/opengl/postpipeline/WhyCombine.java"), "public void Run()");
-        final int program = run.indexOf("glProg.useAssetProgram(\"why/combine\"");
-        final int draw = run.indexOf("glProg.drawBlocks(WorkingTexture)", program);
+                read("src/main/java/com/scamera/app/processing/opengl/postpipeline/WhyCombine.java"), "public void runPass()");
+        final int program = run.indexOf("shaderProg.useAssetProgram(\"why/combine\"");
+        final int draw = run.indexOf("shaderProg.drawBlocks(passOut)", program);
         assertTrue("the combine program and its draw", program >= 0 && draw > program);
         final String bound = run.substring(program, draw);
         assertFalse("a texture made after the samplers are bound", bound.contains("new GLTexture("));
         assertFalse("the output made after the samplers are bound", bound.contains("getMain("));
         assertFalse("detailRef makes a texture", bound.contains("detailRef("));
-        final int main = run.lastIndexOf("WorkingTexture = pipeline.getMain();", program);
+        final int main = run.lastIndexOf("passOut = pipeline.getMain();", program);
         assertTrue("the output made before the combine program", main >= 0);
     }
 }

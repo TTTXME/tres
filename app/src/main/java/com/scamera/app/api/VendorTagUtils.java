@@ -4,6 +4,8 @@ import android.annotation.SuppressLint;
 import android.hardware.camera2.CaptureRequest;
 import android.hardware.camera2.CaptureResult;
 
+import com.google.gson.annotations.SerializedName;
+
 import com.scamera.app.util.Log;
 
 import java.lang.reflect.Array;
@@ -34,18 +36,20 @@ public final class VendorTagUtils {
         return true;
     }
 
-    @SuppressWarnings({"unchecked", "rawtypes"})
-    private static void put(CaptureRequest.Builder builder, CaptureRequest.Key key, Object value) {
-        builder.set(key, value);
-    }
-
+    /**
+     * Sets an untyped key (its value class is the key's own: TunableKey parsed it so) on the request and, for a lens of a
+     * logical camera, on that lens too; a lens the builder does not take keeps the logical value only.
+     */
     @SuppressLint("NewApi")
-    @SuppressWarnings({"unchecked", "rawtypes"})
-    private static void putPhysical(CaptureRequest.Builder builder, CaptureRequest.Key key, Object value, String physicalId) {
+    @SuppressWarnings("unchecked")
+    private static void set(CaptureRequest.Builder builder, CaptureRequest.Key<?> key, Object value, String lens) {
+        final CaptureRequest.Key<Object> any = (CaptureRequest.Key<Object>) key;
+        builder.set(any, value);
+        if (lens == null) return;
         try {
-            builder.setPhysicalCameraKey(key, value, physicalId);
-        } catch (Exception e) {
-            Log.w(TAG, "Error setting physical camera key: " + key.getName() + " for camera: " + physicalId, e);
+            builder.setPhysicalCameraKey(any, value, lens);
+        } catch (RuntimeException e) {
+            Log.w(TAG, "vendor tag " + key.getName() + " not set on lens " + lens, e);
         }
     }
 
@@ -73,57 +77,60 @@ public final class VendorTagUtils {
             TYPES.put("String", String.class);
         }
 
-        /** "CaptureRequest", {@link #TYPE_SESSION} or "CaptureResult" */
-        public String type = "CaptureRequest";
-        /** Vendor tag string, e.g. "com.qti.sensorbps.mode_index" */
-        public String name = "";
-        /** "Integer", "Long", "Float", "Byte", "int[]", ... */
-        public String valueType = "Integer";
-        /** Value as a string (comma separated for arrays) */
-        public String value = "0";
+        // The stored names (the JSON of a module's key list) are the @SerializedName ones.
+        /** Where the key goes: "CaptureRequest", {@link #TYPE_SESSION} or "CaptureResult". */
+        @SerializedName("type") public String kind = "CaptureRequest";
+        /** The vendor tag, e.g. "com.qti.sensorbps.mode_index". */
+        @SerializedName("name") public String tag = "";
+        /** Its value type by stored name: "Integer", "Long", "Float", "Byte", "int[]", ... */
+        @SerializedName("valueType") public String typeName = "Integer";
+        /** The value as text (an array's items comma separated). */
+        @SerializedName("value") public String text = "0";
         /** The camera knew the key the last time it was sent. */
-        public boolean supported = false;
+        @SerializedName("supported") public boolean known = false;
         /** The key was sent at least once (only a capture can tell whether it is known). */
-        public boolean tested = false;
+        @SerializedName("tested") public boolean sent = false;
         /** P122: off = kept in the list but not sent (module settings switch); older lists have no field: on. */
         public boolean enabled = true;
 
+        /** Gson's (a stored key list). */
         public TunableKey() {
         }
 
-        public TunableKey(String type, String name, Class<?> valueClass, Object value) {
-            this.type = type;
-            this.name = name;
-            valueType = valueTypeForClass(valueClass);
-            this.value = valueToString(valueClass, value);
+        public TunableKey(String kind, String tag, Class<?> valueClass, Object value) {
+            this.kind = kind;
+            this.tag = tag;
+            typeName = typeNameOf(valueClass);
+            text = textOf(valueClass, value);
         }
 
-        public Object parseValue() {
-            return parseValue(valueType, value);
+        /** The value as its type's object (throws on text of another type). */
+        public Object typedValue() {
+            return parse(typeName, text);
         }
 
-        public CaptureRequest.Key<?> toCaptureRequestKey() {
-            return new CaptureRequest.Key<>(name, classForValueType(valueType));
+        public CaptureRequest.Key<?> requestKey() {
+            return new CaptureRequest.Key<>(tag, classOf(typeName));
         }
 
-        public CaptureResult.Key<?> toCaptureResultKey() {
-            return new CaptureResult.Key<>(name, classForValueType(valueType));
+        public CaptureResult.Key<?> resultKey() {
+            return new CaptureResult.Key<>(tag, classOf(typeName));
         }
 
         /** The stored name of a value class ("Integer" for null or one not offered). */
-        public static String valueTypeForClass(Class<?> valueClass) {
+        public static String typeNameOf(Class<?> valueClass) {
             for (Map.Entry<String, Class<?>> type : TYPES.entrySet()) if (type.getValue() == valueClass) return type.getKey();
             return "Integer";
         }
 
         /** The class of a stored value type (Integer for null or an unknown name). */
-        public static Class<?> classForValueType(String valueType) {
-            final Class<?> known = valueType == null ? null : TYPES.get(valueType);
+        public static Class<?> classOf(String typeName) {
+            final Class<?> known = typeName == null ? null : TYPES.get(typeName);
             return known != null ? known : Integer.class;
         }
 
         /** A value as stored: arrays comma separated, null as "0". */
-        public static String valueToString(Class<?> valueClass, Object value) {
+        public static String textOf(Class<?> valueClass, Object value) {
             if (value == null) return "0";
             if (valueClass == null || !valueClass.isArray()) return String.valueOf(value);
             final StringBuilder text = new StringBuilder();
@@ -135,9 +142,9 @@ public final class VendorTagUtils {
         }
 
         /** The stored text as a value of its type (an array from its comma-separated items); throws on text of another type. */
-        public static Object parseValue(String valueType, String value) {
-            final String text = value == null ? "" : value;
-            final String type = valueType == null ? "Integer" : valueType;
+        public static Object parse(String typeName, String stored) {
+            final String text = stored == null ? "" : stored;
+            final String type = typeName == null ? "Integer" : typeName;
             if (type.endsWith("[]")) {
                 final String[] items = text.split(",");
                 switch (type) {
@@ -194,25 +201,23 @@ public final class VendorTagUtils {
         if (builder == null || keys == null) return;
         final boolean physical = !session && physicalId != null && !physicalId.isEmpty();
         for (TunableKey tunable : keys) {
-            if (tunable == null || !tunable.enabled || TunableKey.TYPE_SESSION.equals(tunable.type) != session) continue;
-            tunable.tested = true;
-            if (!"CaptureRequest".equals(tunable.type) && !TunableKey.TYPE_SESSION.equals(tunable.type)) {
-                Log.w(TAG, "Tunable key " + tunable.name + " is a " + tunable.type + " key, cannot be applied to the request builder");
-                tunable.supported = false;
+            if (tunable == null || !tunable.enabled || TunableKey.TYPE_SESSION.equals(tunable.kind) != session) continue;
+            tunable.sent = true;
+            if (!"CaptureRequest".equals(tunable.kind) && !TunableKey.TYPE_SESSION.equals(tunable.kind)) {
+                Log.w(TAG, "vendor tag " + tunable.tag + " is a " + tunable.kind + " key: not a request's");
+                tunable.known = false;
                 continue;
             }
             try {
-                final CaptureRequest.Key<?> key = tunable.toCaptureRequestKey();
-                tunable.supported = knows(builder, key);
-                if (!tunable.supported) continue;
-                final Object parsed = tunable.parseValue();
-                put(builder, key, parsed);
-                // the session parameters take the key as it is (as MotionCam sets its session keys), no physical copy
-                if (physical) putPhysical(builder, key, parsed, physicalId);
-                Log.d(TAG, "Applied tunable key " + tunable.name + " = " + tunable.value + " (" + tunable.valueType + ")");
+                final CaptureRequest.Key<?> key = tunable.requestKey();
+                tunable.known = knows(builder, key);
+                if (!tunable.known) continue;
+                // the session parameters take the key as it is (as MotionCam sets its session keys), no lens copy
+                set(builder, key, tunable.typedValue(), physical ? physicalId : null);
+                Log.d(TAG, "vendor tag " + tunable.tag + " = " + tunable.text + " (" + tunable.typeName + ")");
             } catch (Exception e) {
-                tunable.supported = false;
-                Log.w(TAG, "Error applying tunable key " + tunable.name, e);
+                tunable.known = false;
+                Log.w(TAG, "vendor tag " + tunable.tag + " not applied", e);
             }
         }
     }

@@ -34,9 +34,9 @@ public class Swipe {
 
     /** Once the screen's views and the manual panel exist: the touch handling onto the texture holder. */
     public void init() {
-        manual = screen.getManualModeConsole();
+        manual = screen.sharedConsole();
         model = screen.getCameraFragmentViewModel();
-        manual.setPanelVisibility(true);
+        manual.setPanelShown(true);
         final GestureDetector gestures = new GestureDetector(screen.getContext(), new Taps());
         final ScaleGestureDetector pinch = new ScaleGestureDetector(screen.getContext(), new Pinch());
         router = new Router(screen.getResources().getDisplayMetrics().density, new RouterHost());
@@ -59,7 +59,7 @@ public class Swipe {
     }
 
     private boolean autoFocus() {
-        return manual.getManualParamModel().getCurrentFocusValue() == ManualParamModel.FOCUS_AUTO;
+        return manual.valueModel().focusValue() == ManualParamModel.FOCUS_AUTO_DIOPTERS;
     }
 
     /**

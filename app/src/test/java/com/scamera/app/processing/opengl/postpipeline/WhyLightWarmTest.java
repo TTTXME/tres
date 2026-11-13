@@ -36,8 +36,8 @@ public class WhyLightWarmTest {
         assertTrue(shader.contains("#if HL_OPPOSED == 1\n    near = smoothstep(0.05, 0.35, textureLod(OppShare,"));
         final String why = read(src + "WhyCombine.java"), live = read(src + "LiveWhyTone.java");
         assertTrue(why.contains("toneOp != com.scamera.app.processing.color.ToneCurve.AGX ? WhyTone.lightWarm() : null"));
-        assertTrue(why.contains("glProg.setDefine(\"LIGHT_WARM\", 1);"));
-        assertTrue(why.contains("glProg.setVar(\"lightWarmU\", lightWarm[0], lightWarm[1], lightWarm[2], lightWarm[3]);"));
+        assertTrue(why.contains("shaderProg.setDefine(\"LIGHT_WARM\", 1);"));
+        assertTrue(why.contains("shaderProg.setVar(\"lightWarmU\", lightWarm[0], lightWarm[1], lightWarm[2], lightWarm[3]);"));
         assertTrue(live.contains("if (toneOp != ToneCurve.AGX && lightWarm != null && lightWarm[0] > 0f) defs.add(new String[]{\"LIGHT_WARM\", \"1\"});"));
         assertTrue(live.contains("loc(p, \"lightWarmU\")"));
         assertTrue("on by default", read(src + "WhyTone.java").contains("value(\"light_warm\", 1f)"));

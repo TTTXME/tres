@@ -159,9 +159,9 @@ public final class CameraHandoff {
 
     /** Whether MediaStore's {@code f} is another, newer file than the one this process saved last (which may be gone: trash). */
     private static boolean newer(ImageFile f, Saved s) {
-        if (s.path.equals(f.getAbsolutePath())) return false;
+        if (s.path.equals(f.filePath())) return false;
         File file = new File(s.path);
-        return !file.exists() || f.getLastModified() > file.lastModified() + 1000;
+        return !file.exists() || f.modifiedMs() > file.lastModified() + 1000;
     }
 
     /**
@@ -223,7 +223,7 @@ public final class CameraHandoff {
 
     /** Whether {@code f} is a photo known only by its path so far (no MediaStore row: nothing to share, edit or delete yet). */
     public static boolean unfiled(@Nullable com.scamera.app.gallery.files.MediaFile f) {
-        return f != null && f.getFileUri() != null && "file".equals(f.getFileUri().getScheme()) && f.getId() < 0;
+        return f != null && f.contentUri() != null && "file".equals(f.contentUri().getScheme()) && f.rowId() < 0;
     }
 
     /** The tap's hand-over, once (the gallery activity's first creation); null when the camera did not open this gallery. */

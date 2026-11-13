@@ -68,10 +68,10 @@ public final class ThumbPreloader extends RecyclerView.OnScrollListener {
         for (int i = dir ? s : e - 1; dir ? i < e : i >= s; i += dir ? 1 : -1) {
             int index = adapter.itemAt(i);
             GalleryItem item = index >= 0 && index < adapter.items().size() ? adapter.items().get(index) : null;
-            if (item == null || item.getFile().getFileUri() == null) continue;
-            if (SavingFiles.writing(item.getFile().getAbsolutePath())) continue;
+            if (item == null || item.mediaFile().contentUri() == null) continue;
+            if (SavingFiles.writing(item.mediaFile().filePath())) continue;
             while (targets.size() >= MAX_TARGETS) glide.clear(targets.removeFirst());
-            targets.addLast(GalleryThumb.request(glide, GalleryThumb.of(item.getFile()), px).priority(Priority.LOW).preload(px, px));
+            targets.addLast(GalleryThumb.request(glide, GalleryThumb.of(item.mediaFile()), px).priority(Priority.LOW).preload(px, px));
         }
     }
 }

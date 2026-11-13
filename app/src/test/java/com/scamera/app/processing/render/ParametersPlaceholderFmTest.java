@@ -51,7 +51,7 @@ public class ParametersPlaceholderFmTest {
         scam = true;
         ispCcm = 1f;
         settings = new com.scamera.app.api.Settings();
-        settings.colorMethod = 1;
+        settings.colourMethod = 1;
         app = mockStatic(com.scamera.app.app.ScameraApp.class);
         app.when(com.scamera.app.app.ScameraApp::getSettings).thenReturn(settings);
         prefsKeys = mockStatic(PreferenceKeys.class, invocation -> {
@@ -78,7 +78,7 @@ public class ParametersPlaceholderFmTest {
         final Parameters p = new Parameters();
         p.physicalID = 4;
         p.cameraID = "4";
-        p.ReCalcColor(false, result(transform, N));
+        p.resolveColour(false, result(transform, N));
         return p;
     }
 
@@ -87,8 +87,8 @@ public class ParametersPlaceholderFmTest {
         final float[] m = p.cameraToSrgb(), out = new float[9];
         for (int r = 0; r < 3; r++) {
             float s = 0f;
-            for (int c = 0; c < 3; c++) s += m[r * 3 + c] * p.whitePoint[c];
-            for (int c = 0; c < 3; c++) out[r * 3 + c] = m[r * 3 + c] * p.whitePoint[c] / s;
+            for (int c = 0; c < 3; c++) s += m[r * 3 + c] * p.asShotNeutral[c];
+            for (int c = 0; c < 3; c++) out[r * 3 + c] = m[r * 3 + c] * p.asShotNeutral[c] / s;
         }
         return out;
     }
@@ -111,7 +111,7 @@ public class ParametersPlaceholderFmTest {
         final Parameters p = shot(IDENTITY);
         assertEquals("PLAIN_TABLE", p.colourSource);
         assertTrue(p.colourSourceWhy, p.colourSourceWhy.contains("placeholder"));
-        for (int i = 0; i < 9; i++) assertEquals("element " + i, TABLE[i], p.CCT.matrix[i], 2e-3f);
+        for (int i = 0; i < 9; i++) assertEquals("element " + i, TABLE[i], p.colorTransform.matrix[i], 2e-3f);
         assertEquals(5200f, p.sceneCct, 1f);
     }
 
@@ -123,7 +123,7 @@ public class ParametersPlaceholderFmTest {
         final Parameters gateOff = shot(X8U_CST);
         assertEquals("ISP_CST_PLACEHOLDER", gateOff.colourSource);
         assertTrue("off-diagonal " + maxOffDiagonal(afterWhiteBalance(gateOff)), maxOffDiagonal(afterWhiteBalance(gateOff)) > 0.1f);
-        for (int i = 0; i < 9; i++) assertEquals(isp.CCT.matrix[i], gateOff.CCT.matrix[i], 0f);
+        for (int i = 0; i < 9; i++) assertEquals(isp.colorTransform.matrix[i], gateOff.colorTransform.matrix[i], 0f);
         ispCcm = 1f;
         scam = false;
         final Parameters scamOff = shot(X8U_CST);
@@ -151,12 +151,12 @@ public class ParametersPlaceholderFmTest {
         when(c.get(CameraCharacteristics.SENSOR_COLOR_TRANSFORM2)).thenReturn(cst(10000, 6892, 196, -3223, -7131, 18376, -1520, -884, 2258, 6427));
         final Parameters p = new Parameters();
         p.physicalID = 4;
-        p.ReCalcColor(false, result(IDENTITY, ParametersSceneCctTest.neutralAt(5000)));
+        p.resolveColour(false, result(IDENTITY, ParametersSceneCctTest.neutralAt(5000)));
         assertEquals("DNG_CM_ONLY", p.colourSource);
         // white stays white (channel ratios of s2p . n equal) and the matrix is no identity
         final float[] w = new float[3];
         final float[] m = p.cameraToSrgb();
-        for (int r = 0; r < 3; r++) w[r] = m[r * 3] * p.whitePoint[0] + m[r * 3 + 1] * p.whitePoint[1] + m[r * 3 + 2] * p.whitePoint[2];
+        for (int r = 0; r < 3; r++) w[r] = m[r * 3] * p.asShotNeutral[0] + m[r * 3 + 1] * p.asShotNeutral[1] + m[r * 3 + 2] * p.asShotNeutral[2];
         assertEquals(1f, w[0] / w[1], 2e-3f);
         assertEquals(1f, w[2] / w[1], 2e-3f);
         assertTrue(maxOffDiagonal(afterWhiteBalance(p)) > 0.1f);
@@ -174,8 +174,8 @@ public class ParametersPlaceholderFmTest {
         assertEquals("DNG_FM", p.colourSource);
         assertEquals("", p.colourSourceWhy);
         for (int i = 0; i < 9; i++) {
-            assertEquals(before.sensorToProPhoto[i], p.sensorToProPhoto[i], 0f);
-            assertEquals(before.CCT.matrix[i], p.CCT.matrix[i], 0f);
+            assertEquals(before.cameraToProPhoto[i], p.cameraToProPhoto[i], 0f);
+            assertEquals(before.colorTransform.matrix[i], p.colorTransform.matrix[i], 0f);
         }
         assertTrue(p.dngForwardMatrices());
     }
@@ -186,7 +186,7 @@ public class ParametersPlaceholderFmTest {
         assertFalse(p.dngForwardMatrices());
         assertTrue(Parameters.placeholderColorMatrix(new float[]{3.2404542f, -1.5371385f, -0.4985314f, -0.9692660f, 1.8760108f,
                 0.0415560f, 0.0556434f, -0.2040259f, 1.0572252f}, 21));
-        assertFalse(Parameters.placeholderColorMatrix(p.ColorMatrix1, 21));
+        assertFalse(Parameters.placeholderColorMatrix(p.colorMatrix1, 21));
         assertTrue(Parameters.placeholderColorMatrix(new float[9], 21));
     }
 }

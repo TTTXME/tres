@@ -41,8 +41,8 @@ public class EvModel extends ManualModel<Float> {
             Log.d(TAG, "no compensation range");
             return;
         }
-        chosen = makeAutoStop(ManualParamModel.EV_AUTO, null);
-        getKnobInfoList().add(chosen);
+        chosen = makeAutoStop(ManualParamModel.EV_AUTO_STEP, null);
+        stopList().add(chosen);
         // Stepped down in float from the top (the values the requests get), rounded to 1e-4; the last is the bottom itself.
         List<Float> evs = new ArrayList<>();
         int above = 0, below = 0;
@@ -58,13 +58,13 @@ public class EvModel extends ManualModel<Float> {
             float ev = evs.get(i);
             if (nearZero(ev)) continue;
             int tick = (ev > 0f ? above : below) - i;
-            getKnobInfoList().add(new KnobItemInfo(String.format(Locale.ROOT, "%.2f", ev), tick, ev));
+            stopList().add(new KnobItemInfo(String.format(Locale.ROOT, "%.2f", ev), tick, ev));
         }
     }
 
     @Override
     public void onSelectedKnobItemChanged(KnobItemInfo stop) {
         chosen = stop;
-        params.setCurrentEvValue((int) (chosen.value / evStep));
+        params.setEvIndex((int) (chosen.cameraValue / evStep));
     }
 }

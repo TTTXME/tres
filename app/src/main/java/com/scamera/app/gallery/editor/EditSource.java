@@ -819,11 +819,11 @@ public final class EditSource implements Closeable {
 
         @Override
         public int upload(EditRenderer r, int x, int y, int w, int h, EditMath.SourceColour[] colour) throws IOException {
-            BitmapFactory.Options o = new BitmapFactory.Options();
-            o.inSampleSize = sample;
-            o.inPreferredConfig = Bitmap.Config.ARGB_8888;
+            final BitmapFactory.Options sampled = new BitmapFactory.Options();
+            sampled.inPreferredConfig = Bitmap.Config.ARGB_8888;
+            sampled.inSampleSize = sample;
             Rect rect = new Rect(x * sample, y * sample, Math.min(fullW, (x + w) * sample), Math.min(fullH, (y + h) * sample));
-            Bitmap b = decoder.decodeRegion(rect, o);
+            Bitmap b = decoder.decodeRegion(rect, sampled);
             if (b == null) throw new IOException("region " + rect + " not decoded");
             b = normalise(b);
             if (b.getWidth() != w || b.getHeight() != h) {

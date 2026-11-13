@@ -998,9 +998,9 @@ public class SettingsActivity extends BaseActivity implements PreferenceFragment
             seedMissingListValues(getPreferenceScreen());
 
             // Keep every category reachable regardless of the last camera mode.
-            setVersionDetails();
-            setBackupPref();
-            setRestorePref();
+            showVersion();
+            bindBackup();
+            bindRestore();
             updateSettingsAvailability();
         }
         
@@ -1010,7 +1010,7 @@ public class SettingsActivity extends BaseActivity implements PreferenceFragment
             tunablesBuilt = true;
             try {
                 com.scamera.app.settings.TunableSettingsManager.ensureTunableClassesRegistered();
-                for (Class<?> owner : com.scamera.app.settings.TunableRegistry.TUNABLE_CLASSES)
+                for (Class<?> owner : com.scamera.app.settings.TunableRegistry.OWNERS)
                     TunablePreferenceGenerator.registerTunableClass(owner);
                 TunablePreferenceGenerator.generatePreferences(ctx, getPreferenceScreen());
             } catch (RuntimeException e) {
@@ -1367,7 +1367,7 @@ public class SettingsActivity extends BaseActivity implements PreferenceFragment
         }
 
         /** «Загрузить настройки»: a listed config, or the system picker for one elsewhere; the result as a snackbar. */
-        private void setRestorePref() {
+        private void bindRestore() {
             activity.runOnUiThread(() -> {
                 Preference load = findPreference("pref_restore_preferences_key");
                 if (load == null) return;
@@ -1384,7 +1384,7 @@ public class SettingsActivity extends BaseActivity implements PreferenceFragment
         }
 
         /** «Сохранить настройки»: the config under the typed name; the result as a snackbar. */
-        private void setBackupPref() {
+        private void bindBackup() {
             activity.runOnUiThread(() -> {
                 Preference save = findPreference("pref_backup_preferences_key");
                 if (save == null) return;
@@ -1470,7 +1470,7 @@ public class SettingsActivity extends BaseActivity implements PreferenceFragment
         }
 
         /** SIMPLE_UI §4 «О приложении»: version, install time (UTC) and the phone on one row. */
-        private void setVersionDetails() {
+        private void showVersion() {
             activity.runOnUiThread(() -> {
                 Preference about = findPreference("pref_version_key");
                 if (about == null) return;

@@ -181,7 +181,7 @@ public class DenoiseStagesTest {
         final String resolve = read(dir + "ScamHdrDenoise.java");
         final int gate = resolve.indexOf("if (!DenoiseStages.on()) {"), run = resolve.indexOf("WhyResolveDenoise.process(");
         assertTrue("the Resolve runs only behind the switch", gate > 0 && run > gate);
-        assertTrue(read(dir + "WhyFusion.java").contains("float strength = whyDenoise(basePipeline.mParameters) ? WhyTone.value(\"bracket_denoise\", 0f) : 0f;"));
+        assertTrue(read(dir + "WhyFusion.java").contains("float strength = whyDenoise(hostPipeline.shotParams) ? WhyTone.value(\"bracket_denoise\", 0f) : 0f;"));
         // LIFTED_CHROMA: the combine's chroma denoise of lifted shadows is 0 wherever its uniform is set
         final Pattern dn = Pattern.compile("\"chromaDnU\",\\s*([^)]*)\\)");
         int set = 0;

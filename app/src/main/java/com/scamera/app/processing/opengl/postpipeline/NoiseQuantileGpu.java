@@ -21,13 +21,13 @@ final class NoiseQuantileGpu {
     }
 
     @Nullable static Float quarter(GLProg prog, GLTexture noise, boolean allowRaw) {
-        final int pixels = noise.mSize.x * noise.mSize.y;
+        final int pixels = noise.size.x * noise.size.y;
         for (int i = 0; i < 8 && GLES31.glGetError() != GLES31.GL_NO_ERROR; i++) {}
         int[] limit = new int[1];
         GLES31.glGetIntegerv(GLES31.GL_MAX_COMPUTE_WORK_GROUP_INVOCATIONS, limit, 0);
         if (GLES31.glGetError() != GLES31.GL_NO_ERROR || limit[0] < 128) return null;
         final boolean raw = allowRaw;
-        if (raw && (noise.mFormat.getGLFormatInternal() != GLES31.GL_RGBA16F || !rawReadbackExact(prog))) return null;
+        if (raw && (noise.format.getGLFormatInternal() != GLES31.GL_RGBA16F || !rawReadbackExact(prog))) return null;
         final GLFormat format = new GLFormat(GLFormat.DataType.UNSIGNED_32);
         try (GLBuffer hist = new GLBuffer(32768, format); GLBuffer state = new GLBuffer(5, format);
              ImageBinding image = raw ? new ImageBinding(noise) : null) {
@@ -38,7 +38,7 @@ final class NoiseQuantileGpu {
             if (!raw) prog.setTexture("Noise", noise);
             prog.setBufferCompute("noiseHist", hist);
             prog.setBufferCompute("noiseState", state);
-            GLES31.glDispatchCompute((noise.mSize.x + 7) / 8, (noise.mSize.y + 7) / 8, 1);
+            GLES31.glDispatchCompute((noise.size.x + 7) / 8, (noise.size.y + 7) / 8, 1);
             GLES31.glMemoryBarrier(GLES31.GL_SHADER_STORAGE_BARRIER_BIT);
             prog.setDefine("PASS", 1);
             prog.setLayout(128, 1, 1);
@@ -76,9 +76,9 @@ final class NoiseQuantileGpu {
              ImageBinding image = new ImageBinding(probe)) {
             ByteBuffer upload = ByteBuffer.allocateDirect(65536 * 2).order(ByteOrder.nativeOrder());
             for (int i = 0; i < 65536; i++) upload.putShort(i * 2, (short) i);
-            GLES31.glBindTexture(GLES31.GL_TEXTURE_2D, probe.mTextureID);
+            GLES31.glBindTexture(GLES31.GL_TEXTURE_2D, probe.id);
             GLES31.glTexSubImage2D(GLES31.GL_TEXTURE_2D,0,0,0,128,128,GLES31.GL_RGBA,GLES31.GL_HALF_FLOAT,upload);
-            probe.BufferLoad();
+            probe.renderInto();
             if (GLES31.glCheckFramebufferStatus(GLES31.GL_FRAMEBUFFER) != GLES31.GL_FRAMEBUFFER_COMPLETE) return false;
             ByteBuffer floats = ByteBuffer.allocateDirect(65536 * 4).order(ByteOrder.nativeOrder());
             GLES31.glReadPixels(0,0,128,128,GLES31.GL_RGBA,GLES31.GL_FLOAT,floats);
@@ -116,7 +116,7 @@ final class NoiseQuantileGpu {
             int[] names = {GLES31.GL_IMAGE_BINDING_NAME,GLES31.GL_IMAGE_BINDING_LEVEL,GLES31.GL_IMAGE_BINDING_LAYERED,
                     GLES31.GL_IMAGE_BINDING_LAYER,GLES31.GL_IMAGE_BINDING_ACCESS,GLES31.GL_IMAGE_BINDING_FORMAT};
             for (int i = 0; i < names.length; i++) GLES31.glGetIntegeri_v(names[i],0,saved,i);
-            GLES31.glBindImageTexture(0,texture.mTextureID,0,false,0,GLES31.GL_READ_ONLY,GLES31.GL_RGBA16UI);
+            GLES31.glBindImageTexture(0,texture.id,0,false,0,GLES31.GL_READ_ONLY,GLES31.GL_RGBA16UI);
             if (GLES31.glGetError() != GLES31.GL_NO_ERROR) { close(); throw new IllegalStateException("integer image binding"); }
         }
         @Override public void close() {

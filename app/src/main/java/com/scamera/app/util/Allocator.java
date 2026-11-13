@@ -13,14 +13,14 @@ public class Allocator{
     public native static void setPackedShift(int raw10, int raw12);
 
     public native static ByteBuffer allocateAndCopy(int capacity, ByteBuffer origin, int offset);
-    public native static ByteBuffer allocateAndCopyConvert(int capacity, ByteBuffer origin, int width, int row_stride, int offset);
-    public native static ByteBuffer allocateAndCopyConvertBinning(int capacity, ByteBuffer origin, int width, int row_stride, int offset);
+    public native static ByteBuffer allocateAndCopyConvert(int capacity, ByteBuffer origin, int width, int rowStride, int offset);
+    public native static ByteBuffer allocateAndCopyConvertBinning(int capacity, ByteBuffer origin, int width, int rowStride, int offset);
     /** RAW12 (MIPI packed, 3 bytes per 2 pixels) to uint16. */
-    public native static ByteBuffer allocateAndCopyConvert12(int capacity, ByteBuffer origin, int width, int row_stride, int offset);
-    public native static ByteBuffer allocateAndCopyConvert12Binning(int capacity, ByteBuffer origin, int width, int row_stride, int offset);
+    public native static ByteBuffer allocateAndCopyConvert12(int capacity, ByteBuffer origin, int width, int rowStride, int offset);
+    public native static ByteBuffer allocateAndCopyConvert12Binning(int capacity, ByteBuffer origin, int width, int rowStride, int offset);
     /** Packed MIPI RAW formats that are unpacked to uint16 on copy. */
     public static boolean isPackedRaw(int format) { return format == 0x25 || format == 0x26 || RawUnpack.isRaw14(format); }
-    public native static ByteBuffer allocateAndCopyBinning(int capacity, ByteBuffer origin, int width, int height, int row_stride);
+    public native static ByteBuffer allocateAndCopyBinning(int capacity, ByteBuffer origin, int width, int height, int rowStride);
     /**
      * P609 (processing/TetraBin): each 2x2 box of {@code origin}'s rows (from {@code offset}, {@code rowStride} bytes apart; RAW16,
      * or packed RAW10 0x25 / RAW12 0x26) averaged into {@code dst} - a Tetra frame (4x4 colour cells) becomes the Quad of half its

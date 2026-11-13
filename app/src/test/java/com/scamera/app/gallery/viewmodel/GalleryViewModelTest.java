@@ -93,7 +93,7 @@ public class GalleryViewModelTest {
         // the loader thread reads the real (here empty) MediaStore; the lists are set on the main thread before «then»
         vm.loadAsync(() -> {
             ran[0] = true;
-            assertEquals("ALL", vm.getAllSelectedImageFolder().getValue().getDisplayName());
+            assertEquals("ALL", vm.getAllSelectedImageFolder().getValue().shownName());
             assertTrue(vm.getSelectedDisplayFolders().getValue() != null);
         });
         waitFor(() -> ran[0]);
@@ -106,18 +106,18 @@ public class GalleryViewModelTest {
         vm.loadAsync(() -> ran[0] = true); // older: started first (the loader thread sees an empty MediaStore)
         vm.fetchAllMedia(); // newer: a delete's refresh on this thread
         waitFor(() -> ran[0]);
-        assertEquals("the older load did not put its lists over the newer ones", 2, vm.getAllSelectedImageFolder().getValue().getFiles().size());
+        assertEquals("the older load did not put its lists over the newer ones", 2, vm.getAllSelectedImageFolder().getValue().groupedItems().size());
     }
 
     @Test
     public void emptySelectionClearsAll() {
         store(folder("Camera", photo(1, "a.jpg"), photo(2, "b.jpg")));
         vm.fetchAllMedia();
-        assertEquals(2, vm.getAllSelectedImageFolder().getValue().getFiles().size());
+        assertEquals(2, vm.getAllSelectedImageFolder().getValue().groupedItems().size());
         store(); // every photo deleted
         vm.fetchAllMedia();
-        assertTrue("no stale «ALL» with the deleted photos", vm.getAllSelectedImageFolder().getValue().getFiles().isEmpty());
-        assertEquals("ALL", vm.getAllSelectedImageFolder().getValue().getDisplayName());
+        assertTrue("no stale «ALL» with the deleted photos", vm.getAllSelectedImageFolder().getValue().groupedItems().isEmpty());
+        assertEquals("ALL", vm.getAllSelectedImageFolder().getValue().shownName());
         assertNull("no chips", vm.refreshKeeping("ALL"));
         assertTrue("the grid and the viewer are empty", vm.getCurrentFolderImages().getValue().isEmpty());
     }
@@ -132,10 +132,10 @@ public class GalleryViewModelTest {
         assertEquals("Camera", vm.getCurrentFolderName());
         List<GalleryItem> shown = vm.getCurrentFolderImages().getValue();
         assertEquals(1, shown.size());
-        assertEquals("c.jpg", shown.get(0).getFile().getDisplayName());
+        assertEquals("c.jpg", shown.get(0).mediaFile().displayName());
         GalleryItem camera = null;
-        for (GalleryItem f : vm.getSelectedDisplayFolders().getValue()) if ("Camera".equals(f.getDisplayName())) camera = f;
-        assertSame("the chip's own list", camera.getFiles(), shown);
+        for (GalleryItem f : vm.getSelectedDisplayFolders().getValue()) if ("Camera".equals(f.shownName())) camera = f;
+        assertSame("the chip's own list", camera.groupedItems(), shown);
     }
 
     @Test
@@ -144,7 +144,7 @@ public class GalleryViewModelTest {
         vm.fetchAllMedia();
         store(folder("Raw", photo(2, "b.dng")));
         assertEquals("the first chip", "ALL", vm.refreshKeeping("Camera"));
-        assertSame(vm.getAllSelectedImageFolder().getValue().getFiles(), vm.getCurrentFolderImages().getValue());
+        assertSame(vm.getAllSelectedImageFolder().getValue().groupedItems(), vm.getCurrentFolderImages().getValue());
         assertEquals("ALL", vm.refreshKeeping(null));
     }
 
@@ -178,8 +178,8 @@ public class GalleryViewModelTest {
         vm.showFront(last, true);
         List<GalleryItem> shown = vm.getCurrentFolderImages().getValue();
         assertEquals("the viewer has a page before MediaStore is read", 1, shown.size());
-        assertSame(last, shown.get(0).getFile());
-        assertEquals(last.getFileUri(), vm.takePendingSelect());
+        assertSame(last, shown.get(0).mediaFile());
+        assertEquals(last.contentUri(), vm.takePendingSelect());
         // the read brings the same row: the lists' own item from then on, selected
         store(folder("Camera", photo(9, "newer.mp4"), photo(7, "last.jpg"), photo(3, "old.jpg")));
         vm.fetchAllMedia();
@@ -187,7 +187,7 @@ public class GalleryViewModelTest {
         shown = vm.getCurrentFolderImages().getValue();
         assertEquals("not twice", 3, shown.size());
         assertNull(vm.front());
-        assertEquals("the viewer stays on the photo the thumbnail showed", shown.get(1).getFile().getFileUri(), vm.takePendingSelect());
+        assertEquals("the viewer stays on the photo the thumbnail showed", shown.get(1).mediaFile().contentUri(), vm.takePendingSelect());
     }
 
     @Test
@@ -201,10 +201,10 @@ public class GalleryViewModelTest {
         vm.showFront(saved, true);
         List<GalleryItem> shown = vm.getCurrentFolderImages().getValue();
         assertEquals(3, shown.size());
-        assertSame(saved, shown.get(0).getFile());
-        assertEquals("b.jpg", shown.get(1).getFile().getDisplayName());
-        assertEquals(saved.getFileUri(), vm.takePendingSelect());
-        assertEquals("«ALL» itself is MediaStore's list", 2, vm.getAllSelectedImageFolder().getValue().getFiles().size());
+        assertSame(saved, shown.get(0).mediaFile());
+        assertEquals("b.jpg", shown.get(1).mediaFile().displayName());
+        assertEquals(saved.contentUri(), vm.takePendingSelect());
+        assertEquals("«ALL» itself is MediaStore's list", 2, vm.getAllSelectedImageFolder().getValue().groupedItems().size());
         // a read before the scanner filed it keeps it first
         vm.fetchAllMedia();
         vm.setCurrentFolderImages(vm.getAllSelectedImageFolder().getValue());
@@ -214,10 +214,10 @@ public class GalleryViewModelTest {
         GalleryItem front = vm.front();
         Uri row = ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, 30);
         assertTrue(!vm.frontScanned("/storage/emulated/0/DCIM/x/other.jpg", row));
-        assertTrue(vm.frontScanned(saved.getAbsolutePath(), row));
+        assertTrue(vm.frontScanned(saved.filePath(), row));
         assertSame(front, vm.getCurrentFolderImages().getValue().get(0));
-        assertEquals(row, front.getFile().getFileUri());
-        assertEquals(30, front.getFile().getId());
+        assertEquals(row, front.mediaFile().contentUri());
+        assertEquals(30, front.mediaFile().rowId());
         assertTrue("the library reads MediaStore again when it is shown", vm.getUpdatePending().getValue());
         // MediaStore has it (by its path): no front photo any more
         store(folder("Camera", photo(30, "new.jpg"), photo(2, "b.jpg"), photo(1, "a.jpg")));
@@ -232,10 +232,10 @@ public class GalleryViewModelTest {
         store(folder("Camera", photo(2, "b.jpg"), photo(1, "a.jpg")));
         vm.fetchAllMedia();
         vm.setCurrentFolderImages(vm.getAllSelectedImageFolder().getValue());
-        Uri viewed = vm.getCurrentFolderImages().getValue().get(1).getFile().getFileUri();
+        Uri viewed = vm.getCurrentFolderImages().getValue().get(1).mediaFile().contentUri();
         vm.selectNext(viewed);
         vm.showFront(unfiled("new.jpg"), false);
-        assertEquals("new.jpg", vm.getCurrentFolderImages().getValue().get(0).getFile().getDisplayName());
+        assertEquals("new.jpg", vm.getCurrentFolderImages().getValue().get(0).mediaFile().displayName());
         assertEquals("the photo viewed, not the new one", viewed, vm.takePendingSelect());
     }
 

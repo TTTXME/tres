@@ -34,12 +34,12 @@ public class ImageFrame {
     public ByteBuffer buffer;
     /** The frame's size in pixels and its place in the burst (the logs). */
     public int width, height, number;
-    /** The sensor timestamp; the frame's result is the one with this SENSOR_TIMESTAMP. */
+    /** The sensor timestamp; the frame's result is the one with this SENSOR_TIMESTAMP. The frame came from the ZSL ring. */
     public long timestamp;
+    public boolean fromZsl;
     /** The exposure pair the frame was requested with, and the gyro's shake over its exposure (ScamProcessor). */
     public IsoExpoSelector.ExpoPair pair;
     public GyroBurst frameGyro;
-    public boolean fromZsl;
     /** RawPayloadCheck verdict of the reader Image this frame was copied from; null = plain 16-bit. */
     public String rawPayloadError;
     /**

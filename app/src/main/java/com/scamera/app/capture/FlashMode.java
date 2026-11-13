@@ -44,7 +44,7 @@ public final class FlashMode {
     /** The camera is in the video mode (the torch only). */
     public static boolean videoMode() {
         try {
-            return com.scamera.app.app.ScameraApp.getSettings().selectedMode == com.scamera.app.api.CameraMode.VIDEO;
+            return com.scamera.app.app.ScameraApp.getSettings().mode == com.scamera.app.api.CameraMode.VIDEO;
         } catch (RuntimeException e) {
             return false;
         }

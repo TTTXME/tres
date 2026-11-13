@@ -970,7 +970,7 @@ public final class WhyTone {
 
     /** ProPhoto -> sRGB matrix of the render. */
     static float[] intermediateToSRGB(Parameters p) {
-        return p.CCT.matrix;
+        return p.colorTransform.matrix;
     }
 
     /**
@@ -1034,7 +1034,7 @@ public final class WhyTone {
     static float[] colourMatrix(PostPipeline pipeline) {
         State st = pipeline.why;
         if (st != null && st.colourMatrix != null) return st.colourMatrix;
-        Parameters p = pipeline.mParameters;
+        Parameters p = pipeline.shotParams;
         float[] white = colourLook(pipeline).whiteMatrix(p.sceneCct);
         float[] m = colourMatrixOf(p, white, pipeline.film);
         if (white != null) {
@@ -1131,11 +1131,11 @@ public final class WhyTone {
 
     /** Colour uniforms of why/low.glsl and why/combine.glsl (sceneLinear): the chain of headroom/render.glsl. */
     static void setColour(GLProg prog, PostPipeline pipeline, GLTexture gainMap, float inScale) {
-        Parameters p = pipeline.mParameters;
+        Parameters p = pipeline.shotParams;
         prog.setTexture("GainMap", gainMap);
-        prog.setVar("sensorToIntermediate", p.sensorToProPhoto);
+        prog.setVar("sensorToIntermediate", p.cameraToProPhoto);
         prog.setVar("intermediateToSRGB", colourMatrix(pipeline));
-        prog.setVar("neutralPointU", p.whitePoint[0], p.whitePoint[1], p.whitePoint[2]);
+        prog.setVar("neutralPointU", p.asShotNeutral[0], p.asShotNeutral[1], p.asShotNeutral[2]);
         prog.setVar("inScaleU", inScale);
     }
 }

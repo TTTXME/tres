@@ -155,15 +155,15 @@ public class ImageCompareFragment extends Fragment {
     }
 
     @Override
-    public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
-        Bundle b = getArguments();
-        if (b != null) {
-            toSync = true;
-            ImageViewerFragment.paneFullExif = true; // P196: a new comparison opens with the full info on both panes
-            pos1 = b.getInt(IMAGE1_KEY);
-            pos2 = b.getInt(IMAGE2_KEY);
-            attach(pos1, pos2);
-        }
+    public void onViewCreated(@NonNull View view, @Nullable Bundle saved) {
+        final Bundle args = getArguments();
+        if (args == null) return;
+        // a new comparison: the panes linked, both with the full info (P196)
+        toSync = true;
+        ImageViewerFragment.paneFullExif = true;
+        pos1 = args.getInt(ARG_FIRST_IMAGE);
+        pos2 = args.getInt(ARG_SECOND_IMAGE);
+        attach(pos1, pos2);
     }
 
     private void attach(int first, int second) {
@@ -181,8 +181,8 @@ public class ImageCompareFragment extends Fragment {
     private ImageViewerFragment pane(int position) {
         ImageViewerFragment f = new ImageViewerFragment();
         Bundle b = new Bundle();
-        b.putString(MODE_KEY, COMPARE);
-        b.putInt(IMAGE_POSITION_KEY, position);
+        b.putString(ARG_MODE, MODE_COMPARE);
+        b.putInt(ARG_POSITION, position);
         f.setArguments(b);
         f.setSsivListener(ssivListener);
         return f;
@@ -299,17 +299,17 @@ public class ImageCompareFragment extends Fragment {
         }
 
         @Override
-        public void onScaleChanged(float newScale, int origin) {
+        public void onScaleChanged(float scale, int source) {
             update();
         }
 
         @Override
-        public void onCenterChanged(PointF newCenter, int origin) {
+        public void onCenterChanged(PointF centre, int source) {
             update();
         }
 
         @Override
-        public void onTouched(int id) {
+        public void onTouched(int pointer) {
             // the view itself comes through onTouchedView
         }
 

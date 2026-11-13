@@ -57,7 +57,7 @@ public class UniversalSeekBarPreference extends Preference {
             high = a.getFloat(R.styleable.UniversalSeekBarPreference_maxValue, 100f);
             low = a.getFloat(R.styleable.UniversalSeekBarPreference_minValue, 0f);
             decimal = a.getBoolean(R.styleable.UniversalSeekBarPreference_isFloat, false);
-            showsValue = a.getBoolean(R.styleable.UniversalSeekBarPreference_showSeekBarValue, true);
+            showsValue = true; // no row hides its value pill (the showSeekBarValue attribute is gone)
             float grid = a.getFloat(R.styleable.UniversalSeekBarPreference_stepPerUnit, 1f);
             perUnit = !decimal && grid > 1 ? 1f : grid; // whole-number rows step by at least 1
         } finally {

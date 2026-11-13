@@ -25,8 +25,8 @@ public class WhyYellowHueTest {
         final String src = "src/main/java/com/scamera/app/processing/opengl/postpipeline/";
         assertTrue(read("src/main/assets/shaders/why/combine.glsl").contains("#if YELLOW_HUE == 1\nuniform float yellowHueU;"));
         final String why = read(src + "WhyCombine.java"), live = read(src + "LiveWhyTone.java");
-        assertTrue(why.contains("if (WhyTone.yellowHue() > 0f) glProg.setDefine(\"YELLOW_HUE\", 1);"));
-        assertTrue(why.contains("glProg.setVar(\"yellowHueU\", WhyTone.yellowHue());"));
+        assertTrue(why.contains("if (WhyTone.yellowHue() > 0f) shaderProg.setDefine(\"YELLOW_HUE\", 1);"));
+        assertTrue(why.contains("shaderProg.setVar(\"yellowHueU\", WhyTone.yellowHue());"));
         assertTrue(live.contains("if (yellowHue > 0f) defs.add(new String[]{\"YELLOW_HUE\", \"1\"});"));
         assertTrue(live.contains("set(p, \"yellowHueU\", yellowHue);"));
         // P407: on by default on vivo only (its matrix's fault; the OPPO ISP matrix renders the yellows at the reference's hue)

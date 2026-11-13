@@ -23,7 +23,7 @@ import android.hardware.camera2.CaptureResult;
 
 import com.scamera.app.api.ParseExif;
 import com.scamera.app.app.ScameraApp;
-import com.scamera.app.processing.ProcessingEventsListener;
+import com.scamera.app.processing.ProcessingEvents;
 import com.scamera.app.processing.render.Parameters;
 
 import java.nio.file.Path;
@@ -32,21 +32,20 @@ import java.nio.file.Path;
  * Created by Vibhor Srivastava on 02/Jan/2021
  */
 public abstract class ProcessorBase {
-    protected final ProcessingEventsListener processingEventsListener;
-    /** Where the shot's DNG and photo go. */
-    protected Path dngFile;
-    protected Path imageFile;
-    /** The camera and the frame the shot was captured with. */
-    protected CameraCharacteristics characteristics;
-    protected CaptureResult captureResult;
-    protected CaptureRequest captureRequest;
-    protected ParseExif.ExifData exifData;
-    protected int cameraRotation;
+    /** Told about the processing's progress and the saved file. */
+    protected final ProcessingEvents events;
     /** Told when the processing starts, fails and ends. */
-    protected ProcessingCallback callback;
+    protected ProcessingCallback stages;
+    // the shot: where its DNG and photo go, the camera and the frame it was captured with, its EXIF and rotation
+    protected Path dngPath, photoPath;
+    protected CameraCharacteristics shotCamera;
+    protected CaptureResult shotResult;
+    protected CaptureRequest shotRequest;
+    protected ParseExif.ExifData shotExif;
+    protected int shotRotation;
 
-    public ProcessorBase(ProcessingEventsListener listener) {
-        processingEventsListener = listener;
+    public ProcessorBase(ProcessingEvents events) {
+        this.events = events;
     }
 
     /** Runs the processing of the shot (a processor without its own does nothing). */
@@ -55,10 +54,10 @@ public abstract class ProcessorBase {
 
     /** The stages of a shot's processing a saver follows. */
     public interface ProcessingCallback {
-        void onStarted();
+        void started();
 
-        void onFailed();
+        void failed();
 
-        void onFinished();
+        void finished();
     }
 }

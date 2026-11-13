@@ -1,5 +1,4 @@
-precision highp float;
-precision highp sampler2D;
+precision highp float; precision highp sampler2D;
 // P317: highp ints (they default to mediump, fp16 on Mali): xy and size feed the halo's uv, which rounded above 2048 px.
 precision highp int;
 // P281: the film simulation's halation (FilmHalation) - the halo sum (the image's pyramid around the film's halation size,

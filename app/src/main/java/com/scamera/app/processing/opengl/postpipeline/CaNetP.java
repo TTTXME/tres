@@ -317,10 +317,10 @@ public final class CaNetP {
         if (w == null) throw new IllegalStateException("fringe net weights: " + weightsError);
         final float[] toRender = ScamRgb.toRender(p), fromRender = WhyMsDenoise.inverse3(toRender);
         if (fromRender == null) throw new IllegalStateException("fringe net: singular colour matrix");
-        final float[] wp = p.mParameters.whitePoint;
+        final float[] wp = p.shotParams.asShotNeutral;
         final float invWhite = 1f / renderWhite(clipLo, wp, toRender);
         final float strength = s.strengthUniform(purple);
-        final Point full = in.mSize, half = new Point((full.x + 1) / 2, (full.y + 1) / 2),
+        final Point full = in.size, half = new Point((full.x + 1) / 2, (full.y + 1) / 2),
                 quarter = new Point((half.x + 1) / 2, (half.y + 1) / 2);
         final List<GLTexture> owned = new ArrayList<>();
         try {

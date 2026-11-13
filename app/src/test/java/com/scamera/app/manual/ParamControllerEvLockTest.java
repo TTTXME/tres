@@ -60,59 +60,59 @@ public class ParamControllerEvLockTest {
     @Test
     public void evIsAppliedWhileIsoOrShutterIsAuto() {
         assertNull(ev());
-        model.setCurrentEvValue(3);
+        model.setEvIndex(3);
         assertEquals(Integer.valueOf(3), ev());
         assertEquals(3, controller.effectiveEv());
-        model.setCurrentISOValue(400); // ISO manual, shutter auto: EV still applies
+        model.setIsoSetting(400); // ISO manual, shutter auto: EV still applies
         assertEquals(Integer.valueOf(3), ev());
-        model.setCurrentISOValue(ManualParamModel.ISO_AUTO);
-        model.setCurrentExposureValue(1_000_000_000L / 125); // shutter manual, ISO auto: EV still applies
+        model.setIsoSetting(ManualParamModel.ISO_AUTO_VALUE);
+        model.setShutterValueNs(1_000_000_000L / 125); // shutter manual, ISO auto: EV still applies
         assertEquals(Integer.valueOf(3), ev());
         assertEquals(3, controller.effectiveEv());
     }
 
     @Test
     public void evIsNotAppliedWhileLockedAndComesBack() {
-        model.setCurrentEvValue(-2);
-        model.setCurrentISOValue(800);
+        model.setEvIndex(-2);
+        model.setIsoSetting(800);
         assertEquals(Integer.valueOf(-2), ev());
         // shutter manual too: locked, the request gets 0 and the stored value stays
-        model.setCurrentExposureValue(1_000_000_000L / 125);
+        model.setShutterValueNs(1_000_000_000L / 125);
         assertEquals(Integer.valueOf(0), ev());
         assertEquals(0, controller.effectiveEv());
-        assertEquals(-2, controller.EV);
-        assertEquals(-2, model.getCurrentEvValue(), 0);
+        assertEquals(-2, controller.evSet);
+        assertEquals(-2, model.evIndex(), 0);
         // a new EV while locked is stored, not applied
-        model.setCurrentEvValue(-1);
+        model.setEvIndex(-1);
         assertEquals(Integer.valueOf(0), ev());
-        assertEquals(-1, controller.EV);
+        assertEquals(-1, controller.evSet);
         // ISO back to auto: the stored EV applies again
-        model.setCurrentISOValue(ManualParamModel.ISO_AUTO);
+        model.setIsoSetting(ManualParamModel.ISO_AUTO_VALUE);
         assertEquals(Integer.valueOf(-1), ev());
         assertEquals(-1, controller.effectiveEv());
     }
 
     @Test
     public void lockAndUnlockReachTheBuilderBeforeTheRebuild() {
-        model.setCurrentISOValue(200);
-        model.setCurrentEvValue(2);
+        model.setIsoSetting(200);
+        model.setEvIndex(2);
         rebuilt.clear();
-        model.setCurrentExposureValue(1_000_000_000L / 60); // locks: the rebuild already carries 0
+        model.setShutterValueNs(1_000_000_000L / 60); // locks: the rebuild already carries 0
         assertEquals(Integer.valueOf(0), rebuilt.get(0));
         rebuilt.clear();
-        model.setCurrentExposureValue(ManualParamModel.EXPOSURE_AUTO); // unlocks: the rebuild carries the stored 2
+        model.setShutterValueNs(ManualParamModel.SHUTTER_AUTO_NS); // unlocks: the rebuild carries the stored 2
         assertEquals(Integer.valueOf(2), rebuilt.get(0));
     }
 
     @Test
     public void setupPreviewKeepsTheLock() {
-        model.setCurrentEvValue(3);
-        model.setCurrentISOValue(400);
-        model.setCurrentExposureValue(1_000_000_000L / 250);
+        model.setEvIndex(3);
+        model.setIsoSetting(400);
+        model.setShutterValueNs(1_000_000_000L / 250);
         builder.set(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION, 3); // a stale value, as after a session rebuild
         controller.setupPreview();
         assertEquals(Integer.valueOf(0), ev());
-        model.setCurrentExposureValue(ManualParamModel.EXPOSURE_AUTO);
+        model.setShutterValueNs(ManualParamModel.SHUTTER_AUTO_NS);
         controller.setupPreview();
         assertEquals(Integer.valueOf(3), ev());
     }

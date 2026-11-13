@@ -1,9 +1,5 @@
 #version 300 es
-precision highp float;
-precision highp int;
-precision highp sampler2D;
-precision highp usampler2D;
-precision highp sampler3D;
+precision highp float; precision highp int; precision highp sampler2D; precision highp usampler2D; precision highp sampler3D;
 in vec2 texCoord;
 uniform int mirror;
 uniform int cfa_block_size;

@@ -68,7 +68,7 @@ final class SceneGainMap {
      */
     void keep(GLTexture full, GLProg prog, Point finalSize) {
         if (takenThisRun || light != null) return;
-        final boolean shrink = finalSize != null && (full.mSize.x != finalSize.x || full.mSize.y != finalSize.y);
+        final boolean shrink = finalSize != null && (full.size.x != finalSize.x || full.size.y != finalSize.y);
         if (!shrink) {
             read(full);
             return;
@@ -97,8 +97,8 @@ final class SceneGainMap {
      * buffer (~134 MP as floats) is skipped like a failed allocation.
      */
     private void read(GLTexture tex) {
-        final int w = tex.mSize.x, h = tex.mSize.y;
-        tex.BindBuffer();
+        final int w = tex.size.x, h = tex.size.y;
+        tex.bindFramebuffer();
         final int halfType = PostGlMode.legacy() ? 0 : WhyStats.halfReadType();
         if (halfType != 0 && WhyStats.halfReadbackExact(halfType) && readHalves(tex, halfType)) return;
         lightInHalves = false;
@@ -112,24 +112,24 @@ final class SceneGainMap {
             Log.e(TAG, "Linear scene snapshot allocation of " + floatBytes + " B failed; Ultra HDR will fall back to SDR");
             return;
         }
-        tex.BindBuffer();
+        tex.bindFramebuffer();
         tex.textureBuffer(RGBA16F, floats);
-        hold(floats, tex.mSize, false);
+        hold(floats, tex.size, false);
     }
 
     private boolean readHalves(GLTexture tex, int halfType) {
-        final long bytes = 8L * tex.mSize.x * tex.mSize.y;
+        final long bytes = 8L * tex.size.x * tex.size.y;
         if (bytes > Integer.MAX_VALUE) return false;
         final ByteBuffer halves = Allocator.allocate((int) bytes);
         if (halves == null) return false;
         halves.order(ByteOrder.nativeOrder());
-        tex.BindBuffer();
-        GLES30.glReadPixels(0, 0, tex.mSize.x, tex.mSize.y, GLES30.GL_RGBA, halfType, halves);
+        tex.bindFramebuffer();
+        GLES30.glReadPixels(0, 0, tex.size.x, tex.size.y, GLES30.GL_RGBA, halfType, halves);
         if (GLES30.glGetError() != GLES30.GL_NO_ERROR) {
             Allocator.free(halves);
             return false;
         }
-        hold(halves, tex.mSize, true);
+        hold(halves, tex.size, true);
         return true;
     }
 
@@ -180,7 +180,7 @@ final class SceneGainMap {
             shading = shadingMap(shot.parameters);
             skyRatio = skyRatioTexture(shot.skyRatio, shot.skyRatioSize);
             final GLTexture plane = new GLTexture(shot.pictureSize, RGBA16F);
-            plane.BufferLoad();
+            plane.renderInto();
             drawScenePlane(shot, lightTex, shading, skyRatio, plane);
             // the light, the shading and the sky ratio are done with: their memory goes before the next passes (P659)
             lightTex.close();
@@ -194,7 +194,7 @@ final class SceneGainMap {
             final float anchor = anchor(shot.prog, plane, sdrTex);
             final int gw = Math.max(1, shot.pictureSize.x / down), gh = Math.max(1, shot.pictureSize.y / down);
             final GLTexture encoded = new GLTexture(new Point(gw, gh), RGBA8);
-            encoded.BufferLoad();
+            encoded.renderInto();
             drawGainMap(shot, sdrTex, plane, anchor, down, scale, encoded);
             sdrTex.close();
             plane.close();
@@ -202,7 +202,7 @@ final class SceneGainMap {
             final GLTexture quantised = down == 1 && !PostGlMode.legacy() ? requantise(shot.prog, encoded, gw, gh, scale, range) : null;
             final GLTexture result = quantised != null ? quantised : encoded;
             // the map's own framebuffer: after a failed requantisation the deleted one was still bound (P659 fix)
-            result.BindBuffer();
+            result.bindFramebuffer();
             final ByteBuffer bytes = result.textureBuffer(RGBA8, false);
             bytes.position(0);
             final Bitmap map = Bitmap.createBitmap(gw, gh, Bitmap.Config.ARGB_8888);
@@ -222,7 +222,7 @@ final class SceneGainMap {
         if (!lightInHalves) return new GLTexture(lightSize, RGBA16F, light);
         // P147: the halves go up as they came (GL_HALF_FLOAT into the RGBA16F texture): the same texels
         final GLTexture tex = new GLTexture(lightSize, RGBA16F);
-        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, tex.mTextureID);
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, tex.id);
         GLES30.glTexSubImage2D(GLES30.GL_TEXTURE_2D, 0, 0, 0, lightSize.x, lightSize.y, GLES30.GL_RGBA, GLES30.GL_HALF_FLOAT, light);
         logGlError("half snapshot upload");
         return tex;
@@ -234,20 +234,20 @@ final class SceneGainMap {
      */
     private static GLTexture shadingMap(Parameters parameters) {
         try {
-            final float[] map = parameters.gainMap;
+            final float[] map = parameters.shadingMap;
             if (map != null && map.length >= 4) {
-                final Point size = parameters.mapSize != null ? parameters.mapSize : new Point(1, 1);
-                return new GLTexture(size, RGBA16F, BufferUtils.getFrom(map), GL_LINEAR, GL_CLAMP_TO_EDGE);
+                final Point size = parameters.shadingGrid != null ? parameters.shadingGrid : new Point(1, 1);
+                return new GLTexture(size, RGBA16F, BufferUtils.floatBuffer(map), GL_LINEAR, GL_CLAMP_TO_EDGE);
             }
         } catch (Exception e) {
             Log.e(TAG, "Failed to upload GainMap for UltraHDR, falling back to identity", e);
         }
-        return new GLTexture(new Point(1, 1), RGBA16F, BufferUtils.getFrom(new float[]{1f, 1f, 1f, 1f}), GL_LINEAR, GL_CLAMP_TO_EDGE);
+        return new GLTexture(new Point(1, 1), RGBA16F, BufferUtils.floatBuffer(new float[]{1f, 1f, 1f, 1f}), GL_LINEAR, GL_CLAMP_TO_EDGE);
     }
 
     private static GLTexture skyRatioTexture(float[] ratio, Point size) {
         if (ratio == null || size == null || ratio.length != size.x * size.y) return null;
-        return new GLTexture(size, new GLFormat(GLFormat.DataType.FLOAT_16, 1), BufferUtils.getFrom(ratio), GL_LINEAR, GL_CLAMP_TO_EDGE);
+        return new GLTexture(size, new GLFormat(GLFormat.DataType.FLOAT_16, 1), BufferUtils.floatBuffer(ratio), GL_LINEAR, GL_CLAMP_TO_EDGE);
     }
 
     private static void drawScenePlane(Shot shot, GLTexture lightTex, GLTexture shading, GLTexture skyRatio, GLTexture plane) {
@@ -256,7 +256,7 @@ final class SceneGainMap {
         prog.setTexture("InputBuffer", lightTex);
         prog.setTexture("GainMap", shading);
         prog.setVar("rotate", shot.rotateIndex);
-        prog.setVar("mirror", shot.parameters.mirror ? 1 : 0);
+        prog.setVar("mirror", shot.parameters.mirrored ? 1 : 0);
         prog.setVar("cropSize", shot.cropSize);
         prog.setVar("rawSize", shot.base);
         // P370 (B3): luminance as the render weighs it (its colour matrix and white balance), not Rec.709 of camera RGB
@@ -291,7 +291,7 @@ final class SceneGainMap {
         prog.setVar("uScale", scale);
         prog.setVar("uEps", GainMapComputer.DECODE_OFFSET);
         prog.setVar("uP3", shot.p3 ? 1 : 0); // P370 (B3): a Display P3 base's own luminance
-        renderInto(prog, target, target.mSize.x, target.mSize.y);
+        renderInto(prog, target, target.size.x, target.size.y);
         logGlError("gain-map comparison draw");
     }
 
@@ -308,7 +308,7 @@ final class SceneGainMap {
         final float[] tableU = new float[table.length];
         for (int i = 0; i < table.length; i++) tableU[i] = table[i];
         GLTexture out = new GLTexture(new Point(w, h), RGBA8);
-        out.BufferLoad();
+        out.renderInto();
         prog.useAssetProgram("ultrahdr/gainquant");
         prog.setTexture("InputBuffer", encoded);
         prog.setVarVec4s("lutU", tableU);
@@ -347,7 +347,7 @@ final class SceneGainMap {
     }
 
     private static void renderInto(GLProg prog, GLTexture target, int w, int h) {
-        GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, target.mBuffer);
+        GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, target.framebuffer);
         GLES30.glViewport(0, 0, w, h);
         prog.draw();
     }

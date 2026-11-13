@@ -258,17 +258,17 @@ public class PhotoFormatTest {
 
     private static ParseExif.ExifData exif() {
         ParseExif.ExifData d = new ParseExif.ExifData();
-        d.SENSITIVITY_TYPE = String.valueOf(ExifInterface.SENSITIVITY_TYPE_ISO_SPEED);
-        d.PHOTOGRAPHIC_SENSITIVITY = "400";
-        d.F_NUMBER = "1.8";
-        d.FOCAL_LENGTH = "690/100";
-        d.APERTURE_VALUE = "1.8";
-        d.EXPOSURE_TIME = "0.01";
-        d.DATETIME = "2026:10:08 10:10:10";
-        d.COMPRESSION = ParseExif.COMPRESSION_JPEG;
-        d.COLOR_SPACE = "sRGB";
-        d.EXIF_VERSION = "0231";
-        d.IMAGE_DESCRIPTION = "test";
+        d.sensitivityType = String.valueOf(ExifInterface.SENSITIVITY_TYPE_ISO_SPEED);
+        d.isoValue = "400";
+        d.fNumber = "1.8";
+        d.focalLength = "690/100";
+        d.apertureApex = "1.8";
+        d.exposureTime = "0.01";
+        d.dateTime = "2026:10:08 10:10:10";
+        d.compression = ParseExif.COMPRESSION_JPEG;
+        d.colorSpace = "sRGB";
+        d.exifVersion = "0231";
+        d.description = "test";
         return d;
     }
 }

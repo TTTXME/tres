@@ -490,10 +490,10 @@ public final class ZslRing {
             this.slot = slot;
             this.view = view;
             this.timestamp = timestamp;
-            this.format = format;
             this.width = width;
             this.height = height;
             this.rowStride = rowStride;
+            this.format = format;
             this.pixelStride = pixelStride;
             this.sourceFormat = sourceFormat;
         }

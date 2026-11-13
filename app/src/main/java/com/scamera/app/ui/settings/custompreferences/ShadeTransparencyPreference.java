@@ -249,9 +249,9 @@ public class ShadeTransparencyPreference extends Preference {
                 paint.setStyle(Paint.Style.FILL);
             }
             canvas.restore();
-            paint.setStyle(Paint.Style.STROKE);
-            paint.setStrokeWidth(lw);
             paint.setColor(UiTokens.LINE);
+            paint.setStrokeWidth(lw);
+            paint.setStyle(Paint.Style.STROKE);
             rect.inset(lw / 2, lw / 2);
             canvas.drawRoundRect(rect, r, r, paint);
             paint.setStyle(Paint.Style.FILL);

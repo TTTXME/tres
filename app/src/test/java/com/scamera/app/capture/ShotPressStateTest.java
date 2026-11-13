@@ -54,13 +54,13 @@ public class ShotPressStateTest {
         assertTrue("on the shot's own saver (after the drain: rawCropOfShot included)",
                 shot.indexOf("mImageSaver.zoomResidual = com.scamera.app.control.ZoomController.shotResidual();") > saver
                         && saver > shot.indexOf("drainZslNormalFrames("));
-        assertTrue(shot.indexOf("mImageSaver.cameraIdAtPress = ScameraApp.getSettings().mCameraID;") > saver);
+        assertTrue(shot.indexOf("mImageSaver.cameraIdAtPress = ScameraApp.getSettings().cameraId;") > saver);
         // FULLRES marked no crop of its own before
         final String fullRes = between(s, "private void captureVivoSdkFullResChecked() {", "\n    private ");
         final int mark = fullRes.indexOf("ZoomController.markShot();");
         assertTrue(mark > 0 && mark < fullRes.indexOf("takeNativeZsl("));
         assertTrue(fullRes.indexOf("saver.zoomResidual = com.scamera.app.control.ZoomController.shotResidual();") > mark);
-        assertTrue(fullRes.contains("saver.cameraIdAtPress = ScameraApp.getSettings().mCameraID;"));
+        assertTrue(fullRes.contains("saver.cameraIdAtPress = ScameraApp.getSettings().cameraId;"));
         // carried through the queue to the processing
         final String detach = between(src("processing/ImageSaver.java"), "public synchronized void detachForQueue(Boolean hybridRoute)", "\n    }");
         assertTrue(detach.contains("saver.ownedZoomResidual = zoomResidual;") && detach.contains("saver.ownedCameraId = cameraIdAtPress;"));

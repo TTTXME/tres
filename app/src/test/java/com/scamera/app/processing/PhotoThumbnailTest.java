@@ -70,10 +70,10 @@ public class PhotoThumbnailTest {
 
     private static ParseExif.ExifData exif() {
         final ParseExif.ExifData d = new ParseExif.ExifData();
-        d.SENSITIVITY_TYPE = String.valueOf(ExifInterface.SENSITIVITY_TYPE_ISO_SPEED);
-        d.PHOTOGRAPHIC_SENSITIVITY = "100";
-        d.DATETIME = "2026:11:11 14:03:07";
-        d.COLOR_SPACE = "sRGB";
+        d.sensitivityType = String.valueOf(ExifInterface.SENSITIVITY_TYPE_ISO_SPEED);
+        d.isoValue = "100";
+        d.dateTime = "2026:11:11 14:03:07";
+        d.colorSpace = "sRGB";
         return d;
     }
 

@@ -144,7 +144,7 @@ public class IszCapturePolicyTest {
                 "CaptureResult", VivoQcomIsz.KEY, Integer.class, 3);
         TunableKeyManager.saveKeys(context, "back1", Collections.singletonList(key));
         assertFalse(isz("3", null, false));
-        key.type = VendorTagUtils.TunableKey.TYPE_SESSION;
+        key.kind = VendorTagUtils.TunableKey.TYPE_SESSION;
         key.enabled = false;
         String json = new GsonBuilder().setPrettyPrinting().create().toJson(Collections.singletonList(key))
                 .replace("\"value\": \"3\"", "\"value\":\"3\"");

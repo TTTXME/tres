@@ -8,11 +8,21 @@ import com.scamera.app.util.Allocator;
  * it when it comes up and after the settings screen).
  */
 public class Settings {
+    // ── the camera and its mode ──
+    /** The camera id the screen opens ("logical-physical" or one id). */
+    public String cameraId;
     /** N frames both routes take at least (the legacy frame-count setting is gone). */
     public int frameCount;
-    public boolean watermark, aspect169, DebugData;
     /** Always false: both routes merge the full-resolution RAW (software binning was a legacy option). */
     public boolean binning;
+    /** The capture mode (CameraMode.valueOf: the retired modes read as MOTION). */
+    public CameraMode mode;
+    /** The forced CFA order (-1: the camera's), the RAW stream choice, the remosaic switch and the preview frame rate. */
+    public int forcedCfa, rawFormat, previewFps;
+    public boolean remosaicOn;
+
+    // ── the shot's output ──
+    public boolean stampWatermark, wide169, fullDebug;
     /** Ultra HDR in effect: the switch is on and the shot writes a JPEG (JPEG format or «Также сохранять JPEG»). */
     public boolean ultraHdr;
     /** P46 «HDR в HEIC / AVIF» in effect for this shot (processing.color.HdrOutput.wanted): the HEIC / AVIF is HLG. */
@@ -20,34 +30,30 @@ public class Settings {
     /** P46 «Цветовое пространство»: the primaries the post pipeline renders in and the files declare. */
     public com.scamera.app.processing.color.OutputColour.Space colourSpace =
             com.scamera.app.processing.color.OutputColour.Space.SRGB;
-    public int rawSaver, cfaPattern, theme, fpsMode, alignAlgorithm, colorMethod, focusPeak;
-    public boolean remosaic;
-    /** The camera id the screen opens ("logical-physical" or one id). */
-    public String mCameraID;
-    /** The capture mode (CameraMode.valueOf: the retired modes read as MOTION). */
-    public CameraMode selectedMode;
+    public int alignMethod, colourMethod, peakingColour, themeIndex;
 
+    /** Re-reads every value from the preferences. */
     public void loadCache() {
         frameCount = 4;
-        binning = false;
-        Allocator.binning = false;
-        watermark = PreferenceKeys.isShowWatermarkOn();
-        aspect169 = PreferenceKeys.getBool(PreferenceKeys.Key.KEY_WIDE169);
-        DebugData = PreferenceKeys.isFullDebugOn();
-        cfaPattern = PreferenceKeys.getCFAValue();
-        rawSaver = PreferenceKeys.isSaveRaw();
-        remosaic = PreferenceKeys.isRemosaicOn();
-        fpsMode = PreferenceKeys.getFpsMode();
+        binning = Allocator.binning = false;
+        cameraId = PreferenceKeys.getCameraID();
+        mode = CameraMode.valueOf(PreferenceKeys.getCameraModeOrdinal());
+        forcedCfa = PreferenceKeys.getCFAValue();
+        rawFormat = PreferenceKeys.isSaveRaw();
+        previewFps = PreferenceKeys.getFpsMode();
+        remosaicOn = PreferenceKeys.isRemosaicOn();
+
+        stampWatermark = PreferenceKeys.isShowWatermarkOn();
+        wide169 = PreferenceKeys.getBool(PreferenceKeys.Key.KEY_WIDE169);
+        fullDebug = PreferenceKeys.isFullDebugOn();
         // The gain-map pass (linear snapshot, no deferred GL teardown, no in-pipeline resize) runs only when a JPEG carries it.
         ultraHdr = PreferenceKeys.isUltraHdrActive();
         hdrOutput = com.scamera.app.processing.color.HdrOutput.wanted();
         colourSpace = PreferenceKeys.getOutputColourSpace();
-        alignAlgorithm = PreferenceKeys.getAlignMethodValue();
-        colorMethod = PreferenceKeys.getColorMethodValue();
-        focusPeak = PreferenceKeys.getFocusPeakValue();
-        selectedMode = CameraMode.valueOf(PreferenceKeys.getCameraModeOrdinal());
-        mCameraID = PreferenceKeys.getCameraID();
-        theme = PreferenceKeys.getThemeValue();
+        alignMethod = PreferenceKeys.getAlignMethodValue();
+        colourMethod = PreferenceKeys.getColorMethodValue();
+        peakingColour = PreferenceKeys.getFocusPeakValue();
+        themeIndex = PreferenceKeys.getThemeValue();
     }
 
     /**
@@ -60,6 +66,6 @@ public class Settings {
 
     /** The open camera's id back into the preferences. */
     public void saveID() {
-        PreferenceKeys.setCameraID(mCameraID);
+        PreferenceKeys.setCameraID(cameraId);
     }
 }

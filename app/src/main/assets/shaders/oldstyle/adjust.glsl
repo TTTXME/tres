@@ -1,6 +1,4 @@
-precision highp float;
-precision highp int;
-precision highp sampler2D;
+precision highp float; precision highp int; precision highp sampler2D;
 // P630c «Oldstyle» (OldstyleStyleNode): the mode's style on the finished photo (display values), the viewfinder's function
 // (utils/import_oldstyle_adjust): OS_TAP reads the picture at whole-pixel offsets, the edge repeated.
 uniform sampler2D InputBuffer;

@@ -51,10 +51,10 @@ public final class IszCapturePolicy {
         int mode = 0;
         for (VendorTagUtils.TunableKey key : TunableKeyManager.loadKeys(
                 ScameraApp.getSettingsManagerStatic().getContext(), slot)) {
-            if (key == null || !key.enabled || !VendorTagUtils.TunableKey.TYPE_SESSION.equals(key.type)
-                    || !VivoQcomIsz.KEY.equals(key.name) || !"Integer".equals(key.valueType)) continue;
+            if (key == null || !key.enabled || !VendorTagUtils.TunableKey.TYPE_SESSION.equals(key.kind)
+                    || !VivoQcomIsz.KEY.equals(key.tag) || !"Integer".equals(key.typeName)) continue;
             try {
-                mode = (Integer) key.parseValue();
+                mode = (Integer) key.typedValue();
             } catch (RuntimeException invalid) { }
         }
         return mode;

@@ -75,14 +75,14 @@ public final class ScamDiagnostics {
         try {
             Job j=new Job(context);active.set(j);
             float[] uploaded=null;
-            try{uploaded=p.CCT==null?null:WhyTone.colourMatrixNow(p);}catch(RuntimeException e){Log.d("SCAM_DIAG","colour matrix: "+e);}
+            try{uploaded=p.colorTransform==null?null:WhyTone.colourMatrixNow(p);}catch(RuntimeException e){Log.d("SCAM_DIAG","colour matrix: "+e);}
             String info=readme(p,ref.measuredIso,ref.measuredExposure,ref.timestamp,ref.noiseSlope,ref.noiseOffset,scene.describe(),
                     rollingSkew(ref),uploaded);
             Files.write(new File(j.dir,"README.txt").toPath(),info.getBytes(java.nio.charset.StandardCharsets.UTF_8));
             final int width=ref.width,step=Math.max(1,(Math.max(ref.width,ref.height)/2+1023)/1024),w=ref.width/(2*step),h=ref.height/(2*step);
             final ByteBuffer raw=ref.buffer.duplicate().order(ByteOrder.LITTLE_ENDIAN);
             final int cfa=p.cfaPattern,white=p.whiteLevel;
-            final float[] black=p.blackLevel.clone();
+            final float[] black=p.cfaBlack.clone();
             // P371 (speed, diagnostics on): the 0.8 M-pixel loop took ~180 ms in front of the merge (X8U header=184); it reads only
             // the base frame, which nothing writes until the merge returns (inputsDone joins it before its frames go), so it runs
             // beside the worker. The same values in the same order. scam_dev diag_sync 1: here, as before.
@@ -140,10 +140,10 @@ public final class ScamDiagnostics {
                     +"\nISO="+iso+" exposureNs="+exposureNs+" timestamp="+timestamp
                     +"\nCamera2 noise slope="+noiseSlope+" offset="+noiseOffset
                     +"\n"+scene
-                    +"\nwhite="+p.whiteLevel+" black="+Arrays.toString(p.blackLevel)+" neutral="+Arrays.toString(p.whitePoint)
+                    +"\nwhite="+p.whiteLevel+" black="+Arrays.toString(p.cfaBlack)+" neutral="+Arrays.toString(p.asShotNeutral)
                     +"\nlevel sources: "+p.levelSources()
                     +"\nrolling shutter skew ns="+skew
-                    +"\nsensorToProPhoto="+Arrays.toString(p.sensorToProPhoto)
+                    +"\nsensorToProPhoto="+Arrays.toString(p.cameraToProPhoto)
                     +colourChain(p,uploaded)
                     +"\nPFM: little-endian float32 RGB; rows bottom first. Thumbnails are nearest sampled, sensor orientation."
                     +"\nPNG: clipped preview only; linear stages use gamma 1/2.2. PFM retains negative/HDR values."
@@ -162,13 +162,13 @@ public final class ScamDiagnostics {
      */
     static String colourChain(Parameters p,float[] uploaded) {
         StringBuilder s=new StringBuilder();
-        float[] camera=p.CCT==null?null:p.CCT.matrix;
+        float[] camera=p.colorTransform==null?null:p.colorTransform.matrix;
         s.append("\nintermediateToSRGB=").append(uploaded==null?"unknown":Arrays.toString(uploaded))
          .append(" (uploaded: the colour look's white matrix after cameraMatrix)");
         s.append("\ncameraMatrix=").append(camera==null?"none":Arrays.toString(camera));
         if(uploaded!=null){
             float[] chain=new float[9];
-            com.scamera.app.processing.render.Converter.multiply(uploaded,p.sensorToProPhoto,chain);
+            com.scamera.app.processing.render.Converter.multiply(uploaded,p.cameraToProPhoto,chain);
             s.append("\ncameraToLinearSRGB=").append(Arrays.toString(chain)).append(" (camera RGB = ScamRgb x neutral)");
         }
         s.append("\ncolourSource=").append(p.colourSource.isEmpty()?"unknown":p.colourSource)
@@ -440,12 +440,12 @@ public final class ScamDiagnostics {
      * here (nothing is queued then: the caller reads the stage back as before). Every binding it touches is put back.
      */
     private static boolean queueStage(Job j,String stage,GLTexture source,boolean linear) {
-        if(!asyncStages()||!sampleable(source.mFormat)||source.mTextureID==0)return false;
+        if(!asyncStages()||!sampleable(source.format)||source.id==0)return false;
         final ArrayDeque<QueuedStage> q=queued.get();
         while(q.size()>=MAX_STAGES_QUEUED)writeStage(q.pollFirst(),j);
         final int program=sampleProgram();
         if(program==0)return false;
-        final int[] grid=sampleGrid(source.mSize.x,source.mSize.y);
+        final int[] grid=sampleGrid(source.size.x,source.size.y);
         final int step=grid[0],w=grid[1],h=grid[2];
         if(w<=0||h<=0||(long)w*h*16>Integer.MAX_VALUE)return false;
         final int[] oldProgram=new int[1],oldActive=new int[1],oldTexture=new int[1],oldBuffer=new int[1],oldIndexed=new int[1];
@@ -463,7 +463,7 @@ public final class ScamDiagnostics {
             glBindBuffer(android.opengl.GLES31.GL_SHADER_STORAGE_BUFFER,buffer[0]);
             glBufferData(android.opengl.GLES31.GL_SHADER_STORAGE_BUFFER,w*h*16,null,GL_STREAM_READ);
             glUseProgram(program);
-            glBindTexture(GL_TEXTURE_2D,source.mTextureID);
+            glBindTexture(GL_TEXTURE_2D,source.id);
             glUniform1i(sampleSrc,15);
             glUniform3i(sampleDims,w,h,step);
             android.opengl.GLES31.glBindBufferBase(android.opengl.GLES31.GL_SHADER_STORAGE_BUFFER,3,buffer[0]);
@@ -506,19 +506,19 @@ public final class ScamDiagnostics {
         glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING,oldRead,0);
         try {
             glGenFramebuffers(1,framebuffer,0);glBindFramebuffer(GL_READ_FRAMEBUFFER,framebuffer[0]);
-            glFramebufferTexture2D(GL_READ_FRAMEBUFFER,GL_COLOR_ATTACHMENT0,GL_TEXTURE_2D,source.mTextureID,0);
+            glFramebufferTexture2D(GL_READ_FRAMEBUFFER,GL_COLOR_ATTACHMENT0,GL_TEXTURE_2D,source.id,0);
             if(glCheckFramebufferStatus(GL_READ_FRAMEBUFFER)!=GL_FRAMEBUFFER_COMPLETE)
                 throw new IOException("Diagnostic framebuffer incomplete");
-            int step=Math.max(1,(Math.max(source.mSize.x,source.mSize.y)+1023)/1024);
-            int w=source.mSize.x/step,h=source.mSize.y/step;
+            int step=Math.max(1,(Math.max(source.size.x,source.size.y)+1023)/1024);
+            int w=source.size.x/step,h=source.size.y/step;
             ByteBuffer sampled=ByteBuffer.allocate(w*h*12).order(ByteOrder.nativeOrder());
             // P241: the sampled rows through a pixel pack buffer, CHUNK rows a time - one wait for the GPU per chunk instead of
             // one per row (682 rows of a 50 MP stage); the same rows and pixels, so the same samples. Any GL error: row by row.
-            if(!readRowsPacked(source.mSize.x,w,h,step,sampled)) {
+            if(!readRowsPacked(source.size.x,w,h,step,sampled)) {
                 sampled.clear();
-                ByteBuffer row=ByteBuffer.allocateDirect(source.mSize.x*16).order(ByteOrder.nativeOrder());
+                ByteBuffer row=ByteBuffer.allocateDirect(source.size.x*16).order(ByteOrder.nativeOrder());
                 for(int y=0;y<h;y++) {
-                    row.clear();glReadPixels(0,y*step,source.mSize.x,1,GL_RGBA,GL_FLOAT,row);
+                    row.clear();glReadPixels(0,y*step,source.size.x,1,GL_RGBA,GL_FLOAT,row);
                     if(glGetError()!=GL_NO_ERROR)throw new IOException("Diagnostic float readback unavailable");
                     for(int x=0;x<w;x++)for(int c=0;c<3;c++)sampled.putFloat(row.getFloat((x*step*4+c)*4));
                 }

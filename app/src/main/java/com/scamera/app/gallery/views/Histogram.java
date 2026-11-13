@@ -35,7 +35,7 @@ public class Histogram extends View {
     private final Paint frame = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint curve = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Path outline = new Path();
-    private HistogramLoadingListener loadingListener;
+    private LoadingObserver loadingListener;
     private HistogramModel model;
     /** Made on the histogram's thread, used and closed there only. */
     private GLHistogram gpu;
@@ -134,7 +134,7 @@ public class Histogram extends View {
         return Math.max(counts[0][bin], Math.max(counts[1][bin], counts[2][bin]));
     }
 
-    public void setHistogramLoadingListener(HistogramLoadingListener listener) {
+    public void setHistogramLoadingListener(LoadingObserver listener) {
         loadingListener = listener;
     }
 
@@ -148,7 +148,7 @@ public class Histogram extends View {
         int w = getWidth(), h = getHeight();
         canvas.drawRect(0, 0, w, h, frame);
         for (int third = 1; third <= 2; third++) canvas.drawLine(third * w / 3f, 0, third * w / 3f, h, frame);
-        if (loadingListener != null) loadingListener.isLoading(true);
+        if (loadingListener != null) loadingListener.loadingChanged(true);
         if (model == null) return;
         int bins = model.getSize();
         float step = w / (bins + 1f), perCount = (float) h / model.getMaxY();
@@ -161,11 +161,12 @@ public class Histogram extends View {
             outline.lineTo(bins * step, h);
             canvas.drawPath(outline, curve);
         }
-        if (loadingListener != null) loadingListener.isLoading(false);
+        if (loadingListener != null) loadingListener.loadingChanged(false);
     }
 
-    public interface HistogramLoadingListener {
-        void isLoading(boolean loading);
+    /** Told when the histogram starts and stops computing. */
+    public interface LoadingObserver {
+        void loadingChanged(boolean busy);
     }
 
     /** What the histogram draws: bin count, the counts per channel (square roots) and the height they are scaled to. */

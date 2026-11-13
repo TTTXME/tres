@@ -1,6 +1,4 @@
-precision highp float;
-precision highp int;
-precision highp sampler2D;
+precision highp float; precision highp int; precision highp sampler2D;
 // P614 «Why тон» V2 (WhyV2Highlights): the reference tone's box_blur_h4 (DIR 0) / box_blur_v4 (DIR 1), one to one - a box of 2 u_radius + 1 texels along a row / a column, clamped to the edge.
 #define DIR 0
 uniform sampler2D u_input_tex;

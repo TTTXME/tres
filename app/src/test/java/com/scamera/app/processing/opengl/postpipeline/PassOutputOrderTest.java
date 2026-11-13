@@ -29,13 +29,13 @@ public class PassOutputOrderTest {
 
     private static void outputBeforeSamplers(String file, String method, String program, String take) throws IOException {
         final String run = WhyCombineUniformParityTest.method(read(file), method);
-        final int at = run.indexOf("glProg.useAssetProgram(\"" + program + "\"");
-        final int draw = run.indexOf("glProg.drawBlocks(WorkingTexture)", at);
+        final int at = run.indexOf("shaderProg.useAssetProgram(\"" + program + "\"");
+        final int draw = run.indexOf("shaderProg.drawBlocks(passOut)", at);
         assertTrue(file + ": the " + program + " program and its draw", at >= 0 && draw > at);
         final String bound = run.substring(at, draw);
         assertFalse(file + ": a texture made after the " + program + " samplers are bound", bound.contains("new GLTexture("));
         assertFalse(file + ": the output made after the " + program + " samplers are bound", bound.contains("getMain("));
-        assertTrue(file + ": the draw writes the output taken before " + program, bound.contains("WorkingTexture = out;"));
+        assertTrue(file + ": the draw writes the output taken before " + program, bound.contains("passOut = out;"));
         final int main = run.lastIndexOf("final GLTexture out = " + take + ".getMain();", at);
         assertTrue(file + ": the output taken before the " + program + " program", main >= 0);
         assertFalse(file + ": a program between the output and " + program,
@@ -44,12 +44,12 @@ public class PassOutputOrderTest {
 
     @Test
     public void halationOutputMadeBeforeItsSamplers() throws IOException {
-        outputBeforeSamplers("FilmHalation.java", "public void Run()", "film/halation", "basePipeline");
+        outputBeforeSamplers("FilmHalation.java", "public void runPass()", "film/halation", "hostPipeline");
     }
 
     @Test
     public void localContrastOutputMadeBeforeItsSamplers() throws IOException {
-        outputBeforeSamplers("ScamLocalContrast.java", "public void Run()", "scamlc/apply", "pipeline");
+        outputBeforeSamplers("ScamLocalContrast.java", "public void runPass()", "scamlc/apply", "pipeline");
     }
 
     @Test

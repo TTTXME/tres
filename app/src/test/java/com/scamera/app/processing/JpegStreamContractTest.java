@@ -55,9 +55,9 @@ public class JpegStreamContractTest {
         final String gl = read("src/main/java/com/scamera/app/processing/opengl/GLCoreBlockProcessing.java");
         final int noSink = gl.indexOf("if (sink == null) {");
         assertTrue("no bitmap is made for a sink", noSink > 0
-                && noSink < gl.indexOf("dst = Bitmap.createBitmap(mOutWidth, mOutHeight, Bitmap.Config.ARGB_8888);\n                    JpegliEncoder.touchPixels(dst);"));
+                && noSink < gl.indexOf("dst = Bitmap.createBitmap(outW, outH, Bitmap.Config.ARGB_8888);\n                    JpegliEncoder.touchPixels(dst);"));
         assertTrue("the sink sees the mapping before the bitmap copy",
-                gl.indexOf("sink.accept(src, mOutWidth, mOutHeight)") < gl.indexOf("JpegliEncoder.copyPixels(src, dst)"));
+                gl.indexOf("sink.accept(src, outW, outH)") < gl.indexOf("JpegliEncoder.copyPixels(src, dst)"));
         final String post = read("src/main/java/com/scamera/app/processing/opengl/postpipeline/PostPipeline.java");
         assertTrue("off: no sink", post.contains("PreferenceKeys.scamDevSwitch(\"jpeg_stream\", true)"));
         assertTrue("a result whose buffer was lost is dropped", post.contains("if (!glproc.sinkTook) streamedJpeg = null;"));

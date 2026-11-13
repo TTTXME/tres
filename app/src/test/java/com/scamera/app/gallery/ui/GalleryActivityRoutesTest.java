@@ -44,7 +44,7 @@ public class GalleryActivityRoutesTest {
     @Test
     public void viewIntentFindsThePhotoAskedFor() {
         List<GalleryItem> l = photos(10);
-        Uri seventh = l.get(7).getFile().getFileUri();
+        Uri seventh = l.get(7).mediaFile().contentUri();
         assertEquals(7, GalleryActivity.positionOf(l, seventh, external(seventh, "Unknown", 0)));
         Uri path = Uri.parse("file:///storage/emulated/0/DCIM/Camera/IMG_3.jpg");
         assertEquals("by its path", 3, GalleryActivity.positionOf(l, path, external(path, "IMG_3.jpg", 0)));
@@ -59,13 +59,13 @@ public class GalleryActivityRoutesTest {
     public void thePhotoAskedForAmongTheLibrarysLaterRead() {
         List<GalleryItem> l = photos(10);
         Uri path = Uri.parse("file:///storage/emulated/0/DCIM/Camera/IMG_3.jpg");
-        assertEquals("the library's own item (its MediaStore URI)", l.get(3).getFile().getFileUri(),
+        assertEquals("the library's own item (its MediaStore URI)", l.get(3).mediaFile().contentUri(),
                 GalleryActivity.amongNeighbours(l, path, external(path, "IMG_3.jpg", 0)));
         assertEquals(10, l.size());
         Uri unknown = Uri.parse("content://com.example.files/doc/x.jpg");
         assertEquals(unknown, GalleryActivity.amongNeighbours(l, unknown, external(unknown, "x.jpg", 1)));
         assertEquals("a file the library does not have is put first", 11, l.size());
-        assertEquals(unknown, l.get(0).getFile().getFileUri());
+        assertEquals(unknown, l.get(0).mediaFile().contentUri());
     }
 
     @Test
@@ -73,9 +73,9 @@ public class GalleryActivityRoutesTest {
         // the start position bundle given to setGraph never reached the viewer: the viewer's pending selection carries it
         GalleryViewModel vm = new GalleryViewModel(RuntimeEnvironment.getApplication());
         List<GalleryItem> l = photos(10);
-        Uri seventh = l.get(7).getFile().getFileUri();
+        Uri seventh = l.get(7).mediaFile().contentUri();
         vm.getCurrentFolderImages().setValue(l);
-        vm.selectNext(l.get(GalleryActivity.positionOf(l, seventh, external(seventh, "Unknown", 0))).getFile().getFileUri());
+        vm.selectNext(l.get(GalleryActivity.positionOf(l, seventh, external(seventh, "Unknown", 0))).mediaFile().contentUri());
         assertEquals(seventh, vm.takePendingSelect());
         assertNull("taken once", vm.takePendingSelect());
     }

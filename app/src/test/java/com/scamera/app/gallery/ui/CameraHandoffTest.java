@@ -102,10 +102,10 @@ public class CameraHandoffTest {
         assertEquals(267, o.picture.getHeight());
         assertEquals("camera thumbnail", o.what);
         assertNotNull("the last photo by its file: shown before MediaStore is read", o.latest);
-        assertEquals("SCA_2.jpg", o.latest.getDisplayName());
-        assertEquals(saved.getAbsolutePath(), o.latest.getAbsolutePath());
-        assertEquals("file", o.latest.getFileUri().getScheme());
-        assertEquals(saved.length(), o.latest.getSize());
+        assertEquals("SCA_2.jpg", o.latest.displayName());
+        assertEquals(saved.getAbsolutePath(), o.latest.filePath());
+        assertEquals("file", o.latest.contentUri().getScheme());
+        assertEquals(saved.length(), o.latest.sizeBytes());
         assertTrue("no MediaStore row yet: nothing to share or delete", CameraHandoff.unfiled(o.latest));
     }
 
@@ -120,8 +120,8 @@ public class CameraHandoffTest {
         assertEquals(row, CameraHandoff.lastSaved().row);
         CameraHandoff.open(null, false);
         CameraHandoff.Open o = CameraHandoff.take();
-        assertEquals(row, o.latest.getFileUri());
-        assertEquals(42, o.latest.getId());
+        assertEquals(row, o.latest.contentUri());
+        assertEquals(42, o.latest.rowId());
         assertFalse(CameraHandoff.unfiled(o.latest));
         assertEquals("none", o.what);
     }
@@ -136,7 +136,7 @@ public class CameraHandoffTest {
         CameraHandoff.saved(saved.getAbsolutePath());
         CameraHandoff.latest(store); // the camera's resume reads MediaStore before the scanner filed the new photo
         CameraHandoff.open(null, false);
-        assertEquals("the photo saved a moment ago stays the last one", "SCA_4.jpg", CameraHandoff.take().latest.getDisplayName());
+        assertEquals("the photo saved a moment ago stays the last one", "SCA_4.jpg", CameraHandoff.take().latest.displayName());
         // deleted in the gallery (moved to the trash): MediaStore's newest again
         assertTrue(saved.delete());
         CameraHandoff.latest(store);

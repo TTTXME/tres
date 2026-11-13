@@ -166,8 +166,8 @@ public class ImageViewerPlaceholderTest {
             shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(ImageViewerFragment.SAVED_SETTLE_MS + 5));
             List<GalleryItem> shown = vm.getCurrentFolderImages().getValue();
             assertNotNull(shown);
-            assertEquals("SCA_new.jpg", shown.get(0).getFile().getDisplayName());
-            assertEquals("file", shown.get(0).getFile().getFileUri().getScheme());
+            assertEquals("SCA_new.jpg", shown.get(0).mediaFile().displayName());
+            assertEquals("file", shown.get(0).mediaFile().contentUri().getScheme());
             ViewPager pager = pager(a.findViewById(android.R.id.content));
             assertNotNull(pager.getAdapter());
             assertEquals(0, pager.getCurrentItem());
@@ -178,7 +178,7 @@ public class ImageViewerPlaceholderTest {
             Uri row = Uri.parse("content://media/external_primary/images/media/91");
             CameraHandoff.scanned(saved.getAbsolutePath(), row);
             shadowOf(Looper.getMainLooper()).idle();
-            assertEquals(row, shown.get(0).getFile().getFileUri());
+            assertEquals(row, shown.get(0).mediaFile().contentUri());
             assertSame(adapter, pager.getAdapter());
         }
     }

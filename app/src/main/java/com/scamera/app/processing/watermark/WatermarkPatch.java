@@ -77,10 +77,10 @@ public final class WatermarkPatch {
     }
 
     WatermarkPatch(int width, int height, int format, int colourSpace, String spec, List<Piece> pieces) {
-        this.width = width;
-        this.height = height;
         this.format = format;
         this.colourSpace = colourSpace;
+        this.width = width;
+        this.height = height;
         this.spec = spec == null ? "" : spec;
         this.pieces = pieces;
     }

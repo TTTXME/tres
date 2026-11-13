@@ -349,7 +349,7 @@ public class CameraUIViewImpl implements CameraUIView {
         final boolean rawVideo = mode == CameraMode.RAWVIDEO;
         seriesViews(!rawVideo);
         if (!rawVideo) recordingLine(false);
-        if (rawVideo || ScameraApp.getSettings().aspect169) wideFrame();
+        if (rawVideo || ScameraApp.getSettings().wide169) wideFrame();
         else plainFrame();
         anchorCameraBlock(mode);
     }
@@ -359,7 +359,7 @@ public class CameraUIViewImpl implements CameraUIView {
         seriesViews(false);
         recordingLine(false);
         shutter.setBackground(shutterRing);
-        if (ScameraApp.getSettings().aspect169) wideFrame();
+        if (ScameraApp.getSettings().wide169) wideFrame();
         else plainFrame();
         anchorCameraBlock(mode);
     }

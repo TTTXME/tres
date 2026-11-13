@@ -1,5 +1,4 @@
-precision highp float;
-precision highp sampler2D;
+precision highp float; precision highp sampler2D;
 // P596 (owner, 2026-11-10, «Локальный контраст»: 140309's facade by stage - after the whole chain Ark leads 1.12 - 1.22 at
 // 0.03 - 0.15 cycles / px, local contrast, not fine detail): the fused display luma (WhyFusion, whyLow grid) gains its local
 // contrast against a gaussian of itself, F + c D (1 - smoothstep(t, 3 t, |D|)), D = F - G(F): small differences (texture,

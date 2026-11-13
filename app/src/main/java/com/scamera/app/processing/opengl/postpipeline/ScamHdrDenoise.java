@@ -15,13 +15,13 @@ import static android.opengl.GLES20.GL_NEAREST;
 /** Three-pass Resolve filtering on the merged linear camera RGB. */
 public final class ScamHdrDenoise extends Node {
     public ScamHdrDenoise() { super("", "ScamHdrDenoise"); }
-    @Override public void Compile() {}
+    @Override public void bindShader() {}
 
     /**
      * Developer switch (adb: touch /sdcard/Download/SCAMERA/dump-denoise): the full-resolution denoise input and its
      * parameters, written there too (P191: Download/SCAMERA, not Android/data; ScameraFiles).
      */
-    private void dumpInput(PostPipeline pipeline) { dumpTexture(pipeline, previousNode.WorkingTexture, "denoise-in"); }
+    private void dumpInput(PostPipeline pipeline) { dumpTexture(pipeline, prevPass.passOut, "denoise-in"); }
 
     private void dumpTexture(PostPipeline pipeline, GLTexture source, String name) {
         android.content.Context context = com.scamera.app.app.ScameraApp.getAppContext();
@@ -33,8 +33,8 @@ public final class ScamHdrDenoise extends Node {
             android.opengl.GLES30.glGenFramebuffers(1, framebuffer, 0);
             android.opengl.GLES30.glBindFramebuffer(android.opengl.GLES30.GL_READ_FRAMEBUFFER, framebuffer[0]);
             android.opengl.GLES30.glFramebufferTexture2D(android.opengl.GLES30.GL_READ_FRAMEBUFFER, android.opengl.GLES30.GL_COLOR_ATTACHMENT0,
-                    android.opengl.GLES30.GL_TEXTURE_2D, source.mTextureID, 0);
-            int w = source.mSize.x, h = source.mSize.y;
+                    android.opengl.GLES30.GL_TEXTURE_2D, source.id, 0);
+            int w = source.size.x, h = source.size.y;
             java.nio.ByteBuffer row = java.nio.ByteBuffer.allocateDirect(w * 16).order(java.nio.ByteOrder.nativeOrder());
             java.nio.ByteBuffer packed = java.nio.ByteBuffer.allocateDirect(w * 12).order(java.nio.ByteOrder.nativeOrder());
             for (int y = 0; y < h; y++) {
@@ -47,10 +47,10 @@ public final class ScamHdrDenoise extends Node {
                 packed.flip();
                 while (packed.hasRemaining()) out.write(packed);
             }
-            String json = "{\"w\":" + w + ",\"h\":" + h + ",\"iso\":" + pipeline.mParameters.iso
-                    + ",\"whitePoint\":" + java.util.Arrays.toString(pipeline.mParameters.whitePoint)
-                    + ",\"sensorToProPhoto\":" + java.util.Arrays.toString(pipeline.mParameters.sensorToProPhoto)
-                    + ",\"intermediateToSRGB\":" + java.util.Arrays.toString(pipeline.mParameters.CCT.matrix) + "}";
+            String json = "{\"w\":" + w + ",\"h\":" + h + ",\"iso\":" + pipeline.shotParams.iso
+                    + ",\"whitePoint\":" + java.util.Arrays.toString(pipeline.shotParams.asShotNeutral)
+                    + ",\"sensorToProPhoto\":" + java.util.Arrays.toString(pipeline.shotParams.cameraToProPhoto)
+                    + ",\"intermediateToSRGB\":" + java.util.Arrays.toString(pipeline.shotParams.colorTransform.matrix) + "}";
             java.nio.file.Files.write(new java.io.File(dir, name + ".json").toPath(), json.getBytes(java.nio.charset.StandardCharsets.UTF_8));
             Log.i("SCAM_PIPELINE", name + " dumped " + w + "x" + h);
         } catch (Exception e) {
@@ -69,7 +69,7 @@ public final class ScamHdrDenoise extends Node {
      */
     static float estimateNoise(com.scamera.app.processing.opengl.GLProg glProg, GLTexture noisy, int s) {
         final int block = 8 * s;
-        Point blocks = new Point((noisy.mSize.x + block - 1) / block, (noisy.mSize.y + block - 1) / block);
+        Point blocks = new Point((noisy.size.x + block - 1) / block, (noisy.size.y + block - 1) / block);
         GLTexture est = new GLTexture(blocks, new GLFormat(GLFormat.DataType.FLOAT_16, 4), null, GL_LINEAR, GL_CLAMP_TO_EDGE);
         int[] oldRead = new int[1], framebuffer = new int[1];
         try {
@@ -87,7 +87,7 @@ public final class ScamHdrDenoise extends Node {
             android.opengl.GLES30.glGenFramebuffers(1, framebuffer, 0);
             android.opengl.GLES30.glBindFramebuffer(android.opengl.GLES30.GL_READ_FRAMEBUFFER, framebuffer[0]);
             android.opengl.GLES30.glFramebufferTexture2D(android.opengl.GLES30.GL_READ_FRAMEBUFFER, android.opengl.GLES30.GL_COLOR_ATTACHMENT0,
-                    android.opengl.GLES30.GL_TEXTURE_2D, est.mTextureID, 0);
+                    android.opengl.GLES30.GL_TEXTURE_2D, est.id, 0);
             float[] values = new float[blocks.x * blocks.y];
             int n = 0;
             // P364: the blocks read back as the IEEE halves est holds (8 B a block, widened by HalfFloat.TABLE) where the driver
@@ -131,10 +131,10 @@ public final class ScamHdrDenoise extends Node {
     }
 
     @Override
-    public void Run() {
-        final PostPipeline pipeline = (PostPipeline) basePipeline;
-        WorkingTexture = previousNode.WorkingTexture;
-        glProg.closed = true;
+    public void runPass() {
+        final PostPipeline pipeline = (PostPipeline) hostPipeline;
+        passOut = prevPass.passOut;
+        shaderProg.closed = true;
         if (!DenoiseStages.on()) {
             // P600: «Все шумодавы» off - the merged RGB passes as it is. The shot's SNR is still measured on it (the same
             // statistics of the same input the denoise starts with): the sharpening's low-light share and the detail boost read
@@ -142,22 +142,22 @@ public final class ScamHdrDenoise extends Node {
             // unknown SNR gave the full sharpening at night and no daylight detail boost)
             final StringBuilder log = new StringBuilder("denoise off (P600, ").append(DenoiseStages.summary()).append("): the merge as it is");
             try {
-                DenoiseStats.finishSnr(glProg, pipeline, WorkingTexture, log);
+                DenoiseStats.finishSnr(shaderProg, pipeline, passOut, log);
             } catch (RuntimeException e) {
                 log.append(", SNR failed (").append(e).append(')');
             }
-            glProg.closed = true;
+            shaderProg.closed = true;
             Log.i("SCAM_PIPELINE", log.toString());
-            Log.i("SCAM_PIPELINE", PostSnr.describe(pipeline.mParameters.finishSnr, PostSnr.on()));
+            Log.i("SCAM_PIPELINE", PostSnr.describe(pipeline.shotParams.finishSnr, PostSnr.on()));
             return;
         }
         dumpInput(pipeline);
-        WorkingTexture = WhyResolveDenoise.process(glProg, pipeline, WorkingTexture);
+        passOut = WhyResolveDenoise.process(shaderProg, pipeline, passOut);
         pipeline.signedRgb = false;
-        dumpTexture(pipeline, WorkingTexture, "denoise-out");
-        glProg.closed = true;
+        dumpTexture(pipeline, passOut, "denoise-out");
+        shaderProg.closed = true;
         // P648: the shot's SNR and the factors the post pipeline takes from it, once per shot
-        Log.i("SCAM_PIPELINE", PostSnr.describe(pipeline.mParameters.finishSnr, PostSnr.on()));
+        Log.i("SCAM_PIPELINE", PostSnr.describe(pipeline.shotParams.finishSnr, PostSnr.on()));
     }
 
     static final long HUGE_PIXELS = 100_000_000L;

@@ -30,7 +30,7 @@ def check(ok, what):
 m = re.search(r'#if HL_LOCAL == 1\n    if \(hlLocalU\.x > 0\.0\) \{\n(.*?)\n    \}\n#endif', SRC, re.S)
 check(m is not None, 'the HL_LOCAL block in why/combine.glsl')
 check('#define HL_LOCAL_RIM 0\n' in SRC, 'HL_LOCAL_RIM defaults to 0 in the shader (WhyCombine sets it)')
-check('glProg.setDefine("HL_LOCAL_RIM", 1);' in JAVA and 'hlLocalRim()' in JAVA, 'WhyCombine sets HL_LOCAL_RIM from WhyTone.hlLocalRim()')
+check('shaderProg.setDefine("HL_LOCAL_RIM", 1);' in JAVA and 'hlLocalRim()' in JAVA, 'WhyCombine sets HL_LOCAL_RIM from WhyTone.hlLocalRim()')
 check('value("hl_local_rim", 1f)' in TONE, 'scam_dev hybrid_why_hl_local_rim (default 1)')
 BLOCK = m.group(1) if m else ''
 HL = (0.8, 1.5, 6.0, 12.0)

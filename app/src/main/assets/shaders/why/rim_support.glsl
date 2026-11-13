@@ -1,6 +1,4 @@
-precision highp float;
-precision highp int;
-precision highp sampler2D;
+precision highp float; precision highp int; precision highp sampler2D;
 #define LAYOUT //
 LAYOUT
 uniform sampler2D WhyLow;

@@ -1,5 +1,4 @@
-precision highp float;
-precision highp sampler2D;
+precision highp float; precision highp sampler2D;
 // WHY luma sharpening (WhyLumaSharpen): guided-filter local contrast of luma_compose [fc_cl_source.cl:235-301;
 // why_sharpen.md 3.2] - box sums of (I, I^2), a = var / (var + max(eps, 1e-5)), b = mean - a * mean, box of (a, b).
 // The box has 2r + 1 taps and repeats the edge pixels (divisor 2r + 1), as the kernel. On the Sabre 2x grid the filter

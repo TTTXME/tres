@@ -1,15 +1,12 @@
 package com.scamera.app.settings;
 
 /**
- * Single source of truth for all classes that carry {@code @Tunable} annotations.
- * Add or remove entries here; {@link TunableSettingsManager} and the settings UI
- * both derive their class lists from this array.
+ * The classes whose fields carry {@code @Tunable}: TunableSettingsManager, the settings screens and the module copy read their
+ * rows from this list alone, so a new class with tunables is added here.
  */
 public final class TunableRegistry {
+    public static final Class<?>[] OWNERS = {com.scamera.app.processing.render.Parameters.class};
 
-    private TunableRegistry() {}
-
-    public static final Class<?>[] TUNABLE_CLASSES = {
-        com.scamera.app.processing.render.Parameters.class,
-    };
+    private TunableRegistry() {
+    }
 }

@@ -62,17 +62,17 @@ public abstract class ManualModel<T extends Comparable<? super T>> {
         return autoStop;
     }
 
-    public List<KnobItemInfo> getKnobInfoList() {
+    public List<KnobItemInfo> stopList() {
         return stops;
     }
 
-    public KnobItemInfo getCurrentInfo() {
+    public KnobItemInfo chosenStop() {
         return chosen;
     }
 
     /** Tells the panel the auto stop's label. */
-    public void setAutoTxt() {
-        label(autoStop == null ? context.getString(R.string.manual_mode_auto) : autoStop.text);
+    public void showAutoLabel() {
+        label(autoStop == null ? context.getString(R.string.manual_mode_auto) : autoStop.label);
     }
 
     private void label(String text) {
@@ -97,8 +97,8 @@ public abstract class ManualModel<T extends Comparable<? super T>> {
         if (haptics != null) haptics.vibrate(tickEffect);
         if (shown == next) return;
         onSelectedKnobItemChanged(next);
-        label(next.text);
-        if (remembering) store().edit().putString(storeKey(), Double.toString(next.value)).apply();
+        label(next.label);
+        if (remembering) store().edit().putString(storeKey(), Double.toString(next.cameraValue)).apply();
     }
 
     /** Puts back the module's stored stop (the nearest to the stored value), then remembers every later choice. */
@@ -110,7 +110,7 @@ public abstract class ManualModel<T extends Comparable<? super T>> {
                 double wanted = Double.parseDouble(p.getString(key, "0"));
                 KnobItemInfo nearest = null;
                 for (KnobItemInfo s : stops)
-                    if (nearest == null || Math.abs(s.value - wanted) < Math.abs(nearest.value - wanted)) nearest = s;
+                    if (nearest == null || Math.abs(s.cameraValue - wanted) < Math.abs(nearest.cameraValue - wanted)) nearest = s;
                 if (nearest != null) choose(nearest);
             } catch (NumberFormatException unreadable) {
                 // a value another version wrote: the stop stays

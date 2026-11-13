@@ -47,7 +47,7 @@ public final class GalleryThumb {
     /** The thumbnail of a gallery file. */
     @NonNull
     public static GalleryThumb of(@NonNull MediaFile file) {
-        return new GalleryThumb(file.getFileUri(), absolute(file.getAbsolutePath()), file.getDisplayName(), GalleryKeys.of(file).toString(), true);
+        return new GalleryThumb(file.contentUri(), absolute(file.filePath()), file.displayName(), GalleryKeys.of(file).toString(), true);
     }
 
     /** The thumbnail of a bare uri (an album cover, the picker): no file key, the name from the uri. */
@@ -59,7 +59,7 @@ public final class GalleryThumb {
     /** The viewer's picture of a DNG / RAW page: fits inside the request, read straight from the file. */
     @NonNull
     public static GalleryThumb fit(@NonNull MediaFile file) {
-        return new GalleryThumb(file.getFileUri(), absolute(file.getAbsolutePath()), file.getDisplayName(), GalleryKeys.of(file).toString(), false);
+        return new GalleryThumb(file.contentUri(), absolute(file.filePath()), file.displayName(), GalleryKeys.of(file).toString(), false);
     }
 
     @Nullable

@@ -22,21 +22,24 @@ public class GLInterface {
     /** P317: the int precision every fragment program gets (Mali's mediump int is 16 bit). */
     static final String HIGHP_INT = "precision highp int;\n";
 
-    public final GLProg glProgram;
-    public Parameters parameters;
-    public GLCoreBlockProcessing glProcessing;
-    public GLContext glContext;
-    public GLUtils glUtils;
+    /** The program every pass of this context draws with. */
+    public final GLProg prog;
+    /** The shot's parameters (a pass reads them through its pipeline). */
+    public Parameters shotParams;
+    /** The block processing context (null for a plain context) or the plain one, and their helpers. */
+    public GLCoreBlockProcessing blockCtx;
+    public GLContext plainCtx;
+    public GLUtils kitUtils;
 
     public GLInterface(GLCoreBlockProcessing processing) {
-        glProcessing = processing;
-        glProgram = processing.mProgram;
-        glUtils = new GLUtils(processing);
+        blockCtx = processing;
+        prog = processing.program;
+        kitUtils = new GLUtils(processing);
     }
 
     public GLInterface(GLContext context) {
-        glContext = context;
-        glProgram = context.mProgram;
+        plainCtx = context;
+        prog = context.program;
     }
 
     public static String loadShader(String code) {

@@ -217,11 +217,11 @@ public class DngCreator {
     /** The NoiseProfile of the shot: the DNG writer's own (P214c), else the noise model's R, G, B (scale, offset) or none. */
     private static double[] noiseProfile(Parameters p) {
         if (p.dngNoiseProfile != null && p.dngNoiseProfile.length == 6) return p.dngNoiseProfile;
-        if (p.noiseModeler == null || p.noiseModeler.baseModel == null) return null;
+        if (p.noiseModel == null || p.noiseModel.rawModel == null) return null;
         final double[] pairs = new double[6];
         for (int plane = 0; plane < 3; plane++) {
-            pairs[2 * plane] = p.noiseModeler.computeModel[plane].first;
-            pairs[2 * plane + 1] = p.noiseModeler.computeModel[plane].second;
+            pairs[2 * plane] = p.noiseModel.stackModel[plane].first;
+            pairs[2 * plane + 1] = p.noiseModel.stackModel[plane].second;
         }
         return pairs;
     }
@@ -255,15 +255,15 @@ public class DngCreator {
         setUniqueCameraModel(ShotExif.uniqueCameraModel(facts.make, Build.MODEL, p.physicalID));
 
         final short[] black = new short[4];
-        for (int i = 0; i < 4; i++) black[i] = (short) p.blackLevel[i];
+        for (int i = 0; i < 4; i++) black[i] = (short) p.cfaBlack[i];
         setBlackLevel(black);
         setWhiteLevel(p.whiteLevel);
         if (p.dngBaselineExposure != 0f) setBaselineExposure(p.dngBaselineExposure);
         writeColour(p);
         setCFAPattern(p.baseCfaPattern);
-        setOrientation(p.cameraRotation / 90);
+        setOrientation(p.rotationDeg / 90);
         // the stored image as (xmin, ymin, xmax, ymax) (P118: not the active array's rectangle)
-        setGainMap(p.gainMap, 0, 0, p.rawSize.x, p.rawSize.y, p.mapSize.x, p.mapSize.y);
+        setGainMap(p.shadingMap, 0, 0, p.rawSize.x, p.rawSize.y, p.shadingGrid.x, p.shadingGrid.y);
     }
 
     /**
@@ -273,29 +273,29 @@ public class DngCreator {
      */
     private void writeColour(Parameters p) {
         final DngColour.Profile jpeg = p.dngColour;
-        setCalibrationIlluminant1((short) (jpeg != null ? jpeg.illuminant : p.calibrationIlluminant1));
-        setCalibrationIlluminant2((short) (jpeg != null ? jpeg.illuminant : p.calibrationIlluminant2));
+        setCalibrationIlluminant1((short) (jpeg != null ? jpeg.illuminant : p.refIlluminant1));
+        setCalibrationIlluminant2((short) (jpeg != null ? jpeg.illuminant : p.refIlluminant2));
         final boolean forward = jpeg == null && p.dngForwardMatrices();
         if (jpeg != null) {
             setColorMatrix1(toDouble(jpeg.colorMatrix1));
             setForwardMatrix1(toDouble(jpeg.forwardMatrix1));
             Log.i(LOG, "DNG: the JPEG's colour: " + jpeg);
         } else {
-            if (colourMatrix("ColorMatrix1", p.ColorMatrix1)) setColorMatrix1(toDouble(p.ColorMatrix1));
-            if (colourMatrix("ColorMatrix2", p.ColorMatrix2)) setColorMatrix2(toDouble(p.ColorMatrix2));
+            if (colourMatrix("ColorMatrix1", p.colorMatrix1)) setColorMatrix1(toDouble(p.colorMatrix1));
+            if (colourMatrix("ColorMatrix2", p.colorMatrix2)) setColorMatrix2(toDouble(p.colorMatrix2));
             if (!forward) Log.i(LOG, "DNG: the forward matrices are the sRGB -> XYZ placeholder: not written (the ColorMatrix renders)");
-            if (forward && finite("ForwardMatrix1", p.ForwardTransform1)) setForwardMatrix1(toDouble(p.ForwardTransform1));
-            if (forward && finite("ForwardMatrix2", p.ForwardTransform2)) setForwardMatrix2(toDouble(p.ForwardTransform2));
-            if (finite("CameraCalibration1", p.calibrationTransform1)) setCameraCalibration1(toDouble(p.calibrationTransform1));
-            if (finite("CameraCalibration2", p.calibrationTransform2)) setCameraCalibration2(toDouble(p.calibrationTransform2));
+            if (forward && finite("ForwardMatrix1", p.forwardMatrix1)) setForwardMatrix1(toDouble(p.forwardMatrix1));
+            if (forward && finite("ForwardMatrix2", p.forwardMatrix2)) setForwardMatrix2(toDouble(p.forwardMatrix2));
+            if (finite("CameraCalibration1", p.cameraCalibration1)) setCameraCalibration1(toDouble(p.cameraCalibration1));
+            if (finite("CameraCalibration2", p.cameraCalibration2)) setCameraCalibration2(toDouble(p.cameraCalibration2));
         }
-        final boolean neutral = finite("AsShotNeutral", p.whitePoint) && positive(p.whitePoint);
-        if (neutral) setAsShotNeutral(toDouble(p.whitePoint));
-        else Log.e(LOG, "DNG: AsShotNeutral not written: " + Arrays.toString(p.whitePoint));
+        final boolean neutral = finite("AsShotNeutral", p.asShotNeutral) && positive(p.asShotNeutral);
+        if (neutral) setAsShotNeutral(toDouble(p.asShotNeutral));
+        else Log.e(LOG, "DNG: AsShotNeutral not written: " + Arrays.toString(p.asShotNeutral));
         // P370 (B1): the ForwardMatrix1 the file holds
-        Log.i(LOG, "DNG: AsShotNeutral " + Arrays.toString(p.whitePoint) + " ForwardMatrix1 "
+        Log.i(LOG, "DNG: AsShotNeutral " + Arrays.toString(p.asShotNeutral) + " ForwardMatrix1 "
                 + (jpeg != null ? Arrays.toString(jpeg.forwardMatrix1) + " (the JPEG's colour)"
-                : (forward ? Arrays.toString(p.ForwardTransform1) : "none") + " (the camera's profile)"));
+                : (forward ? Arrays.toString(p.forwardMatrix1) : "none") + " (the camera's profile)"));
     }
 
     /** Releases the native writer (and the metadata it holds); safe to call twice. */

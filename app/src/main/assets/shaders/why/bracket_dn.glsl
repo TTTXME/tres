@@ -1,5 +1,4 @@
-precision highp float;
-precision highp sampler2D;
+precision highp float; precision highp sampler2D;
 // WHY tone (WhyFusion): bracket_denoise_filter of libfc_suppressor.so [fc_cl_source.cl:1135-1224] on whyLow. Only
 // pixels with Y > 0.95 (the Bento short-frame range) take a 5x5 cross-bilateral mean (sigma_s ~1.58, range sigma
 // max(0.18 Y, 0.2), plus a colour weight), blended in by smoothstep(0.95, 1.15, Y) * strength. Runs only when the

@@ -14,10 +14,11 @@ import java.util.Map;
 import java.util.Set;
 
 public class PreferenceKeys {
+    /** The scope of the settings every module shares. */
     public static final String SCOPE_GLOBAL = SettingsManager.SCOPE_GLOBAL;
-    private static final String TAG = "PreferenceKeys";
     /** The process's settings store, set by {@link #initialise}. */
     private static SettingsManager settings;
+    private static final String TAG = "PreferenceKeys";
 
     private PreferenceKeys() {}
 

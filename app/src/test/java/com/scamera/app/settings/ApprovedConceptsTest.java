@@ -42,7 +42,7 @@ public class ApprovedConceptsTest {
         for(long iso:ManualStops.iso(72,12800)) {
             KnobItemInfo item=new KnobItemInfo(""+iso,items.size(),iso);item.majorTick=ManualStops.majorIso(iso);items.add(item);
         }
-        int selected=0;for(int i=0;i<items.size();i++)if(items.get(i).value==800)selected=i;
+        int selected=0;for(int i=0;i<items.size();i++)if(items.get(i).cameraValue==800)selected=i;
         v.setItems(items,selected);v.layout(0,0,400,88);
         final int[] auto={0};v.setListener(new LinearScaleView.OnValueChangedListener(){
             public void onValueChanged(KnobItemInfo item,boolean user){}
@@ -52,7 +52,7 @@ public class ApprovedConceptsTest {
         v.onTouchEvent(MotionEvent.obtain(0,0,0,200,60,0));
         v.onTouchEvent(MotionEvent.obtain(0,1,2,176,60,0));
         v.onTouchEvent(MotionEvent.obtain(0,2,1,176,60,0));
-        assertEquals(1000,v.getSelected().value,0);assertFalse(v.isDragging());
+        assertEquals(1000,v.getSelected().cameraValue,0);assertFalse(v.isDragging());
         v.onTouchEvent(MotionEvent.obtain(0,3,0,20,60,0));v.onTouchEvent(MotionEvent.obtain(0,4,3,20,60,0));assertEquals(0,auto[0]);
         v.onTouchEvent(MotionEvent.obtain(0,5,0,20,60,0));v.onTouchEvent(MotionEvent.obtain(0,6,1,20,60,0));assertEquals(1,auto[0]);
         Bitmap b=Bitmap.createBitmap(400,88,Bitmap.Config.ARGB_8888);v.draw(new Canvas(b));

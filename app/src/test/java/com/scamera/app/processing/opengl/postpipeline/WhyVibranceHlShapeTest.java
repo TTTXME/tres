@@ -78,7 +78,7 @@ public class WhyVibranceHlShapeTest {
                 shader.contains(": vec4(0.57, 0.89, 0.010, 0.025);"));
         assertTrue("the shader declares vibHlShapeU", shader.contains("uniform vec4 vibHlShapeU;"));
         final String src = "src/main/java/com/scamera/app/processing/opengl/postpipeline/";
-        assertTrue("the photo sets it", read(src + "WhyCombine.java").contains("glProg.setVar(\"vibHlShapeU\", WhyTone.vibranceHlShape());"));
+        assertTrue("the photo sets it", read(src + "WhyCombine.java").contains("shaderProg.setVar(\"vibHlShapeU\", WhyTone.vibranceHlShape());"));
         final String live = read(src + "LiveWhyTone.java");
         assertTrue("the RAW viewfinder takes it", live.contains("vibHlShape = WhyTone.vibranceHlShape();")
                 && live.contains("loc(p, \"vibHlShapeU\"), vibHlShape[0], vibHlShape[1], vibHlShape[2], vibHlShape[3]"));

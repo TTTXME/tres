@@ -28,27 +28,26 @@ import java.util.Set;
  * @see <a href="https://github.com/anggrayudi/SimpleStorage">SimpleStorage</a>
  */
 public final class SimpleStorageHelper {
-
-    private static final String TAG = "SimpleStorageHelper";
-
-    private static Context sContext;
-
-    /** Initialize the module. Call once from {@code ScameraApp.initModules()}. */
-    public static void init(Context context) {
-        sContext = context.getApplicationContext();
-    }
-
-    /** Base path we request access to (picker opens here when supported). */
-    public static final String DCIM_BASE_PATH = "DCIM";
+    /** The folder access is asked for (the picker opens there when it can), and the app's folder in it. */
+    public static final String DCIM_DIR = "DCIM";
 
     /** The app's folder: RAW files (Raw/), logs (Log/). */
     public static final String SCAMERA_RELATIVE_PATH = "DCIM/SCAMERA";
 
+    private static final String TAG = "SimpleStorageHelper";
+    /** The application's context (init), for the calls that take none. */
+    private static Context appContext;
+
+    /** Keeps the application's context; called once from {@code ScameraApp.initModules()}. */
+    public static void init(Context any) {
+        appContext = any.getApplicationContext();
+    }
+
     /** True if the app has SAF access to DCIM (a grant of DCIM, of a folder inside it, or of a whole storage root). */
-    public static boolean hasStorageAccess(Context context) {
-        if (context == null) return false;
+    public static boolean hasStorageAccess(Context caller) {
+        if (caller == null) return false;
         try {
-            return dcimOf(accessiblePaths(context)) != null;
+            return dcimOf(accessiblePaths(caller)) != null;
         } catch (Throwable t) {
             android.util.Log.e(TAG, "hasStorageAccess: " + t.getMessage());
             return false;
@@ -107,7 +106,7 @@ public final class SimpleStorageHelper {
 
     /** Builds the initial path for RequestStorageAccessContract so the picker opens at DCIM. */
     public static FileFullPath createDcimInitialPath(Context context) {
-        return new FileFullPath(context, StorageId.PRIMARY, DCIM_BASE_PATH);
+        return new FileFullPath(context, StorageId.PRIMARY, DCIM_DIR);
     }
 
 }

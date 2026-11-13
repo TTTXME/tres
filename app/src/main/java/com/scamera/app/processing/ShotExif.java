@@ -207,8 +207,8 @@ public final class ShotExif {
         f.focalLengths = p.lensFocalLengths;
         f.apertures = p.lensApertures;
         f.facing = facing(p.lensFacing);
-        f.focal35 = p.sensorSize == null ? 0
-                : focal35(f.focalLength, p.sensorSize.getWidth(), p.sensorSize.getHeight(), fieldZoom);
+        f.focal35 = p.sensorSizeMm == null ? 0
+                : focal35(f.focalLength, p.sensorSizeMm.getWidth(), p.sensorSizeMm.getHeight(), fieldZoom);
         return f;
     }
 

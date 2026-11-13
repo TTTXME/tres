@@ -1,8 +1,9 @@
 package com.scamera.app.settings.annotations;
 
-import java.lang.annotation.ElementType;
+import static java.lang.annotation.ElementType.FIELD;
+import static java.lang.annotation.RetentionPolicy.RUNTIME;
+
 import java.lang.annotation.Retention;
-import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
 /**
@@ -10,34 +11,27 @@ import java.lang.annotation.Target;
  * The field's type picks the row: a number gets a slider (whole-number {@link #step} means an int), a boolean a check box,
  * a {@link java.io.File} a PNG picker, a String with {@link #entries}/{@link #entryValues} a list.
  */
-@Retention(RetentionPolicy.RUNTIME)
-@Target(ElementType.FIELD)
+@Target(FIELD)
+@Retention(RUNTIME)
 public @interface Tunable {
-    /** Row title. */
+    // the row: its title, the section it is grouped under ("Sharpening", "Demosaic", "Denoise", "Color", "Tone", "General")
+    // and its summary (empty: none)
     String title();
-
-    /** Row summary; empty for none. */
+    String category() default "General";
+    float min() default 0f;
     String description() default "";
 
-    /** Section the row is grouped under ("Sharpening", "Demosaic", "Denoise", "Color", "Tone", "General"). */
-    String category() default "General";
-
-    float min() default 0f;
-
+    // a slider: its range (min above), its step (a fraction makes the row a float, a whole number an int) and the default
+    // (NaN: the field's initial value)
     float max() default 1f;
-
-    /** Default; {@code -999999} means the field's initial value. */
-    float defaultValue() default -999999f;
-
-    /** Slider step; a fraction makes the row a float, a whole number an int. */
     float step() default 0.01f;
+    float defaultValue() default Float.NaN;
 
-    /** Square PNG LUT edge sizes a File row accepts (pixels), empty for any. */
-    int[] allowedPngSizes() default {};
+    /** A File row: the square PNG LUT edge sizes it accepts (pixels), empty for any. */
+    int[] pngEdges() default {};
 
-    /** Labels of a String list row, paired with {@link #entryValues}. */
+    // a String list row: its labels and stored values, paired; the default is matched from defaultValue numerically, else by
+    // index
     String[] entries() default {};
-
-    /** Stored values of a String list row; its default is matched from {@link #defaultValue} numerically, else by index. */
     String[] entryValues() default {};
 }

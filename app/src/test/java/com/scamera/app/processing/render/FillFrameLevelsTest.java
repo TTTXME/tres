@@ -44,8 +44,8 @@ import java.util.Arrays;
 import java.util.IdentityHashMap;
 
 /**
- * P440: ScamProcessor's first metadata pass (the last burst callback) is now {@link Parameters#FillFrameLevels} instead of the
- * whole {@link Parameters#FillDynamicParameters} (and the normal frames' exposure time and the EXIF sync after it). Every field
+ * P440: ScamProcessor's first metadata pass (the last burst callback) is now {@link Parameters#fillLevelsOnly} instead of the
+ * whole {@link Parameters#fillFromFrame} (and the normal frames' exposure time and the EXIF sync after it). Every field
  * of the Parameters and of the EXIF data after the reference frame's pass and its black floor is the same either way - also when
  * the last callback's levels, ISO, exposure, noise, neutral, white balance mode, ISP transform and hot pixels differ from the
  * reference frame's, for a DCG frame with the module's overrides, a binned shot, a frame whose samples widen the levels, a Quad
@@ -73,7 +73,7 @@ public class FillFrameLevelsTest {
 
     @Before public void setUp() {
         final com.scamera.app.api.Settings settings = new com.scamera.app.api.Settings();
-        settings.colorMethod = 1; // the default (default_prefs.xml)
+        settings.colourMethod = 1; // the default (default_prefs.xml)
         app = mockStatic(com.scamera.app.app.ScameraApp.class);
         app.when(com.scamera.app.app.ScameraApp::getSettings).thenReturn(settings);
         prefsKeys = mockStatic(PreferenceKeys.class, invocation -> {
@@ -140,12 +140,12 @@ public class FillFrameLevelsTest {
         return result(2638, 8_333_333L, dynBlack, dynWhite, 0.47f, 0.60f, false, ISP, 4e-4);
     }
 
-    /** The shot's setup before the metadata passes (FillConstParameters' levels; the per-shot flags set by ScamProcessor). */
+    /** The shot's setup before the metadata passes (fillFromCamera' levels; the per-shot flags set by ScamProcessor). */
     private static Parameters base(boolean dynamicBlack) throws Exception {
         final Parameters p = new Parameters();
         p.rawSize = new Point(W, H);
         p.cfaPattern = 0;
-        p.blackLevel = new float[]{64, 64, 64, 64};
+        p.cfaBlack = new float[]{64, 64, 64, 64};
         p.whiteLevel = 1023;
         p.whiteLevelOverride = -1;
         p.blackLevelOverride = -1f;
@@ -192,18 +192,18 @@ public class FillFrameLevelsTest {
             if (firstPass) {
                 if (levelsOnly) {
                     // P440
-                    p.FillFrameLevels(s.last);
+                    p.fillLevelsOnly(s.last);
                 } else {
                     // before P440: the whole pass, the normal frames' exposure time, the EXIF sync after the black floor
-                    p.FillDynamicParameters(s.last, request, 400);
+                    p.fillFromFrame(s.last, request, 400);
                     p.exposureTime = ExposureIndex.time2sec(s.normalExposureNs);
                 }
             }
             p.refineBlackLevel(s.dark, W, H, s.block, stream);
-            p.cameraRotation = 90;
+            p.rotationDeg = 90;
             if (firstPass && !levelsOnly) ParseExif.syncWithParameters(exif, p);
             // the reference frame's pass (unchanged)
-            p.FillDynamicParameters(s.ref, request, 2638);
+            p.fillFromFrame(s.ref, request, 2638);
             p.refineBlackLevel(s.dark, W, H, s.block, stream);
             ParseExif.syncWithParameters(exif, p);
             return new Object[]{p, exif, stream == null ? null
@@ -265,7 +265,7 @@ public class FillFrameLevelsTest {
     }
 
     /**
-     * The last callback reports another black (72) than FillConstParameters' 64 and the reference frame (64): the darkest frame's
+     * The last callback reports another black (72) than fillFromCamera' 64 and the reference frame (64): the darkest frame's
      * floor was measured at the last callback's levels (black / 4 = 18 is the padding limit: the five 17s are padding) and the
      * reference frame's pass reuses it. The levels pass keeps that; a plain removal measures it at 64 (limit 16: the 17s are
      * signal) and the black comes out lower.
@@ -277,7 +277,7 @@ public class FillFrameLevelsTest {
         s.ref = ref(64, 1023);
         final Parameters a = assertSame("black 72 then 64", s);
         final Parameters c = (Parameters) run(s, true, false)[0];
-        assertNotEquals("the levels pass matters here", Arrays.toString(a.blackLevel), Arrays.toString(c.blackLevel));
+        assertNotEquals("the levels pass matters here", Arrays.toString(a.cfaBlack), Arrays.toString(c.cfaBlack));
         // the other way round, and another dynamic white as well
         s.last = last(64, 1020);
         s.ref = ref(72, 1023);

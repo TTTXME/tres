@@ -75,17 +75,17 @@ public class WatermarkRecordTest {
         double[] v = new double[3];
         for (int y = 0; y < h; y++) {
             for (int x = 0; x < w; x++) {
-                for (int c = 0; c < 3; c++) {
-                    double s = .45 + .1 * c + .25 * Math.sin((x + 2 * y) / (double) (w + h) * 3);
+                for (int ch = 0; ch < 3; ch++) {
+                    double s = .45 + .1 * ch + .25 * Math.sin((x + 2 * y) / (double) (w + h) * 3);
                     for (int o = 0; o < cells.length; o++) {
                         double fx = x / (double) cells[o], fy = y / (double) cells[o];
                         int ix = (int) fx, iy = (int) fy;
                         double tx = fx - ix, ty = fy - iy;
-                        double[][] g = grids[c * cells.length + o];
+                        double[][] g = grids[ch * cells.length + o];
                         double a = g[iy][ix] * (1 - tx) + g[iy][ix + 1] * tx, b = g[iy + 1][ix] * (1 - tx) + g[iy + 1][ix + 1] * tx;
                         s += amp[o] * (a * (1 - ty) + b * ty);
                     }
-                    v[c] = s;
+                    v[ch] = s;
                 }
                 int R = clamp((v[0] + (r.nextDouble() - .5) * .012) * max, max), G = clamp((v[1] + (r.nextDouble() - .5) * .012) * max, max),
                         B = clamp((v[2] + (r.nextDouble() - .5) * .012) * max, max);

@@ -23,7 +23,7 @@ import android.media.Image;
 import android.util.Range;
 import android.util.Rational;
 
-import com.scamera.app.api.CameraEventsListener;
+import com.scamera.app.api.CameraEvents;
 import com.scamera.app.api.CameraManager2;
 import com.scamera.app.api.Settings;
 import com.scamera.app.app.ScameraApp;
@@ -104,7 +104,7 @@ public class EttrSessionTest {
         managers = mockConstruction(CameraManager2.class, (mock, c) -> when(mock.getCameraIdList()).thenReturn(new String[]{"3"}));
         Activity activity = mock(Activity.class);
         when(activity.getSystemService(Context.CAMERA_SERVICE)).thenReturn(mock(CameraManager.class));
-        controller = new CaptureController(activity, mock(ExecutorService.class), mock(CameraEventsListener.class));
+        controller = new CaptureController(activity, mock(ExecutorService.class), mock(CameraEvents.class));
         CaptureController.isProcessing = false;
         final CameraCharacteristics c = mock(CameraCharacteristics.class);
         when(c.get(CameraCharacteristics.SENSOR_INFO_SENSITIVITY_RANGE)).thenReturn(new Range<>(100, 6400));
@@ -410,7 +410,7 @@ public class EttrSessionTest {
                 new com.scamera.app.circularbarlib.control.ManualParamModel();
         model.reset();
         model.addObserver(params());
-        model.setCurrentISOValue(400);
+        model.setIsoSetting(400);
         // metered once the panel's free shutter holds still (ETTR_STILL_FRAMES), not on its way (review: a moving one first)
         for (int i = 0; i < 3 * Ettr.METER_EVERY; i++) plainFrames(1, 0.3f, 400, 8_000_000L + (i % 2) * 1_000_000L, false);
         assertEquals("a shutter on its way is not metered", 0, compensation());
@@ -422,7 +422,7 @@ public class EttrSessionTest {
         assertEquals(Integer.valueOf(400), controller.mPreviewRequestBuilder.get(CaptureRequest.SENSOR_SENSITIVITY));
         assertEquals(" | ETTR +1.5", note());
         // the shutter by hand too: held, and the request's compensation is the panel's (both by hand: 0)
-        model.setCurrentExposureValue(1_000_000_000L / 60);
+        model.setShutterValueNs(1_000_000_000L / 60);
         plainFrames(1, 0.3f, 400, 16_666_666L, false);
         assertEquals(0, compensation());
         assertEquals(0, CaptureController.ettrIndex(controller, 0));

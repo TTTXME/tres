@@ -84,8 +84,8 @@ public final class TunableKeyManager {
             StringBuilder pairs = new StringBuilder();
             for (VendorTagUtils.TunableKey k : parse(j, scope)) {
                 boolean sent = k != null && k.enabled
-                        && ("CaptureRequest".equals(k.type) || VendorTagUtils.TunableKey.TYPE_SESSION.equals(k.type));
-                if (sent) pairs.append(k.name).append('=').append(k.value).append(';');
+                        && ("CaptureRequest".equals(k.kind) || VendorTagUtils.TunableKey.TYPE_SESSION.equals(k.kind));
+                if (sent) pairs.append(k.tag).append('=').append(k.text).append(';');
             }
             return pairs.toString();
         });

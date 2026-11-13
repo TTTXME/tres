@@ -19,7 +19,7 @@ import static android.opengl.GLES20.GL_LINEAR;
  */
 public final class WhyV2Highlights extends Node {
     public WhyV2Highlights() { super("", "WhyV2Highlights"); }
-    @Override public void Compile() {}
+    @Override public void bindShader() {}
 
     /** hr_extract's / hr_apply's u_threshold (0x3f59999a) and the box radius. */
     static final float HR_THRESHOLD = 0.85f;
@@ -45,27 +45,27 @@ public final class WhyV2Highlights extends Node {
     }
 
     @Override
-    public void Run() {
-        final PostPipeline pipeline = (PostPipeline) basePipeline;
-        WorkingTexture = previousNode.WorkingTexture;
-        glProg.closed = true;
+    public void runPass() {
+        final PostPipeline pipeline = (PostPipeline) hostPipeline;
+        passOut = prevPass.passOut;
+        shaderProg.closed = true;
         final WhyV2Stats.State v2 = pipeline.whyV2;
         if (v2 == null || v2.ae == null || v2.clean == null) throw new IllegalStateException("WHY V2: no statistics (WhyV2Stats did not run)");
         final WhyV2Ae.Params p = v2.params;
         final boolean bracket = bracketOn(v2.ae.clip, p.bracketDenoise), hr = hrOn(p.hrAmount);
         if (!bracket && !hr) return;
         final long started = System.currentTimeMillis();
-        final Point size = v2.clean.mSize;
+        final Point size = v2.clean.size;
         if (bracket) {
             final GLTexture out = rgba(size);
-            glProg.useAssetProgram("why/v2_bracket_dn", false);
-            glProg.setTexture("u_tex_rgb", v2.clean);
-            glProg.setVar("u_width", size.x);
-            glProg.setVar("u_height", size.y);
-            glProg.setVar("u_clip_ceiling", v2.ae.clip);
-            glProg.setVar("u_strength", p.bracketDenoise);
-            glProg.drawBlocks(out);
-            glProg.closed = true;
+            shaderProg.useAssetProgram("why/v2_bracket_dn", false);
+            shaderProg.setTexture("u_tex_rgb", v2.clean);
+            shaderProg.setVar("u_width", size.x);
+            shaderProg.setVar("u_height", size.y);
+            shaderProg.setVar("u_clip_ceiling", v2.ae.clip);
+            shaderProg.setVar("u_strength", p.bracketDenoise);
+            shaderProg.drawBlocks(out);
+            shaderProg.closed = true;
             v2.clean.close();
             v2.clean = out;
         }
@@ -74,33 +74,33 @@ public final class WhyV2Highlights extends Node {
             GLTexture extracted = null, blurred = null, diffused = null;
             try {
                 extracted = rgba(h);
-                glProg.useAssetProgram("why/v2_hr_extract", false);
-                glProg.setTexture("u_tex_rgb", v2.clean);
-                glProg.setVar("u_width", h.x);
-                glProg.setVar("u_height", h.y);
-                glProg.setVar("u_threshold", HR_THRESHOLD);
-                glProg.drawBlocks(extracted);
+                shaderProg.useAssetProgram("why/v2_hr_extract", false);
+                shaderProg.setTexture("u_tex_rgb", v2.clean);
+                shaderProg.setVar("u_width", h.x);
+                shaderProg.setVar("u_height", h.y);
+                shaderProg.setVar("u_threshold", HR_THRESHOLD);
+                shaderProg.drawBlocks(extracted);
                 blurred = rgba(h);
                 diffused = rgba(h);
                 for (int dir = 0; dir < 2; dir++) {
-                    glProg.setDefine("DIR", dir);
-                    glProg.useAssetProgram("why/v2_box", false);
-                    glProg.setTexture("u_input_tex", dir == 0 ? extracted : blurred);
-                    glProg.setVar("u_width", h.x);
-                    glProg.setVar("u_height", h.y);
-                    glProg.setVar("u_radius", HR_RADIUS);
-                    glProg.drawBlocks(dir == 0 ? blurred : diffused);
+                    shaderProg.setDefine("DIR", dir);
+                    shaderProg.useAssetProgram("why/v2_box", false);
+                    shaderProg.setTexture("u_input_tex", dir == 0 ? extracted : blurred);
+                    shaderProg.setVar("u_width", h.x);
+                    shaderProg.setVar("u_height", h.y);
+                    shaderProg.setVar("u_radius", HR_RADIUS);
+                    shaderProg.drawBlocks(dir == 0 ? blurred : diffused);
                 }
                 final GLTexture out = rgba(size);
-                glProg.useAssetProgram("why/v2_hr_apply", false);
-                glProg.setTexture("u_tex_rgb", v2.clean);
-                glProg.setTexture("u_tex_diffused_hr", diffused);
-                glProg.setVar("u_width", size.x);
-                glProg.setVar("u_height", size.y);
-                glProg.setVar("u_threshold", HR_THRESHOLD);
-                glProg.setVar("u_hr_amount", p.hrAmount);
-                glProg.drawBlocks(out);
-                glProg.closed = true;
+                shaderProg.useAssetProgram("why/v2_hr_apply", false);
+                shaderProg.setTexture("u_tex_rgb", v2.clean);
+                shaderProg.setTexture("u_tex_diffused_hr", diffused);
+                shaderProg.setVar("u_width", size.x);
+                shaderProg.setVar("u_height", size.y);
+                shaderProg.setVar("u_threshold", HR_THRESHOLD);
+                shaderProg.setVar("u_hr_amount", p.hrAmount);
+                shaderProg.drawBlocks(out);
+                shaderProg.closed = true;
                 v2.clean.close();
                 v2.clean = out;
             } finally {

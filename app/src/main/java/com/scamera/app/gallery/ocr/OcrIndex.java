@@ -84,15 +84,15 @@ public final class OcrIndex {
     /** The text on {@code f} (lower case for matching), null when not read yet or changed since. */
     @Nullable
     public static String searchText(@Nullable MediaFile f) {
-        Entry e = f == null ? null : entries.get(f.getId());
-        return e != null && e.modified == f.getLastModified() ? e.lower : null;
+        Entry e = f == null ? null : entries.get(f.rowId());
+        return e != null && e.modified == f.modifiedMs() ? e.lower : null;
     }
 
     /** The text on {@code f} as read, null when not read yet or changed since. */
     @Nullable
     public static String text(@Nullable MediaFile f) {
-        Entry e = f == null ? null : entries.get(f.getId());
-        return e != null && e.modified == f.getLastModified() ? e.text : null;
+        Entry e = f == null ? null : entries.get(f.rowId());
+        return e != null && e.modified == f.modifiedMs() ? e.text : null;
     }
 
     /** Whether the index reads {@code name} (photos Android decodes; not videos or RAW). */
@@ -107,7 +107,7 @@ public final class OcrIndex {
     static List<MediaFile> pending(List<MediaFile> wanted) {
         List<MediaFile> out = new ArrayList<>();
         for (MediaFile f : wanted)
-            if (f != null && indexable(f.getDisplayName()) && text(f) == null && !failed.contains(f.getId())) out.add(f);
+            if (f != null && indexable(f.displayName()) && text(f) == null && !failed.contains(f.rowId())) out.add(f);
         return out;
     }
 
@@ -224,13 +224,13 @@ public final class OcrIndex {
                 MediaFile f = todo.get(at++);
                 if (text(f) != null) continue; // read meanwhile (the text sheet)
                 final long w0 = SystemClock.uptimeMillis();
-                Bitmap b = OcrEngine.load(app, f.getFileUri(), INDEX_SIDE);
+                Bitmap b = OcrEngine.load(app, f.contentUri(), INDEX_SIDE);
                 String text = b == null ? "" : OcrEngine.recognize(app, b, languages);
                 if (b != null) b.recycle();
                 final long took = SystemClock.uptimeMillis() - w0;
                 if (self != worker) return; // stopped meanwhile: a read cut short is not stored
                 if (text == null) {
-                    failed.add(f.getId()); // an engine error: tried again when the app starts again
+                    failed.add(f.rowId()); // an engine error: tried again when the app starts again
                     unreadable++;
                     if (++failedInARow >= MAX_FAILURES_IN_A_ROW) {
                         Log.w(TAG, "index: the engine failed on " + failedInARow + " photos in a row, stopped until the next visit");
@@ -240,7 +240,7 @@ public final class OcrIndex {
                     continue;
                 }
                 failedInARow = 0;
-                put(app, f.getId(), f.getLastModified(), text);
+                put(app, f.rowId(), f.modifiedMs(), text);
                 done++;
                 work += took;
                 Runnable ch = changed;

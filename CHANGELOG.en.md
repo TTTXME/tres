@@ -2,6 +2,11 @@
 
 English copy of CHANGELOG.md (the Russian file is the one posted to Telegram), from 2026-11-09 on.
 
+## 2026-11-13 — Code cleanup
+
+- The camera code is cleaned up and reorganised.
+- Fixed a crash on cameras that report no sensor size.
+
 ## 2026-11-13 — Merge and noise reduction
 
 - The behaviour of «Kernel size on textures (Base)», «Kernel size in bokeh (Blurred)» and «Texture / bokeh transition threshold» changed.

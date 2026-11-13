@@ -82,7 +82,7 @@ public class ExifDialogViewModel extends AndroidViewModel {
             try {
                 facts = read(resolver, file);
             } catch (RuntimeException e) {
-                Log.d(TAG, "EXIF of " + file.getDisplayName() + ": " + e);
+                Log.d(TAG, "EXIF of " + file.displayName() + ": " + e);
                 return;
             }
             if (facts == null) return;
@@ -147,11 +147,11 @@ public class ExifDialogViewModel extends AndroidViewModel {
 
     private Facts read(ContentResolver resolver, MediaFile file) {
         ExifInterface exif;
-        try (InputStream in = resolver.openInputStream(file.getFileUri())) {
+        try (InputStream in = resolver.openInputStream(file.contentUri())) {
             if (in == null) return null;
             exif = new ExifInterface(in); // reads the metadata at once
         } catch (IOException e) {
-            Log.d(TAG, "no EXIF in " + file.getDisplayName() + ": " + e);
+            Log.d(TAG, "no EXIF in " + file.displayName() + ": " + e);
             return null;
         }
         Facts f = new Facts();
@@ -165,7 +165,7 @@ public class ExifDialogViewModel extends AndroidViewModel {
         f.focal = exif.getAttribute(ExifInterface.TAG_FOCAL_LENGTH);
         f.focal35 = exif.getAttribute(ExifInterface.TAG_FOCAL_LENGTH_IN_35MM_FILM);
         f.description = exif.getAttribute(ExifInterface.TAG_IMAGE_DESCRIPTION);
-        String name = file.getDisplayName();
+        String name = file.displayName();
         boolean missing = f.iso == null || f.exposure == null || f.make == null || f.width == null;
         if (missing && RawFormats.isRawName(name) && !RawFormats.isDngName(name) && LibRawBridge.available()) fromLibRaw(file, f);
         // P196: the pixels the file really stores (owner: «фактическое разрешение»): its own headers first (JPEG SOF, WebP
@@ -182,7 +182,7 @@ public class ExifDialogViewModel extends AndroidViewModel {
 
     /** P352: a camera RAW ExifInterface does not read (CR3, RAF on old versions, 3FR, IIQ...): the missing facts from LibRaw. */
     private void fromLibRaw(MediaFile file, Facts f) {
-        try (LibRawBridge.RawFile raw = LibRawBridge.open(getApplication(), file.getFileUri())) {
+        try (LibRawBridge.RawFile raw = LibRawBridge.open(getApplication(), file.contentUri())) {
             if (f.make == null && !raw.make.isEmpty()) f.make = raw.make;
             if (f.model == null && !raw.model.isEmpty()) f.model = raw.model;
             if (f.iso == null && raw.iso() > 0) f.iso = String.valueOf(Math.round(raw.iso()));
@@ -195,7 +195,7 @@ public class ExifDialogViewModel extends AndroidViewModel {
                 f.height = String.valueOf(turned ? raw.width() : raw.height());
             }
         } catch (IOException | RuntimeException e) {
-            Log.d(TAG, "LibRaw facts of " + file.getDisplayName() + ": " + e);
+            Log.d(TAG, "LibRaw facts of " + file.displayName() + ": " + e);
         }
     }
 
@@ -213,17 +213,17 @@ public class ExifDialogViewModel extends AndroidViewModel {
      * (not for a DNG: the platform raw decoder would read the whole file), or null.
      */
     private static int[] storedSize(ContentResolver resolver, MediaFile file) {
-        try (InputStream in = resolver.openInputStream(file.getFileUri())) {
+        try (InputStream in = resolver.openInputStream(file.contentUri())) {
             int[] size = ImageHeaderSize.read(in);
             if (size != null) return size;
         } catch (IOException | RuntimeException e) {
             Log.d(TAG, "no header size: " + e);
         }
-        String name = file.getDisplayName();
+        String name = file.displayName();
         if (name != null && name.toLowerCase(Locale.ROOT).endsWith(".dng")) return null;
         BitmapFactory.Options bounds = new BitmapFactory.Options();
         bounds.inJustDecodeBounds = true;
-        try (InputStream in = resolver.openInputStream(file.getFileUri())) {
+        try (InputStream in = resolver.openInputStream(file.contentUri())) {
             if (in == null) return null;
             BitmapFactory.decodeStream(in, null, bounds);
         } catch (IOException | RuntimeException e) {
@@ -240,7 +240,7 @@ public class ExifDialogViewModel extends AndroidViewModel {
         if (pendingHistogram != null) main.removeCallbacks(pendingHistogram);
         // P620: a DNG / RAW through the thumbnail decoder (read in place, a sparse render: a 200 MP DNG was copied whole,
         // 400 MB, to read 800 px of it)
-        Object source = RawFormats.isRawName(file.getDisplayName()) ? GalleryThumb.of(file) : file.getFileUri();
+        Object source = RawFormats.isRawName(file.displayName()) ? GalleryThumb.of(file) : file.contentUri();
         RequestOptions small = new RequestOptions().diskCacheStrategy(DiskCacheStrategy.RESOURCE)
                 .signature(GalleryKeys.of(file, "hist")).override(800).fitCenter().useUnlimitedSourceGeneratorsPool(true);
         pendingHistogram = () -> Glide.with(getApplication()).asBitmap().load(source).apply(small)

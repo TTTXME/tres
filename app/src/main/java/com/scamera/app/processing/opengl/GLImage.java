@@ -11,31 +11,32 @@ import java.nio.ByteBuffer;
 
 /** Pixels on their way into a texture (GLTexture(GLImage)): a size, a layout and a direct buffer of the texels. */
 public class GLImage implements AutoCloseable {
-    public Point size;
-    public ByteBuffer byteBuffer;
-    GLFormat glFormat;
+    /** Width and height, the texels (tightly packed) and their layout. */
+    public Point dims;
+    public ByteBuffer pixelData;
+    GLFormat layout;
 
     /**
      * A bitmap's pixels: its own bytes when they are RGBA8 or R8 (8-bit normalised channels); any other config (RGBA_1010102 of
      * a 10-bit HEIC, RGBA_F16, RGB_565, hardware) converted to 8-bit sRGB RGBA.
      */
     public GLImage(Bitmap image) {
-        size = new Point(image.getWidth(), image.getHeight());
+        dims = new Point(image.getWidth(), image.getHeight());
         if (rawBytes(image)) {
-            glFormat = new GLFormat(GLFormat.DataType.SIMPLE_8, channelsOf(image));
-            byteBuffer = copyOf(image);
+            layout = new GLFormat(GLFormat.DataType.SIMPLE_8, channelsOf(image));
+            pixelData = copyOf(image);
         } else {
-            glFormat = new GLFormat(GLFormat.DataType.SIMPLE_8, 4);
-            byteBuffer = TenBitBitmaps.rgba8(image);
+            layout = new GLFormat(GLFormat.DataType.SIMPLE_8, 4);
+            pixelData = TenBitBitmaps.rgba8(image);
         }
     }
 
     /** A decoded image (an asset: the blue-noise texture), its bytes as decoded. */
     public GLImage(InputStream encoded) {
         final Bitmap image = BitmapFactory.decodeStream(encoded);
-        size = new Point(image.getWidth(), image.getHeight());
-        glFormat = new GLFormat(GLFormat.DataType.SIMPLE_8, channelsOf(image));
-        byteBuffer = copyOf(image);
+        dims = new Point(image.getWidth(), image.getHeight());
+        layout = new GLFormat(GLFormat.DataType.SIMPLE_8, channelsOf(image));
+        pixelData = copyOf(image);
         image.recycle();
     }
 
@@ -46,9 +47,9 @@ public class GLImage implements AutoCloseable {
     }
 
     public GLImage(Point size, GLFormat format, ByteBuffer pixels) {
-        this.size = new Point(size);
-        this.glFormat = new GLFormat(format);
-        this.byteBuffer = pixels;
+        this.dims = new Point(size);
+        this.layout = new GLFormat(format);
+        this.pixelData = pixels;
     }
 
     /** Whether the bitmap's own bytes are the texture: ARGB_8888 (RGBA8) and ALPHA_8 (R8). */
@@ -70,11 +71,11 @@ public class GLImage implements AutoCloseable {
     /** Drops the reference to the pixels (the texture made from them keeps its own copy). */
     @Override
     public void close() {
-        if (byteBuffer == null) return;
+        if (pixelData == null) return;
         try {
-            byteBuffer.clear();
+            pixelData.clear();
         } catch (RuntimeException ignored) {
         }
-        byteBuffer = null;
+        pixelData = null;
     }
 }

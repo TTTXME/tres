@@ -286,7 +286,7 @@ public class SabreCropTest {
     /** The lens shading map (the window's part, the same grid), the hot pixels and the face boxes follow the window. */
     @Test public void theParametersFollowTheWindow() {
         final com.scamera.app.api.Settings settings = new com.scamera.app.api.Settings();
-        settings.mCameraID = "0";
+        settings.cameraId = "0";
         try (org.mockito.MockedStatic<com.scamera.app.app.ScameraApp> app =
                      org.mockito.Mockito.mockStatic(com.scamera.app.app.ScameraApp.class)) {
             app.when(com.scamera.app.app.ScameraApp::getSettings).thenReturn(settings);
@@ -298,12 +298,12 @@ public class SabreCropTest {
         Parameters p = new Parameters();
         p.rawSize = new Point(400, 300);
         final int cols = 5, rows = 4;
-        p.mapSize = new Point(cols, rows);
-        p.gainMap = new float[cols * rows * 4];
+        p.shadingGrid = new Point(cols, rows);
+        p.shadingMap = new float[cols * rows * 4];
         for (int j = 0; j < rows; j++)
             for (int i = 0; i < cols; i++)
-                for (int c = 0; c < 4; c++) p.gainMap[(j * cols + i) * 4 + c] = 1f + i * 0.25f + j * 0.5f + c;
-        p.hotPixels = new Point[]{new Point(10, 10), new Point(150, 120), new Point(399, 300)};
+                for (int c = 0; c < 4; c++) p.shadingMap[(j * cols + i) * 4 + c] = 1f + i * 0.25f + j * 0.5f + c;
+        p.hotSites = new Point[]{new Point(10, 10), new Point(150, 120), new Point(399, 300)};
         p.portraitFaces = new float[]{0.4f, 0.4f, 0.6f, 0.6f};
         SabreCrop.Plan plan = SabreCrop.plan(400, 300, 2f, 1, false, null, PHONE).plan;
         RawCrop.Area a = plan.area;
@@ -315,9 +315,9 @@ public class SabreCropTest {
                 // the map is linear in x and y, so its resampling is exact: the frame's map at the window's grid points
                 final double x = (100 + (double) i / (cols - 1) * 199) / 399 * (cols - 1);
                 final double y = (74 + (double) j / (rows - 1) * 151) / 299 * (rows - 1);
-                assertEquals(1f + x * 0.25f + y * 0.5f, p.gainMap[(j * cols + i) * 4], 1e-4);
+                assertEquals(1f + x * 0.25f + y * 0.5f, p.shadingMap[(j * cols + i) * 4], 1e-4);
             }
-        assertArrayEquals(new Point[]{new Point(50, 46)}, p.hotPixels);
+        assertArrayEquals(new Point[]{new Point(50, 46)}, p.hotSites);
         assertEquals((0.4f * 400 - 100) / 200f, p.portraitFaces[0], 1e-4f);
         assertEquals(a, p.rawCrop);
         assertEquals(new Point(400, 300), p.rawCropFull);
@@ -336,7 +336,7 @@ public class SabreCropTest {
     @Test public void theProcessorCutsBeforeTheMergeAndCropsTheRestAfter() throws Exception {
         String s = new String(Files.readAllBytes(src("src/main/java/com/scamera/app/processing/processor/ScamProcessor.java").toPath()),
                 StandardCharsets.UTF_8);
-        int neutral = s.indexOf("applyMosaicNeutral(processingParameters, scamReference, referenceMetadata, images, characteristics, iszAspect4x3);");
+        int neutral = s.indexOf("applyMosaicNeutral(processingParameters, scamReference, referenceMetadata, images, shotCamera, iszAspect4x3);");
         int cut = s.indexOf("sabrePlan = SabreCrop.cut(images, processingParameters, zoomResidual,", neutral);
         int merge = s.indexOf("ScamHybridBurst.process(", cut);
         int rest = s.indexOf("final Rect rest = SabreCrop.cropRect(baseWidth, baseHeight, window);", merge);

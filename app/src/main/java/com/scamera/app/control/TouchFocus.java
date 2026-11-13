@@ -486,14 +486,14 @@ public class TouchFocus {
         if (watchScan && afState == CameraMetadata.CONTROL_AF_STATE_FOCUSED_LOCKED) {
             watchScan = false;
             Log.w(TAG, "lock after " + (SystemClock.elapsedRealtime() - scanAckMs) + "ms of scan; lens "
-                    + lensAtScanAck + " -> " + cam.mFocus + " diopters");
+                    + lensAtScanAck + " -> " + cam.focusDiopters + " diopters");
         }
         ((FocusCircleView) ringView).setAfState(afState);
     }
 
     /** Back to the camera's own AF / AE (the settings' modes, the template's regions). */
     private void restoreCameraMetering() {
-        cam.reset3Aparams();
+        cam.restore3A();
     }
 
     // ------------------------------------------------------------------ mapping
@@ -810,7 +810,7 @@ public class TouchFocus {
         if (is(startWait.answer(), CameraMetadata.CONTROL_AF_STATE_ACTIVE_SCAN)) {
             watchScan = true;
             scanAckMs = SystemClock.elapsedRealtime();
-            lensAtScanAck = cam.mFocus;
+            lensAtScanAck = cam.focusDiopters;
         }
         // AUTO fallback (divergence, user-requested): consecutive failed continuous-mode taps mean this HAL cannot lock with a
         // tap region in continuous mode - tap-to-focus switches to AF_MODE_AUTO and the current tap is tried again at once

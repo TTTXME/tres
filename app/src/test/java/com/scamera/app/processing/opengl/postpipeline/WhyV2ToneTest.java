@@ -91,15 +91,15 @@ public class WhyV2ToneTest {
     /** The node order buildNodes makes (default settings, no film, no lens filter, no resize). */
     private static java.util.List<String> nodes(boolean v2) throws Exception {
         final PostPipeline p = new PostPipeline();
-        p.mParameters = org.mockito.Mockito.mock(com.scamera.app.processing.render.Parameters.class);
-        p.mParameters.scamRgb = java.nio.ByteBuffer.allocateDirect(4);
+        p.shotParams = org.mockito.Mockito.mock(com.scamera.app.processing.render.Parameters.class);
+        p.shotParams.scamRgb = java.nio.ByteBuffer.allocateDirect(4);
         p.lensFilter = LensFilter.Choice.NONE;
-        p.glint = org.mockito.Mockito.mock(com.scamera.app.processing.opengl.GLInterface.class);
+        p.glIface = org.mockito.Mockito.mock(com.scamera.app.processing.opengl.GLInterface.class);
         final java.lang.reflect.Method m = PostPipeline.class.getDeclaredMethod("buildNodes");
         m.setAccessible(true);
         m.invoke(p);
         final java.util.List<String> out = new java.util.ArrayList<>();
-        for (com.scamera.app.processing.opengl.nodes.Node n : p.Nodes) out.add(n.Name);
+        for (com.scamera.app.processing.opengl.nodes.Node n : p.passList) out.add(n.passName);
         return out;
     }
 
@@ -310,7 +310,7 @@ public class WhyV2ToneTest {
         // our stacked model of the same frames is a different (smaller) noise: V2 does not read it
         final com.scamera.app.processing.render.NoiseModeler m =
                 new com.scamera.app.processing.render.NoiseModeler(hal, 100, 100, 0);
-        m.computeStackingNoiseModel(8);
+        m.rescaleForStack(8);
         assertArrayEquals(n, WhyV2Stats.referenceNoise(m), 0f);
         // no profile (or not above 0): the reference's fallback S 0.00015, O 1e-5
         assertArrayEquals(new float[]{0.00015f, 1e-5f}, WhyV2Stats.referenceNoise(null), 0f);

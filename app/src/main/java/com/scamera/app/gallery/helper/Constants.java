@@ -4,18 +4,16 @@ package com.scamera.app.gallery.helper;
 public final class Constants {
     private Constants() {}
 
-    // Arguments of the viewer and the compare screen
-    public static final String MODE_KEY = "mode";
-    public static final String COMPARE = "compare";
-    /** The extra's text keeps its old spelling. */
-    public static final String IMAGE_POSITION_KEY = "imagePositon";
-    public static final String IMAGE1_KEY = "image1";
-    public static final String IMAGE2_KEY = "image2";
+    // Arguments of the viewer and the compare screen: the screen's mode (the compare one), the photo's position (the text keeps
+    // its old spelling) and the two photos compared
+    public static final String ARG_MODE = "mode", MODE_COMPARE = "compare";
+    public static final String ARG_POSITION = "imagePositon";
+    public static final String ARG_FIRST_IMAGE = "image1", ARG_SECOND_IMAGE = "image2";
 
     /** The request code of an edit in another app. */
-    public static final int REQUEST_EDIT_IMAGE = 1001;
+    public static final int REQ_EXTERNAL_EDIT = 1001;
     /** How long a double tap's zoom animates (ms). */
-    public static final int DOUBLE_TAP_ZOOM_DURATION_MS = 200;
+    public static final int ZOOM_ANIMATION_MS = 200;
     /** The «review the photo just taken» intent other camera apps send. */
-    public static final String ACTION_REVIEW = "com.android.camera.action.REVIEW";
+    public static final String REVIEW_INTENT_ACTION = "com.android.camera.action.REVIEW";
 }

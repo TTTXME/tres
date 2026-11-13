@@ -74,11 +74,11 @@ public class WhyCombineUniformParityTest {
     public void theViewfinderSetsEveryUniformOfThePhotosCombine() throws IOException {
         final String why = read(SRC + "WhyCombine.java");
         // WhyCombine.Run: from the why/combine program to its draw
-        final int from = why.indexOf("glProg.useAssetProgram(\"why/combine\"");
-        final int to = why.indexOf("glProg.drawBlocks(WorkingTexture);", from);
+        final int from = why.indexOf("shaderProg.useAssetProgram(\"why/combine\"");
+        final int to = why.indexOf("shaderProg.drawBlocks(passOut);", from);
         assertTrue(from > 0 && to > from);
-        final Set<String> photo = names(why.substring(from, to), "glProg\\.setVar(?:Floats|Vec4s)?\\(\"(\\w+)\"",
-                "glProg\\.setTexture(?:3D)?\\(\"(\\w+)\"");
+        final Set<String> photo = names(why.substring(from, to), "shaderProg\\.setVar(?:Floats|Vec4s)?\\(\"(\\w+)\"",
+                "shaderProg\\.setTexture(?:3D)?\\(\"(\\w+)\"");
         final String live = read(SRC + "LiveWhyTone.java");
         final String passes = method(live, "private void combineUniforms(") + method(live, "private void combine(")
                 + method(live, "public boolean drawFused(") + method(live, "private void colour(");
@@ -107,7 +107,7 @@ public class WhyCombineUniformParityTest {
         // WhyCombine: FILM_SIM only with the scene table, FILM_LUT only without it (the display chain is null whenever the scene
         // table is there; a film whose table is missing falls back to the chain); LiveWhyTone: one of the two
         final String why = read(SRC + "WhyCombine.java");
-        assertTrue(why.contains("if (scene != null) glProg.setDefine(\"FILM_SIM\", 1);"));
+        assertTrue(why.contains("if (scene != null) shaderProg.setDefine(\"FILM_SIM\", 1);"));
         assertTrue(why.contains("scene != null ? null\n                : com.scamera.app.processing.color.FilmChain.current(null,"));
         final String live = read(SRC + "LiveWhyTone.java");
         assertTrue(live.contains("if (lutOn) defs.add(new String[]{scene ? \"FILM_SIM\" : \"FILM_LUT\", \"1\"});"));
@@ -121,8 +121,8 @@ public class WhyCombineUniformParityTest {
         // (the block sits under TONE_OP 0), its uniform beside the define; the dev key's default on, clamped to 0 .. 1
         final String why = read(SRC + "WhyCombine.java");
         assertTrue(why.contains("final float lightChroma = toneOp == com.scamera.app.processing.color.ToneCurve.AGX ? WhyTone.lightChroma() : 0f;"));
-        assertTrue(why.contains("if (lightChroma > 0f) glProg.setDefine(\"LIGHT_CHROMA\", 1);"));
-        assertTrue(why.contains("if (lightChroma > 0f) glProg.setVar(\"lightChromaU\", lightChroma);"));
+        assertTrue(why.contains("if (lightChroma > 0f) shaderProg.setDefine(\"LIGHT_CHROMA\", 1);"));
+        assertTrue(why.contains("if (lightChroma > 0f) shaderProg.setVar(\"lightChromaU\", lightChroma);"));
         final String live = read(SRC + "LiveWhyTone.java");
         // P393 review: the viewfinder's define and its uniform from the same cached setting (refreshSettings), as colourOn / toneOp
         assertTrue(live.contains("if (toneOp == ToneCurve.AGX && lightChroma > 0f) defs.add(new String[]{\"LIGHT_CHROMA\", \"1\"});"));
@@ -130,7 +130,7 @@ public class WhyCombineUniformParityTest {
         assertTrue(method(live, "private void combineUniforms(").contains("set(p, \"lightChromaU\", lightChroma);"));
         // P393 review: Ultra HDR's sky ratio draws both without the term (the sky term holds it back under the mask)
         assertTrue(why.contains("skyHdrRatio(pipeline, st, r, skyWith, skyWithout, lightChroma > 0f);"));
-        assertTrue(method(why, "private void skyHdrRatio(").contains("if (lightChroma) glProg.setVar(\"lightChromaU\", 0f);"));
+        assertTrue(method(why, "private void skyHdrRatio(").contains("if (lightChroma) shaderProg.setVar(\"lightChromaU\", 0f);"));
         final String tone = read(SRC + "WhyTone.java");
         assertTrue(tone.contains("return Math.max(0f, Math.min(1f, value(\"light_chroma\", 1f)));"));
         final String shader = read("src/main/assets/shaders/why/combine.glsl");

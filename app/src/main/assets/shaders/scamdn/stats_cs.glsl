@@ -1,9 +1,6 @@
 #define LAYOUT //
 LAYOUT
-precision highp float;
-precision highp int;
-precision highp sampler2D;
-precision highp uimage2D;
+precision highp float; precision highp int; precision highp sampler2D; precision highp uimage2D;
 // P473 (speed): scamdn/stats of the finish level 0 as one work group per 16 x 16 block (the fragment version reads ~1500 texels
 // on one invocation per block) and the level's YUV made here from the linear RGB (scamdn/yuv was a full-size pass of its own):
 // each pixel converted once, rounded to half floats as the RGBA16F level stored it, then the same sums in the same order as

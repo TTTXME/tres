@@ -88,16 +88,16 @@ public class ScamLabTemplateTest {
         final JSONObject in = params("ISP_CST", diagInverse(TEMPLATE_WHITE), ISP_CCT);
         ScamLab.retemplate(in, NEW_WHITE);
         final Parameters p = ScamLabParams.fromJson(in);
-        final float[] grey = times(p.sensorToProPhoto, NEW_WHITE);
+        final float[] grey = times(p.cameraToProPhoto, NEW_WHITE);
         for (int c = 0; c < 3; c++) assertEquals("channel " + c, 1f, grey[c], 1e-6f);
-        assertEquals(NEW_WHITE[0], p.whitePoint[0], 0f);
-        assertEquals(NEW_WHITE[2], p.whitePoint[2], 0f);
+        assertEquals(NEW_WHITE[0], p.asShotNeutral[0], 0f);
+        assertEquals(NEW_WHITE[2], p.asShotNeutral[2], 0f);
         // the former import: the new white point alone left diag(1 / n_template), a cast of n_new / n_template
         final float[] before = times(diagInverse(TEMPLATE_WHITE), NEW_WHITE);
         assertTrue("R/B before " + before[0] / before[2], before[0] / before[2] > 1.5f);
         assertEquals(0f, p.sceneCct, 0f);
         assertTrue(p.sceneCctSource, p.sceneCctSource.startsWith("unknown"));
-        for (int i = 0; i < 9; i++) assertEquals("the template's matrix without a table", ISP_CCT[i], p.CCT.matrix[i], 0f);
+        for (int i = 0; i < 9; i++) assertEquals("the template's matrix without a table", ISP_CCT[i], p.colorTransform.matrix[i], 0f);
         assertEquals("ISP_CST", p.colourSource);
     }
 
@@ -107,7 +107,7 @@ public class ScamLabTemplateTest {
         final JSONObject in = params("DNG_FM", s2p, new float[]{1, 0, 0, 0, 1, 0, 0, 0, 1});
         ScamLab.retemplate(in, NEW_WHITE);
         final Parameters p = ScamLabParams.fromJson(in);
-        final float[] now = times(p.sensorToProPhoto, NEW_WHITE), then = times(s2p, TEMPLATE_WHITE);
+        final float[] now = times(p.cameraToProPhoto, NEW_WHITE), then = times(s2p, TEMPLATE_WHITE);
         for (int c = 0; c < 3; c++) assertEquals("channel " + c, then[c], now[c], 1e-6f);
         assertEquals("DNG_FM", p.colourSource);
     }
@@ -123,7 +123,7 @@ public class ScamLabTemplateTest {
         assertEquals("PLAIN_TABLE", p.colourSource);
         for (int r = 0; r < 3; r++) {
             final float sum = plain[r * 3] + plain[r * 3 + 1] + plain[r * 3 + 2];
-            for (int c = 0; c < 3; c++) assertEquals("row " + r, plain[r * 3 + c] / sum, p.CCT.matrix[r * 3 + c], 1e-5f);
+            for (int c = 0; c < 3; c++) assertEquals("row " + r, plain[r * 3 + c] / sum, p.colorTransform.matrix[r * 3 + c], 1e-5f);
         }
         // a DNG-route template keeps its matrix, takes the label
         final float[] s2p = {1.21f, -0.18f, 0.09f, -0.07f, 1.32f, -0.11f, 0.04f, -0.29f, 1.87f};
@@ -132,6 +132,6 @@ public class ScamLabTemplateTest {
         final Parameters q = ScamLabParams.fromJson(dng);
         assertEquals(3300f, q.sceneCct, 1f);
         assertEquals("DNG_FM", q.colourSource);
-        assertEquals(1f, q.CCT.matrix[0], 0f);
+        assertEquals(1f, q.colorTransform.matrix[0], 0f);
     }
 }

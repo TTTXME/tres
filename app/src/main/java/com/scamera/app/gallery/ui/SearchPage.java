@@ -207,13 +207,13 @@ public final class SearchPage {
         }
         found = GallerySearch.find(host.library(), q, host.favourites(), System.currentTimeMillis(), cache);
         int videos = 0;
-        for (GalleryItem i : found) if (GalleryVideo.isVideoName(i.getFile().getDisplayName())) videos++;
+        for (GalleryItem i : found) if (GalleryVideo.isVideoName(i.mediaFile().displayName())) videos++;
         resultCount.setText(found.isEmpty() ? Lang.t("Ничего не найдено", "Nothing found")
                 : Lang.t("Найдено: ", "Found: ") + GalleryUi.dayCount(found.size() - videos, videos));
         List<ThumbGrid.Cell> cells = new ArrayList<>();
         for (GalleryItem i : found) {
-            boolean video = GalleryVideo.isVideoName(i.getFile().getDisplayName());
-            cells.add(new ThumbGrid.Cell(i.getFile().getFileUri(), null, video));
+            boolean video = GalleryVideo.isVideoName(i.mediaFile().displayName());
+            cells.add(new ThumbGrid.Cell(i.mediaFile().contentUri(), null, video));
         }
         grid.set(cells);
         suggestions.setVisibility(View.GONE);
@@ -249,8 +249,8 @@ public final class SearchPage {
                 Lang.t("октябрь", "october"), Lang.t("ноябрь", "november"), Lang.t("декабрь", "december")};
         quick.add(1, months[now.get(Calendar.MONTH)] + " " + now.get(Calendar.YEAR));
         Set<Integer> years = new TreeSet<>((a, b) -> b - a);
-        for (GalleryItem i : host.library()) if (i.getFile() != null && i.getFile().getLastModified() > 0)
-            years.add(com.scamera.app.gallery.model.GalleryView.yearOf(i.getFile().getLastModified()));
+        for (GalleryItem i : host.library()) if (i.mediaFile() != null && i.mediaFile().modifiedMs() > 0)
+            years.add(com.scamera.app.gallery.model.GalleryView.yearOf(i.mediaFile().modifiedMs()));
         for (Integer y : years) quick.add(String.valueOf(y));
         suggestionColumn.addView(chips(c, quick));
         List<AlbumsPage.Album> albums = host.albums();

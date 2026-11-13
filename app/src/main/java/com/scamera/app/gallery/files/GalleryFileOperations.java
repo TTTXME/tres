@@ -67,8 +67,8 @@ public class GalleryFileOperations {
         SELECTED_FOLDERS.clear();
         for (String wanted : chosen)
             for (ImagesFolder f : ALL_FOLDERS)
-                if (f.folderName.equals(wanted) || String.valueOf(f.folderId).equals(wanted)) SELECTED_FOLDERS.add(f);
-        SELECTED_FOLDERS.sort(Comparator.comparing(f -> f.folderName));
+                if (f.bucketName.equals(wanted) || String.valueOf(f.bucketId).equals(wanted)) SELECTED_FOLDERS.add(f);
+        SELECTED_FOLDERS.sort(Comparator.comparing(f -> f.bucketName));
         return new ArrayList<>(SELECTED_FOLDERS);
     }
 
@@ -76,7 +76,7 @@ public class GalleryFileOperations {
     public static synchronized List<ImageFile> extractAllSelectedImages() {
         ArrayList<ImageFile> files = new ArrayList<>();
         for (ImagesFolder f : SELECTED_FOLDERS) files.addAll(f.files);
-        files.sort(Comparator.comparingLong(f -> -f.getLastModified()));
+        files.sort(Comparator.comparingLong(f -> -f.modifiedMs()));
         return files;
     }
 
@@ -109,10 +109,10 @@ public class GalleryFileOperations {
         ContentResolver resolver = context.getContentResolver();
         for (ImageFile f : files) {
             String owner = null;
-            try (Cursor c = resolver.query(f.getFileUri(), new String[]{MediaStore.MediaColumns.OWNER_PACKAGE_NAME}, null, null, null)) {
+            try (Cursor c = resolver.query(f.contentUri(), new String[]{MediaStore.MediaColumns.OWNER_PACKAGE_NAME}, null, null, null)) {
                 if (c != null && c.moveToFirst()) owner = c.getString(0);
             } catch (RuntimeException e) {
-                Log.w("GalleryFileOperations", "owner of " + f.getFileUri() + ": " + e);
+                Log.w("GalleryFileOperations", "owner of " + f.contentUri() + ": " + e);
             }
             if (!own.equals(owner)) return true;
         }
@@ -126,7 +126,7 @@ public class GalleryFileOperations {
      */
     public static void deleteImageFiles(Activity activity, List<ImageFile> files, ImagesDeletedCallback done) {
         List<Uri> uris = new ArrayList<>(files.size());
-        for (ImageFile f : files) uris.add(f.getFileUri());
+        for (ImageFile f : files) uris.add(f.contentUri());
         boolean modern = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R;
         if (modern && needsSystemDeleteRequest(activity, files)) {
             PendingIntent ask = GalleryTrash.trashRequest(activity, uris, true); // P511: null for a row already gone
@@ -149,10 +149,10 @@ public class GalleryFileOperations {
         ContentResolver resolver = activity.getContentResolver();
         for (ImageFile f : files) {
             try {
-                if (modern) resolver.delete(f.getFileUri(), null, null);
-                else resolver.delete(f.getFileUri(), MediaStore.Images.Media._ID + "= ?", new String[]{String.valueOf(f.getId())});
+                if (modern) resolver.delete(f.contentUri(), null, null);
+                else resolver.delete(f.contentUri(), MediaStore.Images.Media._ID + "= ?", new String[]{String.valueOf(f.rowId())});
             } catch (SecurityException e) {
-                Log.w(TAG, "delete " + f.getFileUri() + ": " + e);
+                Log.w(TAG, "delete " + f.contentUri() + ": " + e);
                 done.deleted(false);
                 return;
             }
@@ -162,14 +162,14 @@ public class GalleryFileOperations {
 
     /** A folder of the scan: its name (MediaStore bucket), bucket id, files (newest first) and its newest file. */
     public static class ImagesFolder {
-        private String folderName;
-        private long folderId;
+        private String bucketName;
+        private long bucketId;
         private ArrayList<ImageFile> files;
         private ImageFile newest;
 
-        public String getFolderName() { return folderName; }
+        public String getFolderName() { return bucketName; }
 
-        public long getFolderId() { return folderId; }
+        public long getFolderId() { return bucketId; }
 
         public ArrayList<ImageFile> getAllImageFiles() { return files; }
 
@@ -309,13 +309,13 @@ public class GalleryFileOperations {
             ImagesFolder folder = byName.get(bucket);
             if (folder == null) {
                 folder = new ImagesFolder();
-                folder.folderName = bucket;
-                folder.folderId = bucketId;
+                folder.bucketName = bucket;
+                folder.bucketId = bucketId;
                 folder.files = new ArrayList<>();
                 byName.put(bucket, folder);
             }
             folder.files.add(file);
-            ids.add(file.getId());
+            ids.add(file.rowId());
         }
 
         boolean has(long id) {
@@ -326,10 +326,10 @@ public class GalleryFileOperations {
         ArrayList<ImagesFolder> finish() {
             ArrayList<ImagesFolder> out = new ArrayList<>(byName.values());
             for (ImagesFolder f : out) {
-                f.files.sort(Comparator.comparingLong(file -> -file.getLastModified()));
+                f.files.sort(Comparator.comparingLong(file -> -file.modifiedMs()));
                 f.newest = f.files.get(0);
             }
-            out.sort(Comparator.comparing(o -> o.folderName));
+            out.sort(Comparator.comparing(o -> o.bucketName));
             return out;
         }
     }

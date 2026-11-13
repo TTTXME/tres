@@ -6,37 +6,38 @@ import com.scamera.app.util.Log;
 
 /** Pyramids of a texture on the pipeline's program (ScamLocalContrast's local contrast bands). */
 public class GLUtils {
-    private final GLProg glProg;
+    private final GLProg prog;
 
     public GLUtils(GLCoreBlockProcessing blockProcessing) {
-        glProg = blockProcessing.mProgram;
+        prog = blockProcessing.program;
     }
 
     /** {@code in} blurred and resampled to {@code outSize} (utils/gaussdown: the blur widens with the scale, no aliasing). */
     public GLTexture gaussianDownsample(GLTexture in, Point outSize) {
-        final GLTexture out = new GLTexture(outSize, in.mFormat);
-        glProg.useUtilProgram("gaussdown", false);
-        glProg.setTexture("InputBuffer", in);
-        glProg.setVar("inputSize", in.mSize);
-        glProg.setVar("downscaleFactor", (float) ((double) in.mSize.x / outSize.x));
-        glProg.drawBlocks(out, outSize);
-        glProg.closed = true;
+        final GLTexture out = new GLTexture(outSize, in.format);
+        final Point from = in.size;
+        prog.useUtilProgram("gaussdown", false);
+        prog.setTexture("srcLevel", in);
+        prog.setVar("srcSize", from);
+        prog.setVar("srcPerOut", (float) ((double) from.x / outSize.x));
+        prog.drawBlocks(out, outSize);
+        prog.closed = true;
         return out;
     }
 
     /** Gaussian levels (level 0 the input itself) and the Laplacian bands between neighbours. */
     public static class Pyramid {
-        public GLTexture[] gauss;
-        public GLTexture[] laplace;
-        /** The nominal size of each level: the previous one divided by the step, rounded down. */
-        public Point[] sizes;
-        public int levels;
-        public double step;
+        /** The Gaussian levels and the Laplacian bands. */
+        public GLTexture[] gaussian, bands;
+        /** The nominal size of each level: the previous one divided by the ratio, rounded down. */
+        public Point[] levelSizes;
+        public int count;
+        public double ratio;
 
         /** Closes every level and band - level 0, the caller's input, included. */
         public void releasePyramid() {
-            for (GLTexture level : gauss) level.close();
-            for (GLTexture band : laplace) band.close();
+            for (GLTexture level : gaussian) level.close();
+            for (GLTexture band : bands) band.close();
         }
     }
 
@@ -46,32 +47,31 @@ public class GLUtils {
      */
     public Pyramid createPyramid(int levels, double step, GLTexture input) {
         final Pyramid p = new Pyramid();
-        p.levels = levels;
-        p.step = step;
-        p.gauss = new GLTexture[levels];
-        p.sizes = new Point[levels];
-        p.gauss[0] = input;
-        p.sizes[0] = new Point(input.mSize);
+        p.count = levels;
+        p.ratio = step;
+        p.gaussian = new GLTexture[levels];
+        p.levelSizes = new Point[levels];
+        p.gaussian[0] = input;
+        p.levelSizes[0] = new Point(input.size);
         final boolean automatic = step == 0;
         for (int level = 1; level < levels; level++) {
-            final Point above = p.gauss[level - 1].mSize;
+            final Point above = p.gaussian[level - 1].size;
             if (automatic && (above.x <= step + 2 || above.y <= step + 2)) step = 2;
             final Point size = new Point(Math.max(1, (int) (above.x / step)), Math.max(1, (int) (above.y / step)));
-            p.gauss[level] = gaussianDownsample(p.gauss[level - 1], size);
-            p.sizes[level] = new Point((int) (p.sizes[level - 1].x / step), (int) (p.sizes[level - 1].y / step));
-            Log.d("Pyramid", "downscale:" + p.sizes[level]);
+            p.gaussian[level] = gaussianDownsample(p.gaussian[level - 1], size);
+            p.levelSizes[level] = new Point((int) (p.levelSizes[level - 1].x / step), (int) (p.levelSizes[level - 1].y / step));
+            Log.d("Pyramid", "downscale:" + p.levelSizes[level]);
         }
-        glProg.useUtilProgram("pyramiddiff", false);
-        p.laplace = new GLTexture[levels - 1];
-        for (int band = 0; band < p.laplace.length; band++) {
-            final GLTexture fine = p.gauss[band], coarse = p.gauss[band + 1];
-            glProg.setTexture("target", fine);
-            glProg.setTexture("base", coarse);
-            glProg.setVar("size", 1.0f / p.sizes[band].x, 1.0f / p.sizes[band].y);
-            glProg.setVar("size2", coarse.mSize);
-            p.laplace[band] = new GLTexture(p.sizes[band], coarse.mFormat);
-            glProg.drawBlocks(p.laplace[band]);
-            Log.d("Pyramid", "diff:" + p.laplace[band].mSize + " downscaled:" + fine.mSize);
+        prog.useUtilProgram("pyramiddiff", false);
+        p.bands = new GLTexture[levels - 1];
+        for (int band = 0; band < p.bands.length; band++) {
+            final GLTexture fine = p.gaussian[band], coarse = p.gaussian[band + 1];
+            prog.setTexture("fineLevel", fine);
+            prog.setTexture("coarseLevel", coarse);
+            prog.setVar("fineTexel", 1.0f / p.levelSizes[band].x, 1.0f / p.levelSizes[band].y);
+            p.bands[band] = new GLTexture(p.levelSizes[band], coarse.format);
+            prog.drawBlocks(p.bands[band]);
+            Log.d("Pyramid", "diff:" + p.bands[band].size + " downscaled:" + fine.size);
         }
         return p;
     }

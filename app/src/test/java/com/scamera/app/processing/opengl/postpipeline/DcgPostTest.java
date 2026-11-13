@@ -201,10 +201,10 @@ public class DcgPostTest {
         final android.util.Pair<Double, Double>[] model = new android.util.Pair[]{new android.util.Pair<>(3e-4, 5e-6),
                 new android.util.Pair<>(3e-4, 5e-6), new android.util.Pair<>(3e-4, 5e-6)};
         final Parameters p = new Parameters();
-        p.noiseModeler = new NoiseModeler(model, 100, 100, 0);
-        p.noiseModeler.computeModel = new android.util.Pair[]{new android.util.Pair<>(6e-4, 1.5e-5), new android.util.Pair<>(6e-4, 1.5e-5),
+        p.noiseModel = new NoiseModeler(model, 100, 100, 0);
+        p.noiseModel.stackModel = new android.util.Pair[]{new android.util.Pair<>(6e-4, 1.5e-5), new android.util.Pair<>(6e-4, 1.5e-5),
                 new android.util.Pair<>(6e-4, 1.5e-5)};
-        p.noiseModeler.baseModel[1] = new android.util.Pair<>(3e-4, 5e-6);
+        p.noiseModel.rawModel[1] = new android.util.Pair<>(3e-4, 5e-6);
         final PostPipeline pipeline = new PostPipeline();
         pipeline.computeNoise(p);
         assertEquals("a plain shot: the averaged pair", 6e-4f, pipeline.fusionNoiseS, 1e-10f);

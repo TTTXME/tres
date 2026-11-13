@@ -159,20 +159,16 @@ public final class SettingsMotion {
     @SuppressLint("ClickableViewAccessibility")
     public static void pressable(View v) {
         v.setOnTouchListener((view, e) -> {
-            switch (e.getActionMasked()) {
-                case MotionEvent.ACTION_DOWN:
-                    view.animate().cancel();
-                    if (enabled(view)) view.animate().scaleX(.97f).scaleY(.97f).setDuration(90).setStartDelay(0).setInterpolator(EASE_OUT).start();
-                    break;
-                case MotionEvent.ACTION_UP:
-                case MotionEvent.ACTION_CANCEL:
-                    view.animate().cancel();
-                    if (enabled(view)) view.animate().scaleX(1f).scaleY(1f).setDuration(RELEASE.durationMs).setStartDelay(0)
-                            .setInterpolator(RELEASE).start();
-                    else { view.setScaleX(1f); view.setScaleY(1f); }
-                    break;
-                default:
-                    break;
+            final int action = e.getActionMasked();
+            final boolean down = action == MotionEvent.ACTION_DOWN;
+            if (!down && action != MotionEvent.ACTION_UP && action != MotionEvent.ACTION_CANCEL) return false;
+            view.animate().cancel();
+            if (!enabled(view)) {
+                if (!down) { view.setScaleX(1f); view.setScaleY(1f); }
+            } else if (down) {
+                view.animate().scaleX(.97f).scaleY(.97f).setDuration(90).setStartDelay(0).setInterpolator(EASE_OUT).start();
+            } else {
+                view.animate().scaleX(1f).scaleY(1f).setDuration(RELEASE.durationMs).setStartDelay(0).setInterpolator(RELEASE).start();
             }
             return false;
         });

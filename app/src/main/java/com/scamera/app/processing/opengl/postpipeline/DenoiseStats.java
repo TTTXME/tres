@@ -72,14 +72,14 @@ final class DenoiseStats {
     }
 
     private static float[] readStats(GLTexture t) {
-        int w = t.mSize.x, h = t.mSize.y;
+        int w = t.size.x, h = t.size.y;
         int[] oldRead = new int[1], framebuffer = new int[1];
         android.opengl.GLES30.glGetIntegerv(android.opengl.GLES30.GL_READ_FRAMEBUFFER_BINDING, oldRead, 0);
         try {
             android.opengl.GLES30.glGenFramebuffers(1, framebuffer, 0);
             android.opengl.GLES30.glBindFramebuffer(android.opengl.GLES30.GL_READ_FRAMEBUFFER, framebuffer[0]);
             android.opengl.GLES30.glFramebufferTexture2D(android.opengl.GLES30.GL_READ_FRAMEBUFFER, android.opengl.GLES30.GL_COLOR_ATTACHMENT0,
-                    android.opengl.GLES30.GL_TEXTURE_2D, t.mTextureID, 0);
+                    android.opengl.GLES30.GL_TEXTURE_2D, t.id, 0);
             ByteBuffer data = ByteBuffer.allocateDirect(w * h * 16).order(ByteOrder.nativeOrder());
             android.opengl.GLES30.glReadPixels(0, 0, w, h, android.opengl.GLES30.GL_RGBA_INTEGER, android.opengl.GLES30.GL_UNSIGNED_INT, data);
             float[] out = new float[w * h * 8];
@@ -97,7 +97,7 @@ final class DenoiseStats {
 
     private static float[] levelNoise(GLProg glProg, List<GLTexture> owned, GLTexture level, int block, float sY, float rY, float[] dcg,
                                       float[][] rawOut) {
-        Point blocks = new Point(Math.max(1, level.mSize.x / block), Math.max(1, level.mSize.y / block));
+        Point blocks = new Point(Math.max(1, level.size.x / block), Math.max(1, level.size.y / block));
         GLTexture st = tex(owned, blocks, GLFormat.DataType.UNSIGNED_32, 4, GL_NEAREST);
         try {
             statsProgram(glProg, dcg, sY, rY);
@@ -128,8 +128,8 @@ final class DenoiseStats {
         final int n = levels.length;
         final int[] bw = new int[n], bh = new int[n], ax = new int[n], ay = new int[n];
         for (int i = 0; i < n; i++) {
-            bw[i] = Math.max(1, levels[i].mSize.x / block);
-            bh[i] = Math.max(1, levels[i].mSize.y / block);
+            bw[i] = Math.max(1, levels[i].size.x / block);
+            bh[i] = Math.max(1, levels[i].size.y / block);
         }
         final int[] atlasSize = statsAtlas(bw, bh, ax, ay);
         final float[][] raws = new float[n][];
@@ -192,9 +192,9 @@ final class DenoiseStats {
     }
 
     private static void drawRegion(GLProg glProg, GLTexture target, int x, int y, int w, int h) {
-        target.BufferLoad();
+        target.renderInto();
         final com.scamera.app.processing.opengl.GLBlockDivider divider =
-                new com.scamera.app.processing.opengl.GLBlockDivider(h, com.scamera.app.processing.opengl.GLDrawParams.TileSize);
+                new com.scamera.app.processing.opengl.GLBlockDivider(h, com.scamera.app.processing.opengl.GLDrawParams.TILE_ROWS);
         final int[] row = new int[2];
         while (divider.nextBlock(row)) {
             android.opengl.GLES30.glViewport(x, y + row[0], w, row[1]);
@@ -209,7 +209,7 @@ final class DenoiseStats {
      * block, the YUV and its half-float rounding made there, the sums of scamdn/stats in their order. Null when a GL call fails.
      */
     private static float[] finishNoiseCs(GLProg glProg, List<GLTexture> owned, GLTexture rgb, float sY, float rY, float[][] rawOut) {
-        final int bw = Math.max(1, rgb.mSize.x / 16), bh = Math.max(1, rgb.mSize.y / 16);
+        final int bw = Math.max(1, rgb.size.x / 16), bh = Math.max(1, rgb.size.y / 16);
         for (int i = 0; i < 8 && android.opengl.GLES30.glGetError() != android.opengl.GLES30.GL_NO_ERROR; i++) {
             // drain: only the pass below decides
         }
@@ -245,7 +245,7 @@ final class DenoiseStats {
      */
     private static boolean finishNoiseCsBegin(PendingSnr st, List<GLTexture> owned) {
         final GLTexture rgb = st.clean;
-        final int bw = Math.max(1, rgb.mSize.x / 16), bh = Math.max(1, rgb.mSize.y / 16);
+        final int bw = Math.max(1, rgb.size.x / 16), bh = Math.max(1, rgb.size.y / 16);
         for (int i = 0; i < 8 && android.opengl.GLES30.glGetError() != android.opengl.GLES30.GL_NO_ERROR; i++) {
             // drain: only the pass below decides
         }
@@ -267,7 +267,7 @@ final class DenoiseStats {
             android.opengl.GLES30.glGenFramebuffers(1, framebuffer, 0);
             android.opengl.GLES30.glBindFramebuffer(android.opengl.GLES30.GL_READ_FRAMEBUFFER, framebuffer[0]);
             android.opengl.GLES30.glFramebufferTexture2D(android.opengl.GLES30.GL_READ_FRAMEBUFFER, android.opengl.GLES30.GL_COLOR_ATTACHMENT0,
-                    android.opengl.GLES30.GL_TEXTURE_2D, atlas.mTextureID, 0);
+                    android.opengl.GLES30.GL_TEXTURE_2D, atlas.id, 0);
             android.opengl.GLES30.glReadPixels(0, 0, bw, bh, android.opengl.GLES30.GL_RGBA_INTEGER, android.opengl.GLES30.GL_UNSIGNED_INT, 0);
             final int error = android.opengl.GLES30.glGetError();
             if (error != android.opengl.GLES30.GL_NO_ERROR) {
@@ -330,14 +330,14 @@ final class DenoiseStats {
     }
 
     private static int[] readInts(GLTexture t) {
-        int w = t.mSize.x, h = t.mSize.y;
+        int w = t.size.x, h = t.size.y;
         int[] oldRead = new int[1], framebuffer = new int[1];
         android.opengl.GLES30.glGetIntegerv(android.opengl.GLES30.GL_READ_FRAMEBUFFER_BINDING, oldRead, 0);
         try {
             android.opengl.GLES30.glGenFramebuffers(1, framebuffer, 0);
             android.opengl.GLES30.glBindFramebuffer(android.opengl.GLES30.GL_READ_FRAMEBUFFER, framebuffer[0]);
             android.opengl.GLES30.glFramebufferTexture2D(android.opengl.GLES30.GL_READ_FRAMEBUFFER, android.opengl.GLES30.GL_COLOR_ATTACHMENT0,
-                    android.opengl.GLES30.GL_TEXTURE_2D, t.mTextureID, 0);
+                    android.opengl.GLES30.GL_TEXTURE_2D, t.id, 0);
             ByteBuffer data = ByteBuffer.allocateDirect(w * h * 16).order(ByteOrder.nativeOrder());
             android.opengl.GLES30.glReadPixels(0, 0, w, h, android.opengl.GLES30.GL_RGBA_INTEGER, android.opengl.GLES30.GL_UNSIGNED_INT, data);
             final int[] out = new int[w * h * 4];
@@ -382,7 +382,7 @@ final class DenoiseStats {
                 // drain
             }
             eff.rewind();
-            android.opengl.GLES30.glBindTexture(android.opengl.GLES30.GL_TEXTURE_2D, t.mTextureID);
+            android.opengl.GLES30.glBindTexture(android.opengl.GLES30.GL_TEXTURE_2D, t.id);
             android.opengl.GLES30.glTexSubImage2D(android.opengl.GLES30.GL_TEXTURE_2D, 0, 0, 0, size.x, size.y,
                     android.opengl.GLES30.GL_RED_INTEGER, android.opengl.GLES30.GL_UNSIGNED_BYTE, eff);
             uploadError = android.opengl.GLES30.glGetError();
@@ -390,7 +390,7 @@ final class DenoiseStats {
         }
         final boolean loaded = real && uploadError == android.opengl.GLES30.GL_NO_ERROR;
         if (!loaded) {
-            t.BufferLoad();
+            t.renderInto();
             android.opengl.GLES30.glClearBufferuiv(android.opengl.GLES30.GL_COLOR, 0, new int[]{0, 0, 0, 0}, 0);
         }
         if (legacy) {
@@ -442,12 +442,12 @@ final class DenoiseStats {
 
     static PendingSnr finishSnrBegin(GLProg glProg, PostPipeline pipeline, GLTexture clean, boolean async) {
         final PendingSnr st = new PendingSnr();
-        final Parameters par = pipeline.mParameters;
+        final Parameters par = pipeline.shotParams;
         st.par = par;
         st.pipeline = pipeline;
         st.glProg = glProg;
         st.clean = clean;
-        final Point full = clean.mSize;
+        final Point full = clean.size;
         final Point shotSize = par.labWholeSize != null ? par.labWholeSize : full;
         final int s = ScamHdrDenoise.huge(shotSize.x, shotSize.y) ? 2 : Math.max(1, Math.min(2, Math.round(par.outputScale)));
         st.s = s;
@@ -463,10 +463,10 @@ final class DenoiseStats {
             boolean camera = false;
             final float[] zones = dcgZones(par);
             st.zones = zones;
-            if (par.noiseModeler != null && par.noiseModeler.baseModel != null && par.noiseModeler.baseModel[0] != null) {
+            if (par.noiseModel != null && par.noiseModel.rawModel != null && par.noiseModel.rawModel[0] != null) {
                 for (int c = 0; c < 3; c++) {
-                    S[c] = (float) Math.max(1e-9, par.noiseModeler.baseModel[c].first);
-                    O[c] = (float) Math.max(1e-12, par.noiseModeler.baseModel[c].second);
+                    S[c] = (float) Math.max(1e-9, par.noiseModel.rawModel[c].first);
+                    O[c] = (float) Math.max(1e-12, par.noiseModel.rawModel[c].second);
                 }
                 camera = true;
                 final float k = ScamHybridBurst.lastNoiseFactor;
@@ -474,7 +474,7 @@ final class DenoiseStats {
             }
             float sY = 0f, rY = 0f, sG = 0f, rG = 0f;
             for (int c = 0; c < 3; c++) {
-                float wp = par.whitePoint != null && par.whitePoint.length > c && par.whitePoint[c] > 1e-6f ? par.whitePoint[c] : 1f;
+                float wp = par.asShotNeutral != null && par.asShotNeutral.length > c && par.asShotNeutral[c] > 1e-6f ? par.asShotNeutral[c] : 1f;
                 float g = 1f / wp;
                 sY += wY[c] * wY[c] * g * S[c];
                 rY += wY[c] * wY[c] * g * g * O[c];
@@ -483,7 +483,7 @@ final class DenoiseStats {
             float rGhi = rG, kneeY = 0f;
             float[] dcgPass = null;
             if (zones != null) {
-                final float[] t = NoiseMath.dcgTerms(zones, S, O, par.whitePoint);
+                final float[] t = NoiseMath.dcgTerms(zones, S, O, par.asShotNeutral);
                 sY = t[0]; rY = t[1]; sG = t[3]; rG = t[4]; rGhi = t[5]; kneeY = t[6];
                 dcgPass = dcgShaderPass(rY, t[2], kneeY);
             }

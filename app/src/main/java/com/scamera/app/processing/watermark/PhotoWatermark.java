@@ -44,12 +44,12 @@ public final class PhotoWatermark {
     public static WatermarkText.Info info(@Nullable ParseExif.ExifData exif) {
         WatermarkText.Info i = new WatermarkText.Info();
         if (exif == null) return i;
-        i.device = com.scamera.app.gallery.ui.PhotoInfo.device(exif.MAKE, exif.MODEL);
-        i.focalLength = rational(exif.FOCAL_LENGTH);
-        i.focal35 = (int) Math.round(PreferenceNumber.read(exif.FOCAL_LENGTH_35MM, 0));
-        i.fNumber = PreferenceNumber.read(exif.F_NUMBER, Double.NaN);
-        i.exposureTime = PreferenceNumber.read(exif.EXPOSURE_TIME, Double.NaN);
-        i.iso = (int) Math.round(PreferenceNumber.read(exif.ISO_SPEED != null ? exif.ISO_SPEED : exif.PHOTOGRAPHIC_SENSITIVITY, 0));
+        i.device = com.scamera.app.gallery.ui.PhotoInfo.device(exif.make, exif.model);
+        i.focalLength = rational(exif.focalLength);
+        i.focal35 = (int) Math.round(PreferenceNumber.read(exif.focal35mm, 0));
+        i.fNumber = PreferenceNumber.read(exif.fNumber, Double.NaN);
+        i.exposureTime = PreferenceNumber.read(exif.exposureTime, Double.NaN);
+        i.iso = (int) Math.round(PreferenceNumber.read(exif.isoSpeed != null ? exif.isoSpeed : exif.isoValue, 0));
         i.timeMs = exif.captureTimeMs;
         i.zone = TimeZone.getDefault();
         return i;

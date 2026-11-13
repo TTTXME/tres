@@ -60,7 +60,7 @@ public final class ItemMeta {
     });
 
     static String key(MediaFile f) {
-        return GalleryView.key(f) + "|" + f.getLastModified() + "|" + f.getSize();
+        return GalleryView.key(f) + "|" + f.modifiedMs() + "|" + f.sizeBytes();
     }
 
     /** Test hook: facts known without reading. */
@@ -74,7 +74,7 @@ public final class ItemMeta {
         if (f == null) return null;
         final String k = key(f);
         Info known = CACHE.get(k);
-        if (known != null || !LibraryAdapter.loadPictures || f.getFileUri() == null) return known; // (layout tests read nothing)
+        if (known != null || !LibraryAdapter.loadPictures || f.contentUri() == null) return known; // (layout tests read nothing)
         synchronized (PENDING) {
             java.util.List<Ready> waiting = PENDING.get(k);
             if (waiting != null) {
@@ -107,10 +107,10 @@ public final class ItemMeta {
     }
 
     private static Info read(Context app, MediaFile f) {
-        String name = f.getDisplayName();
+        String name = f.displayName();
         GalleryFormat format = GalleryFormat.of(name, false);
         if (format == GalleryFormat.VIDEO) return new Info(null, null, false);
-        Uri uri = f.getFileUri();
+        Uri uri = f.contentUri();
         int[] size = null;
         String route = null;
         if (format != GalleryFormat.RAW) {

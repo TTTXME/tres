@@ -1,16 +1,13 @@
-precision highp float;
-precision highp sampler2D;
+precision highp float; precision highp sampler2D;
 // The last pass of the post pipeline (RotateWatermark): the processed frame turned upright - rotate = quarter turns of the
 // output against the sensor rows (0, 3 = a 90 degree photo, 2, 1 = 270) - mirrored for the front camera, and the crop's rows
 // below the ones the sensor delivered beyond it skipped; clamped to 0..1, opaque. P387: every index stays inside the texture
 // (size - 1 is its last texel; texelFetch outside it gave the black edge column of the portrait photos up to build 31136).
 // P628: the watermark is drawn into the finished photo afterwards (PhotoWatermark), not here.
 uniform sampler2D InputBuffer;
-uniform int yOffset;
-uniform int rotate;
+uniform int yOffset, rotate;
 uniform bool mirror;
-uniform ivec2 cropSize;
-uniform ivec2 rawSize;
+uniform ivec2 cropSize, rawSize;
 out vec4 Output;
 
 void main() {

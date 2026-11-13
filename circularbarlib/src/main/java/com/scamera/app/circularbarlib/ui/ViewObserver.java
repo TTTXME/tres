@@ -150,7 +150,7 @@ public class ViewObserver implements Observer {
                     // The model decides what auto means for its parameter.
                     if (currentModel != null) {
                         currentModel.resetModel();
-                        lastScaleItem = currentModel.getCurrentInfo();
+                        lastScaleItem = currentModel.chosenStop();
                         syncScale();
                     }
                 }
@@ -230,7 +230,7 @@ public class ViewObserver implements Observer {
 
     private void syncScale() {
         if (currentModel != null && linearScaleView != null) {
-            lastScaleItem = currentModel.getCurrentInfo();
+            lastScaleItem = currentModel.chosenStop();
             linearScaleView.setSelectedItem(lastScaleItem);
         }
     }
@@ -254,19 +254,19 @@ public class ViewObserver implements Observer {
 
     // ───── state
 
-    private static final double[] AUTO_VALUES = {ManualParamModel.ISO_AUTO, ManualParamModel.EXPOSURE_AUTO,
-            ManualParamModel.EV_AUTO, ManualParamModel.FOCUS_AUTO, 0};
+    private static final double[] AUTO_VALUES = {ManualParamModel.ISO_AUTO_VALUE, ManualParamModel.SHUTTER_AUTO_NS,
+            ManualParamModel.EV_AUTO_STEP, ManualParamModel.FOCUS_AUTO_DIOPTERS, 0};
 
     /** Whether the parameter's model holds a value other than its auto item. */
     public static boolean isManual(ManualModel<?> model, int param) {
-        if (model == null || model.getCurrentInfo() == null) return false;
-        return model.getCurrentInfo().value != AUTO_VALUES[param];
+        if (model == null || model.chosenStop() == null) return false;
+        return model.chosenStop().cameraValue != AUTO_VALUES[param];
     }
 
     /** Whether the camera offers the parameter at all (a fixed-focus lens, no manual white balance). */
     private boolean available(int param) {
         ManualModel<?> m = models[param];
-        if (m == null || m.getKnobInfoList().size() <= 1) return false;
+        if (m == null || m.stopList().size() <= 1) return false;
         return param != ManualPanelState.WB || whiteBalanceSupported;
     }
 
@@ -279,21 +279,21 @@ public class ViewObserver implements Observer {
     /** The value a chip, the pill and the summary show for a parameter set by the user. */
     public String manualText(int param) {
         ManualModel<?> m = models[param];
-        KnobItemInfo item = m == null ? null : m.getCurrentInfo();
+        KnobItemInfo item = m == null ? null : m.chosenStop();
         if (item == null) return "";
         switch (param) {
             case ManualPanelState.ISO:
-                return ManualFormat.iso(item.value);
+                return ManualFormat.iso(item.cameraValue);
             case ManualPanelState.SHUTTER:
-                return ManualFormat.shutter((long) item.value, units);
+                return ManualFormat.shutter((long) item.cameraValue, units);
             case ManualPanelState.EV:
                 // What the request gets: the compensation index times the camera's step.
-                double index = params != null ? params.getCurrentEvValue() : Math.round(item.value / evStep);
+                double index = params != null ? params.evIndex() : Math.round(item.cameraValue / evStep);
                 return ManualFormat.ev(index * evStep);
             case ManualPanelState.FOCUS:
-                return ManualFormat.focus(item.value, units);
+                return ManualFormat.focus(item.cameraValue, units);
             default:
-                return ManualFormat.wb((int) Math.round(item.value));
+                return ManualFormat.wb((int) Math.round(item.cameraValue));
         }
     }
 
@@ -433,12 +433,12 @@ public class ViewObserver implements Observer {
                     currentModel = card.getManualModel();
                     if (linearScaleView != null && currentModel != null) {
                         int p = paramOf(currentModel);
-                        List<KnobItemInfo> items = currentModel.getKnobInfoList();
+                        List<KnobItemInfo> items = currentModel.stopList();
                         linearScaleView.setMode(LinearScaleView.modeFor(p), units);
-                        linearScaleView.setItems(items, currentModel.getCurrentInfo(), autoItemOf(currentModel, p));
+                        linearScaleView.setItems(items, currentModel.chosenStop(), autoItemOf(currentModel, p));
                         // New parameter, new baseline: otherwise the first drag on the next parameter is compared against
                         // the previous parameter's item and discarded.
-                        lastScaleItem = currentModel.getCurrentInfo();
+                        lastScaleItem = currentModel.chosenStop();
                     }
                     refresh();
                     break;
@@ -471,7 +471,7 @@ public class ViewObserver implements Observer {
     /** The model's auto item: the list entry with the parameter's auto value. */
     private static KnobItemInfo autoItemOf(ManualModel<?> model, int param) {
         if (param < 0) return null;
-        for (KnobItemInfo item : model.getKnobInfoList()) if (item.value == AUTO_VALUES[param]) return item;
+        for (KnobItemInfo item : model.stopList()) if (item.cameraValue == AUTO_VALUES[param]) return item;
         return null;
     }
 }

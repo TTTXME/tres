@@ -274,10 +274,10 @@ public class ImageLibraryFragment extends Fragment implements LibraryAdapter.Hos
         grid.addOnItemTouchListener(pinch(c));
         grid.addOnItemTouchListener(new DragSelectionItemTouchListener(c, new OnItemInteractionListener() {
             @Override
-            public void onItemClicked(RecyclerView view, RecyclerView.ViewHolder holder, int position) {}
+            public void itemTapped(RecyclerView view, RecyclerView.ViewHolder holder, int position) {}
 
             @Override
-            public void onLongItemClicked(RecyclerView view, RecyclerView.ViewHolder holder, int position) {
+            public void itemLongPressed(RecyclerView view, RecyclerView.ViewHolder holder, int position) {
                 int item = adapter.itemAt(position);
                 if (item < 0) return;
                 holder.itemView.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
@@ -288,10 +288,10 @@ public class ImageLibraryFragment extends Fragment implements LibraryAdapter.Hos
             }
 
             @Override
-            public void onMultipleViewHoldersSelected(RecyclerView view, List<RecyclerView.ViewHolder> s) {}
+            public void holdersDragSelected(RecyclerView view, List<RecyclerView.ViewHolder> s) {}
 
             @Override
-            public void onViewHolderHovered(RecyclerView view, RecyclerView.ViewHolder holder) {}
+            public void holderHovered(RecyclerView view, RecyclerView.ViewHolder holder) {}
 
             @Override
             public void onDragRange(RecyclerView view, int from, int to) {
@@ -509,7 +509,7 @@ public class ImageLibraryFragment extends Fragment implements LibraryAdapter.Hos
         clearSelection();
         albumTitle = title;
         albumFolder = folder;
-        com.scamera.app.gallery.model.GalleryLayout.markSeen(requireContext(), title, folder.getFiles()); // P622: its badge
+        com.scamera.app.gallery.model.GalleryLayout.markSeen(requireContext(), title, folder.groupedItems()); // P622: its badge
         tab = GalleryTabBar.ALBUMS;
         library.setCurrentFolderImages(folder);
         applyPages(true);
@@ -525,12 +525,12 @@ public class ImageLibraryFragment extends Fragment implements LibraryAdapter.Hos
     /** A search's results in the viewer (the viewer reads the view model's list). */
     private void openResults(List<GalleryItem> results, int index) {
         if (library == null || results.isEmpty()) return;
-        GalleryItem folder = new GalleryItem(results.get(0).getFile());
-        folder.setDisplayName("SEARCH");
-        folder.getFiles().addAll(results);
+        GalleryItem folder = new GalleryItem(results.get(0).mediaFile());
+        folder.setShownName("SEARCH");
+        folder.groupedItems().addAll(results);
         library.setCurrentFolderImages(folder);
         Bundle b = new Bundle();
-        b.putInt(Constants.IMAGE_POSITION_KEY, Math.max(0, Math.min(index, results.size() - 1)));
+        b.putInt(Constants.ARG_POSITION, Math.max(0, Math.min(index, results.size() - 1)));
         navigation.navigate(R.id.open_photo, b);
     }
 
@@ -585,27 +585,27 @@ public class ImageLibraryFragment extends Fragment implements LibraryAdapter.Hos
         List<AlbumsPage.Album> others = new ArrayList<>();
         for (GalleryFileOperations.ImagesFolder f : GalleryFileOperations.getAllFolders()) {
             GalleryItem folder = new GalleryItem(f.getTopImage());
-            for (ImageFile file : f.getAllImageFiles()) if (!GalleryView.hidden(file)) folder.getFiles().add(new GalleryItem(file));
-            if (folder.getFiles().isEmpty()) continue;
-            folder.setDisplayName(f.getFolderName());
-            all.addAll(folder.getFiles());
+            for (ImageFile file : f.getAllImageFiles()) if (!GalleryView.hidden(file)) folder.groupedItems().add(new GalleryItem(file));
+            if (folder.groupedItems().isEmpty()) continue;
+            folder.setShownName(f.getFolderName());
+            all.addAll(folder.groupedItems());
             String n = f.getFolderName().toLowerCase(java.util.Locale.ROOT);
-            if (n.equals("camera") || n.contains("scamera")) camera.addAll(folder.getFiles());
-            else if (n.contains("screenshot")) shots.addAll(folder.getFiles());
-            else if (n.contains("screenrecord") || n.contains("screen record") || n.contains("записи экрана")) records.addAll(folder.getFiles());
+            if (n.equals("camera") || n.contains("scamera")) camera.addAll(folder.groupedItems());
+            else if (n.contains("screenshot")) shots.addAll(folder.groupedItems());
+            else if (n.contains("screenrecord") || n.contains("screen record") || n.contains("записи экрана")) records.addAll(folder.groupedItems());
             else others.add(new AlbumsPage.Album(f.getFolderName(), folder, R.drawable.ui_ic_folder));
         }
-        all.sort((a, b) -> Long.compare(b.getFile().getLastModified(), a.getFile().getLastModified()));
+        all.sort((a, b) -> Long.compare(b.mediaFile().modifiedMs(), a.mediaFile().modifiedMs()));
         everything = all;
         // P504: the photos not read yet get their text in the background while the gallery is open (the newest first)
         List<com.scamera.app.gallery.files.MediaFile> files = new ArrayList<>();
-        for (GalleryItem i : all) if (i.getFile() != null) files.add(i.getFile());
+        for (GalleryItem i : all) if (i.mediaFile() != null) files.add(i.mediaFile());
         com.scamera.app.gallery.ocr.OcrIndex.start(c, files, () -> { if (search != null) search.ocrChanged(); });
         List<GalleryItem> fav = new ArrayList<>(), video = new ArrayList<>(), raw = new ArrayList<>(), heic = new ArrayList<>(), jpeg = new ArrayList<>();
         Set<String> favKeys = GalleryView.favourites(c);
         for (GalleryItem i : all) {
-            if (favKeys.contains(GalleryView.key(i.getFile()))) fav.add(i);
-            switch (com.scamera.app.gallery.ui.GalleryFormat.of(i.getFile().getDisplayName(), false)) {
+            if (favKeys.contains(GalleryView.key(i.mediaFile()))) fav.add(i);
+            switch (com.scamera.app.gallery.ui.GalleryFormat.of(i.mediaFile().displayName(), false)) {
                 case VIDEO: video.add(i); break;
                 case RAW: raw.add(i); break;
                 case HEIC: heic.add(i); break;
@@ -621,7 +621,7 @@ public class ImageLibraryFragment extends Fragment implements LibraryAdapter.Hos
         addAlbum(frequent, "RAW", raw, R.drawable.ui_ic_raw);
         addAlbum(frequent, Lang.t("Скриншоты", "Screenshots"), sorted(shots), R.drawable.ui_ic_screenshot);
         addAlbum(frequent, Lang.t("Записи экрана", "Screen recordings"), sorted(records), R.drawable.ui_ic_video);
-        others.sort((a, b) -> Long.compare(b.folder.getFiles().get(0).getFile().getLastModified(), a.folder.getFiles().get(0).getFile().getLastModified()));
+        others.sort((a, b) -> Long.compare(b.folder.groupedItems().get(0).mediaFile().modifiedMs(), a.folder.groupedItems().get(0).mediaFile().modifiedMs()));
         List<AlbumsPage.Album> types = new ArrayList<>();
         addAlbum(types, Lang.t("Видео", "Videos"), video, R.drawable.ui_ic_video);
         addAlbum(types, "RAW", raw, R.drawable.ui_ic_raw);
@@ -636,15 +636,15 @@ public class ImageLibraryFragment extends Fragment implements LibraryAdapter.Hos
     }
 
     private static List<GalleryItem> sorted(List<GalleryItem> items) {
-        items.sort((a, b) -> Long.compare(b.getFile().getLastModified(), a.getFile().getLastModified()));
+        items.sort((a, b) -> Long.compare(b.mediaFile().modifiedMs(), a.mediaFile().modifiedMs()));
         return items;
     }
 
     private static void addAlbum(List<AlbumsPage.Album> out, String title, List<GalleryItem> files, int icon) {
         if (files.isEmpty()) return;
-        GalleryItem folder = new GalleryItem(files.get(0).getFile());
-        folder.setDisplayName(title);
-        folder.getFiles().addAll(files);
+        GalleryItem folder = new GalleryItem(files.get(0).mediaFile());
+        folder.setShownName(title);
+        folder.groupedItems().addAll(files);
         out.add(new AlbumsPage.Album(title, folder, icon));
     }
 
@@ -669,7 +669,7 @@ public class ImageLibraryFragment extends Fragment implements LibraryAdapter.Hos
         if (a < 0) a = 0;
         if (b < 0) b = items.size() - 1;
         long now = System.currentTimeMillis();
-        long ta = items.get(a).getFile().getLastModified(), tb = items.get(b).getFile().getLastModified();
+        long ta = items.get(a).mediaFile().modifiedMs(), tb = items.get(b).mediaFile().modifiedMs();
         String la = GalleryUi.dayLabel(Math.max(ta, tb), now), lb = GalleryUi.dayLabel(Math.min(ta, tb), now);
         range.setText(la.equals(lb) ? la : lb + " — " + la);
         if (jump != null) jump.setRotation(layout.findFirstVisibleItemPosition() <= 0 ? 0 : 180);
@@ -750,8 +750,8 @@ public class ImageLibraryFragment extends Fragment implements LibraryAdapter.Hos
     private void openFilter() {
         Context c = requireContext();
         Set<Integer> years = new java.util.TreeSet<>((a, b) -> b - a);
-        List<GalleryItem> base = albumFolder != null ? albumFolder.getFiles() : everything;
-        for (GalleryItem i : base) if (i.getFile() != null && i.getFile().getLastModified() > 0) years.add(GalleryView.yearOf(i.getFile().getLastModified()));
+        List<GalleryItem> base = albumFolder != null ? albumFolder.groupedItems() : everything;
+        for (GalleryItem i : base) if (i.mediaFile() != null && i.mediaFile().modifiedMs() > 0) years.add(GalleryView.yearOf(i.mediaFile().modifiedMs()));
         GallerySheets.showFilter(c, years, () -> {
             clearSelection();
             library.applyView();
@@ -914,7 +914,7 @@ public class ImageLibraryFragment extends Fragment implements LibraryAdapter.Hos
 
     @Override
     public boolean isFavourite(GalleryItem item) {
-        return favourites.contains(GalleryView.key(item.getFile()));
+        return favourites.contains(GalleryView.key(item.mediaFile()));
     }
 
     @Override
@@ -946,9 +946,9 @@ public class ImageLibraryFragment extends Fragment implements LibraryAdapter.Hos
             return;
         }
         if (views != null && itemIndex >= 0 && itemIndex < adapter.items().size())
-            views.opened(GalleryView.key(adapter.items().get(itemIndex).getFile())); // P622: the list highlights it
+            views.opened(GalleryView.key(adapter.items().get(itemIndex).mediaFile())); // P622: the list highlights it
         Bundle b = new Bundle();
-        b.putInt(Constants.IMAGE_POSITION_KEY, itemIndex);
+        b.putInt(Constants.ARG_POSITION, itemIndex);
         int[] at = new int[2];
         view.getLocationInWindow(at);
         b.putIntArray(CELL_KEY, new int[]{at[0], at[1], at[0] + view.getWidth(), at[1] + view.getHeight()});
@@ -1003,7 +1003,7 @@ public class ImageLibraryFragment extends Fragment implements LibraryAdapter.Hos
         List<GalleryItem> s = new ArrayList<>(selection.getSelectedItems());
         if (s.isEmpty()) return;
         boolean all = s.stream().allMatch(this::isFavourite);
-        List<MediaFile> files = s.stream().map(GalleryItem::getFile).collect(Collectors.toList());
+        List<MediaFile> files = s.stream().map(GalleryItem::mediaFile).collect(Collectors.toList());
         GalleryView.setFavourite(requireContext(), files, !all);
         favourites = GalleryView.favourites(requireContext());
         View root = getView();
@@ -1019,19 +1019,19 @@ public class ImageLibraryFragment extends Fragment implements LibraryAdapter.Hos
         if (s.size() != 2) return;
         List<GalleryItem> items = adapter.items();
         Bundle b = new Bundle(2);
-        b.putInt(Constants.IMAGE1_KEY, items.indexOf(s.get(0)));
-        b.putInt(Constants.IMAGE2_KEY, items.indexOf(s.get(1)));
+        b.putInt(Constants.ARG_FIRST_IMAGE, items.indexOf(s.get(0)));
+        b.putInt(Constants.ARG_SECOND_IMAGE, items.indexOf(s.get(1)));
         navigation.navigate(R.id.push_compare, b);
     }
 
     private void shareSelected() {
         List<GalleryItem> s = selection.getSelectedItems();
-        ArrayList<Uri> uris = s.stream().map(g -> g.getFile().getFileUri()).collect(Collectors.toCollection(ArrayList::new));
+        ArrayList<Uri> uris = s.stream().map(g -> g.mediaFile().contentUri()).collect(Collectors.toCollection(ArrayList::new));
         if (uris.isEmpty()) return;
         Intent share = new Intent(Intent.ACTION_SEND_MULTIPLE);
         share.putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris);
         // P498: the files' own type (a video is not image/*)
-        share.setType(GalleryUi.shareType(s.stream().map(g -> g.getFile().getDisplayName()).collect(Collectors.toList())));
+        share.setType(GalleryUi.shareType(s.stream().map(g -> g.mediaFile().displayName()).collect(Collectors.toList())));
         share.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
         startActivity(Intent.createChooser(share, null));
     }
@@ -1041,7 +1041,7 @@ public class ImageLibraryFragment extends Fragment implements LibraryAdapter.Hos
     private void deleteSelected() {
         List<GalleryItem> toDelete = new ArrayList<>(selection.getSelectedItems());
         if (toDelete.isEmpty()) return;
-        List<ImageFile> files = toDelete.stream().map(g -> (ImageFile) g.getFile()).collect(Collectors.toList());
+        List<ImageFile> files = toDelete.stream().map(g -> (ImageFile) g.mediaFile()).collect(Collectors.toList());
         if (GalleryFileOperations.needsSystemDeleteRequest(requireContext(), files)) {
             // P345: another app's files - the system's own dialog is the only confirmation
             pendingDelete = toDelete;
@@ -1094,7 +1094,7 @@ public class ImageLibraryFragment extends Fragment implements LibraryAdapter.Hos
 
     private static String folderPath(GalleryFileOperations.ImagesFolder f) {
         ImageFile top = f.getTopImage();
-        String p = top != null ? top.getAbsolutePath() : null;
+        String p = top != null ? top.filePath() : null;
         if (p == null) return f.getFolderName();
         int slash = p.lastIndexOf('/');
         String dir = slash > 0 ? p.substring(0, slash) : p;
@@ -1119,7 +1119,7 @@ public class ImageLibraryFragment extends Fragment implements LibraryAdapter.Hos
         super.onStart();
         if (everything != null && getContext() != null) {
             List<com.scamera.app.gallery.files.MediaFile> files = new ArrayList<>();
-            for (GalleryItem i : everything) if (i.getFile() != null) files.add(i.getFile());
+            for (GalleryItem i : everything) if (i.mediaFile() != null) files.add(i.mediaFile());
             com.scamera.app.gallery.ocr.OcrIndex.start(getContext(), files, () -> { if (search != null) search.ocrChanged(); });
         }
     }

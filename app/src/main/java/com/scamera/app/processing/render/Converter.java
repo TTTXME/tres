@@ -155,7 +155,7 @@ public class Converter {
     public static double findDngInterpolationFactor(int illuminant1, int illuminant2, float[] calibration1, float[] calibration2,
                                                     float[] colourMatrix1, float[] colourMatrix2, float[/*3*/] neutral) {
         // P370 (A5): a code the table lacks (3 tungsten, 10 cloudy, 24 ISO studio tungsten, ...) takes the DNG SDK's value;
-        // only a code nobody knows throws (ReCalcColor catches it)
+        // only a code nobody knows throws (resolveColour catches it)
         final int kelvin1 = illuminantTemperature(illuminant1);
         if (kelvin1 == UNKNOWN) throw new IllegalArgumentException("No such illuminant for reference illuminant 1: " + illuminant1);
         final int kelvin2 = illuminantTemperature(illuminant2);

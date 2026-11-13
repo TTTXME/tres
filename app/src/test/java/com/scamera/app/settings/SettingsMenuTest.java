@@ -87,7 +87,7 @@ public class SettingsMenuTest {
         SettingsMigration.prepare(context,prefs);
         PreferenceManager pm=new PreferenceManager(context);
         PreferenceScreen screen=pm.inflateFromResource(context,R.xml.preferences,null);pm.setPreferences(screen);
-        for(Class<?> type:TunableRegistry.TUNABLE_CLASSES)TunablePreferenceGenerator.registerTunableClass(type);
+        for(Class<?> type:TunableRegistry.OWNERS)TunablePreferenceGenerator.registerTunableClass(type);
         TunablePreferenceGenerator.generatePreferences(context,screen);
         com.scamera.app.ui.settings.SettingsStyle.apply(screen); // the rows bind with the P6b layouts
         return screen;
@@ -131,7 +131,7 @@ public class SettingsMenuTest {
     @Test public void allPagesAndRegisteredTunablesAreReachableAndBind(){
         PreferenceScreen screen=inflate();Set<String> seen=new HashSet<>();List<String> pages=new ArrayList<>();visit(screen,seen,pages);
         assertTrue(seen.size()>300);assertTrue(pages.size()>25);
-        for(Class<?> c:TunableRegistry.TUNABLE_CLASSES)for(Field f:c.getDeclaredFields())if(f.isAnnotationPresent(Tunable.class)){
+        for(Class<?> c:TunableRegistry.OWNERS)for(Field f:c.getDeclaredFields())if(f.isAnnotationPresent(Tunable.class)){
             String key="pref_tunable_"+c.getSimpleName().toLowerCase(Locale.ROOT)+"_"+f.getName().toLowerCase(Locale.ROOT);
             assertNotNull("Missing registered control "+key,screen.findPreference(key));
         }
@@ -932,8 +932,8 @@ public class SettingsMenuTest {
             assertFalse(d.isShowing());assertEquals(1,done[0]);
             java.util.List<com.scamera.app.api.VendorTagUtils.TunableKey> keys=TunableKeyManager.loadKeys(activity,sensor);
             assertEquals(1,keys.size());
-            assertEquals(com.scamera.app.api.VendorTagUtils.TunableKey.TYPE_SESSION,keys.get(0).type);
-            assertEquals("Integer",keys.get(0).valueType);assertEquals("6",keys.get(0).value);
+            assertEquals(com.scamera.app.api.VendorTagUtils.TunableKey.TYPE_SESSION,keys.get(0).kind);
+            assertEquals("Integer",keys.get(0).typeName);assertEquals("6",keys.get(0).text);
             // editing keeps the type and offers deleting
             d=com.scamera.app.ui.settings.custompreferences.TunableKeyDialog.show(activity,sensor,0,()->done[0]++);
             root=d.getWindow().getDecorView();

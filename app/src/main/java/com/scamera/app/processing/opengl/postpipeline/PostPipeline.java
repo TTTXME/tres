@@ -272,7 +272,7 @@ public class PostPipeline extends GLBasePipeline {
 
     /** The shot's rotation in degrees (the parameters'); logs what the device reports beside it. */
     public int getRotation() {
-        final int degrees = mParameters.cameraRotation;
+        final int degrees = shotParams.rotationDeg;
         try {
             Log.d("ParseExif", "Gravity rotation:" + ScameraApp.getGravity().getRotation()
                     + " sensor:" + ScameraApp.getCaptureController().mSensorOrientation + " shot:" + degrees);
@@ -301,7 +301,7 @@ public class PostPipeline extends GLBasePipeline {
     /** The mean of the three channel models' slopes ({@code slope}) or offsets, summed in float as R + G + B. */
     private static float channelMean(NoiseModeler modeler, boolean slope) {
         float sum = 0f;
-        final android.util.Pair<Double, Double>[] model = modeler.computeModel;
+        final android.util.Pair<Double, Double>[] model = modeler.stackModel;
         for (int c = 0; c < 3; c++) sum += (slope ? model[c].first : model[c].second).floatValue();
         return sum / 3.f;
     }
@@ -312,8 +312,8 @@ public class PostPipeline extends GLBasePipeline {
     }
 
     private static boolean hasModel(NoiseModeler modeler) {
-        if (modeler == null || modeler.computeModel == null || modeler.computeModel.length < 3) return false;
-        for (int c = 0; c < 3; c++) if (modeler.computeModel[c] == null) return false;
+        if (modeler == null || modeler.stackModel == null || modeler.stackModel.length < 3) return false;
+        for (int c = 0; c < 3; c++) if (modeler.stackModel[c] == null) return false;
         return true;
     }
 
@@ -324,7 +324,7 @@ public class PostPipeline extends GLBasePipeline {
      * here - and P391 the fusion the deep shadows' high-gain zone; without zones the camera's curve stays (logged).
      */
     void computeNoise(Parameters parameters) {
-        final NoiseModeler modeler = parameters.noiseModeler;
+        final NoiseModeler modeler = parameters.noiseModel;
         if (!hasModel(modeler)) {
             Log.w(TAG, "Missing noise model; using conservative fallback");
             noiseS = 1.0e-4f;
@@ -338,9 +338,9 @@ public class PostPipeline extends GLBasePipeline {
         float fusionS = Float.NaN, fusionO = Float.NaN;
         if (parameters.dcgShot && !PostGlMode.legacy()) {
             final float[] zones = NoiseModeler.dcgZones(parameters.dcgNoise);
-            final boolean green = modeler.baseModel != null && modeler.baseModel.length > 1 && modeler.baseModel[1] != null;
-            final double greenS = green ? modeler.baseModel[1].first : Double.NaN;
-            final double greenO = green ? modeler.baseModel[1].second : Double.NaN;
+            final boolean green = modeler.rawModel != null && modeler.rawModel.length > 1 && modeler.rawModel[1] != null;
+            final double greenS = green ? modeler.rawModel[1].first : Double.NaN;
+            final double greenO = green ? modeler.rawModel[1].second : Double.NaN;
             final float[] clamp = zones != null ? WhyAe.dcgClampModel(zones, noiseS, noiseO, greenS, greenO) : null;
             if (clamp == null) {
                 Log.i(TAG, "DCG gain clamp: no measured noise zones, the camera's single curve");
@@ -438,7 +438,7 @@ public class PostPipeline extends GLBasePipeline {
     }
 
     /** The photo: the nodes over the merged RGB, read back as the bitmap (null when {@link #streamJpeg} took it). */
-    public Bitmap Run(ByteBuffer inBuffer, Parameters parameters) {
+    public Bitmap develop(ByteBuffer inBuffer, Parameters parameters) {
         // the old-model run of post_ab is not the shot's own: its times are in the POST AB line, not in the SHOT TIMELINE
         final boolean oldModel = PostGlMode.legacy();
         if (!oldModel) ShotTimeline.mark("post_start");
@@ -450,7 +450,7 @@ public class PostPipeline extends GLBasePipeline {
         beginPass(parameters, parameters.rawSize);
         // P369: ScamProcessor took the film before the teardown decision; the lab's sides take it here, under their overlay
         if (!filmTaken) takeFilm();
-        captureDemosaic = gainMapWanted(mSettings.gainMapPass(), film);
+        captureDemosaic = gainMapWanted(shotSettings.gainMapPass(), film);
         clearShotState();
         // P145: the hybrid's final size is made on the GPU (HybridFinalResize before the rotation), Ultra HDR included:
         // the output, the crop and the rotation work on the resized image
@@ -460,14 +460,14 @@ public class PostPipeline extends GLBasePipeline {
         cropSize = new Point(shrinks ? fin : parameters.rawSize);
         // «16:9»: the frames arrive cropped (Wide169); a second crop here made the output a row taller than its data (P118)
         final Point picture = turned(shrinks ? finalSize : parameters.rawSize, getRotation());
-        GLDrawParams.TileSize = (long) parameters.rawSize.x * parameters.rawSize.y < ResolutionSolution.smallRes ? 8 : 256;
+        GLDrawParams.TILE_ROWS = (long) parameters.rawSize.x * parameters.rawSize.y < ResolutionSolution.SMALL_PIXELS ? 8 : 256;
         final GLFormat rgba8 = new GLFormat(GLFormat.DataType.SIMPLE_8, 4);
         // the last pass goes tile by tile straight into the bitmap (no full-frame readback buffer); P353: on the context
         // kept for the process (its programs linked once)
         final GLCoreBlockProcessing glproc = new GLCoreBlockProcessing(picture, new GLImage(picture, rgba8, false), rgba8,
                 GLDrawParams.Allocate.None, tenBitOutput, true);
-        glint = new GLInterface(glproc);
-        glint.parameters = parameters;
+        glIface = new GLInterface(glproc);
+        glIface.shotParams = parameters;
         final StreamedJpegSink sink = jpegSink(glproc, oldModel);
         glproc.rgbaSink = sink;
 
@@ -495,9 +495,9 @@ public class PostPipeline extends GLBasePipeline {
 
     /** What Run and RunHDRGainMap both start with: the shot's parameters, the settings, the work size and the noise pair. */
     private void beginPass(Parameters parameters, Point work) {
-        mParameters = parameters;
-        mSettings = ScameraApp.getSettings();
-        workSize = new Point(work);
+        shotParams = parameters;
+        shotSettings = ScameraApp.getSettings();
+        frameSize = new Point(work);
         computeNoise(parameters);
     }
 
@@ -541,10 +541,10 @@ public class PostPipeline extends GLBasePipeline {
     public void finishDeferredTeardown() {
         final boolean due = teardownPending || deferTeardown;
         teardownPending = false;
-        if (due && glint != null) {
+        if (due && glIface != null) {
             deferTeardown = false;
             try {
-                final GLCoreBlockProcessing context = glint.glProcessing;
+                final GLCoreBlockProcessing context = glIface.blockCtx;
                 if (context != null) context.makeCurrent();
                 dropTextures();
             } catch (RuntimeException failed) {
@@ -587,14 +587,14 @@ public class PostPipeline extends GLBasePipeline {
         // before the textures were made again SEGV'd on waffle/Adreno)
         useGainMapContext(new GLCoreBlockProcessing(picture, new GLImage(picture, rgba16f, false), rgba16f,
                 GLDrawParams.Allocate.Direct));
-        glint.parameters = parameters;
+        glIface.shotParams = parameters;
         final Point light = gainMapPass.lightSize();
-        if (light.x != workSize.x || light.y != workSize.y)
+        if (light.x != frameSize.x || light.y != frameSize.y)
             throw new IllegalStateException("the kept light is " + light.x + "x" + light.y + ", the pass works at "
-                    + workSize.x + "x" + workSize.y + ": no scene plane");
+                    + frameSize.x + "x" + frameSize.y + ": no scene plane");
         final SceneGainMap.Shot shot = new SceneGainMap.Shot();
         shot.parameters = parameters;
-        shot.prog = glint.glProgram;
+        shot.prog = glIface.prog;
         shot.pictureSize = picture;
         shot.base = base;
         shot.cropSize = cropSize;
@@ -606,7 +606,7 @@ public class PostPipeline extends GLBasePipeline {
         skyHdrRatioSize = null;
         try {
             // P370 (B3): the scene's luminance as the render sees it (its colour matrix and white balance)
-            shot.lumaWeights = sceneLumaWeights(WhyTone.colourMatrix(this), parameters.sensorToProPhoto, parameters.whitePoint);
+            shot.lumaWeights = sceneLumaWeights(WhyTone.colourMatrix(this), parameters.cameraToProPhoto, parameters.asShotNeutral);
         } catch (RuntimeException e) {
             gainMapPass.abandon();
             throw e;
@@ -614,11 +614,11 @@ public class PostPipeline extends GLBasePipeline {
         return gainMapPass.measure(shot, sdr, down, scale);
     }
 
-    /** RunHDRGainMap's context takes over from Run()'s, which is kept for {@link #close} ({@link #retiredProcessing}). */
+    /** RunHDRGainMap's context takes over from runPass()'s, which is kept for {@link #close} ({@link #retiredProcessing}). */
     void useGainMapContext(GLCoreBlockProcessing gainMapProcessing) {
-        final GLCoreBlockProcessing runs = glint != null ? glint.glProcessing : null;
+        final GLCoreBlockProcessing runs = glIface != null ? glIface.blockCtx : null;
         if (runs != null && runs != gainMapProcessing) retiredProcessing = runs;
-        glint = new GLInterface(gainMapProcessing);
+        glIface = new GLInterface(gainMapProcessing);
     }
 
     @Override
@@ -629,7 +629,7 @@ public class PostPipeline extends GLBasePipeline {
         }
         gainMapPass.release(); // the gain-map pass may never have run
         super.close();
-        // Run()'s context after the gain-map one: made current, its tile target deleted, then released or destroyed
+        // runPass()'s context after the gain-map one: made current, its tile target deleted, then released or destroyed
         final GLCoreBlockProcessing retired = retiredProcessing;
         retiredProcessing = null;
         if (retired == null) return;
@@ -746,7 +746,7 @@ public class PostPipeline extends GLBasePipeline {
 
     /** The node list of the shot: the merge's RGB, denoise, the light nodes, the tone of the shot, the tail. */
     private void buildNodes() {
-        if (mParameters.scamRgb == null)
+        if (shotParams.scamRgb == null)
             throw new IllegalStateException("no merge route: the photo pipeline takes the RGB of Hybrid or SCAM HDR");
         Log.i(LOG_ROUTE,"route="+(PreferenceKeys.isHybridShot()?"SCAM_hybrid":"SCAM_HDR")
                 +" import=SCAM_linear_RGB WB_LSC=SCAMERA TCE=not_connected"
@@ -767,7 +767,7 @@ public class PostPipeline extends GLBasePipeline {
         if (addOldstyleTone()) return;
         // P614 «Why тон» V2 (pref_scam_hybrid_tone_version "v2", of the press): the reference tone instead of V1's, with our
         // sharpening between them; a film of the old route (not the reference film engine) and grids above 100 MP keep V1
-        final Point grid = mParameters.rawSize;
+        final Point grid = shotParams.rawSize;
         final boolean v2 = whyToneV2(look, film, reference, grid == null ? 0L : (long) grid.x * grid.y);
         if (!v2 && (look != null ? look.toneV2 : PreferenceKeys.whyToneV2()))
             Log.i(LOG_ROUTE, "WHY tone V2 chosen, V1 used (" + (film != null && !reference ? "film of the old route" : "above 100 MP") + ")");

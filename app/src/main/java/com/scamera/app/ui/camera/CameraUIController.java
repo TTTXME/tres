@@ -71,16 +71,16 @@ final class CameraUIController implements CameraUIEventsListener, Observer<TopBa
     private void shutterTapped(View button) {
         shutter = button;
         final CaptureController camera = camera();
-        switch (ScameraApp.getSettings().selectedMode) {
+        switch (ScameraApp.getSettings().mode) {
             case UNLIMITED:
             case RAWVIDEO:
-                final boolean seriesRuns = camera.onUnlimited;
+                final boolean seriesRuns = camera.seriesRunning;
                 if (seriesRuns) camera.stopEndlessSeries();
                 else camera.startEndlessSeries();
                 button.setActivated(seriesRuns);
                 break;
             case VIDEO:
-                final boolean recording = camera.mIsRecordingVideo;
+                final boolean recording = camera.recordingVideo;
                 if (recording) camera.stopVideoClip();
                 else camera.startVideoClip();
                 button.setActivated(recording);
@@ -239,7 +239,7 @@ final class CameraUIController implements CameraUIEventsListener, Observer<TopBa
     }
 
     @Override
-    public void onCameraModeChanged(CameraMode mode) {
+    public void modeChosen(CameraMode mode) {
         Log.d(TAG, "camera mode now " + mode);
         PreferenceKeys.setCameraModeOrdinal(mode.ordinal());
         reopenCamera();
@@ -291,7 +291,7 @@ final class CameraUIController implements CameraUIEventsListener, Observer<TopBa
             }
             case BRACKETING:
                 PreferenceKeys.setBracketingMode((Integer) picked);
-                IsoExpoSelector.HDR = (Integer) picked > 0; // the HDR plan follows the bracketing
+                IsoExpoSelector.bracketing = (Integer) picked > 0; // the HDR plan follows the bracketing
                 break;
             case AE_METERING_STD:
                 PreferenceKeys.setAeMeteringStd((Integer) picked);

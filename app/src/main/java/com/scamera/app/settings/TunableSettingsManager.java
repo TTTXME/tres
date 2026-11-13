@@ -24,7 +24,7 @@ public final class TunableSettingsManager {
 
     private static Class<?> classNamed(String simpleName) {
         if (!ready) return null; // as before: an import without the registration imports nothing
-        for (Class<?> c : TunableRegistry.TUNABLE_CLASSES) if (c.getSimpleName().equals(simpleName)) return c;
+        for (Class<?> c : TunableRegistry.OWNERS) if (c.getSimpleName().equals(simpleName)) return c;
         return null;
     }
 
@@ -56,10 +56,12 @@ public final class TunableSettingsManager {
             if (s.type == File.class || s.type == String.class) {
                 String text = v == null ? "" : v.toString();
                 if (!text.isEmpty()) edit.putString(key, text);
-            } else if (s.isFloating()) {
-                edit.putFloat(key, (float) PreferenceNumber.read(v, s.declared));
             } else {
-                edit.putInt(key, (int) PreferenceNumber.read(v, s.declared));
+                // an unreadable number takes the declared default; without one it is not imported (it was stored as -999999)
+                final double n = PreferenceNumber.read(v, s.declared);
+                if (Double.isNaN(n)) continue;
+                if (s.isFloating()) edit.putFloat(key, (float) n);
+                else edit.putInt(key, (int) n);
             }
             imported++;
         }

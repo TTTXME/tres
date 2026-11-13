@@ -1,8 +1,8 @@
 // Library camera2native (api/NativeEngine.java): opens the camera framework's non-SDK members (vendor keys, the custom
 // capture session) to the app. Two parts:
-//  - nativeInitialize lifts the hidden-API policy for this process (ART's policy word when its symbol is visible, and
+//  - openHiddenApi lifts the hidden-API policy for this process (ART's policy word when its symbol is visible, and
 //    VMRuntime.setHiddenApiExemptions, from a freshly attached thread when the app's own call is refused);
-//  - nativeGetCameraMethod / nativeGetCameraField resolve one declared member on a freshly attached thread, which has no
+//  - hiddenMethod / hiddenField resolve one declared member on a freshly attached thread, which has no
 //    managed caller for ART to judge.
 // P214a: a lookup leaves no global reference behind (tools/check_native_engine_refs.cpp builds this file on the host with a
 // counting JNIEnv and its own log stub, SCAM_HOST_TEST).
@@ -174,7 +174,7 @@ extern "C" JNIEXPORT jint JNI_OnLoad(JavaVM *vm, void *) {
     return JNI_VERSION_1_6;
 }
 
-extern "C" JNIEXPORT void JNICALL Java_com_scamera_app_api_NativeEngine_nativeInitialize(JNIEnv *env, jclass) {
+extern "C" JNIEXPORT void JNICALL Java_com_scamera_app_api_NativeEngine_openHiddenApi(JNIEnv *env, jclass) {
     ENGINE_LOG(ANDROID_LOG_INFO, "hidden-API access: starting");
     openArt();
     const bool policy = clearArtPolicy();
@@ -192,7 +192,7 @@ extern "C" JNIEXPORT void JNICALL Java_com_scamera_app_api_NativeEngine_nativeIn
     else ENGINE_LOG(ANDROID_LOG_WARN, "hidden-API access not opened");
 }
 
-extern "C" JNIEXPORT jobject JNICALL Java_com_scamera_app_api_NativeEngine_nativeGetCameraMethod(JNIEnv *env, jclass,
+extern "C" JNIEXPORT jobject JNICALL Java_com_scamera_app_api_NativeEngine_hiddenMethod(JNIEnv *env, jclass,
         jclass owner, jstring name, jobjectArray parameterTypes) {
     if (owner == nullptr || name == nullptr) {
         ENGINE_LOG(ANDROID_LOG_ERROR, "method lookup without a class or a name");
@@ -201,7 +201,7 @@ extern "C" JNIEXPORT jobject JNICALL Java_com_scamera_app_api_NativeEngine_nativ
     return resolveOnFreshThread(env, Member{owner, name, parameterTypes, true});
 }
 
-extern "C" JNIEXPORT jobject JNICALL Java_com_scamera_app_api_NativeEngine_nativeGetCameraField(JNIEnv *env, jclass,
+extern "C" JNIEXPORT jobject JNICALL Java_com_scamera_app_api_NativeEngine_hiddenField(JNIEnv *env, jclass,
         jclass owner, jstring name) {
     if (owner == nullptr || name == nullptr) {
         ENGINE_LOG(ANDROID_LOG_ERROR, "field lookup without a class or a name");

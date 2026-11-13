@@ -271,8 +271,8 @@ public final class ShotTimeline {
 
     /**
      * P625 (owner, 2026-11-11: «ускорь подготовку снимка»): the parts of HYBRID JAVA PREP's meta= (the processing before the merge
-     * call less the sharpness), from ScamProcessor's marks: crop (RawCrop), const (RawBin, FillConstParameters), roles (the frames'
-     * metadata and roles), levels (the levels and the darkest frame's black), dyn (the reference frame's FillDynamicParameters), dcg
+     * call less the sharpness), from ScamProcessor's marks: crop (RawCrop), const (RawBin, fillFromCamera), roles (the frames'
+     * metadata and roles), levels (the levels and the darkest frame's black), dyn (the reference frame's fillFromFrame), dcg
      * (the second black pass and a DCG frame's linearity), neutral (the mosaic white balance), rest (field of view, EXIF, the logs).
      * "" without a shot being processed; -1: a mark missing.
      */

@@ -43,7 +43,7 @@ final class ManualHarness {
         summary.setVisibility(View.GONE);
         root.addView(summary, new FrameLayout.LayoutParams(widthPx, ViewGroup.LayoutParams.WRAP_CONTENT));
         activity.setContentView(root);
-        console = ManualInstanceProvider.getNewManualModeConsole();
+        console = ManualInstanceProvider.newConsole();
         console.setMessageSink(messages::add);
     }
 
@@ -66,8 +66,8 @@ final class ManualHarness {
     /** Builds the models for a module, as CameraFragment does on a characteristics update. */
     CameraCharacteristics init() {
         CameraCharacteristics c = module();
-        console.init(activity, c);
-        console.onResume();
+        console.attachCamera(activity, c);
+        console.resumePanel();
         return c;
     }
 

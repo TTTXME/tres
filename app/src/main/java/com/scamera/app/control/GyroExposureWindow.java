@@ -6,7 +6,7 @@ public final class GyroExposureWindow {
 
     public static GyroBurst extract(long[] starts, GyroBurst ring, int next,
                                     long frameStart, long exposureNs, boolean comparableClock) {
-        int capacity = ring.timestampss.length;
+        int capacity = ring.sampleTimes.length;
         GyroBurst out = new GyroBurst(capacity);
         if (!comparableClock || frameStart <= 0 || exposureNs <= 0
                 || exposureNs > Long.MAX_VALUE-frameStart) return out;
@@ -16,7 +16,7 @@ public final class GyroExposureWindow {
         // next is the oldest slot after wrap; unused slots have zero timestamps.
         for (int j = 0; j < capacity; j++) {
             int i = (next % capacity + j) % capacity;
-            long start = starts[i], end = ring.timestampss[i];
+            long start = starts[i], end = ring.sampleTimes[i];
             if (start <= 0 || end <= start || end-start > 100_000_000L) continue;
             long overlapStart = Math.max(start, frameStart);
             long overlapEnd = Math.min(end, frameEnd);
@@ -25,22 +25,22 @@ public final class GyroExposureWindow {
             if (overlapStart != coveredUntil) return new GyroBurst(capacity);
             float fraction = (float)((double)(overlapEnd-overlapStart)/(end-start));
             boolean finite = true;
-            for (int axis=0;axis<3;axis++) finite &= Float.isFinite(ring.movementss[axis][i]);
+            for (int axis=0;axis<3;axis++) finite &= Float.isFinite(ring.angleSteps[axis][i]);
             if (!finite) return new GyroBurst(capacity);
-            int k = out.samples++;
+            int k = out.sampleCount++;
             for (int axis=0;axis<3;axis++) {
-                float movement = ring.movementss[axis][i]*fraction;
-                out.movementss[axis][k] = movement;
+                float movement = ring.angleSteps[axis][i]*fraction;
+                out.angleSteps[axis][k] = movement;
                 integrated[axis] += movement;
             }
-            out.timestampss[k] = overlapEnd;
+            out.sampleTimes[k] = overlapEnd;
             coveredUntil = overlapEnd;
         }
         if (coveredUntil != frameEnd) return new GyroBurst(capacity);
-        out.integrated[0] = -integrated[0];
-        out.integrated[1] = integrated[1];
-        out.integrated[2] = integrated[2];
-        out.recalculateShakiness();
+        out.integratedAngles[0] = -integrated[0];
+        out.integratedAngles[1] = integrated[1];
+        out.integratedAngles[2] = integrated[2];
+        out.recomputeShake();
         return out;
     }
 }

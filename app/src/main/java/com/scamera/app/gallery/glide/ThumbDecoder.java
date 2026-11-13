@@ -225,12 +225,12 @@ public final class ThumbDecoder implements ResourceDecoder<GalleryThumb, Bitmap>
             Out strips = strips(src, j, sample);
             if (strips != null) return strips;
         }
-        BitmapFactory.Options o = new BitmapFactory.Options();
-        o.inSampleSize = sample;
-        o.inPreferredConfig = Bitmap.Config.ARGB_8888;
-        Bitmap b = BitmapFactory.decodeFileDescriptor(src.fd(), null, o);
+        final BitmapFactory.Options sampled = new BitmapFactory.Options();
+        sampled.inPreferredConfig = Bitmap.Config.ARGB_8888;
+        sampled.inSampleSize = sample;
+        Bitmap b = BitmapFactory.decodeFileDescriptor(src.fd(), null, sampled);
         if (b == null) return sampled(src, m, reqW, reqH, null);
-        return new Out(DngGlideDecoder.orient(b, j.orientation), "decoded 1/" + o.inSampleSize + (j.progressive ? " progressive" : ""), j.width, j.height);
+        return new Out(DngGlideDecoder.orient(b, j.orientation), "decoded 1/" + sampled.inSampleSize + (j.progressive ? " progressive" : ""), j.width, j.height);
     }
 
     /** P620: JPEGs from 24 MP on are split at their restart markers when they can be (the camera's 50 / 200 MP ones). */

@@ -21,22 +21,17 @@ import static androidx.exifinterface.media.ExifInterface.*;
  * parameters, and written into the file with ExifInterface.
  */
 public class ParseExif {
-    public static final SimpleDateFormat sFormatter = new SimpleDateFormat("yyyy:MM:dd HH:mm:ss", Locale.US);
     private static final String TAG = "ParseExif";
 
-    static {
-        sFormatter.setTimeZone(TimeZone.getDefault());
-    }
-
     /** Nanoseconds as EXIF's decimal seconds (the double's own text, e.g. "0.01"). */
-    public static String getTime(long exposureTime) {
-        return String.valueOf(exposureTime / (double) 1000000000L);
+    static String seconds(long nanos) {
+        return String.valueOf(nanos / 1e9);
     }
 
     /** The result's value as text, "" when it has none. */
-    public static String resultget(CaptureResult res, Key<?> key) {
-        final Object value = res.get(key);
-        return value != null ? value.toString() : "";
+    static String text(CaptureResult result, Key<?> key) {
+        final Object value = result.get(key);
+        return value == null ? "" : value.toString();
     }
 
     /** The EXIF Orientation of a camera rotation (0 / 90 / 180 / 270 degrees; anything else: normal). */
@@ -66,25 +61,25 @@ public class ParseExif {
                 + (controller != null ? controller.mSensorOrientation : -1) + ", camera " + rotation
                 + " -> orientation " + exifOrientation(rotation));
         final Integer sensitivity = result.get(SENSOR_SENSITIVITY);
-        final int iso = sensitivity != null ? (int) (sensitivity * IsoExpoSelector.getMPY()) : 100;
+        final int iso = sensitivity != null ? (int) (sensitivity * IsoExpoSelector.isoMultiplier()) : 100;
         Log.d(TAG, "sensitivity:" + iso);
         iso(data, iso);
-        data.F_NUMBER = resultget(result, LENS_APERTURE);
+        data.fNumber = text(result, LENS_APERTURE);
         final Float focal = result.get(LENS_FOCAL_LENGTH);
-        if (focal != null) data.FOCAL_LENGTH = Math.round(100 * Double.parseDouble(focal.toString())) + "/100";
+        if (focal != null) data.focalLength = Math.round(100 * Double.parseDouble(focal.toString())) + "/100";
         // P618: ApertureValue is the APEX 2 log2(N), not the f-number
         final Float lensAperture = result.get(LENS_APERTURE);
-        data.APERTURE_VALUE = lensAperture == null ? null : apertureValue(lensAperture);
+        data.apertureApex = lensAperture == null ? null : apertureValue(lensAperture);
         final Long exposureNs = result.get(SENSOR_EXPOSURE_TIME);
-        if (exposureNs != null) data.EXPOSURE_TIME = getTime(exposureNs);
+        if (exposureNs != null) data.exposureTime = seconds(exposureNs);
         final Long frameNs = result.get(SENSOR_FRAME_DURATION);
-        if (frameNs != null) data.FRAME_DURATION = getTime(frameNs);
+        if (frameNs != null) data.frameDuration = seconds(frameNs);
         final Integer awb = result.get(CONTROL_AWB_MODE);
-        if (awb != null) data.WHITE_BALANCE = awb == CONTROL_AWB_MODE_AUTO ? "0" : "1";
+        if (awb != null) data.whiteBalance = awb == CONTROL_AWB_MODE_AUTO ? "0" : "1";
         time(data, captureTimeMs);
-        data.COMPRESSION = COMPRESSION_JPEG;
-        data.COLOR_SPACE = "sRGB";
-        data.EXIF_VERSION = "0231";
+        data.compression = COMPRESSION_JPEG;
+        data.colorSpace = "sRGB";
+        data.exifVersion = "0231";
         return data;
     }
 
@@ -93,9 +88,9 @@ public class ParseExif {
 
     /** P618: ISO as PhotographicSensitivity (a SHORT: 65535 above it) and ISOSpeed (SensitivityType 3 = ISO speed). */
     static void iso(ExifData data, int iso) {
-        data.SENSITIVITY_TYPE = String.valueOf(ExifInterface.SENSITIVITY_TYPE_ISO_SPEED);
-        data.PHOTOGRAPHIC_SENSITIVITY = iso > 0 ? String.valueOf(com.scamera.app.processing.ShotExif.iso16(iso)) : null;
-        data.ISO_SPEED = iso > 0 ? String.valueOf(iso) : null;
+        data.sensitivityType = String.valueOf(ExifInterface.SENSITIVITY_TYPE_ISO_SPEED);
+        data.isoValue = iso > 0 ? String.valueOf(com.scamera.app.processing.ShotExif.iso16(iso)) : null;
+        data.isoSpeed = iso > 0 ? String.valueOf(iso) : null;
     }
 
     /** P618: ApertureValue (APEX) of the f-number {@code fNumber}, as a rational; null for none. */
@@ -109,30 +104,30 @@ public class ParseExif {
     static void time(ExifData data, long ms) {
         final TimeZone zone = TimeZone.getDefault();
         data.captureTimeMs = ms;
-        data.DATETIME = com.scamera.app.processing.ShotExif.dateTime(ms, zone);
-        data.SUBSEC_TIME = com.scamera.app.processing.ShotExif.subSec(ms);
-        data.OFFSET_TIME = com.scamera.app.processing.ShotExif.offset(ms, zone);
+        data.dateTime = com.scamera.app.processing.ShotExif.dateTime(ms, zone);
+        data.subSecTime = com.scamera.app.processing.ShotExif.subSec(ms);
+        data.offsetTime = com.scamera.app.processing.ShotExif.offset(ms, zone);
     }
 
     public static void syncWithParameters(ExifData data, Parameters parameters) {
         // P618: the facts the shot's DNG records too (ShotExif.of): the same time, ISO, exposure and lens. The time only when
         // the shot has one (Parameters.captureTimeMs, set by ScamProcessor from parse's): never this sync's clock
         final com.scamera.app.processing.ShotExif.Facts f = com.scamera.app.processing.ShotExif.of(
-                parameters, parameters.photoFieldZoom, data.MAKE, data.MODEL);
+                parameters, parameters.photoFieldZoom, data.make, data.model);
         if (parameters.captureTimeMs > 0) time(data, parameters.captureTimeMs);
         iso(data, f.iso);
         // rounded, as the DNG's: the cast wrote 9.11 mm for the float 9.12 (9.1199998)
-        data.FOCAL_LENGTH = f.focalLength > 0 ? Math.round(100 * f.focalLength) + "/100" : null;
-        data.F_NUMBER = f.fNumber > 0 ? String.valueOf((float) f.fNumber) : null;
-        data.APERTURE_VALUE = f.fNumber > 0 ? apertureValue(f.fNumber) : null;
-        data.EXPOSURE_TIME = getTime((long) (parameters.exposureTime * 1000000000L));
-        data.FOCAL_LENGTH_35MM = f.focal35 > 0 ? String.valueOf(f.focal35) : null;
-        data.LENS_MAKE = f.make;
-        data.LENS_MODEL = f.lensModel();
-        data.LENS_SPECIFICATION = com.scamera.app.processing.ShotExif.rationalText(
+        data.focalLength = f.focalLength > 0 ? Math.round(100 * f.focalLength) + "/100" : null;
+        data.fNumber = f.fNumber > 0 ? String.valueOf((float) f.fNumber) : null;
+        data.apertureApex = f.fNumber > 0 ? apertureValue(f.fNumber) : null;
+        data.exposureTime = seconds((long) (parameters.exposureTime * 1000000000L));
+        data.focal35mm = f.focal35 > 0 ? String.valueOf(f.focal35) : null;
+        data.lensMake = f.make;
+        data.lensModel = f.lensModel();
+        data.lensSpec = com.scamera.app.processing.ShotExif.rationalText(
                 com.scamera.app.processing.ShotExif.lensSpecificationRationals(f.lensSpecification()));
         // P59b: the merge route the shot went through, for the gallery's «Склейка» row (GalleryFormat.routeOf)
-        data.IMAGE_DESCRIPTION = parameters.description() + routeLine();
+        data.description = parameters.description() + routeLine();
     }
 
     /**
@@ -141,7 +136,7 @@ public class ParseExif {
      */
     public static void describeFilm(ExifData data, Parameters parameters) {
         if (parameters.filmRecipe == null || parameters.filmRecipe.isEmpty()) return;
-        data.IMAGE_DESCRIPTION = parameters.description() + routeLine();
+        data.description = parameters.description() + routeLine();
     }
 
     /** "\n Route=SHDR": the merge every shot goes through (P129; older photos carry «Hybrid» / «SCAM HDR»). */
@@ -158,29 +153,29 @@ public class ParseExif {
             Log.w(TAG, "EXIF of " + file + " not readable: " + e);
             return null;
         }
-        exif.setAttribute(TAG_SENSITIVITY_TYPE, data.SENSITIVITY_TYPE);
-        exif.setAttribute(TAG_PHOTOGRAPHIC_SENSITIVITY, data.PHOTOGRAPHIC_SENSITIVITY);
-        putIfSet(exif, data.ISO_SPEED, TAG_ISO_SPEED);
-        exif.setAttribute(TAG_F_NUMBER, data.F_NUMBER);
-        exif.setAttribute(TAG_FOCAL_LENGTH, data.FOCAL_LENGTH);
+        exif.setAttribute(TAG_SENSITIVITY_TYPE, data.sensitivityType);
+        exif.setAttribute(TAG_PHOTOGRAPHIC_SENSITIVITY, data.isoValue);
+        putIfSet(exif, data.isoSpeed, TAG_ISO_SPEED);
+        exif.setAttribute(TAG_F_NUMBER, data.fNumber);
+        exif.setAttribute(TAG_FOCAL_LENGTH, data.focalLength);
         // P618: no Copyright: it said "SCAMERA" (the photographer's field); the app is the Software
-        exif.setAttribute(TAG_SOFTWARE, data.SOFTWARE);
-        exif.setAttribute(TAG_APERTURE_VALUE, data.APERTURE_VALUE);
-        exif.setAttribute(TAG_EXPOSURE_TIME, data.EXPOSURE_TIME);
-        exif.setAttribute(ExifInterface.TAG_DATETIME, data.DATETIME);
+        exif.setAttribute(TAG_SOFTWARE, data.software);
+        exif.setAttribute(TAG_APERTURE_VALUE, data.apertureApex);
+        exif.setAttribute(TAG_EXPOSURE_TIME, data.exposureTime);
+        exif.setAttribute(ExifInterface.TAG_DATETIME, data.dateTime);
         // P618: the shot's time as the DNG records it: when it was taken, its milliseconds and zone (the gallery's «Дата съёмки»
         // reads DateTimeOriginal, which no photo had)
-        putIfSet(exif, data.DATETIME, TAG_DATETIME_ORIGINAL, TAG_DATETIME_DIGITIZED);
-        putIfSet(exif, data.SUBSEC_TIME, TAG_SUBSEC_TIME, TAG_SUBSEC_TIME_ORIGINAL, TAG_SUBSEC_TIME_DIGITIZED);
-        putIfSet(exif, data.OFFSET_TIME, TAG_OFFSET_TIME, TAG_OFFSET_TIME_ORIGINAL, TAG_OFFSET_TIME_DIGITIZED);
-        putIfSet(exif, data.FOCAL_LENGTH_35MM, TAG_FOCAL_LENGTH_IN_35MM_FILM);
-        putIfSet(exif, data.LENS_MAKE, TAG_LENS_MAKE);
-        putIfSet(exif, data.LENS_MODEL, TAG_LENS_MODEL);
-        putIfSet(exif, data.LENS_SPECIFICATION, TAG_LENS_SPECIFICATION);
-        final String[][] always = {{TAG_MODEL, data.MODEL}, {TAG_MAKE, data.MAKE}, {TAG_COMPRESSION, data.COMPRESSION},
-                {TAG_COLOR_SPACE, data.COLOR_SPACE}, {TAG_EXIF_VERSION, data.EXIF_VERSION}, {TAG_IMAGE_DESCRIPTION, data.IMAGE_DESCRIPTION}};
+        putIfSet(exif, data.dateTime, TAG_DATETIME_ORIGINAL, TAG_DATETIME_DIGITIZED);
+        putIfSet(exif, data.subSecTime, TAG_SUBSEC_TIME, TAG_SUBSEC_TIME_ORIGINAL, TAG_SUBSEC_TIME_DIGITIZED);
+        putIfSet(exif, data.offsetTime, TAG_OFFSET_TIME, TAG_OFFSET_TIME_ORIGINAL, TAG_OFFSET_TIME_DIGITIZED);
+        putIfSet(exif, data.focal35mm, TAG_FOCAL_LENGTH_IN_35MM_FILM);
+        putIfSet(exif, data.lensMake, TAG_LENS_MAKE);
+        putIfSet(exif, data.lensModel, TAG_LENS_MODEL);
+        putIfSet(exif, data.lensSpec, TAG_LENS_SPECIFICATION);
+        final String[][] always = {{TAG_MODEL, data.model}, {TAG_MAKE, data.make}, {TAG_COMPRESSION, data.compression},
+                {TAG_COLOR_SPACE, data.colorSpace}, {TAG_EXIF_VERSION, data.exifVersion}, {TAG_IMAGE_DESCRIPTION, data.description}};
         for (String[] tag : always) exif.setAttribute(tag[0], tag[1]);
-        putIfSet(exif, data.WHITE_BALANCE, TAG_WHITE_BALANCE);
+        putIfSet(exif, data.whiteBalance, TAG_WHITE_BALANCE);
         return exif;
     }
 
@@ -193,31 +188,31 @@ public class ParseExif {
     public static class ExifData {
         // P196: the phone's market name («vivo X200 Ultra») when the system has one, Build.MODEL otherwise (DeviceName);
         // every format takes these through setAllAttributes (JPEG, Ultra HDR, HEIC 8 / 10-bit, WebP, AVIF)
-        public final String MODEL = com.scamera.app.util.DeviceName.model();
-        public final String MAKE = com.scamera.app.util.DeviceName.make();
+        public final String model = com.scamera.app.util.DeviceName.model();
+        public final String make = com.scamera.app.util.DeviceName.make();
         /** P618: the app's version, as the DNG's Software (DngMetadata.software); Copyright ("SCAMERA") is gone. */
-        public final String SOFTWARE = com.scamera.app.processing.DngMetadata.software();
+        public final String software = com.scamera.app.processing.DngMetadata.software();
         /** P618: the shot's wall clock (ms) the time tags are of; 0 = not set. */
         public long captureTimeMs;
-        public String SUBSEC_TIME;
-        public String OFFSET_TIME;
-        public String ISO_SPEED;
-        public String FOCAL_LENGTH_35MM;
-        public String LENS_MAKE;
-        public String LENS_MODEL;
-        public String LENS_SPECIFICATION;
-        public String SENSITIVITY_TYPE;
-        public String APERTURE_VALUE;
-        public String COMPRESSION;
-        public String COLOR_SPACE;
-        public String EXIF_VERSION;
-        public String IMAGE_DESCRIPTION;
-        public String DATETIME;
-        public String EXPOSURE_TIME;
-        public String F_NUMBER;
-        public String FOCAL_LENGTH;
-        public String PHOTOGRAPHIC_SENSITIVITY;
-        public String WHITE_BALANCE;
-        public String FRAME_DURATION;
+        public String subSecTime;
+        public String offsetTime;
+        public String isoSpeed;
+        public String focal35mm;
+        public String lensMake;
+        public String lensModel;
+        public String lensSpec;
+        public String sensitivityType;
+        public String apertureApex;
+        public String compression;
+        public String colorSpace;
+        public String exifVersion;
+        public String description;
+        public String dateTime;
+        public String exposureTime;
+        public String fNumber;
+        public String focalLength;
+        public String isoValue;
+        public String whiteBalance;
+        public String frameDuration;
     }
 }

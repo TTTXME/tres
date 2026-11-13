@@ -18,7 +18,7 @@ public class RestorePreference extends ListPreference {
     public RestorePreference(Context context, AttributeSet attrs) {
         super(context, attrs);
         setPersistent(false);
-        setOnPreferenceClickListener(preference -> {
+        setOnPreferenceClickListener(row -> {
             String[] names = ConfigFolder.list(context);
             String[] entries = new String[names.length + 1];
             String[] values = new String[names.length + 1];

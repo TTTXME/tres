@@ -1,10 +1,7 @@
 #define MODE 0
 #define LAYOUT //
 LAYOUT
-precision highp float;
-precision highp int;
-precision highp sampler2D;
-precision highp image2D;
+precision highp float; precision highp int; precision highp sampler2D; precision highp image2D;
 // P479 (speed): scamhdr/suncore MODE 0 / MODE 2's block sums as a compute pass - one invocation per pixel of the block (256
 // at a time, in the block's row order), the sums on invocation 0 in suncore's order (rows, then columns), the same terms -
 // instead of one fragment per block looping over its blockU x blockU pixels (latency-bound: 49 k fragments of 256 fetches at

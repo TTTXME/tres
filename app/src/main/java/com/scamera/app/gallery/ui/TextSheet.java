@@ -71,10 +71,10 @@ public final class TextSheet {
             text.setVisibility(View.GONE);
             final Context app = c.getApplicationContext();
             IO.execute(() -> {
-                Bitmap b = OcrEngine.load(app, file.getFileUri(), SHEET_SIDE);
+                Bitmap b = OcrEngine.load(app, file.contentUri(), SHEET_SIDE);
                 String r = b == null ? null : OcrEngine.recognize(app, b, languages);
                 if (b != null) b.recycle();
-                if (r != null && code == null) OcrIndex.put(app, file.getId(), file.getLastModified(), r);
+                if (r != null && code == null) OcrIndex.put(app, file.rowId(), file.modifiedMs(), r);
                 MAIN.post(() -> {
                     if (id != run[0]) return;
                     result[0] = r == null ? "" : r;

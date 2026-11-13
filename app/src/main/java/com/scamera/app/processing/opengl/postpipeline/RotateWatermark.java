@@ -22,33 +22,28 @@ public class RotateWatermark extends Node {
 
     /** The shader's quarter turns of a sensor rotation (0, 90, 180, 270 degrees: 0, 3, 2, 1); -1 for any other. */
     static int quarterTurns(int degrees) {
-        switch (degrees) {
-            case 0: return 0;
-            case 90: return 3;
-            case 180: return 2;
-            case 270: return 1;
-            default: return -1;
-        }
+        if (degrees < 0 || degrees > 270 || degrees % 90 != 0) return -1;
+        return (4 - degrees / 90) % 4; // the shader turns the other way
     }
 
     @Override
-    public void Compile() {
+    public void bindShader() {
         // the program is chosen in Run
     }
 
     @Override
-    public void Run() {
-        glProg.useAssetProgram("RotateWatermark/addwatermark_rotate");
-        glProg.setTexture("InputBuffer", previousNode.WorkingTexture);
+    public void runPass() {
+        shaderProg.useAssetProgram("RotateWatermark/addwatermark_rotate");
+        shaderProg.setTexture("InputBuffer", prevPass.passOut);
         final int turns = quarterTurns(rotation);
-        Log.d(Name, "Rotation:" + rotation + " selected rotation:" + turns);
-        glProg.setVar("rotate", turns);
-        glProg.setVar("mirror", basePipeline.mParameters.mirror ? 1 : 0);
+        Log.d(passName, "Rotation:" + rotation + " selected rotation:" + turns);
+        shaderProg.setVar("rotate", turns);
+        shaderProg.setVar("mirror", hostPipeline.shotParams.mirrored ? 1 : 0);
         // after the hybrid final resize the working image (and cropSize) are at the final size already
-        final PostPipeline post = (PostPipeline) basePipeline;
-        final Point raw = post.finalSize != null ? previousNode.WorkingTexture.mSize : basePipeline.mParameters.rawSize;
-        glProg.setVar("cropSize", post.cropSize);
-        glProg.setVar("rawSize", raw);
-        Log.d(Name, "Crop size:" + post.cropSize + " Raw size:" + basePipeline.mParameters.rawSize);
+        final PostPipeline post = (PostPipeline) hostPipeline;
+        final Point raw = post.finalSize != null ? prevPass.passOut.size : hostPipeline.shotParams.rawSize;
+        shaderProg.setVar("cropSize", post.cropSize);
+        shaderProg.setVar("rawSize", raw);
+        Log.d(passName, "Crop size:" + post.cropSize + " Raw size:" + hostPipeline.shotParams.rawSize);
     }
 }

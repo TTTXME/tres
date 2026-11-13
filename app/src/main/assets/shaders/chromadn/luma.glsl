@@ -1,5 +1,4 @@
-precision highp float;
-precision highp sampler2D;
+precision highp float; precision highp sampler2D;
 // Post-network luma noise, step 1: variance-stabilised luminance u = sqrt(Y + c), so the
 // noise of the model output (about a*Y + b) has the constant variance a/4 everywhere.
 // Signed input (signedU 1, the SCAM Hybrid: PostPipeline.signedRgb): a pixel with a negative channel takes the luminance of

@@ -59,8 +59,8 @@ public class SensorModeSwitchesTest {
         app.when(() -> ScameraApp.getInstance(any(Context.class))).thenReturn(instance);
         PreferenceKeys.initialise(manager);
         settings = new Settings();
-        settings.mCameraID = "3";
-        settings.selectedMode = CameraMode.userModeAt(0);
+        settings.cameraId = "3";
+        settings.mode = CameraMode.userModeAt(0);
         app.when(ScameraApp::getSettings).thenReturn(settings);
         preferences = mockStatic(PreferenceKeys.class, CALLS_REAL_METHODS);
         pixel = mockStatic(PixelPro10.class, CALLS_REAL_METHODS);
@@ -106,7 +106,7 @@ public class SensorModeSwitchesTest {
 
     /** SIMPLE_UI: the top bar's size button (12 <-> 50 Мп) and its DCG button, the old overlay buttons' successors. */
     private void toggleFullRes() {
-        PhotoSize.availableForTest(true, settings.mCameraID);
+        PhotoSize.availableForTest(true, settings.cameraId);
         int now = PhotoSize.current();
         fragment.showSnackBar(PhotoSize.set(fragment, now == PhotoSize.NORMAL ? PhotoSize.FULL : PhotoSize.NORMAL));
     }
@@ -121,7 +121,7 @@ public class SensorModeSwitchesTest {
         assertTrue(VivoSdkFullRes.offered("3"));
         assertFalse(VivoSdkFullRes.available("3"));
         toggleFullRes();
-        assertEquals(CameraMode.MOTION, settings.selectedMode);
+        assertEquals(CameraMode.MOTION, settings.mode);
         assertEquals("back0", ModuleRegistry.active());
         assertEquals("3", PreferenceKeys.getCameraID());
         assertTrue(PixelPro10.fullResOn());
@@ -260,7 +260,7 @@ public class SensorModeSwitchesTest {
             assertFalse(PixelPro10.fullResOn());
             toggleFullRes();
             assertEquals("back0", ModuleRegistry.active());
-            assertEquals(pair[1], settings.mCameraID);
+            assertEquals(pair[1], settings.cameraId);
             assertTrue(PixelPro10.fullResOn());
             assertEquals(Boolean.FALSE, ModuleRegistry.sensorCropExplicit("back1"));
         }

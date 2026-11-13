@@ -63,7 +63,7 @@ public class ViewfinderColourTest {
 
     @Before public void setUp() {
         final com.scamera.app.api.Settings settings = new com.scamera.app.api.Settings();
-        settings.colorMethod = 1;
+        settings.colourMethod = 1;
         app = mockStatic(com.scamera.app.app.ScameraApp.class);
         app.when(com.scamera.app.app.ScameraApp::getSettings).thenReturn(settings);
         prefsKeys = mockStatic(PreferenceKeys.class, invocation -> {
@@ -124,12 +124,12 @@ public class ViewfinderColourTest {
         assertArrayEquals(tuned, pick.rowMajor, 0f);
         final Parameters p = new Parameters();
         p.physicalID = 2;
-        p.ReCalcColor(false, result(cst(1, 1, 0, 0, 0, 1, 0, 0, 0, 1), n));
+        p.resolveColour(false, result(cst(1, 1, 0, 0, 0, 1, 0, 0, 0, 1), n));
         assertEquals("OPPO_TUNED", p.colourSource);
         final float[] photo = p.cameraToSrgb();
         final float[] wb = new float[9];
         float k = 0f;
-        for (int r = 0; r < 3; r++) for (int col = 0; col < 3; col++) wb[r * 3 + col] = photo[r * 3 + col] * p.whitePoint[col];
+        for (int r = 0; r < 3; r++) for (int col = 0; col < 3; col++) wb[r * 3 + col] = photo[r * 3 + col] * p.asShotNeutral[col];
         for (int col = 0; col < 3; col++) k += wb[3 + col];
         for (int i = 0; i < 9; i++) assertEquals("element " + i, pick.rowMajor[i], wb[i] / k, 1e-4f);
         // the look reads its light and the photo's AgX saturation (1.1)

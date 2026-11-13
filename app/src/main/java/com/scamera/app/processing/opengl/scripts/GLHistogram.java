@@ -40,7 +40,7 @@ public class GLHistogram implements AutoCloseable {
     }
 
     private GLHistogram(GLContext context, int bins) {
-        this(context.mProgram, bins);
+        this(context.program, bins);
         ownContext = context;
     }
 
@@ -62,14 +62,12 @@ public class GLHistogram implements AutoCloseable {
 
     public int[][] Compute(GLTexture input) {
         final long start = System.currentTimeMillis();
-        input.Bufferize();
+        input.ensureFramebuffer();
         final boolean[] wanted = {Rc, Gc, Bc, Ac};
         glProg.setDefine("SCALE", resize);
         glProg.setDefine("HISTSIZE", bins);
-        glProg.setDefine("COL_R", Rc);
-        glProg.setDefine("COL_G", Gc);
-        glProg.setDefine("COL_B", Bc);
-        glProg.setDefine("COL_A", Ac);
+        final String[] channelSwitch = {"COL_R", "COL_G", "COL_B", "COL_A"};
+        for (int c = 0; c < channelSwitch.length; c++) glProg.setDefine(channelSwitch[c], wanted[c]);
         // the shader's custom-program hooks are off
         glProg.setDefine("COL_CUSTOM", false);
         glProg.setDefine("CUSTOM_PROGRAM", "");
@@ -78,11 +76,11 @@ public class GLHistogram implements AutoCloseable {
         glProg.useAssetProgram("GLHistogram/histogram", true);
         glProg.setTexture("inTexture", input);
         final float top = bins - 1;
-        glProg.setVar("exposure", exposure[0] * top, exposure[1] * top, exposure[2] * top, exposure[3] * top);
+        glProg.setVar("binScale", exposure[0] * top, exposure[1] * top, exposure[2] * top, exposure[3] * top);
         glProg.setVar("input1", 0f);
         glProg.setVar("input2", 0f);
         for (int c = 0; c < 4; c++) glProg.setBufferCompute(BLOCKS[c], counters[c]);
-        glProg.computeAuto(new Point(input.mSize.x / resize, input.mSize.y / resize), 1);
+        glProg.computeAuto(new Point(input.size.x / resize, input.size.y / resize), 1);
         for (int c = 0; c < 4; c++) if (wanted[c]) outputArr[c] = counters[c].readBufferIntegers(true);
         Log.d("GLHistogram", " elapsed:" + (System.currentTimeMillis() - start) + " ms");
         return outputArr;

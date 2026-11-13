@@ -62,21 +62,21 @@ import androidx.fragment.app.Fragment;
 import androidx.lifecycle.ViewModelProvider;
 
 import com.scamera.app.R;
-import com.scamera.app.api.CameraEventsListener;
+import com.scamera.app.api.CameraEvents;
 import com.scamera.app.api.CameraManager2;
 import com.scamera.app.api.CameraMode;
 import com.scamera.app.api.CameraReflectionApi;
 import com.scamera.app.app.ScameraApp;
 import com.scamera.app.app.base.BaseActivity;
 import com.scamera.app.capture.CaptureController;
-import com.scamera.app.capture.CaptureEventsListener;
+import com.scamera.app.capture.CaptureEvents;
 import com.scamera.app.circularbarlib.api.ManualInstanceProvider;
 import com.scamera.app.circularbarlib.api.ManualModeConsole;
 import com.scamera.app.control.Swipe;
 import com.scamera.app.control.TouchFocus;
 import com.scamera.app.databinding.CameraScreenBinding;
 import com.scamera.app.gallery.ui.GalleryActivity;
-import com.scamera.app.processing.ProcessingEventsListener;
+import com.scamera.app.processing.ProcessingEvents;
 import com.scamera.app.processing.parameters.ExposureIndex;
 import com.scamera.app.processing.parameters.IsoExpoSelector;
 import com.scamera.app.settings.PreferenceKeys;
@@ -172,7 +172,7 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
         showZoomLabel();
     }
 
-    public ManualModeConsole getManualModeConsole() { return manualConsole; }
+    public ManualModeConsole sharedConsole() { return manualConsole; }
 
     public CameraFragmentViewModel getCameraFragmentViewModel() { return fragmentModel; }
 
@@ -203,7 +203,7 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
         logScreen(dm);
         screenAspect = (float) Math.max(dm.heightPixels, dm.widthPixels) / Math.min(dm.heightPixels, dm.widthPixels);
         fragmentModel.setScreenAspectRatio(screenAspect);
-        manualConsole = ManualInstanceProvider.getNewManualModeConsole();
+        manualConsole = ManualInstanceProvider.newConsole();
         // P87: the manual rulers' ISO / shutter range (vendor pro range, frame-duration ceiling, the AE's own ISO extremes)
         com.scamera.app.circularbarlib.camera.CameraProperties.rangeProvider =
                 new com.scamera.app.circularbarlib.camera.CameraProperties.RangeProvider() {
@@ -265,7 +265,7 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
         uiController = new CameraUIController(this);
         uiView.listenTo(uiController);
         captureController = new CaptureController(hostActivity, processPool, new FragmentCameraEvents());
-        manualConsole.addParamObserver(captureController.getParamController());
+        manualConsole.observeValues(captureController.getParamController());
         // The manual panel's toasts («ISO: авто», the EV lock) use the camera screen's card toast.
         manualConsole.setMessageSink(this::showCardToast);
         // P214f: the card above the bottom bar shows the one message channel (UiMessages): CaptureController, the shade,
@@ -1002,9 +1002,9 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
         camera.startBackgroundThread();
         finderView.onResume();
         settleSessionSettings(false); // P214g: before the new session reads them
-        camera.resumeCamera();
+        camera.screenResumed();
         setUpTapFocus();
-        manualConsole.onResume();
+        manualConsole.resumePanel();
     }
 
     /**
@@ -1254,7 +1254,7 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
         sounds().release();
         // The settings sheet comes back HIDDEN, whatever level it was left at.
         fragmentModel.setSheetLevel(CameraFragmentModel.SHEET_HIDDEN);
-        manualConsole.onPause();
+        manualConsole.pausePanel();
         super.onPause();
     }
 
@@ -1360,7 +1360,7 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
         uiView = null; // the controller's late callbacks see the detached UI from here on
         uiController = null;
         screen.release();
-        manualConsole.onDestroy();
+        manualConsole.destroyPanel();
         // the app's controller only when it is still this screen's (a newer screen may have set its own)
         if (ScameraApp.getCaptureController() == camera) ScameraApp.setCaptureController(null);
         captureController = null;
@@ -1404,7 +1404,7 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
     private void drawHudLine(CaptureResult result, boolean histogram) {
         final String[] exposure = ViewfinderHud.exposureAndIso(result, captureController, "ISO ");
         final CameraCharacteristics lens = CaptureController.mCameraCharacteristics;
-        final boolean manualFocus = manualConsole != null && manualConsole.isManualFocusModeActive();
+        final boolean manualFocus = manualConsole != null && manualConsole.manualFocusOn();
         final String focus = ViewfinderHud.focus(result.get(CaptureResult.CONTROL_AF_MODE), result.get(CaptureResult.CONTROL_AF_STATE),
                 result.get(CaptureResult.LENS_FOCUS_DISTANCE), manualFocus);
         final String wb = ViewfinderHud.whiteBalance(result, captureController != null ? captureController.mPreviewTemp : null);
@@ -1762,7 +1762,7 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
     private static final CameraUIView DETACHED_UI = new CameraUIView() {
     };
 
-    private class FragmentCameraEvents extends CameraEventsListener {
+    private class FragmentCameraEvents extends CameraEvents {
         /**
          * This fragment's UI, or a no-op one after onDestroy: the capture controller of a destroyed fragment can still call
          * back (the hostActivity is recreated on a language change while a camera callback or a shot's processing is pending).
@@ -1777,11 +1777,11 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
             return uiView == null;
         }
 
-        // -- the processing (ProcessingEventsListener) --
+        // -- the processing (ProcessingEvents) --
 
         @Override
-        public void onProcessingStarted(String job) {
-            logD("processing " + job + " started");
+        public void processingStarted(String job) {
+            debug("processing " + job + " started");
             final CameraUIView screen = ui();
             screen.processingRunning(true);
             screen.shutterReady(true);
@@ -1789,7 +1789,7 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
         }
 
         @Override
-        public void onProcessingChanged(Object payload) {
+        public void processingProgress(Object payload) {
             // P158: a milestone of the pipeline for the ring round the gallery card
             if (payload instanceof Float && !detached()) ui().processingStage((Float) payload);
             // P220: the large-shot hint and the merge worker's measured progress
@@ -1800,8 +1800,8 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
         }
 
         @Override
-        public void onProcessingFinished(Object payload) {
-            logD("processing finished: " + payload);
+        public void processingFinished(Object payload) {
+            debug("processing finished: " + payload);
             final CameraUIView screen = ui();
             screen.processingRunning(false);
             screen.shutterReady(true);
@@ -1810,9 +1810,9 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
         }
 
         @Override
-        public void notifyImageSavedStatus(boolean saved, Path savedPath) {
+        public void imageSaved(boolean saved, Path savedPath) {
             if (!saved) {
-                logE("the shot was not saved");
+                error("the shot was not saved");
                 showError(com.scamera.app.util.Lang.t("Не удалось сохранить снимок", "The photo could not be saved"));
                 return;
             }
@@ -1821,24 +1821,24 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
                 // P637: an open gallery shows the file at once (from its path, before MediaStore has its row)
                 com.scamera.app.gallery.ui.CameraHandoff.saved(savedPath.toAbsolutePath().toString());
                 triggerMediaScanner(photo);
-                logD("photo saved: " + savedPath);
+                debug("photo saved: " + savedPath);
             }
             fragmentModel.updateGalleryThumb(photo);
         }
 
         @Override
-        public void onProcessingError(Object payload) {
+        public void processingFailed(Object payload) {
             final CameraUIView screen = ui();
             screen.captureRingReset();
             if (payload instanceof String) showError((String) payload); // P214f: a failed shot stays on the card until it is tapped
             screen.lockForBurst(false);
-            onProcessingFinished("processing ended with an error");
+            processingFinished("processing ended with an error");
         }
 
-        // -- the capture (CaptureEventsListener) --
+        // -- the capture (CaptureEvents) --
 
         @Override
-        public void onFrameCountSet(int frames) {
+        public void burstSize(int frames) {
             ui().captureRingMax(frames);
         }
 
@@ -1853,10 +1853,10 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
         private boolean zslSeries;
 
         @Override
-        public void onCaptureStillPictureStarted(Object event) {
+        public void stillStarted(Object event) {
             instantShot = "ScamZslCaptureStarted".equals(event) || "ZSLCaptureStarted!".equals(event);
             zslSeries = com.scamera.app.capture.CaptureController.ZSL_SERIES_STARTED.equals(event);
-            if (ScameraApp.getSettings().selectedMode != CameraMode.RAWVIDEO) {
+            if (ScameraApp.getSettings().mode != CameraMode.RAWVIDEO) {
                 sounds().shutter(); // one shutter sound per shot, at the press (P16)
                 final View vf = finderView; // P495: the shot's blink over the viewfinder
                 if (vf != null && vf.getParent() instanceof View) vf.post(() -> com.scamera.app.ui.Motion.blink((View) vf.getParent()));
@@ -1890,21 +1890,21 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
                             Bitmap.createScaledBitmap(bmp, 200, Math.max(1, Math.round(200f * vh / vw)), true));
                 }, new android.os.Handler(android.os.Looper.getMainLooper()));
             } catch (RuntimeException e) {
-                logD("viewfinder snapshot failed: " + e);
+                debug("viewfinder snapshot failed: " + e);
             }
         }
 
         @Override
-        public void onFrameCaptureStarted(Object event) {
+        public void frameStarted(Object event) {
         }
 
         @Override
-        public void onBurstPrepared(Object event) {
+        public void burstPrepared(Object event) {
         }
 
         @Override
-        public void onFrameCaptureCompleted(Object event) {
-            if (instantShot || ScameraApp.getSettings().selectedMode == CameraMode.RAWVIDEO) return; // one sound at the press
+        public void frameCaptured(Object event) {
+            if (instantShot || ScameraApp.getSettings().mode == CameraMode.RAWVIDEO) return; // one sound at the press
             final TimerFrameCountViewModel.FrameCntTime frame = event instanceof TimerFrameCountViewModel.FrameCntTime
                     ? (TimerFrameCountViewModel.FrameCntTime) event : null;
             // P234: a long ZSL series' ring shows the shot's frame number (its ring frames are in already)
@@ -1914,7 +1914,7 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
         }
 
         @Override
-        public void onCaptureSequenceCompleted(Object event) {
+        public void burstCompleted(Object event) {
             // P234: the end of a long ZSL series is felt: the phone may move now
             if (zslSeries) {
                 zslSeries = false;
@@ -1934,17 +1934,17 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
         }
 
         @Override
-        public void onPreviewCaptureCompleted(CaptureResult frame) {
+        public void previewResult(CaptureResult frame) {
             showLiveMetrics(frame);
             postMetered(frame);
         }
 
         /**
-         * Implementation of abstract methods of {@link CameraEventsListener}
+         * Implementation of abstract methods of {@link CameraEvents}
          */
 
         @Override
-        public void onOpenCamera(CameraManager manager) {
+        public void cameraOpening(CameraManager manager) {
             if (detached()) return;
             initCameraIDLists(manager);
             auxModel.initCameraLists(lensData);
@@ -2025,7 +2025,7 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
         private final Runnable hideRecovery = () -> { if (recoveryOverlay != null) recoveryOverlay.setVisibility(View.GONE); };
 
         @Override
-        public void onCameraRestarted() {
+        public void cameraRestarted() {
             if (detached()) return;
             finderOverlay.clear();
             ui().refresh(CaptureController.isProcessing);
@@ -2034,7 +2034,7 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
         }
 
         @Override
-        public void onCharacteristicsUpdated(CameraCharacteristics characteristics) {
+        public void lensChanged(CameraCharacteristics characteristics) {
             if (detached()) return;
             finderOverlay.clear();
             auxModel.setActiveId(PreferenceKeys.getCameraID());
@@ -2044,8 +2044,8 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
             ui().flashAvailable(Boolean.TRUE.equals(characteristics.get(CameraCharacteristics.FLASH_INFO_AVAILABLE)) || frontLens);
             updateScreenFlash();
             awbKelvin.setCharacteristics(characteristics);
-            manualConsole.init(hostActivity, characteristics);
-            manualConsole.onResume();
+            manualConsole.attachCamera(hostActivity, characteristics);
+            manualConsole.resumePanel();
             // SIMPLE_UI §1: DCG and the photo sizes are buttons of the top bar now (no overlays over the manual strip)
             TopBar.bindCamera(characteristics);
             if (uiView != null) uiView.rebindTopBar();
@@ -2053,19 +2053,19 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
         }
 
         @Override
-        public void onError(Object event) {
+        public void cameraError(Object event) {
             if (event instanceof Integer) showErrorDialog((int) (Integer) event);
             else if (event instanceof String) showErrorDialog((String) event);
         }
 
         @Override
-        public void onFatalError(String message) {
-            logE("fatal camera error: " + message);
+        public void cameraFatal(String message) {
+            error("fatal camera error: " + message);
             hostActivity.finish();
         }
 
         @Override
-        public void onRequestTriggerMediaScanner(Uri uri) {
+        public void scanMedia(Uri uri) {
             triggerMediaScanner(uri);
         }
     }

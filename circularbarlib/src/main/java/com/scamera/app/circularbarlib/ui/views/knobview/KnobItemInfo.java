@@ -5,19 +5,20 @@ package com.scamera.app.circularbarlib.ui.views.knobview;
  * gets. {@link #majorTick} marks a labelled stop of the ruler.
  */
 public final class KnobItemInfo {
-    public final String text;
-    public final int tick;
-    public final double value;
+    /** What the stop shows, its place on the scale and what the camera gets there. */
+    public final String label;
+    public final int position;
+    public final double cameraValue;
     public boolean majorTick;
 
-    public KnobItemInfo(String text, int tick, double value) {
-        this.text = text;
-        this.tick = tick;
-        this.value = value;
+    public KnobItemInfo(String label, int position, double cameraValue) {
+        this.label = label;
+        this.position = position;
+        this.cameraValue = cameraValue;
     }
 
     @Override
     public String toString() {
-        return "stop " + tick + " «" + text + "» = " + value;
+        return "stop " + position + " «" + label + "» = " + cameraValue;
     }
 }

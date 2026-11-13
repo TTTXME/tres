@@ -133,8 +133,8 @@ public class GalleryUiTest {
             RecyclerView.ViewHolder h = adapter.onCreateViewHolder(parent, LibraryAdapter.PHOTO);
             adapter.onBindViewHolder(h, pos);
             List<Integer> b = badges(h);
-            assertEquals(items.get(i).getFile().getDisplayName(), (Integer) expected[i], b.get(0));
-            assertEquals("Ultra HDR badge of " + items.get(i).getFile().getDisplayName(), i == 3, b.contains(R.drawable.ui_ic_sun));
+            assertEquals(items.get(i).mediaFile().displayName(), (Integer) expected[i], b.get(0));
+            assertEquals("Ultra HDR badge of " + items.get(i).mediaFile().displayName(), i == 3, b.contains(R.drawable.ui_ic_sun));
             assertTrue(h.itemView.getContentDescription().toString().length() > 0);
         }
         // the day header carries the count

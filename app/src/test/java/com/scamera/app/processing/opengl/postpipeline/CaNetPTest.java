@@ -99,7 +99,7 @@ public class CaNetPTest {
         // scamrgb: purpleU only on the classic route, the net after the pass only on its own
         final String rgb = read_("src/main/java/com/scamera/app/processing/opengl/postpipeline/ScamRgb.java");
         assertTrue(rgb.contains("final float p399=fringe==CaNetP.Route.CLASSIC?purple:0f;"));
-        assertTrue(rgb.contains("glProg.setVar(\"purpleU\",p399);"));
+        assertTrue(rgb.contains("shaderProg.setVar(\"purpleU\",p399);"));
         assertTrue(rgb.contains("if(fringe==CaNetP.Route.NEURAL){"));
         assertTrue(rgb.contains("if(p399>0f&&!com.scamera.app.processing.opengl.PostGlMode.legacy()&&PreferenceKeys.scamDevSwitch(\"purple_bound\",true)){"));
     }

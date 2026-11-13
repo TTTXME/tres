@@ -31,17 +31,17 @@ public class WhyEdgeHoldTest {
         final String src = "src/main/java/com/scamera/app/processing/opengl/postpipeline/";
         final String why = read(src + "WhyCombine.java");
         assertTrue("its define only with the full-size merge and without a full-strength film",
-                why.contains("if (WhyTone.edgeHold() > 0f && !st.inputReleased && !filmOnly) glProg.setDefine(\"EDGE_HOLD\", 1);"));
+                why.contains("if (WhyTone.edgeHold() > 0f && !st.inputReleased && !filmOnly) shaderProg.setDefine(\"EDGE_HOLD\", 1);"));
         assertTrue("the guard is this shot's ready film, not the current settings",
                 why.contains("final boolean filmOnly = scene != null && film.strength >= 1f;"));
-        assertTrue(why.contains("glProg.setVar(\"edgeHoldU\", WhyTone.edgeHold());"));
+        assertTrue(why.contains("shaderProg.setVar(\"edgeHoldU\", WhyTone.edgeHold());"));
         assertTrue("on by default", read(src + "WhyTone.java").contains("value(\"edge_hold\", 1f)"));
         // P623 round 7: the hold only at an edge against light (the bright side at the bound); 0 = every strong edge, as before
         assertTrue(glsl.contains("#if EDGE_HOLD == 1\nuniform float edgeHoldU;"));
         assertTrue(glsl.contains("uniform float edgeHoldLightU;"));
         assertTrue(glsl.contains("float wAlong = edgeHoldLightU > 0.0 ? mix(1.0, smoothstep(0.6, 0.9, hi), min(edgeHoldLightU, 1.0)) : 1.0;"));
         assertTrue("the hold within the 3 x 3 range stays at every strong edge", glsl.contains("ys = mix(yD, sum / sw, wAlong);"));
-        assertTrue(why.contains("glProg.setVar(\"edgeHoldLightU\", WhyTone.edgeHoldLight());"));
+        assertTrue(why.contains("shaderProg.setVar(\"edgeHoldLightU\", WhyTone.edgeHoldLight());"));
         assertTrue("on by default", read(src + "WhyTone.java").contains("value(\"edge_hold_light\", 1f)"));
         assertTrue(read("src/main/java/com/scamera/app/settings/DevKeys.java").contains("\"hybrid_why_edge_hold_light\", \"1\""));
         assertTrue("the dev line", read("src/main/java/com/scamera/app/settings/DevKeys.java").contains("\"hybrid_why_edge_hold\", \"1.0\""));

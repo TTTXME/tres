@@ -120,12 +120,12 @@ public final class SensorModePick {
         }
 
         Pick(int mode, int width, int height, boolean fullRes, int block, @Nullable String route, boolean ispOff) {
-            this.mode = mode;
-            this.width = width;
-            this.height = height;
             this.size = new Size(width, height);
+            this.mode = mode;
             this.fullRes = fullRes;
+            this.width = width;
             this.block = block;
+            this.height = height;
             this.route = route;
             this.ispOff = ispOff;
         }

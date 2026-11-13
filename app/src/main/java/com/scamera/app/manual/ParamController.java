@@ -41,10 +41,10 @@ import java.util.Observer;
  * Created by Vibhor Srivastava on 07/Jan/2021
  */
 public class ParamController implements Observer {
-    public int ISO = -1;
-    public int EV = 0;
-    public long SHUTTER = -1;
-    public float FOCUS = -1;
+    /** The panel's values as the requests take them: ISO and shutter (ns) -1 for auto, the EV index, the focus (-1: auto). */
+    public int isoSet = -1, evSet = 0;
+    public long shutterSetNs = -1;
+    public float focusSet = -1;
     private int whiteBalanceKelvin;
     private android.hardware.camera2.params.ColorSpaceTransform manualColorTransform;
     public void applyWhiteBalance(CaptureRequest.Builder preview) {
@@ -101,7 +101,7 @@ public class ParamController implements Observer {
             if (!(isoManual && shutterManual) && cam.unspektraAe().eligible()) {
                 stopPriority(preview);
                 priority = ExposurePriority.NONE;
-                cam.resetPreviewAEMode();
+                cam.restorePreviewAe();
                 cam.rebuildPreviewBuilder();
                 return;
             }
@@ -109,12 +109,12 @@ public class ParamController implements Observer {
         // P377: ETTR's shutter (the automatic exposure only): shutter priority at it, the AE's compensation keeps the ISO
         final boolean ettr = !isoManual && !shutterManual && ettrShutterNs > 0;
         final int mode = ExposurePriority.mode(isoManual, shutterManual || ettr);
-        final int iso = isoManual ? (int) manualParamModel.getCurrentISOValue() : 0;
-        final long shutter = shutterManual ? previewShutter((long) manualParamModel.getCurrentExposureValue()) : ettr ? ettrShutterNs : 0;
+        final int iso = isoManual ? (int) manualParamModel.isoSetting() : 0;
+        final long shutter = shutterManual ? previewShutter((long) manualParamModel.shutterValueNs()) : ettr ? ettrShutterNs : 0;
         if (mode == ExposurePriority.NONE) {
             stopPriority(preview);
             if (!isoManual) {
-                cam.resetPreviewAEMode();
+                cam.restorePreviewAe();
             } else {
                 preview.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_OFF);
                 preview.set(CaptureRequest.SENSOR_SENSITIVITY, iso);
@@ -128,7 +128,7 @@ public class ParamController implements Observer {
             qcomPriority = false;
             halPriority = true;
             halMisses = 0;
-            cam.resetPreviewAEMode();
+            cam.restorePreviewAe();
             preview.set(CaptureRequest.CONTROL_AE_PRIORITY_MODE, ExposurePriority.halMode(mode));
             if (mode == ExposurePriority.ISO) preview.set(CaptureRequest.SENSOR_SENSITIVITY, iso);
             else preview.set(CaptureRequest.SENSOR_EXPOSURE_TIME, shutter);
@@ -142,7 +142,7 @@ public class ParamController implements Observer {
             halPriority = false;
             qcomPriority = true;
             halMisses = 0;
-            cam.resetPreviewAEMode();
+            cam.restorePreviewAe();
             final boolean isoMode = mode == ExposurePriority.ISO;
             preview.set(QCOM_SELECT_PRIORITY, isoMode ? 0 : 1);
             preview.set(QCOM_ISO_EXP_PRIORITY, isoMode ? (long) iso : shutter);
@@ -342,7 +342,7 @@ public class ParamController implements Observer {
         final CaptureRequest.Builder b = cam.mPreviewRequestBuilder;
         if (b != null) {
             stopPriority(b);
-            cam.resetPreviewAEMode();
+            cam.restorePreviewAe();
         } else {
             halPriority = qcomPriority = false;
             loop = null;
@@ -435,7 +435,7 @@ public class ParamController implements Observer {
         setPostRawBoost(cam.mPreviewRequestBuilder, 1);
         Log.i(TAG, "motion shutter ceiling off: " + why);
         if (resetAe) {
-            cam.resetPreviewAEMode();
+            cam.restorePreviewAe();
             cam.rebuildPreviewBuilder();
         }
     }
@@ -559,7 +559,7 @@ public class ParamController implements Observer {
         } else if (action == MotionShutter.RELEASE) {
             Log.i(TAG, "motion shutter ceiling off: bright enough or no RAW level, the camera AE again");
             setPostRawBoost(preview, 1);
-            cam.resetPreviewAEMode();
+            cam.restorePreviewAe();
             cam.rebuildPreviewBuilder();
         }
         motionActive = motion.active();
@@ -635,11 +635,11 @@ public class ParamController implements Observer {
     }
 
     private boolean manualIso() {
-        return manualParamModel != null && manualParamModel.getCurrentISOValue() != ManualParamModel.ISO_AUTO;
+        return manualParamModel != null && manualParamModel.isoSetting() != ManualParamModel.ISO_AUTO_VALUE;
     }
 
     private boolean manualShutter() {
-        return manualParamModel != null && manualParamModel.getCurrentExposureValue() != ManualParamModel.EXPOSURE_AUTO;
+        return manualParamModel != null && manualParamModel.shutterValueNs() != ManualParamModel.SHUTTER_AUTO_NS;
     }
 
     /**
@@ -654,7 +654,7 @@ public class ParamController implements Observer {
     private double evStops() {
         CameraCharacteristics c = CaptureController.mCameraCharacteristics;
         android.util.Rational step = c == null ? null : c.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_STEP);
-        return EV * (step == null ? 1.0 / 3 : step.doubleValue());
+        return evSet * (step == null ? 1.0 / 3 : step.doubleValue());
     }
 
     private int isoMin() {
@@ -701,7 +701,7 @@ public class ParamController implements Observer {
      */
     public synchronized long pslShutterNs() {
         if (!manualShutter()) return 0;
-        final long ns = (long) manualParamModel.getCurrentExposureValue();
+        final long ns = (long) manualParamModel.shutterValueNs();
         return ns > PSL_SHUTTER_NS ? ns : 0;
     }
 
@@ -710,7 +710,7 @@ public class ParamController implements Observer {
      * its shutter, at most 1/10 s) moved onto the longer shutter, inside the module's ISO range.
      */
     public synchronized int pslIso(long shutterNs) {
-        if (manualIso()) return (int) manualParamModel.getCurrentISOValue();
+        if (manualIso()) return (int) manualParamModel.isoSetting();
         // P135: the automatic ISO stays within what the HAL honours for AE-off requests (P110 ExposureLimits; log 2026-10-15:
         // ISO 12800 asked for 0.8 s, 6400 delivered, the four N frames came half as bright as planned and were taken for ES)
         return pslIso(cam.mPreviewIso, cam.mPreviewExposureTime, shutterNs, isoMin(),
@@ -741,11 +741,11 @@ public class ParamController implements Observer {
         return r;
     }
 
-    /** {@code diopters}: a hand-set focus distance (AF off), or FOCUS_AUTO for the AF mode of the settings. */
+    /** {@code diopters}: a hand-set focus distance (AF off), or FOCUS_AUTO_DIOPTERS for the AF mode of the settings. */
     public void setFocus(float diopters) {
         CaptureRequest.Builder r = viewfinder("focus");
         if (r == null) return;
-        boolean auto = diopters == ManualParamModel.FOCUS_AUTO;
+        boolean auto = diopters == ManualParamModel.FOCUS_AUTO_DIOPTERS;
         r.set(CaptureRequest.CONTROL_AF_MODE, auto ? PreferenceKeys.getAfMode() : CaptureRequest.CONTROL_AF_MODE_OFF);
         if (!auto) r.set(CaptureRequest.LENS_FOCUS_DISTANCE, diopters);
         cam.rebuildPreviewBuilder();
@@ -765,30 +765,30 @@ public class ParamController implements Observer {
      * exposure compensation is unavailable then). The stored value is kept and applies again when either returns to auto.
      */
     public int effectiveEv() {
-        if (manualParamModel == null) return EV;
-        return ManualPanelState.effectiveEvIndex(EV, manualParamModel.getCurrentISOValue() != ManualParamModel.ISO_AUTO,
-                manualParamModel.getCurrentExposureValue() != ManualParamModel.EXPOSURE_AUTO);
+        if (manualParamModel == null) return evSet;
+        return ManualPanelState.effectiveEvIndex(evSet, manualParamModel.isoSetting() != ManualParamModel.ISO_AUTO_VALUE,
+                manualParamModel.shutterValueNs() != ManualParamModel.SHUTTER_AUTO_NS);
     }
 
     /** ISO or shutter changed: the EV lock may have changed, so the builder gets the effective EV before the rebuild. */
     private void syncEvLock() {
         CaptureRequest.Builder preview = cam.mPreviewRequestBuilder;
-        if (preview != null && EV != 0) preview.set(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION, CaptureController.ettrIndex(cam, effectiveEv()));
+        if (preview != null && evSet != 0) preview.set(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION, CaptureController.ettrIndex(cam, effectiveEv()));
     }
 
     /** P201: the hand-set ISO (0 = automatic). */
     public int manualIsoValue() {
-        return manualIso() ? (int) manualParamModel.getCurrentISOValue() : 0;
+        return manualIso() ? (int) manualParamModel.isoSetting() : 0;
     }
 
     /** P590: the hand-set shutter of the photo (not clamped to the viewfinder's; 0 = automatic): a manual flash frame's. */
     public long manualShotShutterNs() {
-        return manualShutter() ? (long) manualParamModel.getCurrentExposureValue() : 0;
+        return manualShutter() ? (long) manualParamModel.shutterValueNs() : 0;
     }
 
         /** P201: the hand-set shutter on the viewfinder (at most PREVIEW_SHUTTER_MAX_NS; 0 = automatic). */
     public long manualPreviewShutterNs() {
-        return manualShutter() ? previewShutter((long) manualParamModel.getCurrentExposureValue()) : 0;
+        return manualShutter() ? previewShutter((long) manualParamModel.shutterValueNs()) : 0;
     }
 
     /** P201: a hand-set white balance. */
@@ -809,7 +809,7 @@ public class ParamController implements Observer {
 
     /** P201: the hand-set focus distance (diopters), or -1 for the autofocus. */
     public float manualFocusDistance() {
-        return FOCUS >= 0f && FOCUS != (float) ManualParamModel.FOCUS_AUTO ? FOCUS : -1f;
+        return focusSet >= 0f && focusSet != (float) ManualParamModel.FOCUS_AUTO_DIOPTERS ? focusSet : -1f;
     }
 
     /**
@@ -823,15 +823,15 @@ public class ParamController implements Observer {
         // not synchronized: it runs inside the camera's request rebuilds (any thread), reading the last applied state
         final ManualParamModel model = manualParamModel;
         if (preview == null || model == null) return;
-        final boolean isoManual = model.getCurrentISOValue() != ManualParamModel.ISO_AUTO,
-                shutterManual = model.getCurrentExposureValue() != ManualParamModel.EXPOSURE_AUTO;
+        final boolean isoManual = model.isoSetting() != ManualParamModel.ISO_AUTO_VALUE,
+                shutterManual = model.shutterValueNs() != ManualParamModel.SHUTTER_AUTO_NS;
         final boolean ettr = !isoManual && !shutterManual && ettrShutterNs > 0; // P377
         final ExposurePriority.Loop softLoop = loop;
         if (isoManual || shutterManual || ettr) {
             if (ExposurePriority.mode(isoManual, shutterManual || ettr) == ExposurePriority.NONE) {
                 preview.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_OFF);
-                preview.set(CaptureRequest.SENSOR_SENSITIVITY, (int) model.getCurrentISOValue());
-                preview.set(CaptureRequest.SENSOR_EXPOSURE_TIME, previewShutter((long) model.getCurrentExposureValue()));
+                preview.set(CaptureRequest.SENSOR_SENSITIVITY, (int) model.isoSetting());
+                preview.set(CaptureRequest.SENSOR_EXPOSURE_TIME, previewShutter((long) model.shutterValueNs()));
             } else if (softLoop != null && !halPriority && !qcomPriority) {
                 preview.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_OFF);
                 preview.set(CaptureRequest.SENSOR_SENSITIVITY, softLoop.iso());
@@ -855,47 +855,47 @@ public class ParamController implements Observer {
     /** P630e: a hand-set ISO or shutter (Oldstyle keeps it for its burst: no metered plan). */
     public boolean manualExposure() {
         final ManualParamModel m = manualParamModel;
-        return m != null && (m.getCurrentISOValue() != ManualParamModel.ISO_AUTO || m.getCurrentExposureValue() != ManualParamModel.EXPOSURE_AUTO);
+        return m != null && (m.isoSetting() != ManualParamModel.ISO_AUTO_VALUE || m.shutterValueNs() != ManualParamModel.SHUTTER_AUTO_NS);
     }
 
-    public boolean isManualMode() {
-        return manualParamModel != null && manualParamModel.isManualMode();
+    public boolean offAuto() {
+        return manualParamModel != null && manualParamModel.offAuto();
     }
 
-    /** The panel changed one value (its ID_* name), or everything went back to auto (PANEL_INVISIBILITY). */
+    /** The panel changed one value (its ID_* name), or everything went back to auto (ALL_AUTO). */
     @Override
     public void update(Observable source, Object what) {
         if (source == null || what == null) return;
         ManualParamModel m = (ManualParamModel) source;
         manualParamModel = m;
-        if (ManualParamModel.ID_WB.equals(what)) setWhiteBalance(m.getWhiteBalanceKelvin());
-        if (ManualParamModel.ID_ISO.equals(what)) {
-            ISO = (int) m.getCurrentISOValue();
+        if (ManualParamModel.CHANGED_WB.equals(what)) setWhiteBalance(m.kelvinSetting());
+        if (ManualParamModel.CHANGED_ISO.equals(what)) {
+            isoSet = (int) m.isoSetting();
             syncEvLock();
             applyExposure();
         }
-        if (ManualParamModel.ID_EV.equals(what)) {
-            EV = (int) m.getCurrentEvValue();
+        if (ManualParamModel.CHANGED_EV.equals(what)) {
+            evSet = (int) m.evIndex();
             setEV(effectiveEv());
         }
-        if (ManualParamModel.ID_SHUTTER.equals(what)) {
-            SHUTTER = (long) m.getCurrentExposureValue();
+        if (ManualParamModel.CHANGED_SHUTTER.equals(what)) {
+            shutterSetNs = (long) m.shutterValueNs();
             syncEvLock();
             applyExposure();
         }
-        if (ManualParamModel.ID_FOCUS.equals(what)) {
-            FOCUS = (float) m.getCurrentFocusValue();
-            setFocus(FOCUS);
+        if (ManualParamModel.CHANGED_FOCUS.equals(what)) {
+            focusSet = (float) m.focusValue();
+            setFocus(focusSet);
         }
-        if (ManualParamModel.PANEL_INVISIBILITY.equals(what)) allAuto();
+        if (ManualParamModel.ALL_AUTO.equals(what)) allAuto();
     }
 
     /** Everything back to auto: the stored values, the priority AE, the white balance and the focus lock. */
     private void allAuto() {
-        ISO = -1;
-        EV = 0;
-        SHUTTER = -1;
-        FOCUS = -1;
+        isoSet = -1;
+        evSet = 0;
+        shutterSetNs = -1;
+        focusSet = -1;
         synchronized (this) {
             // the «Движение» ceiling stays: the console's 3A reset writes AE on, motionStep puts its request back
             priority = ExposurePriority.NONE;
@@ -929,15 +929,15 @@ public class ParamController implements Observer {
         applyWhiteBalance(cam.mPreviewRequestBuilder);
         if (manualParamModel == null) return;
         if (manualIso() || manualShutter()) applyExposure();
-        if (EV != 0) setEV(effectiveEv());
-        if (FOCUS != -1) setFocus(FOCUS);
+        if (evSet != 0) setEV(effectiveEv());
+        if (focusSet != -1) setFocus(focusSet);
     }
 
-    public double getCurrentExposureValue() {
-        return manualParamModel == null ? ManualParamModel.EXPOSURE_AUTO : manualParamModel.getCurrentExposureValue();
+    public double shutterValueNs() {
+        return manualParamModel == null ? ManualParamModel.SHUTTER_AUTO_NS : manualParamModel.shutterValueNs();
     }
 
-    public double getCurrentISOValue() {
-        return manualParamModel == null ? ManualParamModel.ISO_AUTO : manualParamModel.getCurrentISOValue();
+    public double isoSetting() {
+        return manualParamModel == null ? ManualParamModel.ISO_AUTO_VALUE : manualParamModel.isoSetting();
     }
 }

@@ -1,6 +1,4 @@
-precision highp float;
-precision highp int;
-precision highp sampler2D;
+precision highp float; precision highp int; precision highp sampler2D;
 // P614 «Why тон» V2 (WhyV2Highlights): the reference tone's hr_extract, one to one - at half the grid, the cube-root chroma of the unclipped pixels between 0.1 and 1 x the threshold (the clean RGB read bilinear), weighted.
 uniform sampler2D u_tex_rgb;
 uniform int u_width; uniform int u_height;

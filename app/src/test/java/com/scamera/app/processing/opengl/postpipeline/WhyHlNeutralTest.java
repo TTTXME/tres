@@ -27,8 +27,8 @@ public class WhyHlNeutralTest {
         assertTrue(shader.contains("#define HL_NEUTRAL 0\n"));
         assertTrue(shader.contains("#if HL_NEUTRAL == 1\nuniform float hlNeutralU;"));
         final String why = read(src + "WhyCombine.java"), live = read(src + "LiveWhyTone.java");
-        assertTrue(why.contains("if (WhyTone.hlNeutral() > 0f) glProg.setDefine(\"HL_NEUTRAL\", 1);"));
-        assertTrue(why.contains("glProg.setVar(\"hlNeutralU\", WhyTone.hlNeutral());"));
+        assertTrue(why.contains("if (WhyTone.hlNeutral() > 0f) shaderProg.setDefine(\"HL_NEUTRAL\", 1);"));
+        assertTrue(why.contains("shaderProg.setVar(\"hlNeutralU\", WhyTone.hlNeutral());"));
         assertTrue(live.contains("if (hlNeutral > 0f) defs.add(new String[]{\"HL_NEUTRAL\", \"1\"});"));
         assertTrue(live.contains("set(p, \"hlNeutralU\", hlNeutral);"));
         assertTrue("on by default", read(src + "WhyTone.java").contains("value(\"hl_neutral\", 1f)"));

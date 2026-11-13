@@ -324,7 +324,7 @@ public class ModuleProfilesPageTest {
         PreferenceManager pm = new PreferenceManager(context);
         PreferenceScreen screen = pm.inflateFromResource(context, R.xml.preferences, null);
         pm.setPreferences(screen);
-        for (Class<?> type : TunableRegistry.TUNABLE_CLASSES) TunablePreferenceGenerator.registerTunableClass(type);
+        for (Class<?> type : TunableRegistry.OWNERS) TunablePreferenceGenerator.registerTunableClass(type);
         TunablePreferenceGenerator.generatePreferences(context, screen);
         return screen;
     }

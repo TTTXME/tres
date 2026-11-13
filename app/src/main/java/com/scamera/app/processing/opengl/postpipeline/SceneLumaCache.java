@@ -29,11 +29,11 @@ final class SceneLumaCache {
             if (manager == null) return null;
             ActivityManager.MemoryInfo memory = new ActivityManager.MemoryInfo();
             manager.getMemoryInfo(memory);
-            if (memory.lowMemory || !fits(input.mSize.x, input.mSize.y, memory.availMem)) return null;
-            cache = new GLTexture(input.mSize, new GLFormat(GLFormat.DataType.FLOAT_32, 1), null,
+            if (memory.lowMemory || !fits(input.size.x, input.size.y, memory.availMem)) return null;
+            cache = new GLTexture(input.size, new GLFormat(GLFormat.DataType.FLOAT_32, 1), null,
                     GLES30.GL_NEAREST, GLES30.GL_CLAMP_TO_EDGE);
-            cache.BufferLoad();
-            if (cache.mTextureID == 0 || cache.mBuffer == 0
+            cache.renderInto();
+            if (cache.id == 0 || cache.framebuffer == 0
                     || GLES30.glCheckFramebufferStatus(GLES30.GL_FRAMEBUFFER) != GLES30.GL_FRAMEBUFFER_COMPLETE)
                 throw new IllegalStateException("R32F scene luma is not renderable");
             prog.useAssetProgram("why/scene_y", false);

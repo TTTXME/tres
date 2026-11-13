@@ -146,14 +146,14 @@ public class ParametersPlainTableTest {
     @Test public void aMosaicShotTakesThePlainMatrix() {
         teach();
         final Parameters p = mosaic(false);
-        p.ReCalcColor(false, result(IDENTITY, 0.4746f, 0.5986f));
+        p.resolveColour(false, result(IDENTITY, 0.4746f, 0.5986f));
         final float[] want = plainRows();
-        for (int i = 0; i < 9; i++) assertEquals("element " + i, want[i], p.CCT.matrix[i], 2e-3f);
+        for (int i = 0; i < 9; i++) assertEquals("element " + i, want[i], p.colorTransform.matrix[i], 2e-3f);
         assertTrue(p.mosaicMatrixSource, p.mosaicMatrixSource.contains("plain-session matrix of camera 5"));
         assertEquals(6200f, p.sceneCct, 1f);
         // the white balance is the division by the neutral (the ISP branch)
-        assertEquals(1f / p.whitePoint[0], p.sensorToProPhoto[0], 1e-6f);
-        assertEquals(0f, p.sensorToProPhoto[1], 0f);
+        assertEquals(1f / p.asShotNeutral[0], p.cameraToProPhoto[0], 1e-6f);
+        assertEquals(0f, p.cameraToProPhoto[1], 0f);
     }
 
     /** P121's own neutral on a result whose ISP matrix was picked at the camera's neutral: the table's matrix at our neutral. */
@@ -161,8 +161,8 @@ public class ParametersPlainTableTest {
         teach();
         final Parameters p = mosaic(true);
         p.customNeutral = new float[]{0.47f, 1f, 0.61f};
-        p.ReCalcColor(true, result(cst(128, 185, -59, 2, -17, 173, -28, 2, -69, 194), 0.40f, 0.70f));
-        assertEquals(plainRows()[0], p.CCT.matrix[0], 2e-3f);
+        p.resolveColour(true, result(cst(128, 185, -59, 2, -17, 173, -28, 2, -69, 194), 0.40f, 0.70f));
+        assertEquals(plainRows()[0], p.colorTransform.matrix[0], 2e-3f);
         assertTrue(p.mosaicMatrixSource, p.mosaicMatrixSource.contains("plain-session"));
     }
 
@@ -171,24 +171,24 @@ public class ParametersPlainTableTest {
         teach();
         final ColorSpaceTransform own = cst(128, 168, -38, -2, -20, 160, -12, 2, -60, 186);
         final Parameters p = mosaic(false);
-        p.ReCalcColor(false, result(own, 0.4746f, 0.5986f));
-        assertEquals(168f / 128f, p.CCT.matrix[0], 1e-2f);
+        p.resolveColour(false, result(own, 0.4746f, 0.5986f));
+        assertEquals(168f / 128f, p.colorTransform.matrix[0], 1e-2f);
         assertTrue(p.mosaicMatrixSource, p.mosaicMatrixSource.contains("ISP transform of the result"));
     }
 
     /** Not a mosaic shot, or an empty table: the DNG matrices as before (the same render with and without the table). */
     @Test public void otherShotsAndAnEmptyTableKeepTheDngMatrices() {
         final Parameters before = mosaic(false);
-        before.ReCalcColor(false, result(IDENTITY, 0.4746f, 0.5986f));
+        before.resolveColour(false, result(IDENTITY, 0.4746f, 0.5986f));
         assertTrue(before.mosaicMatrixSource, before.mosaicMatrixSource.contains("DNG matrices") && before.mosaicMatrixSource.contains("no bin"));
         teach();
         final Parameters plain = new Parameters();
         plain.physicalID = 5;
         plain.cameraID = "5";
-        plain.ReCalcColor(false, result(IDENTITY, 0.4746f, 0.5986f));
+        plain.resolveColour(false, result(IDENTITY, 0.4746f, 0.5986f));
         assertEquals("", plain.mosaicMatrixSource);
-        for (int i = 0; i < 9; i++) assertEquals(before.CCT.matrix[i], plain.CCT.matrix[i], 1e-6f);
-        assertNotEquals(plainRows()[0], plain.CCT.matrix[0], 1e-3f);
+        for (int i = 0; i < 9; i++) assertEquals(before.colorTransform.matrix[i], plain.colorTransform.matrix[i], 1e-6f);
+        assertNotEquals(plainRows()[0], plain.colorTransform.matrix[0], 1e-3f);
     }
 
     /**
@@ -200,30 +200,30 @@ public class ParametersPlainTableTest {
     @Test public void aTwelveMegapixelMosaicShotTakesTheTableByDefault() {
         final Parameters before = iszMosaic(true);
         before.customNeutral = new float[]{0.47f, 1f, 0.61f};
-        before.ReCalcColor(true, result(IDENTITY, 0.40f, 0.70f));
+        before.resolveColour(true, result(IDENTITY, 0.40f, 0.70f));
         teach();
         assertTrue(PlainColourMemory.wanted(true));
         assertTrue("P366: the 12 MP ISZ modules by default", PlainColourMemory.wanted(false));
         final Parameters isz = iszMosaic(true);
         isz.customNeutral = new float[]{0.47f, 1f, 0.61f};
-        isz.ReCalcColor(true, result(IDENTITY, 0.40f, 0.70f));
-        assertEquals(plainRows()[0], isz.CCT.matrix[0], 2e-3f);
+        isz.resolveColour(true, result(IDENTITY, 0.40f, 0.70f));
+        assertEquals(plainRows()[0], isz.colorTransform.matrix[0], 2e-3f);
         assertTrue(isz.mosaicMatrixSource, isz.mosaicMatrixSource.contains("plain-session"));
         ccmTable = 1f;
         assertTrue(PlainColourMemory.wanted(true));
         assertFalse(PlainColourMemory.wanted(false));
         final Parameters fullResOnly = iszMosaic(true);
         fullResOnly.customNeutral = new float[]{0.47f, 1f, 0.61f};
-        fullResOnly.ReCalcColor(true, result(IDENTITY, 0.40f, 0.70f));
+        fullResOnly.resolveColour(true, result(IDENTITY, 0.40f, 0.70f));
         assertTrue(fullResOnly.mosaicMatrixSource, fullResOnly.mosaicMatrixSource.contains("DNG matrices")
                 && fullResOnly.mosaicMatrixSource.contains("not a FULLRES shot"));
-        for (int i = 0; i < 9; i++) assertEquals("element " + i, before.CCT.matrix[i], fullResOnly.CCT.matrix[i], 1e-6f);
+        for (int i = 0; i < 9; i++) assertEquals("element " + i, before.colorTransform.matrix[i], fullResOnly.colorTransform.matrix[i], 1e-6f);
         ccmTable = 0f;
         final Parameters off = mosaic(true);
         off.customNeutral = new float[]{0.47f, 1f, 0.61f};
-        off.ReCalcColor(true, result(IDENTITY, 0.40f, 0.70f));
+        off.resolveColour(true, result(IDENTITY, 0.40f, 0.70f));
         assertTrue(off.mosaicMatrixSource, off.mosaicMatrixSource.contains("mosaic_ccm_table 0"));
-        for (int i = 0; i < 9; i++) assertEquals("element " + i, before.CCT.matrix[i], off.CCT.matrix[i], 1e-6f);
+        for (int i = 0; i < 9; i++) assertEquals("element " + i, before.colorTransform.matrix[i], off.colorTransform.matrix[i], 1e-6f);
     }
 
     /** The rule itself: a mosaic shot, no tuned matrix, and the result's matrix does not fit (own neutral, or not usable). */

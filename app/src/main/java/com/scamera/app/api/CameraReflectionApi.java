@@ -29,7 +29,7 @@ public final class CameraReflectionApi {
                                                                  boolean includeSynthetic) {
         try {
             final Class<?> keyType = Class.forName("android.hardware.camera2.CameraCharacteristics$Key");
-            final Method getKeys = NativeEngine.getCameraMethod(CameraMetadata.class, "getKeys",
+            final Method getKeys = NativeEngine.findMethod(CameraMetadata.class, "getKeys",
                     Class.class, Class.class, CameraMetadata.class, int[].class, boolean.class);
             if (getKeys == null) {
                 Log.e(TAG, "Failed to find getKeys method");
@@ -53,11 +53,11 @@ public final class CameraReflectionApi {
     private static void setNative(Class<?> ownerType, String field, Object owner, String setter, Class<?> keyType,
                                   Object key, Object value, String what) {
         try {
-            final Field holder = NativeEngine.getCameraField(ownerType, field);
+            final Field holder = NativeEngine.findField(ownerType, field);
             holder.setAccessible(true);
             final Object metadata = holder.get(owner);
             if (metadata == null) throw new IllegalStateException("no metadata in " + field);
-            final Method set = NativeEngine.getCameraMethod(metadata.getClass(), setter, keyType, Object.class);
+            final Method set = NativeEngine.findMethod(metadata.getClass(), setter, keyType, Object.class);
             set.setAccessible(true);
             set.invoke(metadata, key, value);
         } catch (Exception e) {
@@ -103,7 +103,7 @@ public final class CameraReflectionApi {
         try {
             Field field = resultsField;
             if (field == null) {
-                field = NativeEngine.getCameraField(CaptureResult.class, "mResults");
+                field = NativeEngine.findField(CaptureResult.class, "mResults");
                 field.setAccessible(true);
                 resultsField = field;
             }
@@ -111,7 +111,7 @@ public final class CameraReflectionApi {
             if (metadata == null) return false;
             Method set = resultsSet;
             if (set == null || set.getDeclaringClass() != metadata.getClass()) {
-                set = NativeEngine.getCameraMethod(metadata.getClass(), "set", CaptureResult.Key.class, Object.class);
+                set = NativeEngine.findMethod(metadata.getClass(), "set", CaptureResult.Key.class, Object.class);
                 set.setAccessible(true);
                 resultsSet = set;
             }

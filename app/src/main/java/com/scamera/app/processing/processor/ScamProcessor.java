@@ -19,7 +19,7 @@ import com.scamera.app.processing.RawBin;
 import com.scamera.app.processing.RawCrop;
 import com.scamera.app.processing.opengl.GLLimits;
 import com.scamera.app.processing.ImageSaver;
-import com.scamera.app.processing.ProcessingEventsListener;
+import com.scamera.app.processing.ProcessingEvents;
 import com.scamera.app.processing.opengl.postpipeline.PostPipeline;
 import com.scamera.app.processing.ultrahdr.GainMapComputer;
 import com.scamera.app.processing.parameters.IsoExpoSelector;
@@ -64,20 +64,20 @@ public class ScamProcessor extends ProcessorBase {
     /** W1.3: the post pipeline whose GL teardown waits until the JPEG is saved (null: none pending). */
     private PostPipeline deferredPipeline;
     /**
-     * The post pipeline of this shot until it is closed or deferred (null: none open): when the shot fails in between, Run()'s finally
+     * The post pipeline of this shot until it is closed or deferred (null: none open): when the shot fails in between, runPass()'s finally
      * tears it down. Above 16 MP or with the gain-map pass nothing did, so the kept context stayed taken and its textures (GBs at
      * 50 / 200 MP) stayed allocated.
      */
     private PostPipeline openPipeline;
     /**
      * The reference RAW the shot took from its frame (an arena view up to 16 MP, its own copy above) until its frees below (null:
-     * freed or handed on): when the shot fails after the merge, Run()'s finally frees it. Its frame's buffer is null by then, so the
+     * freed or handed on): when the shot fails after the merge, runPass()'s finally frees it. Its frame's buffer is null by then, so the
      * frames' close skipped it and the view kept the whole shot arena mapped, or a ZSL ring slot pinned, for the process lifetime.
      */
     private ByteBuffer referenceRaw;
 
 
-    public ScamProcessor(ProcessingEventsListener listener) {
+    public ScamProcessor(ProcessingEvents listener) {
         super(listener);
     }
 
@@ -122,24 +122,24 @@ public class ScamProcessor extends ProcessorBase {
     /** P212g (W6 = M6): the mosaic white balance's route at the press of the queued shot (null: none). */
     public com.scamera.app.processing.color.MosaicNeutralResolver.Press ownedMosaicWb;
     private com.scamera.app.processing.color.MosaicNeutralResolver.Press mosaicWb;
-    private java.util.List<IsoExpoSelector.ExpoPair> fullpairs;
+    private java.util.List<IsoExpoSelector.ExpoPair> shotPlan;
 
     /** Takes over the shot (its files, frames, their exposures and gyro, the camera and the reference frame's metadata). */
     public void start(Path dng, Path image, ParseExif.ExifData exif, ArrayList<GyroBurst> gyro, ArrayList<ImageFrame> frames,
                       HashMap<Long, Double> exposureOfFrame, int format, int rotation, CameraCharacteristics camera,
                       CaptureResult result, CaptureRequest request, ProcessingCallback listener) {
-        dngFile = dng;
-        imageFile = image;
-        exifData = exif;
+        dngPath = dng;
+        photoPath = image;
+        shotExif = exif;
         burstGyro = new ArrayList<>(gyro);
         burstFrames = frames;
         frameExposures = exposureOfFrame;
         imageFormat = format;
-        cameraRotation = rotation;
-        characteristics = camera;
-        captureResult = result;
-        captureRequest = request;
-        callback = listener;
+        shotRotation = rotation;
+        shotCamera = camera;
+        shotResult = result;
+        shotRequest = request;
+        stages = listener;
         this.iszAspect4x3 = ownedIszAspect4x3;
         ownedIszAspect4x3 = false;
         this.fullResSeries = ownedFullResSeries;
@@ -172,30 +172,30 @@ public class ScamProcessor extends ProcessorBase {
         ownedHybridRoute = null;
         this.yuvShot = com.scamera.app.processing.yuv.YuvFrames.isYuv(imageFormat);
         android.util.Log.i("SCAM_HDR", "route=" + PreferenceKeys.mergeRoute() + (hybridShot ? " (SCAM Hybrid merges)" : scamCapture ? " (SCAM HDR merges)" : " (no SCAM route)"));
-        this.fullpairs = ownedPairs != null ? ownedPairs : IsoExpoSelector.fullpairs;
+        this.shotPlan = ownedPairs != null ? ownedPairs : IsoExpoSelector.shotPlan;
         Log.d(TAG, "start()");
         PreferenceKeys.beginShotProfile(hybridShot);
         com.scamera.app.settings.MotionMode.beginShot(ownedMotion);
         ownedMotion = null;
         try {
-            Run();
+            runPass();
         } finally {
             com.scamera.app.settings.MotionMode.endShot();
             PreferenceKeys.endShotProfile();
         }
     }
 
-    public void Run() {
+    public void runPass() {
         // P277: a lab run (settings «Гайд и лаборатория») and a shot never process at once
         com.scamera.app.processing.opengl.postpipeline.ScamLab.LOCK.lock();
         try {
             stageName = "camera metadata";
-            Camera2ApiAutoFix.ApplyRes(captureResult, characteristics); // P370 (review): the shot's black-level pattern
+            Camera2ApiAutoFix.ApplyRes(shotResult, shotCamera); // P370 (review): the shot's black-level pattern
             if (CaptureController.isRawFormat(imageFormat) || yuvShot) { // P646: a YUV shot takes the same steps, its merge YuvBurst
                 processBurst();
             } else {
                 Log.d(TAG, "Processing skipped: unsupported image format " + imageFormat);
-                callback.onFinished();
+                stages.finished();
                 return;
             }
 //            if (isYuv) {
@@ -203,9 +203,9 @@ public class ScamProcessor extends ProcessorBase {
 //            }
         } catch (Exception | OutOfMemoryError e) {
             // P27 any resolution: an allocation that grows with the frame (Java heap) fails the shot, not the processing thread.
-            Log.e(TAG, ProcessingEventsListener.FAILED_MSG);
+            Log.e(TAG, ProcessingEvents.SAVE_FAILED);
             Log.e(TAG, "Processing failed: "+stackTrace(e));
-            callback.onFailed();
+            stages.failed();
             String detail = e.getClass().getSimpleName();
             if (e.getMessage() != null && !e.getMessage().isEmpty()) {
                 detail += ": " + e.getMessage();
@@ -218,7 +218,7 @@ public class ScamProcessor extends ProcessorBase {
                     detail += ": " + root.getMessage();
                 }
             }
-            processingEventsListener.onProcessingError("SCAM processing failed at "
+            events.processingFailed("SCAM processing failed at "
                     + stageName + " — " + detail);
          } finally {
           try {
@@ -320,13 +320,13 @@ public class ScamProcessor extends ProcessorBase {
      * The DNG's saved status goes to the listener when it is saved, or when it is the shot (RAW only, the merged mosaic DNG alone).
      * A failed optional DNG is a notice: its «could not be saved» card said the photo was lost while the JPEG was saved after it.
      */
-    static void reportDng(ProcessingEventsListener listener, boolean saved, int rawSaving, boolean mosaicDngOnly, Path dngFile) {
+    static void reportDng(ProcessingEvents listener, boolean saved, int rawSaving, boolean mosaicDngOnly, Path dngFile) {
         if (saved || rawSaving == 2 || mosaicDngOnly) {
-            listener.notifyImageSavedStatus(saved, dngFile);
+            listener.imageSaved(saved, dngFile);
             return;
         }
         try {
-            listener.onProcessingChanged(Lang.t("DNG не сохранён; фото сохраняется", "DNG not saved; the photo is still being saved"));
+            listener.processingProgress(Lang.t("DNG не сохранён; фото сохраняется", "DNG not saved; the photo is still being saved"));
         } catch (RuntimeException e) {
             Log.d(TAG, "DNG notice: " + e);
         }
@@ -392,12 +392,12 @@ public class ScamProcessor extends ProcessorBase {
         final int[] manual = PreferenceKeys.rawCropMargins();
         final ImageFrame first = burstFrames.get(0);
         final int w = first.width, h = first.height;
-        final Integer mounted = characteristics.get(CameraCharacteristics.SENSOR_ORIENTATION);
+        final Integer mounted = shotCamera.get(CameraCharacteristics.SENSOR_ORIENTATION);
         final int orientation = mounted == null ? 90 : mounted;
         try {
-            final float black = com.scamera.app.processing.RawLevels.current(characteristics, captureResult).meanBlack();
+            final float black = com.scamera.app.processing.RawLevels.current(shotCamera, shotResult).meanBlack();
             // P230: a DCG mode shorter than the buffer (Xiaomi 15 Ultra: 2560 rows of 4096 x 3072): its empty band goes as well
-            final int[] mode = com.scamera.app.capture.SensorModeBand.shotPadding(characteristics, captureResult, first.buffer, w, h);
+            final int[] mode = com.scamera.app.capture.SensorModeBand.shotPadding(shotCamera, shotResult, first.buffer, w, h);
             final RawCrop.Shot shot = RawCrop.cutShot(burstFrames, black, auto, manual, orientation, mode);
             if (auto) PreferenceKeys.setRawCropDetected(RawCrop.describe(w, h, shot.padding, orientation));
             return shot;
@@ -409,26 +409,26 @@ public class ScamProcessor extends ProcessorBase {
 
     private void stage(float fraction) {
         try {
-            processingEventsListener.onProcessingChanged(fraction);
+            events.processingProgress(fraction);
         } catch (RuntimeException e) {
-            Log.d(TAG, "onProcessingChanged: " + e);
+            Log.d(TAG, "processingProgress: " + e);
         }
     }
 
     /** P220: a progress event of this shot for the ring (the large-shot hint, the merge's measured share); never stops it. */
     private void progress(com.scamera.app.processing.ProcessingProgress event) {
         try {
-            processingEventsListener.onProcessingChanged(event);
+            events.processingProgress(event);
         } catch (RuntimeException e) {
-            Log.d(TAG, "onProcessingChanged: " + e);
+            Log.d(TAG, "processingProgress: " + e);
         }
     }
 
     private void processBurst() {
         stageName = "input validation";
         com.scamera.app.processing.ShotTimeline.mark("prep");
-        callback.onStarted();
-        processingEventsListener.onProcessingStarted("SCAM");
+        stages.started();
+        events.processingStarted("SCAM");
 
         Log.d(TAG, "processBurst() called from " + Thread.currentThread().getName());
 
@@ -458,7 +458,7 @@ public class ScamProcessor extends ProcessorBase {
         if (!yuvShot && !RawBin.fits(burstFrames.get(0).width, burstFrames.get(0).height, gpuMaxSide, halfCapable)) {
             // P127: the stream's levels at its bit depth (RawLevels) for the mosaic check of the binning
             final com.scamera.app.processing.RawLevels.Levels levels =
-                    com.scamera.app.processing.RawLevels.current(characteristics, captureResult);
+                    com.scamera.app.processing.RawLevels.current(shotCamera, shotResult);
             try {
                 rawBinning = RawBin.binOversized(burstFrames, levels.meanBlack(), levels.white, gpuMaxSide, halfCapable);
             } catch (java.io.IOException e) {
@@ -470,8 +470,8 @@ public class ScamProcessor extends ProcessorBase {
         // P220: a large shot's ring does not run ahead on the last 12 MP shot's time (its merge reports its own progress)
         if ((long) width * height > 16_000_000L) progress(com.scamera.app.processing.ProcessingProgress.large());
         Log.d(TAG, "processBurst: buffer:" + burstFrames.get(0).buffer.asShortBuffer().remaining());
-        Log.d(TAG, "Api WhiteLevel:" + characteristics.get(CameraCharacteristics.SENSOR_INFO_WHITE_LEVEL));
-        Log.d(TAG, "Api BlackLevel:" + characteristics.get(CameraCharacteristics.SENSOR_BLACK_LEVEL_PATTERN));
+        Log.d(TAG, "Api WhiteLevel:" + shotCamera.get(CameraCharacteristics.SENSOR_INFO_WHITE_LEVEL));
+        Log.d(TAG, "Api BlackLevel:" + shotCamera.get(CameraCharacteristics.SENSOR_BLACK_LEVEL_PATTERN));
         Parameters processingParameters = new Parameters();
         processingParameters.rawBinning = rawBinning;
         processingParameters.fullResSeries = fullResSeries;
@@ -487,10 +487,10 @@ public class ScamProcessor extends ProcessorBase {
         }
         processingParameters.scamHdrMode = PreferenceKeys.isScamHdrEnabled();
         processingParameters.cameraIdAtPress = cameraIdAtPress;
-        processingParameters.FillConstParameters(characteristics, new Point(width, height));
+        processingParameters.fillFromCamera(shotCamera, new Point(width, height));
         com.scamera.app.processing.ShotTimeline.mark("const_done"); // P625: const=
         // P618: the shot's time (its files' name) and its 4:3 photo crop, for the DNG's tags
-        processingParameters.captureTimeMs = exifData != null ? exifData.captureTimeMs : 0;
+        processingParameters.captureTimeMs = shotExif != null ? shotExif.captureTimeMs : 0;
         processingParameters.photoAspect4x3 = iszAspect4x3;
         logShotCamera(processingParameters, width, height);
         // Every shot is merged by the SCAM Hybrid or SCAM HDR (the legacy merge routes are gone).
@@ -574,7 +574,7 @@ public class ScamProcessor extends ProcessorBase {
         Log.i(TAG, "Short-frame highlight suppression strength: "
                 + processingParameters.highlightSuppressionStrength
                 + " (short headroom available: " + hasShortHeadroom + ")");
-        Log.d(TAG, "Wrapper.init");
+        Log.d(TAG, "frames of the merge: collecting");
         ArrayList<ImageFrame> images = new ArrayList<>();
         int normalFrames = 0;
         if (burstGyro.size() < burstFrames.size())
@@ -588,17 +588,17 @@ public class ScamProcessor extends ProcessorBase {
             frame.pair = pairByTimestamp.get(stamp);
             if (frame.measuredExposure > 0 && frame.measuredIso > 0) {
                 // what the frame reported beats what was asked for
-                frame.pair.exposure = frame.measuredExposure;
+                frame.pair.timeNs = frame.measuredExposure;
                 frame.pair.iso = frame.measuredIso;
             }
             frame.number = index++;
-            frame.pair.layerMpy = (float) (frameExposures.get(stamp) / minExpo);
-            final boolean longer = frame.pair.layerMpy > 1.0;
-            frame.pair.curlayer = longer ? IsoExpoSelector.ExpoPair.exposureLayer.High : IsoExpoSelector.ExpoPair.exposureLayer.Normal;
+            frame.pair.relExposure = (float) (frameExposures.get(stamp) / minExpo);
+            final boolean longer = frame.pair.relExposure > 1.0;
+            frame.pair.layerKind = longer ? IsoExpoSelector.ExpoPair.ExposureLayer.High : IsoExpoSelector.ExpoPair.ExposureLayer.Normal;
             if (!longer) normalFrames++;
             images.add(frame);
             // P440: the burst's mean ISO of the normal frames fed only the first metadata pass (now the levels alone): the photo's
-            // ISO is the reference frame's (its FillDynamicParameters below)
+            // ISO is the reference frame's (its fillFromFrame below)
         }
         // Measured for every frame, bracket members included. Their value is not directly comparable with a regular
         // frame's - the measure is normalised by level, not by the noise model, and a longer exposure has a better SNR,
@@ -615,21 +615,21 @@ public class ScamProcessor extends ProcessorBase {
         StringBuilder frameLog = new StringBuilder("frames ").append(images.size()).append(" (index=mpy/iso/sharpness/shakiness, L long, S short):");
         for (int i = 0; i < images.size(); i++) {
             ImageFrame frame = images.get(i);
-            frameLog.append(' ').append(i).append('=').append(frame.pair.layerMpy).append('/').append(frame.pair.iso)
-                    .append('/').append(frame.sharpness).append('/').append(frame.frameGyro.shakiness)
+            frameLog.append(' ').append(i).append('=').append(frame.pair.relExposure).append('/').append(frame.pair.iso)
+                    .append('/').append(frame.sharpness).append('/').append(frame.frameGyro.shakeScore)
                     .append(frame.pair.isLongFrame ? "L" : "").append(frame.pair.isHighlightFrame ? "S" : "");
         }
         Log.d(TAG, frameLog.toString());
 
         // P440 (owner, 2026-10-27: «нам нужно иметь как минимум не хуже скорость обработки чем у Why камеры»): of the last burst
         // callback's metadata only the levels are read before the reference frame's pass below - the darkest frame's black floor is
-        // measured at them and that pass reuses the measurement. Its whole FillDynamicParameters (lens shading, noise model, colour,
+        // measured at them and that pass reuses the measurement. Its whole fillFromFrame (lens shading, noise model, colour,
         // ~70 log lines), the normal frames' exposure time set after it and the EXIF sync made here were all replaced by that pass
-        // (FillDynamicParameters, ParseExif.syncWithParameters) before anything read them (FillFrameLevelsTest).
-        processingParameters.FillFrameLevels(captureResult);
+        // (fillFromFrame, ParseExif.syncWithParameters) before anything read them (FillFrameLevelsTest).
+        processingParameters.fillLevelsOnly(shotResult);
         if (!yuvShot) refineBlackFromDarkestFrame(processingParameters, images);
         com.scamera.app.processing.ShotTimeline.mark("levels_done"); // P625: levels=
-        processingParameters.cameraRotation = cameraRotation;
+        processingParameters.rotationDeg = shotRotation;
         stageName = "frame selection";
 
         // P267: «Наш ремозаик» off and a Quad / Tetra shot (ScamHybridBurst.lastDngMosaic): the merged mosaic DNG alone, no photo
@@ -657,19 +657,19 @@ public class ScamProcessor extends ProcessorBase {
                 if (referenceMetadata == null)
                     throw new IllegalStateException(Lang.t("SCAM HDR: нет метаданных опорного RAW timestamp=", "SCAM HDR: no metadata of the reference RAW timestamp=")
                             + scamReference.timestamp);
-                captureResult = referenceMetadata;
-                captureRequest = referenceMetadata.getRequest();
-                processingParameters.FillDynamicParameters(referenceMetadata, captureRequest,
+                shotResult = referenceMetadata;
+                shotRequest = referenceMetadata.getRequest();
+                processingParameters.fillFromFrame(referenceMetadata, shotRequest,
                         scamReference.measuredIso);
                 com.scamera.app.processing.ShotTimeline.mark("dyn_done"); // P625: dyn=
                 if (!yuvShot) refineBlackFromDarkestFrame(processingParameters, images);
                 if (dcgShot) dcgLinearity(processingParameters, images, scamReference);
                 com.scamera.app.processing.ShotTimeline.mark("dcg_done"); // P625: dcg=
-                if (!yuvShot) applyMosaicNeutral(processingParameters, scamReference, referenceMetadata, images, characteristics, iszAspect4x3);
+                if (!yuvShot) applyMosaicNeutral(processingParameters, scamReference, referenceMetadata, images, shotCamera, iszAspect4x3);
                 com.scamera.app.processing.ShotTimeline.mark("neutral_done"); // P625: neutral=
                 if (dcgShot) addOverflowFrames(processingParameters, images, dcgLinear); // P641d: DCG + LOFIC pairs
                 fieldOfView(processingParameters, iszAspect4x3, zoomResidual);
-                ParseExif.syncWithParameters(exifData, processingParameters);
+                ParseExif.syncWithParameters(shotExif, processingParameters);
                 Log.i("SCAM_HDR", "Reference calibration timestamp=" + scamReference.timestamp
                         + " ISO=" + processingParameters.iso
                         + " exposureSeconds=" + processingParameters.exposureTime);
@@ -704,7 +704,7 @@ public class ScamProcessor extends ProcessorBase {
                             // 969 ms YUV merge read as «gap» between nothing and the post)
                             com.scamera.app.processing.ShotTimeline.mark("job");
                             scamOwnedOutput = com.scamera.app.processing.yuv.YuvBurst.process(images, processingParameters,
-                                    characteristics, referenceMetadata);
+                                    shotCamera, referenceMetadata);
                             com.scamera.app.processing.ShotTimeline.mark("client_done");
                         } else
                         scamOwnedOutput = com.scamera.app.processing.opengl.postpipeline.ScamHybridBurst.process(
@@ -721,7 +721,7 @@ public class ScamProcessor extends ProcessorBase {
                         if (zones == null) {
                             // the owner's rule is two noise zones for DCG: a shot the merge could not measure says so
                             try {
-                                processingEventsListener.onProcessingChanged(Lang.t("DCG: шум не измерен (мало ровных участков) — одна кривая шума",
+                                events.processingProgress(Lang.t("DCG: шум не измерен (мало ровных участков) — одна кривая шума",
                                         "DCG: noise not measured (too few flat areas): one noise curve"));
                             } catch (RuntimeException e) {
                                 Log.d(TAG, "DCG noise notice: " + e);
@@ -734,7 +734,7 @@ public class ScamProcessor extends ProcessorBase {
                     // P190: a FULLRES series the merge cut (the worker, a fallback tier, the memory budget) is said aloud
                     final String notice = com.scamera.app.processing.opengl.postpipeline.ScamHybridBurst.takeSeriesNotice();
                     if (notice != null) {
-                        try { processingEventsListener.onProcessingChanged(notice); }
+                        try { events.processingProgress(notice); }
                         catch (RuntimeException e) { Log.d(TAG, "series notice: " + e); }
                     }
                     // P212d: the ultrashort frames' row profiles vote on the lamp flicker (MainsFlicker «Авто»), at the reference
@@ -779,9 +779,9 @@ public class ScamProcessor extends ProcessorBase {
             // dual-illuminant profile as before. P370 (review): a camera whose own ColorMatrix a DNG cannot carry (all zero without
             // the tags, singular) gets the JPEG's profile with dng_colour_jpeg 0 too
             if ((PreferenceKeys.scamDevSwitch("dng_colour_jpeg", true) || !processingParameters.dngColourMatrices())
-                    && processingParameters.CCT != null) {
+                    && processingParameters.colorTransform != null) {
                 processingParameters.dngColour = com.scamera.app.processing.color.DngColour.jpegProfile(
-                        processingParameters.sensorToProPhoto, processingParameters.CCT.matrix, processingParameters.whitePoint,
+                        processingParameters.cameraToProPhoto, processingParameters.colorTransform.matrix, processingParameters.asShotNeutral,
                         processingParameters.sceneCct);
                 if (processingParameters.dngColour == null)
                     Log.w(TAG, "DNG colour: the JPEG's matrices are not usable, the camera's profile is written");
@@ -799,11 +799,11 @@ public class ScamProcessor extends ProcessorBase {
             if (scamMergedDng != null) {
                 // The whole burst's merge (the N frames, the bracketed and the ultrashort ones; nothing else, no denoise),
                 // P165: 16 bit over its headroom, BaselineExposure log2(headroom) keeps its brightness.
-                float[] black = processingParameters.blackLevel.clone();
+                float[] black = processingParameters.cfaBlack.clone();
                 int white = processingParameters.whiteLevel;
                 float k = 65535f / white;
                 final float headroom = Math.max(1f, com.scamera.app.processing.opengl.postpipeline.ScamHybridBurst.lastMergedDngHeadroom);
-                for (int i = 0; i < 4; i++) processingParameters.blackLevel[i] = Math.round(black[i] * k);
+                for (int i = 0; i < 4; i++) processingParameters.cfaBlack[i] = Math.round(black[i] * k);
                 processingParameters.whiteLevel = 65535;
                 processingParameters.dngBaselineExposure = headroom > 1.0001f ? (float) (Math.log(headroom) / Math.log(2)) : 0f;
                 try {
@@ -812,13 +812,13 @@ public class ScamProcessor extends ProcessorBase {
                     // for them (base / FrameNumberSelector.frameCount, which nothing sets: the one-frame model)
                     final double mergeFrames = com.scamera.app.processing.opengl.postpipeline.ScamHybridBurst.lastMergeFrames;
                     final boolean framesKnown = Double.isFinite(mergeFrames) && mergeFrames >= 1;
-                    final com.scamera.app.processing.render.NoiseModeler nm = processingParameters.noiseModeler;
-                    final double[] camera = nm == null ? null : com.scamera.app.processing.DngMetadata.planes(framesKnown ? nm.baseModel : nm.computeModel);
+                    final com.scamera.app.processing.render.NoiseModeler nm = processingParameters.noiseModel;
+                    final double[] camera = nm == null ? null : com.scamera.app.processing.DngMetadata.planes(framesKnown ? nm.rawModel : nm.stackModel);
                     // P320: a DCG shot with measured zones: (S, O_hcg) per plane (DngMetadata.dcgPlanes, the same channel ratios,
                     // frames and headroom), its zones the burst's own noise, so not times the merge's factor; without zones as before
                     final float[] dcgZones = processingParameters.dcgShot
                             ? com.scamera.app.processing.render.NoiseModeler.dcgZones(processingParameters.dcgNoise) : null;
-                    final double[] baseG = nm == null ? null : com.scamera.app.processing.DngMetadata.planes(nm.baseModel);
+                    final double[] baseG = nm == null ? null : com.scamera.app.processing.DngMetadata.planes(nm.rawModel);
                     final double[] single = dcgZones != null ? com.scamera.app.processing.DngMetadata.dcgPlanes(dcgZones, camera,
                             baseG != null ? baseG[2] : Double.NaN, baseG != null ? baseG[3] : Double.NaN) : camera;
                     final float noiseFactor = dcgZones != null ? 1f : com.scamera.app.processing.opengl.postpipeline.ScamHybridBurst.lastNoiseFactor;
@@ -828,8 +828,8 @@ public class ScamProcessor extends ProcessorBase {
                             single, noiseFactor, headroom, framesKnown ? mergeFrames : 1, 1);
                     processingParameters.dngMosaicBlock = mergedDngBlock;
                     processingParameters.dngMerged = true; // P618: its ImageDescription
-                    imageSaved = mosaicDng ? ImageSaver.Util.saveStackedRaw(dngFile, scamMergedDng, processingParameters, true)
-                            : ImageSaver.Util.saveStackedRaw(dngFile, scamMergedDng, processingParameters);
+                    imageSaved = mosaicDng ? ImageSaver.Util.saveStackedRaw(dngPath, scamMergedDng, processingParameters, true)
+                            : ImageSaver.Util.saveStackedRaw(dngPath, scamMergedDng, processingParameters);
                     Log.i("SCAM_HDR", String.format(java.util.Locale.ROOT, "DNG: merged burst RAW (N, bracketed and ultrashort frames), "
                             + "16-bit, headroom x%.3f, BaselineExposure %+.2f EV", headroom, processingParameters.dngBaselineExposure));
                     final double[] np = processingParameters.dngNoiseProfile;
@@ -838,7 +838,7 @@ public class ScamProcessor extends ProcessorBase {
                             framesKnown ? String.format(java.util.Locale.ROOT, "%.2f", mergeFrames) : "unknown: legacy model", headroom,
                             noiseFactor, single[2], single[3]));
                 } finally {
-                    System.arraycopy(black, 0, processingParameters.blackLevel, 0, 4);
+                    System.arraycopy(black, 0, processingParameters.cfaBlack, 0, 4);
                     processingParameters.whiteLevel = white;
                     processingParameters.dngBaselineExposure = 0f;
                     processingParameters.dngNoiseProfile = null;
@@ -849,8 +849,8 @@ public class ScamProcessor extends ProcessorBase {
             } else {
                 // P214c: the reference RAW is one frame as the sensor gave it: the one-frame model (H, N, sites = 1), with the
                 // worker's measured correction of it when it made one (1 after the CPU fallback)
-                final com.scamera.app.processing.render.NoiseModeler nm = processingParameters.noiseModeler;
-                final double[] camera = nm == null ? null : com.scamera.app.processing.DngMetadata.planes(nm.baseModel);
+                final com.scamera.app.processing.render.NoiseModeler nm = processingParameters.noiseModel;
+                final double[] camera = nm == null ? null : com.scamera.app.processing.DngMetadata.planes(nm.rawModel);
                 // P320: a DCG shot with measured zones: (S, O_hcg) per plane of the one frame, not times the merge's factor
                 final float[] dcgZones = processingParameters.dcgShot
                         ? com.scamera.app.processing.render.NoiseModeler.dcgZones(processingParameters.dcgNoise) : null;
@@ -863,8 +863,8 @@ public class ScamProcessor extends ProcessorBase {
                 processingParameters.dngMosaicBlock = referenceDngBlock;
                 try {
                     // P258: the mosaic as captured goes uncompressed (Scam Remosaic's reader: 16-bit CFA, no LinearizationTable)
-                    imageSaved = mosaicDng ? ImageSaver.Util.saveSingleRaw(dngFile, output, processingParameters, true)
-                            : ImageSaver.Util.saveStackedRaw(dngFile, output, processingParameters);
+                    imageSaved = mosaicDng ? ImageSaver.Util.saveSingleRaw(dngPath, output, processingParameters, true)
+                            : ImageSaver.Util.saveStackedRaw(dngPath, output, processingParameters);
                 } finally {
                     processingParameters.dngNoiseProfile = null;
                     processingParameters.dngMosaicBlock = 1;
@@ -876,18 +876,18 @@ public class ScamProcessor extends ProcessorBase {
             } finally {
                 processingParameters.dngColour = null; // P243: only these DNG writes
             }
-            reportDng(processingEventsListener, imageSaved, rawSaving, mosaicDngOnly, dngFile);
+            reportDng(events, imageSaved, rawSaving, mosaicDngOnly, dngPath);
             // P620: a DNG with a photo (not the mosaic DNG alone, not RAW only); the front camera's photo is mirrored, its DNG not
-            if (imageSaved && !mosaicDngOnly && rawSaving != 2 && !processingParameters.mirror) dngPreviewTarget = dngFile;
+            if (imageSaved && !mosaicDngOnly && rawSaving != 2 && !processingParameters.mirrored) dngPreviewTarget = dngPath;
             if (mosaicDngOnly) {
                 try {
-                    processingEventsListener.onProcessingChanged(Lang.t("«Наш ремозаик» выключен: сохранён только DNG склеенной мозаики",
+                    events.processingProgress(Lang.t("«Наш ремозаик» выключен: сохранён только DNG склеенной мозаики",
                             "«Our remosaic» is off: only the merged mosaic DNG is saved"));
                 } catch (RuntimeException e) { Log.d(TAG, "DNG-only notice: " + e); }
             }
             if (rawSaving == 2 || mosaicDngOnly) {
-                processingEventsListener.onProcessingFinished("RAW processing finished");
-                callback.onFinished();
+                events.processingFinished("RAW processing finished");
+                stages.finished();
                 referenceRaw = null;
                 Allocator.free(output);
                 Allocator.getMemoryCount();
@@ -902,14 +902,14 @@ public class ScamProcessor extends ProcessorBase {
         // do not pretend every pixel received images.size() independent samples.
         // Allocator binning sums 2x2 pixels; white/black are scaled by four,
         // so normalized variance falls by four (independence assumption).
-        processingParameters.noiseModeler.computeStackingNoiseModel(effective,Allocator.binning?4:1);
+        processingParameters.noiseModel.rescaleForStack(effective,Allocator.binning?4:1);
 
         // The autonomous mode owns denoising; do not run a second AI/vendor pass.
         if (processingParameters.scamHdrMode) {
             double scale=processingParameters.scamHdrRawScale;
-            for (int c=0;c<processingParameters.noiseModeler.computeModel.length;c++) {
-                android.util.Pair<Double,Double> n=processingParameters.noiseModeler.computeModel[c];
-                processingParameters.noiseModeler.computeModel[c]=new android.util.Pair<>(n.first*scale,n.second*scale*scale);
+            for (int c=0;c<processingParameters.noiseModel.stackModel.length;c++) {
+                android.util.Pair<Double,Double> n=processingParameters.noiseModel.stackModel[c];
+                processingParameters.noiseModel.stackModel[c]=new android.util.Pair<>(n.first*scale,n.second*scale*scale);
             }
         }
 
@@ -939,13 +939,10 @@ public class ScamProcessor extends ProcessorBase {
         if (hybridOut != null && (hybridOut.x != width || hybridOut.y != height)) {
             final float sx = (float) hybridOut.x / width, sy = (float) hybridOut.y / height;
             processingParameters.rawSize = new Point(hybridOut.x, hybridOut.y);
-            if (processingParameters.sensorPix != null)
-                processingParameters.sensorPix = new Rect(Math.round(processingParameters.sensorPix.left * sx), Math.round(processingParameters.sensorPix.top * sy),
-                        Math.round(processingParameters.sensorPix.right * sx), Math.round(processingParameters.sensorPix.bottom * sy));
-            processingParameters.XPerMm *= sx; processingParameters.YPerMm *= sy;
-            processingParameters.hotPixels = new Point[0];
-            processingParameters.alignmentSize = new Point(hybridOut.x / processingParameters.tile + 1, hybridOut.y / processingParameters.tile + 1);
-            processingParameters.tilesX = hybridOut.x / 800 + 1;
+            if (processingParameters.activeArea != null)
+                processingParameters.activeArea = new Rect(Math.round(processingParameters.activeArea.left * sx), Math.round(processingParameters.activeArea.top * sy),
+                        Math.round(processingParameters.activeArea.right * sx), Math.round(processingParameters.activeArea.bottom * sy));
+            processingParameters.hotSites = new Point[0];
             processingParameters.outputScale = sx;
             Log.i("SCAM_HDR", "hybrid output " + hybridOut.x + "x" + hybridOut.y + " (scale " + sx + "): pipeline runs at the merged size");
         }
@@ -978,7 +975,7 @@ public class ScamProcessor extends ProcessorBase {
         pipeline.takeFilm();
         // P380: the film's recipe in the photo's description (only with a film)
         processingParameters.filmRecipe = pipeline.film == null ? null : pipeline.film.recipe();
-        ParseExif.describeFilm(exifData, processingParameters);
+        ParseExif.describeFilm(shotExif, processingParameters);
         // W1.3: at 16 MP or less without Ultra HDR the GL teardown waits until the JPEG is saved (finishDeferredTeardown).
         pipeline.deferTeardown = PostPipeline.canDeferTeardown(processingParameters, pipeline.film);
         if (pipeline.deferTeardown) { deferredPipeline = pipeline; openPipeline = null; }
@@ -1006,7 +1003,7 @@ public class ScamProcessor extends ProcessorBase {
         final boolean dngPreviewWanted = dngPreviewTarget != null;
         if (jpegStream) {
             final boolean isz = iszAspect4x3;
-            final com.scamera.app.api.ParseExif.ExifData streamExif = exifData;
+            final com.scamera.app.api.ParseExif.ExifData streamExif = shotExif;
             pipeline.streamJpeg(PreferenceKeys.getJpegQuality(), new PostPipeline.JpegPlan() {
                 @Override public android.graphics.Rect crop(int width, int height) {
                     return isz ? com.scamera.app.processing.IszAspectCrop.bounds(width, height) : null;
@@ -1045,7 +1042,7 @@ public class ScamProcessor extends ProcessorBase {
                                                            @androidx.annotation.Nullable java.nio.ByteBuffer pixels, int strideBytes) {
                     // ImageSaver.saveBitmapAsJPG's stream: the EXIF APP1 of the photo's size after SOI (no ICC: sRGB only here);
                     // P620: its IFD1 thumbnail (and the DNG's preview) downscaled from the pixels being encoded
-                    streamExif.COMPRESSION = com.scamera.app.api.ParseExif.COMPRESSION_JPEG;
+                    streamExif.compression = com.scamera.app.api.ParseExif.COMPRESSION_JPEG;
                     final Bitmap thumb = com.scamera.app.processing.PhotoThumbnail.scaledRgba(pixels, width, height,
                             strideBytes, com.scamera.app.processing.PhotoThumbnail.EXIF_LONG_SIDE);
                     byte[] app1 = com.scamera.app.processing.ExifBlock.app1Segment(streamExif, width, height);
@@ -1062,7 +1059,7 @@ public class ScamProcessor extends ProcessorBase {
         Bitmap img;
         try {
             img = postAb ? com.scamera.app.processing.opengl.postpipeline.PostAb.run(pipeline, jpegInput, processingParameters)
-                    : pipeline.Run(jpegInput, processingParameters);
+                    : pipeline.develop(jpegInput, processingParameters);
         } finally {
             restorePriority(priorityBefore);
         }
@@ -1221,7 +1218,7 @@ public class ScamProcessor extends ProcessorBase {
         if (img != null) {
             stageName = "watermark";
             final com.scamera.app.processing.watermark.PhotoWatermark.Drawn drawn =
-                    com.scamera.app.processing.watermark.PhotoWatermark.applyRecorded(img, exifData);
+                    com.scamera.app.processing.watermark.PhotoWatermark.applyRecorded(img, shotExif);
             img = drawn.photo;
             watermarkPatch = drawn.record;
         }
@@ -1235,10 +1232,10 @@ public class ScamProcessor extends ProcessorBase {
         }
         final long tailFinished = System.nanoTime();
         try {
-            processingEventsListener.onProcessingFinished("Processing finished");
+            events.processingFinished("Processing finished");
         }
         catch (Exception e){
-            Log.d(TAG,"Error in processingEventsListener.onProcessingFinished:"+Log.getStackTraceString(e));
+            Log.d(TAG,"Error in processingEventsListener.processingFinished:"+Log.getStackTraceString(e));
         }
         Log.d(TAG, "Shot tail ms: free=" + (tailOverlay - tailFree) / 1000000 + " overlay+close=" + (tailFinished - tailOverlay) / 1000000
                 + " finished=" + (System.nanoTime() - tailFinished) / 1000000);
@@ -1267,29 +1264,29 @@ public class ScamProcessor extends ProcessorBase {
                 : streamDngPreview[0];
         if (dngPreview != streamDngPreview[0] && streamDngPreview[0] != null) streamDngPreview[0].recycle(); // the stream fell back
         final com.scamera.app.processing.PhotoOutput.Result saved = streamedJpeg != null
-                ? com.scamera.app.processing.PhotoOutput.saveStreamedJpeg(imageFile, streamedJpeg, exifData, exifInStream[0],
+                ? com.scamera.app.processing.PhotoOutput.saveStreamedJpeg(photoPath, streamedJpeg, shotExif, exifInStream[0],
                         streamWatermark[0])
                 : hdrOutput || pipeline.p3Output
-                ? com.scamera.app.processing.PhotoOutput.save(imageFile, img, exifData,
+                ? com.scamera.app.processing.PhotoOutput.save(photoPath, img, shotExif,
                         ScameraApp.getSettings().ultraHdr ? gain : null, hdrOutput ? gain : null, colourSpace, watermarkPatch)
-                : com.scamera.app.processing.PhotoOutput.save(imageFile, img, exifData, gain, null,
+                : com.scamera.app.processing.PhotoOutput.save(photoPath, img, shotExif, gain, null,
                         com.scamera.app.processing.color.OutputColour.Space.SRGB, watermarkPatch);
         if (gain != null) gain.gainMap.recycle();
         stage(0.97f); // P158: saved
         final java.util.List<Path> savedFiles = saved.notifyOrder();
-        if (savedFiles.isEmpty()) savedFiles.add(com.scamera.app.processing.PhotoFormat.JPEG.fileFor(imageFile));
+        if (savedFiles.isEmpty()) savedFiles.add(com.scamera.app.processing.PhotoFormat.JPEG.fileFor(photoPath));
         for (Path file : savedFiles) {
             try {
-                processingEventsListener.notifyImageSavedStatus(!saved.files.isEmpty(), file);
+                events.imageSaved(!saved.files.isEmpty(), file);
             }
             catch (Exception e){
-                Log.d(TAG,"Error in processingEventsListener.notifyImageSavedStatus:"+Log.getStackTraceString(e));
+                Log.d(TAG,"Error in processingEventsListener.imageSaved:"+Log.getStackTraceString(e));
             }
         }
         com.scamera.app.processing.ShotTimeline.mark("saved");
         if (dngPreview != null) {
             try {
-                appendDngPreview(dngPreviewTarget, dngPreview, processingParameters.cameraRotation, pipeline.p3Output);
+                appendDngPreview(dngPreviewTarget, dngPreview, processingParameters.rotationDeg, pipeline.p3Output);
             } catch (RuntimeException | OutOfMemoryError e) {
                 Log.e(TAG, "DNG preview failed (the DNG stays without one): " + e);
             } finally {
@@ -1299,7 +1296,7 @@ public class ScamProcessor extends ProcessorBase {
         finishDeferredTeardown();
 
         Allocator.getMemoryCount();
-        callback.onFinished();
+        stages.finished();
     }
 
     /**
@@ -1403,7 +1400,7 @@ public class ScamProcessor extends ProcessorBase {
                 || ref.buffer.capacity() < (long) ref.width * ref.height * 2) return;
         int block = com.scamera.app.processing.MosaicBlockStore.blockForShot(0);
         if (block <= 0) {
-            final float black = (p.blackLevel[0] + p.blackLevel[1] + p.blackLevel[2] + p.blackLevel[3]) / 4f;
+            final float black = (p.cfaBlack[0] + p.cfaBlack[1] + p.cfaBlack[2] + p.cfaBlack[3]) / 4f;
             final com.scamera.app.processing.MosaicBlockDetector.Result r =
                     com.scamera.app.processing.MosaicBlockDetector.detect(ref.buffer, ref.width, ref.height, ref.width * 2,
                             black, p.whiteLevel, 8);
@@ -1415,9 +1412,9 @@ public class ScamProcessor extends ProcessorBase {
         // P212f (W2 = M3): a hand-set white balance is the shot's white point (the photo and the DNG's AsShotNeutral), as on a
         // 12 MP shot - the gains at the press, else a result that says AWB off; ownNeutral stays false
         if (p.keepHandSetWhiteBalance(meta)) {
-            p.ReCalcColor(true, meta);
+            p.resolveColour(true, meta);
             Log.i("SCAM_HDR", String.format(java.util.Locale.ROOT, "mosaic white balance: colour block %d, hand-set white balance kept %.3f / %.3f (%s)",
-                    block, p.whitePoint[0] / p.whitePoint[1], p.whitePoint[2] / p.whitePoint[1], p.handSetSource));
+                    block, p.asShotNeutral[0] / p.asShotNeutral[1], p.asShotNeutral[2] / p.asShotNeutral[1], p.handSetSource));
             return;
         }
         com.scamera.app.processing.color.MosaicNeutral.init(ScameraApp.getAppContext());
@@ -1439,8 +1436,8 @@ public class ScamProcessor extends ProcessorBase {
         final com.scamera.app.processing.color.MosaicNeutral.Result own = v2
                 ? com.scamera.app.processing.color.MosaicNeutral.resolve(id, stat, prior)
                 : com.scamera.app.processing.color.MosaicNeutral.estimate(id, ref.buffer,
-                        ref.width, ref.height, ref.width * 2, p.baseCfaPattern, p.blackLevel, p.whiteLevel, block, prior);
-        final String camera = String.format(java.util.Locale.ROOT, "%.3f / %.3f", p.whitePoint[0] / p.whitePoint[1], p.whitePoint[2] / p.whitePoint[1]);
+                        ref.width, ref.height, ref.width * 2, p.baseCfaPattern, p.cfaBlack, p.whiteLevel, block, prior);
+        final String camera = String.format(java.util.Locale.ROOT, "%.3f / %.3f", p.asShotNeutral[0] / p.asShotNeutral[1], p.asShotNeutral[2] / p.asShotNeutral[1]);
         if (stat != null) Log.i("SCAM_HDR", "mosaic white balance statistic" + (v2 ? "" : " (log only)") + ": " + stat);
         // P212f (W5 phase 2): what the ISP would choose for this statistic; P366: its own grid, else a same-sensor camera's (X200U
         // cameras 3 and 4), taken below in a RAW-only session whose ISP runs no 3A
@@ -1473,7 +1470,7 @@ public class ScamProcessor extends ProcessorBase {
         }
         if (press != null && press.route != com.scamera.app.processing.color.MosaicNeutralResolver.ROUTE_NONE) {
             final Integer awbState = meta == null ? null : meta.get(CaptureResult.CONTROL_AWB_STATE);
-            final float[] hal = p.whitePoint.clone();
+            final float[] hal = p.asShotNeutral.clone();
             final float distance = press.viewfinder != null ? Float.NaN
                     : com.scamera.app.processing.color.MosaicNeutralResolver.curveDistance(id, hal, prior);
             final com.scamera.app.processing.color.MosaicNeutralResolver.Decision d =
@@ -1481,7 +1478,7 @@ public class ScamProcessor extends ProcessorBase {
             if (d != null) {
                 p.customNeutral = d.neutral;
                 p.ownNeutral = false;
-                p.ReCalcColor(true, meta);
+                p.resolveColour(true, meta);
                 Log.i("SCAM_HDR", "mosaic white balance: colour block " + block + ", " + d.how + "; own estimate "
                         + (own == null ? "none (too few usable cells)" : own.how) + " (log only)");
                 return;
@@ -1507,7 +1504,7 @@ public class ScamProcessor extends ProcessorBase {
                         + (own == null ? "none (too few usable cells)" : own.how) + " (not used)");
                 p.customNeutral = taught.neutral;
                 p.ownNeutral = true;
-                p.ReCalcColor(true, meta);
+                p.resolveColour(true, meta);
                 return;
             }
             Log.i("SCAM_HDR", "WB TEACHER not used: " + (use == com.scamera.app.processing.color.MosaicTeacher.USE_NEVER
@@ -1515,16 +1512,16 @@ public class ScamProcessor extends ProcessorBase {
         }
         if (own == null) {
             Log.i("SCAM_HDR", "mosaic white balance: colour block " + block + ", too few usable cells; the camera's neutral " + camera + " kept");
-            p.ReCalcColor(false, meta); // P212g (W7): the camera's neutral, the colour matrix of a mosaic shot
+            p.resolveColour(false, meta); // P212g (W7): the camera's neutral, the colour matrix of a mosaic shot
             return;
         }
         // P315: an estimate far off every learned illuminant (the X8U ISZ shot's LED glow on a white case) is not taken as one; P366
         // (review): its distance from the curve the learned points fit, not from the one the slope guard projected it on
         final String offLocus = com.scamera.app.processing.color.MosaicNeutralResolver.offLocus(id, own.learnedDistance,
-                p.whitePoint.clone(), prior);
+                p.asShotNeutral.clone(), prior);
         if (offLocus != null) {
             Log.i("SCAM_HDR", "mosaic white balance: colour block " + block + ", " + offLocus + "; own estimate " + own.how + " (not used)");
-            p.ReCalcColor(false, meta);
+            p.resolveColour(false, meta);
             return;
         }
         Log.i("SCAM_HDR", "mosaic white balance: colour block " + block + ", camera " + camera + " -> " + own.how);
@@ -1542,7 +1539,7 @@ public class ScamProcessor extends ProcessorBase {
         }
         p.customNeutral = neutral;
         p.ownNeutral = true;
-        p.ReCalcColor(true, meta);
+        p.resolveColour(true, meta);
     }
 
     /**
@@ -1592,9 +1589,9 @@ public class ScamProcessor extends ProcessorBase {
      */
     private void logShotCamera(Parameters p, int width, int height) {
         try {
-            final String diff = Parameters.shotCameraDiff(characteristics, CaptureController.mCameraCharacteristics);
+            final String diff = Parameters.shotCameraDiff(shotCamera, CaptureController.mCameraCharacteristics);
             if (diff == null) return;
-            final String pair = p.cameraID + "/" + ScameraApp.getSettings().mCameraID + " " + width + "x" + height;
+            final String pair = p.cameraID + "/" + ScameraApp.getSettings().cameraId + " " + width + "x" + height;
             if (!SHOT_CAMERA_LOGGED.add(pair)) return;
             Log.i("SCAM_CAPTURE", "shot camera " + pair + ": its own characteristics, not the open camera's object: "
                     + (diff.isEmpty() ? "the levels and colour matrices agree" : "differ in " + diff));
@@ -1619,15 +1616,15 @@ public class ScamProcessor extends ProcessorBase {
         final com.scamera.app.processing.color.MosaicNeutral.Setup setup =
                 new com.scamera.app.processing.color.MosaicNeutral.Setup()
                         .crop(ref.width, ref.height, com.scamera.app.control.ZoomController.processingResidual(), aspect4x3);
-        if (p.hasGainMap && p.gainMap != null && p.mapSize != null && p.mapSize.x > 1 && p.mapSize.y > 1) {
-            setup.gains = p.gainMap;
-            setup.gainCols = p.mapSize.x;
-            setup.gainRows = p.mapSize.y;
+        if (p.shadingMapUsed && p.shadingMap != null && p.shadingGrid != null && p.shadingGrid.x > 1 && p.shadingGrid.y > 1) {
+            setup.gains = p.shadingMap;
+            setup.gainCols = p.shadingGrid.x;
+            setup.gainRows = p.shadingGrid.y;
         }
         setup.iso = p.iso > 0 ? p.iso : 100;
-        if (p.noiseModeler != null && p.noiseModeler.baseModel != null && p.noiseModeler.baseModel.length > 1 && p.noiseModeler.baseModel[1] != null) {
-            setup.noiseS = p.noiseModeler.baseModel[1].first;
-            setup.noiseO = p.noiseModeler.baseModel[1].second;
+        if (p.noiseModel != null && p.noiseModel.rawModel != null && p.noiseModel.rawModel.length > 1 && p.noiseModel.rawModel[1] != null) {
+            setup.noiseS = p.noiseModel.rawModel[1].first;
+            setup.noiseO = p.noiseModel.rawModel[1].second;
         }
         final java.util.ArrayList<com.scamera.app.processing.color.MosaicNeutral.Stat> stats = new java.util.ArrayList<>();
         final double refExposure = (double) ref.measuredExposure * Math.max(1, ref.measuredIso);
@@ -1646,7 +1643,7 @@ public class ScamProcessor extends ProcessorBase {
         stats.addAll(firstMeasured(picked.size(), STAT_FRAMES, k -> {
             final ImageFrame f = picked.get(k);
             return com.scamera.app.processing.color.MosaicNeutral.measure2(f.buffer, f.width, f.height, f.width * 2,
-                    p.baseCfaPattern, p.blackLevel, p.whiteLevel, block, setup);
+                    p.baseCfaPattern, p.cfaBlack, p.whiteLevel, block, setup);
         }));
         return com.scamera.app.processing.color.MosaicNeutral.combine(stats);
     }
@@ -1688,7 +1685,7 @@ public class ScamProcessor extends ProcessorBase {
             if (frame == null || frame.buffer == null || frame.rawPayloadError != null) continue;
             double exposure = frame.measuredExposure > 0 && frame.measuredIso > 0
                     ? (double) frame.measuredExposure * frame.measuredIso
-                    : frame.pair != null ? frame.pair.exposure * (double) frame.pair.iso : Double.MAX_VALUE / 2;
+                    : frame.pair != null ? frame.pair.timeNs * (double) frame.pair.iso : Double.MAX_VALUE / 2;
             if (exposure < lowest) { lowest = exposure; darkest = frame; }
         }
         if (darkest != null) processingParameters.refineBlackLevel(darkest.buffer, darkest.width, darkest.height,
@@ -1723,7 +1720,7 @@ public class ScamProcessor extends ProcessorBase {
             declaredBlack /= 4f;
         }
         float black = 0f;
-        for (float b : p.blackLevel) black += b;
+        for (float b : p.cfaBlack) black += b;
         black /= 4f;
         return isoScale(p.whiteLevel - black, declaredWhite - declaredBlack);
     }
@@ -1784,7 +1781,7 @@ public class ScamProcessor extends ProcessorBase {
             if (!linear || added >= 2 || f.buffer == null || partner.width != f.width || partner.height != f.height) continue;
             try {
                 final com.scamera.app.capture.LoficPair.Short s = com.scamera.app.capture.LoficPair.asShort(
-                        com.scamera.app.capture.LoficPair.plain16(f.buffer, f.width * 2, 0), partner, p.blackLevel,
+                        com.scamera.app.capture.LoficPair.plain16(f.buffer, f.width * 2, 0), partner, p.cfaBlack,
                         p.whiteLevel, f.measuredExposure, f.noiseSlope, f.noiseOffset, 1023);
                 if (s.buffer == null) {
                     Log.w("SCAM_HDR", "DCG+LOFIC: frame " + f.number + "'s overflow frame is no pair at the shot's levels (" + s.measure + "): left out");
@@ -1823,7 +1820,7 @@ public class ScamProcessor extends ProcessorBase {
 
     private void dcgLinearity(Parameters p, ArrayList<ImageFrame> frames, ImageFrame reference) {
         dcgLinear = false;
-        p.dcgIsoScale = dcgIsoScale(p, characteristics);
+        p.dcgIsoScale = dcgIsoScale(p, shotCamera);
         if (p.dcgIsoScale > 1f) {
             Log.i("SCAM_HDR", "DCG ISO scale x" + p.dcgIsoScale + " (" + p.levelSource + ")");
             p.applyDcgIsoScale(); // the noise model of a chosen profile / the fallback at the gain, not at the reported ISO
@@ -1831,7 +1828,7 @@ public class ScamProcessor extends ProcessorBase {
         final com.scamera.app.processing.RawLinearity.Result r;
         try {
             r = com.scamera.app.processing.RawLinearity.analyze(reference.buffer, reference.width, reference.height,
-                    reference.width * 2, p.blackLevel, p.whiteLevel);
+                    reference.width * 2, p.cfaBlack, p.whiteLevel);
         } catch (RuntimeException e) {
             Log.w("SCAM_HDR", "DCG RAW linearity: not checked (" + e + ")");
             keepReferenceExposure(frames, reference, "linearity not checked");
@@ -1858,11 +1855,11 @@ public class ScamProcessor extends ProcessorBase {
             }
         final int[] lut = com.scamera.app.processing.RawLinearity.expandLut(r.knees, r.ratios, p.whiteLevel);
         for (ImageFrame f : frames) if (f != null && f.buffer != null) com.scamera.app.processing.RawLinearity.expand(f.buffer, lut);
-        for (int i = 0; i < 4; i++) p.blackLevel[i] = lut[Math.max(0, Math.min(65535, Math.round(p.blackLevel[i])))];
+        for (int i = 0; i < 4; i++) p.cfaBlack[i] = lut[Math.max(0, Math.min(65535, Math.round(p.cfaBlack[i])))];
         p.whiteLevel = lut[Math.max(0, Math.min(65535, p.whiteLevel))];
-        Log.w("SCAM_HDR", "DCG RAW companded: " + frames.size() + " frames expanded, black " + p.blackLevel[0] + " white " + p.whiteLevel);
+        Log.w("SCAM_HDR", "DCG RAW companded: " + frames.size() + " frames expanded, black " + p.cfaBlack[0] + " white " + p.whiteLevel);
         try {
-            processingEventsListener.onProcessingChanged(Lang.t("DCG: RAW сжат кривой, выпрямлен перед склейкой",
+            events.processingProgress(Lang.t("DCG: RAW сжат кривой, выпрямлен перед склейкой",
                     "DCG: the RAW is companded, linearised before the merge"));
         } catch (RuntimeException e) {
             Log.d(TAG, "DCG notice: " + e);

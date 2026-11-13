@@ -241,7 +241,7 @@ public class PhotoFormatSettingsTest {
     }
 
     private static String tag(String name) {
-        return new GalleryItem(new ImageFile(1, Uri.parse("content://media/1"), name, 0, 1, "/x/" + name)).getMediaTypeTag();
+        return new GalleryItem(new ImageFile(1, Uri.parse("content://media/1"), name, 0, 1, "/x/" + name)).typeTag();
     }
 
     private Context localized(Locale locale) {

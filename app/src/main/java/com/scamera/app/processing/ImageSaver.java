@@ -38,13 +38,13 @@ import java.util.HashMap;
 /**
  * The capture's side of a shot: the frames of the burst arrive here ({@link #initProcess}) and go to the saver of their format
  * (ImageSaverSelector), with what was true at the press; {@link #detachForQueue} hands a finished burst to its own saver so the
- * camera can take the next shot while this one is processed. The shared frame list is {@link SaverImplementation#IMAGE_BUFFER}.
+ * camera can take the next shot while this one is processed. The shared frame list is {@link SaverImplementation#FRAME_QUEUE}.
  */
 public class ImageSaver {
     private static final String TAG = "ImageSaver";
 
     /** The saver the frames of the current format go to (swapped when the format changes). */
-    public SaverImplementation implementation;
+    public SaverImplementation saverImpl;
     private int lastFormat;
     /** Frames this burst still takes ({@code -1}: any number) and frames seen so far. */
     private int wanted, seen;
@@ -84,9 +84,9 @@ public class ImageSaver {
     public ShotLook lookAtPress;
     public MotionMode.Snapshot motionAtPress;
 
-    public ImageSaver(ProcessingEventsListener listener) {
-        implementation = new DefaultSaver(listener);
-        ImageSaverSelector.init(implementation);
+    public ImageSaver(ProcessingEvents listener) {
+        saverImpl = new DefaultSaver(listener);
+        ImageSaverSelector.init(saverImpl);
     }
 
     public void setFrameCount(int frames) {
@@ -100,15 +100,15 @@ public class ImageSaver {
     /** {@link #setFrameCount} for a burst already under way: its saver learns it too. */
     public void updateFrameCount(int frames) {
         setFrameCount(frames);
-        implementation.frameCount = frames;
+        saverImpl.frameCount = frames;
     }
 
     public synchronized int bufferSize() {
-        return SaverImplementation.IMAGE_BUFFER.size();
+        return SaverImplementation.FRAME_QUEUE.size();
     }
 
     public synchronized ArrayList<ImageFrame> snapshotFrames() {
-        return new ArrayList<>(SaverImplementation.IMAGE_BUFFER);
+        return new ArrayList<>(SaverImplementation.FRAME_QUEUE);
     }
 
     /**
@@ -121,9 +121,9 @@ public class ImageSaver {
 
     /** P27: {@code hybridRoute} is the merge route the shot was captured for; processing keeps it even if the setting changes. */
     public synchronized void detachForQueue(Boolean hybridRoute) {
-        if (!(implementation instanceof DefaultSaver))
+        if (!(saverImpl instanceof DefaultSaver))
             throw new IllegalStateException("Queued processing requires the RAW saver");
-        final DefaultSaver saver = (DefaultSaver) implementation;
+        final DefaultSaver saver = (DefaultSaver) saverImpl;
         saver.ownedHybridRoute = hybridRoute;
         saver.ownedIszAspect4x3 = iszAspect4x3;
         saver.ownedFullResSeries = fullResSeries;
@@ -138,8 +138,8 @@ public class ImageSaver {
         saver.ownedLook = lookAtPress;
         saver.ownedMotion = motionAtPress;
         saver.ownedFrames = snapshotFrames();
-        saver.ownedPairs = new ArrayList<>(IsoExpoSelector.fullpairs);
-        SaverImplementation.IMAGE_BUFFER.clear();
+        saver.ownedPairs = new ArrayList<>(IsoExpoSelector.shotPlan);
+        SaverImplementation.FRAME_QUEUE.clear();
         // named at the press like the stock camera, not when the processing starts; one name for the DNG and the photo (P119),
         // and P618 that instant is the shot's time in its EXIF and DNG
         final long pressedAt = System.currentTimeMillis();
@@ -168,14 +168,14 @@ public class ImageSaver {
     /** Removes and closes the given frames of this burst (post-shutter RAWs the hybrid dropped). */
     public synchronized void removeFrames(Collection<ImageFrame> frames) {
         for (ImageFrame f : frames) {
-            if (SaverImplementation.IMAGE_BUFFER.remove(f) && f != null) f.close();
+            if (SaverImplementation.FRAME_QUEUE.remove(f) && f != null) f.close();
         }
     }
 
     public synchronized void discardFrames() {
         wanted = 0;
-        for (ImageFrame f : SaverImplementation.IMAGE_BUFFER) f.close();
-        SaverImplementation.IMAGE_BUFFER.clear();
+        for (ImageFrame f : SaverImplementation.FRAME_QUEUE) f.close();
+        SaverImplementation.FRAME_QUEUE.clear();
     }
 
     public void initProcess(ImageReader reader) {
@@ -198,14 +198,14 @@ public class ImageSaver {
 
     private void take(Image image) {
         lastFormat = image.getFormat();
-        implementation = ImageSaverSelector.getImageSaver(lastFormat, implementation);
+        saverImpl = ImageSaverSelector.getImageSaver(lastFormat, saverImpl);
         // the saver can change with the format: it gets the burst's state every frame (P30, P609, P635)
-        implementation.shotArena = shotArena;
-        implementation.iszAspect4x3 = iszAspect4x3;
-        implementation.tetraBin = tetraBin;
-        implementation.recipeShot = recipeShot;
-        implementation.frameCount = wanted;
-        implementation.addImage(image);
+        saverImpl.shotArena = shotArena;
+        saverImpl.iszAspect4x3 = iszAspect4x3;
+        saverImpl.tetraBin = tetraBin;
+        saverImpl.recipeShot = recipeShot;
+        saverImpl.frameCount = wanted;
+        saverImpl.addImage(image);
     }
 
     public void runRaw(CameraCharacteristics characteristics, CaptureResult captureResult, CaptureRequest captureRequest,
@@ -213,7 +213,7 @@ public class ImageSaver {
         final SaverImplementation saver;
         synchronized (this) {
             final DefaultSaver queued = detached.pollFirst();
-            saver = queued == null ? implementation : queued;
+            saver = queued == null ? saverImpl : queued;
         }
         saver.iszAspect4x3 = iszAspect4x3;
         saver.zoomResidual = zoomResidual;
@@ -227,12 +227,12 @@ public class ImageSaver {
 
     public void processStart(CameraCharacteristics characteristics, CaptureResult captureResult, CaptureRequest captureRequest,
                              int cameraRotation) {
-        implementation = ImageSaverSelector.getImageSaver(ImageFormat.RAW_SENSOR, implementation);
-        implementation.processStart(lastFormat, characteristics, captureResult, captureRequest, cameraRotation);
+        saverImpl = ImageSaverSelector.getImageSaver(ImageFormat.RAW_SENSOR, saverImpl);
+        saverImpl.processStart(lastFormat, characteristics, captureResult, captureRequest, cameraRotation);
     }
 
-    public void processEnd() {
-        implementation.processEnd();
+    public void finishShot() {
+        saverImpl.finishShot();
     }
 
     /** The photo and DNG writers. */
@@ -267,7 +267,7 @@ public class ImageSaver {
          */
         public static boolean saveBitmapAsJPG(Path fileToSave, Bitmap img, int jpgQuality, ParseExif.ExifData exifData, boolean recycle,
                                               byte[] icc) {
-            exifData.COMPRESSION = ParseExif.COMPRESSION_JPEG;
+            exifData.compression = ParseExif.COMPRESSION_JPEG;
             final int w = img.getWidth(), h = img.getHeight();
             final ExifBeside exif = new ExifBeside(() -> ExifBlock.app1Segment(exifData, w, h, img), // P620: with its thumbnail
                     PreferenceKeys.scamDevSwitch("exif_beside_encode", true));

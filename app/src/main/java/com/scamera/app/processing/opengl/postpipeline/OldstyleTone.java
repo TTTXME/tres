@@ -50,7 +50,7 @@ public final class OldstyleTone extends Node {
         this.postview = postview;
     }
 
-    @Override public void Compile() {}
+    @Override public void bindShader() {}
 
     /**
      * P630e, the module's native memory a pixel beyond its input planes and the output (host, 12 MP, peak RSS): V1 SDR 9, V1 HDR 25
@@ -131,10 +131,10 @@ public final class OldstyleTone extends Node {
     }
 
     @Override
-    public void Run() {
-        final PostPipeline pipeline = (PostPipeline) basePipeline;
-        final GLTexture input = previousNode.WorkingTexture;
-        final Point size = input.mSize;
+    public void runPass() {
+        final PostPipeline pipeline = (PostPipeline) hostPipeline;
+        final GLTexture input = prevPass.passOut;
+        final Point size = input.size;
         final long started = System.currentTimeMillis();
         if (!OldstyleNative.load()) throw new IllegalStateException("Oldstyle: the tone-port library (scameraTone) did not load");
         final int threads = OldstyleNative.setThreads(OldstyleNative.threadsFor(Runtime.getRuntime().availableProcessors(),
@@ -152,26 +152,26 @@ public final class OldstyleTone extends Node {
         try {
             if (gainMap == null) {
                 fallback = new GLTexture(new Point(1, 1), new GLFormat(GLFormat.DataType.FLOAT_16, 4),
-                        BufferUtils.getFrom(new float[]{1f, 1f, 1f, 1f}), GL_LINEAR, GL_CLAMP_TO_EDGE);
+                        BufferUtils.floatBuffer(new float[]{1f, 1f, 1f, 1f}), GL_LINEAR, GL_CLAMP_TO_EDGE);
                 gainMap = fallback;
             }
             // 1. the plan from the clean linear RGB's samples
             clean = new GLTexture(size, new GLFormat(GLFormat.DataType.FLOAT_16, 4), null, GL_NEAREST, GL_CLAMP_TO_EDGE);
-            glProg.useAssetProgram("why/v2_clean", false);
-            glProg.setTexture("InputBuffer", input);
-            WhyTone.setColour(glProg, pipeline, gainMap, 1f);
-            glProg.drawBlocks(clean);
+            shaderProg.useAssetProgram("why/v2_clean", false);
+            shaderProg.setTexture("InputBuffer", input);
+            WhyTone.setColour(shaderProg, pipeline, gainMap, 1f);
+            shaderProg.drawBlocks(clean);
             final int stride = WhyV2Ae.stride(size.x, size.y);
             final int sw = WhyV2Ae.samples(size.x, stride), sh = WhyV2Ae.samples(size.y, stride);
             samples = new GLTexture(new Point(sw, sh), new GLFormat(GLFormat.DataType.FLOAT_16, 4), null, GL_NEAREST, GL_CLAMP_TO_EDGE);
-            glProg.useAssetProgram("why/v2_stride", false);
-            glProg.setTexture("u_tex_rgb", clean);
-            glProg.setVar("u_stride", stride);
-            glProg.drawBlocks(samples);
-            glProg.closed = true;
+            shaderProg.useAssetProgram("why/v2_stride", false);
+            shaderProg.setTexture("u_tex_rgb", clean);
+            shaderProg.setVar("u_stride", stride);
+            shaderProg.drawBlocks(samples);
+            shaderProg.closed = true;
             clean.close();
             clean = null;
-            samples.BufferLoad();
+            samples.renderInto();
             final long samplesStart = System.currentTimeMillis();
             final ByteBuffer px = samples.textureBuffer(new GLFormat(GLFormat.DataType.FLOAT_16, 4));
             px.order(ByteOrder.nativeOrder());
@@ -185,7 +185,7 @@ public final class OldstyleTone extends Node {
             samples = null;
             final long planStart = System.currentTimeMillis();
             final boolean shorts = WhyV2Stats.shortFramesMerged(ScamHybridBurst.lastBentoApplied, ScamHybridBurst.lastReport);
-            final double frameTet = pipeline.mParameters.exposureTime * 1e9 * pipeline.mParameters.iso;
+            final double frameTet = pipeline.shotParams.exposureTime * 1e9 * pipeline.shotParams.iso;
             // the version by memory first (the plan of V2 and V1 differ in their rules), with the HDR of V2's plan
             params.v31 = v2;
             OldstyleAe.Plan plan = OldstyleAe.plan(rgbSamples, sw, sh, params, shorts ? WhyV2Stats.MAX_CEILING : 1f);
@@ -201,19 +201,19 @@ public final class OldstyleTone extends Node {
                         + size.y + " above the budget of " + (available >> 20) + " MB available, run anyway");
             pipeline.linearDisplayGain = plan.gainLong;
             // 2. the module's frame, read back in strips into the planar int16 frame
-            final float[] s2i = pipeline.mParameters.sensorToProPhoto, i2s = WhyTone.colourMatrix(pipeline);
+            final float[] s2i = pipeline.shotParams.cameraToProPhoto, i2s = WhyTone.colourMatrix(pipeline);
             frame = new GLTexture(size, new GLFormat(GLFormat.DataType.SIGNED_16, 4), null, GL_NEAREST, GL_CLAMP_TO_EDGE);
-            glProg.setDefine("PRE_CCM", useV2 ? 0 : 1);
-            glProg.useAssetProgram("oldstyle/linear", false);
-            glProg.setTexture("InputBuffer", input);
-            WhyTone.setColour(glProg, pipeline, gainMap, 1f);
-            glProg.setVar("uScale", plan.inputScale * OldstyleNative.WHITE);
-            glProg.drawBlocks(frame);
-            glProg.closed = true;
+            shaderProg.setDefine("PRE_CCM", useV2 ? 0 : 1);
+            shaderProg.useAssetProgram("oldstyle/linear", false);
+            shaderProg.setTexture("InputBuffer", input);
+            WhyTone.setColour(shaderProg, pipeline, gainMap, 1f);
+            shaderProg.setVar("uScale", plan.inputScale * OldstyleNative.WHITE);
+            shaderProg.drawBlocks(frame);
+            shaderProg.closed = true;
             final long readStart = System.currentTimeMillis();
             planar = buffer(Math.multiplyExact(Math.multiplyExact(size.x, size.y), 6));
             strip = buffer(Math.multiplyExact(size.x * Math.min(STRIP, size.y), 16));
-            frame.BufferLoad();
+            frame.renderInto();
             GLES30.glPixelStorei(GLES30.GL_PACK_ALIGNMENT, 1);
             // P636: 16-bit samples where the driver reads this framebuffer so (half the bytes of the GL_INT read); a refused
             // read (a GL error) goes back to GL_INT from that strip on
@@ -245,12 +245,12 @@ public final class OldstyleTone extends Node {
             com.scamera.app.util.Allocator.free(strip);
             strip = null;
             out = buffer(Math.multiplyExact(size.x * size.y, 3));
-            final float[] shading = params.dehaze && params.dehazeShading && pipeline.mParameters.mapSize != null
-                    ? shadingGrid(pipeline.mParameters.gainMap, pipeline.mParameters.mapSize.x, pipeline.mParameters.mapSize.y) : null;
+            final float[] shading = params.dehaze && params.dehazeShading && pipeline.shotParams.shadingGrid != null
+                    ? shadingGrid(pipeline.shotParams.shadingMap, pipeline.shotParams.shadingGrid.x, pipeline.shotParams.shadingGrid.y) : null;
             final float[] info = new float[8];
             OldstyleNative.render(useV2 ? OldstyleNative.V2 : OldstyleNative.V1, planar, size.x, size.y, useV2 ? null : OldstyleNative.ccmStrength(ccm(i2s, s2i), params.ccmStrength),
                     plan.gainShort, plan.gainLong, plan.hdr, postview, params.saturation, params.post(), shading,
-                    shading == null ? 0 : pipeline.mParameters.mapSize.x, shading == null ? 0 : pipeline.mParameters.mapSize.y, info, out);
+                    shading == null ? 0 : pipeline.shotParams.shadingGrid.x, shading == null ? 0 : pipeline.shotParams.shadingGrid.y, info, out);
             final long toneMs = System.currentTimeMillis() - toneStart;
             com.scamera.app.util.Allocator.free(planar);
             planar = null;
@@ -260,12 +260,12 @@ public final class OldstyleTone extends Node {
             GLES30.glPixelStorei(GLES30.GL_UNPACK_ALIGNMENT, 1);
             rgb = new GLTexture(size, new GLFormat(GLFormat.DataType.SIMPLE_8, 3), out, GL_NEAREST, GL_CLAMP_TO_EDGE);
             GLES30.glPixelStorei(GLES30.GL_UNPACK_ALIGNMENT, 4);
-            WorkingTexture = pipeline.getMain();
-            if (WorkingTexture == input) WorkingTexture = pipeline.getMain();
-            glProg.useAssetProgram("oldstyle/rgb8", false);
-            glProg.setTexture("InputBuffer", rgb);
-            glProg.drawBlocks(WorkingTexture);
-            glProg.closed = true;
+            passOut = pipeline.getMain();
+            if (passOut == input) passOut = pipeline.getMain();
+            shaderProg.useAssetProgram("oldstyle/rgb8", false);
+            shaderProg.setTexture("InputBuffer", rgb);
+            shaderProg.drawBlocks(passOut);
+            shaderProg.closed = true;
             Log.i("SCAM_PIPELINE", "Oldstyle " + (useV2 ? "V2 (tone-port 3.1)" : "V1 (tone-port 2.7)") + " " + plan.describe()
                     + (useV2 && postview ? " postview" : "") + " grid=" + size.x + "x" + size.y + " samples=" + sw + "x" + sh
                     + " shorts=" + shorts + " frameTET=" + Math.round(frameTet)

@@ -17,7 +17,7 @@ import static android.opengl.GLES20.*;
  */
 public final class ScamRgb extends Node {
     public ScamRgb(){super("","ScamRgb");}
-    @Override public void Compile(){}
+    @Override public void bindShader(){}
 
     /**
      * P349: the glow share of the fully clipped cores (scamhdr/suncore.glsl) for WhyCombine's sun bloom, or null (off): the
@@ -46,27 +46,27 @@ public final class ScamRgb extends Node {
         try{
             share=new GLTexture(coarse,one,null,GL_NEAREST,GL_CLAMP_TO_EDGE);
             if(!blockSums(0,flags,null,null,null,coarse,block,share)){
-                glProg.setDefine("MODE",0);
-                glProg.useAssetProgram("scamhdr/suncore",false);
-                glProg.setTexture("InputBuffer",flags);
-                glProg.setVar("blockU",block);
-                glProg.setVar("noShortU",noShortBloom()?1:0); // P506
-                glProg.drawBlocks(share);
+                shaderProg.setDefine("MODE",0);
+                shaderProg.useAssetProgram("scamhdr/suncore",false);
+                shaderProg.setTexture("InputBuffer",flags);
+                shaderProg.setVar("blockU",block);
+                shaderProg.setVar("noShortU",noShortBloom()?1:0); // P506
+                shaderProg.drawBlocks(share);
             }
             final float radius=set[1]*shorter/block;
             half=new GLTexture(coarse,one,null,GL_NEAREST,GL_CLAMP_TO_EDGE);
-            glProg.setDefine("MODE",1);
-            glProg.useAssetProgram("scamhdr/suncore",false);
-            glProg.setTexture("InputBuffer",share);
-            glProg.setVar("dirU",1,0);glProg.setVar("radiusU",radius);
-            glProg.drawBlocks(half);
+            shaderProg.setDefine("MODE",1);
+            shaderProg.useAssetProgram("scamhdr/suncore",false);
+            shaderProg.setTexture("InputBuffer",share);
+            shaderProg.setVar("dirU",1,0);shaderProg.setVar("radiusU",radius);
+            shaderProg.drawBlocks(half);
             out=new GLTexture(coarse,one,null,GL_LINEAR,GL_CLAMP_TO_EDGE);
-            glProg.setDefine("MODE",1);
-            glProg.useAssetProgram("scamhdr/suncore",false);
-            glProg.setTexture("InputBuffer",half);
-            glProg.setVar("dirU",0,1);glProg.setVar("radiusU",radius);
-            glProg.drawBlocks(out);
-            glProg.closed=true;
+            shaderProg.setDefine("MODE",1);
+            shaderProg.useAssetProgram("scamhdr/suncore",false);
+            shaderProg.setTexture("InputBuffer",half);
+            shaderProg.setVar("dirU",0,1);shaderProg.setVar("radiusU",radius);
+            shaderProg.drawBlocks(out);
+            shaderProg.closed=true;
             final GLTexture done=out;out=null;
             return done;
         }finally{
@@ -91,19 +91,19 @@ public final class ScamRgb extends Node {
                 // drain: only the pass below decides
             }
             sums=new GLTexture(coarse,new GLFormat(GLFormat.DataType.FLOAT_32,4),null,GL_NEAREST,GL_CLAMP_TO_EDGE);
-            glProg.setDefine("MODE",mode);
-            glProg.setLayout(16,16,1);
-            glProg.useAssetProgram("scamhdr/suncore_cs",true);
-            glProg.setTexture("InputBuffer",source);
-            glProg.setVar("blockU",block);
-            if(mode==0)glProg.setVar("noShortU",noShortBloom()?1:0); // P506
+            shaderProg.setDefine("MODE",mode);
+            shaderProg.setLayout(16,16,1);
+            shaderProg.useAssetProgram("scamhdr/suncore_cs",true);
+            shaderProg.setTexture("InputBuffer",source);
+            shaderProg.setVar("blockU",block);
+            if(mode==0)shaderProg.setVar("noShortU",noShortBloom()?1:0); // P506
             if(mode==2){
-                if(flags!=null)glProg.setTexture("ClipFlags",flags);
-                glProg.setVar("clipFlagsU",flags!=null?1:0);
-                glProg.setVar("clipLoU",cc.lo);glProg.setVar("clipHiU",cc.hi);
-                glProg.setVar("toRenderU",toRender(p));
+                if(flags!=null)shaderProg.setTexture("ClipFlags",flags);
+                shaderProg.setVar("clipFlagsU",flags!=null?1:0);
+                shaderProg.setVar("clipLoU",cc.lo);shaderProg.setVar("clipHiU",cc.hi);
+                shaderProg.setVar("toRenderU",toRender(p));
             }
-            glProg.setTextureCompute("outCells",sums,true);
+            shaderProg.setTextureCompute("outCells",sums,true);
             android.opengl.GLES31.glDispatchCompute(coarse.x,coarse.y,1);
             android.opengl.GLES31.glMemoryBarrier(android.opengl.GLES31.GL_TEXTURE_FETCH_BARRIER_BIT|android.opengl.GLES31.GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
             final int error=android.opengl.GLES31.glGetError();
@@ -111,11 +111,11 @@ public final class ScamRgb extends Node {
                 com.scamera.app.util.Log.w("SCAM_PIPELINE","suncore compute MODE "+mode+": GL error 0x"+Integer.toHexString(error)+", the fragment pass");
                 return false;
             }
-            glProg.setDefine("MODE",mode==0?4:5);
-            glProg.useAssetProgram("scamhdr/suncore",false);
-            glProg.setTexture("InputBuffer",sums);
-            glProg.drawBlocks(target);
-            glProg.closed=true;
+            shaderProg.setDefine("MODE",mode==0?4:5);
+            shaderProg.useAssetProgram("scamhdr/suncore",false);
+            shaderProg.setTexture("InputBuffer",sums);
+            shaderProg.drawBlocks(target);
+            shaderProg.closed=true;
             return true;
         }catch(RuntimeException failure){
             com.scamera.app.util.Log.w("SCAM_PIPELINE","suncore compute MODE "+mode+": "+failure+", the fragment pass");
@@ -166,17 +166,17 @@ public final class ScamRgb extends Node {
         try{
             weights=new GLTexture(coarse,cells,null,GL_NEAREST,GL_CLAMP_TO_EDGE);
             if(!blockSums(2,input,flags,cc,p,coarse,block,weights)){
-                glProg.setDefine("MODE",2);
-                glProg.useAssetProgram("scamhdr/suncore",false);
-                glProg.setTexture("InputBuffer",input);
-                if(flags!=null)glProg.setTexture("ClipFlags",flags);
-                glProg.setVar("clipFlagsU",flags!=null?1:0);
-                glProg.setVar("clipLoU",cc.lo);glProg.setVar("clipHiU",cc.hi);
-                glProg.setVar("toRenderU",toRender(p));
-                glProg.setVar("blockU",block);
-                glProg.drawBlocks(weights);
+                shaderProg.setDefine("MODE",2);
+                shaderProg.useAssetProgram("scamhdr/suncore",false);
+                shaderProg.setTexture("InputBuffer",input);
+                if(flags!=null)shaderProg.setTexture("ClipFlags",flags);
+                shaderProg.setVar("clipFlagsU",flags!=null?1:0);
+                shaderProg.setVar("clipLoU",cc.lo);shaderProg.setVar("clipHiU",cc.hi);
+                shaderProg.setVar("toRenderU",toRender(p));
+                shaderProg.setVar("blockU",block);
+                shaderProg.drawBlocks(weights);
             }
-            glProg.closed=true;
+            shaderProg.closed=true;
             // P602 (owner, 2026-11-10, Pixel 7 log of 31249, the debug log on): the debug log read the block statistics here - a
             // wait for the GPU in the middle of ScamRgb (scamrgb's full-size pass first) - and dropped an empty map, so a logged
             // shot ran another WhyCombine variant (no HL_OPPOSED) than the same shot unlogged: a program of its own to compile and
@@ -202,30 +202,30 @@ public final class ScamRgb extends Node {
             final float radius=OPPOSED_RADIUS*shorter/block;
             // each block's light by its nearest glow: along x, then along y with the gate
             sums=new GLTexture(coarse,cells,null,GL_NEAREST,GL_CLAMP_TO_EDGE);
-            glProg.setDefine("MODE",3);
-            glProg.useAssetProgram("scamhdr/suncore",false);
-            glProg.setTexture("InputBuffer",weights);
-            glProg.setVar("dirU",1,0);glProg.setVar("radiusU",radius);glProg.setVar("finalU",0);glProg.setVar("glowFullU",0.1f*block*block);
-            glProg.drawBlocks(sums);
+            shaderProg.setDefine("MODE",3);
+            shaderProg.useAssetProgram("scamhdr/suncore",false);
+            shaderProg.setTexture("InputBuffer",weights);
+            shaderProg.setVar("dirU",1,0);shaderProg.setVar("radiusU",radius);shaderProg.setVar("finalU",0);shaderProg.setVar("glowFullU",0.1f*block*block);
+            shaderProg.drawBlocks(sums);
             gates=new GLTexture(coarse,two,null,GL_NEAREST,GL_CLAMP_TO_EDGE);
-            glProg.setDefine("MODE",3);
-            glProg.useAssetProgram("scamhdr/suncore",false);
-            glProg.setTexture("InputBuffer",sums);
-            glProg.setVar("dirU",0,1);glProg.setVar("radiusU",radius);glProg.setVar("finalU",1);glProg.setVar("glowFullU",0.1f*block*block);
-            glProg.drawBlocks(gates);
+            shaderProg.setDefine("MODE",3);
+            shaderProg.useAssetProgram("scamhdr/suncore",false);
+            shaderProg.setTexture("InputBuffer",sums);
+            shaderProg.setVar("dirU",0,1);shaderProg.setVar("radiusU",radius);shaderProg.setVar("finalU",1);shaderProg.setVar("glowFullU",0.1f*block*block);
+            shaderProg.drawBlocks(gates);
             half=new GLTexture(coarse,two,null,GL_NEAREST,GL_CLAMP_TO_EDGE);
-            glProg.setDefine("MODE",1);
-            glProg.useAssetProgram("scamhdr/suncore",false);
-            glProg.setTexture("InputBuffer",gates);
-            glProg.setVar("dirU",1,0);glProg.setVar("radiusU",radius);
-            glProg.drawBlocks(half);
+            shaderProg.setDefine("MODE",1);
+            shaderProg.useAssetProgram("scamhdr/suncore",false);
+            shaderProg.setTexture("InputBuffer",gates);
+            shaderProg.setVar("dirU",1,0);shaderProg.setVar("radiusU",radius);
+            shaderProg.drawBlocks(half);
             out=new GLTexture(coarse,two,null,GL_LINEAR,GL_CLAMP_TO_EDGE);
-            glProg.setDefine("MODE",1);
-            glProg.useAssetProgram("scamhdr/suncore",false);
-            glProg.setTexture("InputBuffer",half);
-            glProg.setVar("dirU",0,1);glProg.setVar("radiusU",radius);
-            glProg.drawBlocks(out);
-            glProg.closed=true;
+            shaderProg.setDefine("MODE",1);
+            shaderProg.useAssetProgram("scamhdr/suncore",false);
+            shaderProg.setTexture("InputBuffer",half);
+            shaderProg.setVar("dirU",0,1);shaderProg.setVar("radiusU",radius);
+            shaderProg.drawBlocks(out);
+            shaderProg.closed=true;
             if(readStats)com.scamera.app.util.Log.i("SCAM_PIPELINE",opposedStatsLine(filled,coarse,block,radius,flags!=null,glowW,glowS));
             else if(logLater&&queueOpposedStats(weights,coarse,block,radius,flags!=null)){} // P602: the line at the end of the run
             else com.scamera.app.util.Log.i("SCAM_PIPELINE","highlight opposed landing: GPU only "+coarse.x+"x"+coarse.y+"@"+block+", radius "+radius);
@@ -271,7 +271,7 @@ public final class ScamRgb extends Node {
     /** P378 review: camera RGB (scamrgb's input) to the render's linear sRGB - why/low's chain (WhyTone.colourMatrix x sensorToProPhoto). */
     static float[] toRender(PostPipeline p){
         final float[] m=new float[9];
-        com.scamera.app.processing.render.Converter.multiply(WhyTone.colourMatrix(p),p.mParameters.sensorToProPhoto,m);
+        com.scamera.app.processing.render.Converter.multiply(WhyTone.colourMatrix(p),p.shotParams.cameraToProPhoto,m);
         return m;
     }
 
@@ -463,17 +463,17 @@ public final class ScamRgb extends Node {
                 new GLFormat(GLFormat.DataType.UNSIGNED_32));
              com.scamera.app.processing.opengl.GLBuffer out = new com.scamera.app.processing.opengl.GLBuffer(904,
                 new GLFormat(GLFormat.DataType.UNSIGNED_32))) {
-            lut.byteBuffer.asIntBuffer().put(binTable);
+            lut.clientCopy.asIntBuffer().put(binTable);
             lut.Bind();lut.Buffering();
-            glProg.setLayout(256, 1, 1);
-            glProg.useAssetProgram("hlrecovery/clipstats_cs", true);
-            glProg.setTexture("InputBuffer", input);
-            glProg.setBufferCompute("binLut", lut);
-            glProg.setBufferCompute("clipStats", out);
-            glProg.setVar("widthU", size.x);
-            glProg.setVar("samplesU", (int) samples);
-            glProg.computeManual((int) ((samples + 255) / 256), 1, 1);
-            glProg.closed = true;
+            shaderProg.setLayout(256, 1, 1);
+            shaderProg.useAssetProgram("hlrecovery/clipstats_cs", true);
+            shaderProg.setTexture("InputBuffer", input);
+            shaderProg.setBufferCompute("binLut", lut);
+            shaderProg.setBufferCompute("clipStats", out);
+            shaderProg.setVar("widthU", size.x);
+            shaderProg.setVar("samplesU", (int) samples);
+            shaderProg.computeManual((int) ((samples + 255) / 256), 1, 1);
+            shaderProg.closed = true;
             final int[] v = out.readBufferIntegers(false);
             if (android.opengl.GLES31.glGetError() != android.opengl.GLES31.GL_NO_ERROR || v == null || v.length < 904 || v[903] != 0) return null;
             final ChannelClip cc = new ChannelClip();
@@ -631,16 +631,16 @@ public final class ScamRgb extends Node {
 
     private static void requireTextureStorage(GLTexture texture) {
         final int[] size = new int[2];
-        glBindTexture(GL_TEXTURE_2D, texture.mTextureID);
+        glBindTexture(GL_TEXTURE_2D, texture.id);
         android.opengl.GLES31.glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, android.opengl.GLES31.GL_TEXTURE_WIDTH, size, 0);
         android.opengl.GLES31.glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, android.opengl.GLES31.GL_TEXTURE_HEIGHT, size, 1);
-        if (size[0] != texture.mSize.x || size[1] != texture.mSize.y)
+        if (size[0] != texture.size.x || size[1] != texture.size.y)
             throw new IllegalStateException(com.scamera.app.util.Lang.t("SHDR: GPU не смог выделить текстуру склейки 2× ",
-                    "SHDR: GPU could not allocate the Sabre 2x texture ") + texture.mSize);
-        texture.BufferLoad();
+                    "SHDR: GPU could not allocate the Sabre 2x texture ") + texture.size);
+        texture.renderInto();
         if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
             throw new IllegalStateException(com.scamera.app.util.Lang.t("SHDR: GPU не поддерживает обработку текстуры склейки 2× ",
-                    "SHDR: GPU cannot render the Sabre 2x texture ") + texture.mSize);
+                    "SHDR: GPU cannot render the Sabre 2x texture ") + texture.size);
     }
 
     /** Every `stride`-th pixel of the linear RGB: enough for the percentile statistics of the later nodes. */
@@ -716,7 +716,7 @@ public final class ScamRgb extends Node {
                 next = null;
                 final int rows = Math.min(band, h - y0), y1 = y0 + band, k1 = k + 1;
                 if (y1 < h) next = repack.submit(() -> halfRgbToRgbaRows(rgb, w, y1, Math.min(band, h - y1), stage[k1 & 1]));
-                glBindTexture(GL_TEXTURE_2D, tex.mTextureID);
+                glBindTexture(GL_TEXTURE_2D, tex.id);
                 stage[k & 1].position(0);
                 glTexSubImage2D(GL_TEXTURE_2D, 0, 0, y0, w, rows, GL_RGBA, android.opengl.GLES30.GL_HALF_FLOAT, stage[k & 1]);
             }
@@ -797,7 +797,7 @@ public final class ScamRgb extends Node {
                 next = null;
                 final int rows = Math.min(band, h - y0), y1 = y0 + band, k1 = k + 1;
                 if (y1 < h) next = repack.submit(() -> rgbToRgbaRows(rgb, w, y1, Math.min(band, h - y1), stage[k1 & 1]));
-                glBindTexture(GL_TEXTURE_2D, tex.mTextureID);
+                glBindTexture(GL_TEXTURE_2D, tex.id);
                 stage[k & 1].position(0);
                 glTexSubImage2D(GL_TEXTURE_2D, 0, 0, y0, w, rows, GL_RGBA, GL_FLOAT, stage[k & 1]);
             }
@@ -871,7 +871,7 @@ public final class ScamRgb extends Node {
      * caller uses 0). One 16 x 16 group per tile writes its sums and counts, added here.
      */
     private float[] opposedChroma(GLTexture input,GLTexture gainMap,GLTexture flagsTex,float[] whitePoint,ChannelClip cc,Point size,int ox,int oy,int[] groups){
-        if(groups!=null&&flagsTex!=null&&ox==0&&oy==0&&input.mSize.equals(size)&&flagsTex.mSize.equals(size)){
+        if(groups!=null&&flagsTex!=null&&ox==0&&oy==0&&input.size.equals(size)&&flagsTex.size.equals(size)){
             try{
                 final float[] chroma=opposedChromaPass(input,gainMap,flagsTex,whitePoint,cc,size,ox,oy,groups);
                 if(chroma!=null)return chroma;
@@ -894,33 +894,33 @@ public final class ScamRgb extends Node {
             com.scamera.app.processing.opengl.GLBuffer work=groups!=null?new com.scamera.app.processing.opengl.GLBuffer(groups.length,
                     new GLFormat(GLFormat.DataType.UNSIGNED_32)):null){
             if(work!=null){
-                work.byteBuffer.asIntBuffer().put(groups);
-                android.opengl.GLES31.glBindBuffer(android.opengl.GLES31.GL_SHADER_STORAGE_BUFFER,work.mBufferID);
-                android.opengl.GLES31.glBufferSubData(android.opengl.GLES31.GL_SHADER_STORAGE_BUFFER,0,work.byteSize,work.byteBuffer);
+                work.clientCopy.asIntBuffer().put(groups);
+                android.opengl.GLES31.glBindBuffer(android.opengl.GLES31.GL_SHADER_STORAGE_BUFFER,work.bufferId);
+                android.opengl.GLES31.glBufferSubData(android.opengl.GLES31.GL_SHADER_STORAGE_BUFFER,0,work.bytes,work.clientCopy);
                 final int[] bytes=new int[1];
                 android.opengl.GLES31.glGetBufferParameteriv(android.opengl.GLES31.GL_SHADER_STORAGE_BUFFER,android.opengl.GLES31.GL_BUFFER_SIZE,bytes,0);
-                if(android.opengl.GLES31.glGetError()!=android.opengl.GLES31.GL_NO_ERROR||bytes[0]!=work.byteSize)
+                if(android.opengl.GLES31.glGetError()!=android.opengl.GLES31.GL_NO_ERROR||bytes[0]!=work.bytes)
                     throw new IllegalStateException("opposed worklist upload failed");
             }
-            glProg.setLayout(16,16,1);
-            glProg.setDefine("SPARSE",groups!=null?1:0);
-            glProg.useAssetProgram("hlrecovery/opposed",true);
-            glProg.setTexture("InputBuffer",input);glProg.setTexture("GainMap",gainMap);
-            if(flagsTex!=null)glProg.setTexture("ClipFlags",flagsTex);
-            glProg.setVar("whitePoint",whitePoint);
-            glProg.setVar("inverseSize",1f/size.x,1f/size.y);
-            glProg.setVar("cropOffset",ox,oy);
-            glProg.setVar("sizeU",size.x,size.y);
-            glProg.setVar("clipLoU",cc.lo);glProg.setVar("clipHiU",cc.hi);
-            glProg.setVar("clipHiUnflaggedU",cc.hiUnflagged?1:0);
-            glProg.setVar("clipFlagsU",flagsTex!=null?1:0);
-            glProg.setBufferCompute("oppSums",sums);
+            shaderProg.setLayout(16,16,1);
+            shaderProg.setDefine("SPARSE",groups!=null?1:0);
+            shaderProg.useAssetProgram("hlrecovery/opposed",true);
+            shaderProg.setTexture("InputBuffer",input);shaderProg.setTexture("GainMap",gainMap);
+            if(flagsTex!=null)shaderProg.setTexture("ClipFlags",flagsTex);
+            shaderProg.setVar("whitePoint",whitePoint);
+            shaderProg.setVar("inverseSize",1f/size.x,1f/size.y);
+            shaderProg.setVar("cropOffset",ox,oy);
+            shaderProg.setVar("sizeU",size.x,size.y);
+            shaderProg.setVar("clipLoU",cc.lo);shaderProg.setVar("clipHiU",cc.hi);
+            shaderProg.setVar("clipHiUnflaggedU",cc.hiUnflagged?1:0);
+            shaderProg.setVar("clipFlagsU",flagsTex!=null?1:0);
+            shaderProg.setBufferCompute("oppSums",sums);
             if(work!=null){
-                glProg.setBufferCompute("oppWorkGroups",work);
-                glProg.setVar("occupiedCountU",groups.length);glProg.setVar("originalGroupsXU",gx);
+                shaderProg.setBufferCompute("oppWorkGroups",work);
+                shaderProg.setVar("occupiedCountU",groups.length);shaderProg.setVar("originalGroupsXU",gx);
                 final int columns=Math.min(groups.length,65535);
-                glProg.computeManual(columns,(groups.length+columns-1)/columns,1);
-            } else glProg.computeManual(gx,gy,1);
+                shaderProg.computeManual(columns,(groups.length+columns-1)/columns,1);
+            } else shaderProg.computeManual(gx,gy,1);
             final int[] v=sums.readBufferIntegers(false);
             final int error=android.opengl.GLES31.glGetError();
             if(error!=android.opengl.GLES31.GL_NO_ERROR||v==null||v.length<6*gx*gy){
@@ -951,27 +951,27 @@ public final class ScamRgb extends Node {
         try(com.scamera.app.processing.opengl.GLBuffer sums=new com.scamera.app.processing.opengl.GLBuffer(6*gx*gy,
                 new GLFormat(GLFormat.DataType.UNSIGNED_32))){
             mean=new GLTexture(new Point(1,1),new GLFormat(GLFormat.DataType.FLOAT_32,4),null,GL_NEAREST,GL_CLAMP_TO_EDGE);
-            glProg.setLayout(16,16,1);
-            glProg.setDefine("SPARSE",0);
-            glProg.useAssetProgram("hlrecovery/opposed",true);
-            glProg.setTexture("InputBuffer",input);glProg.setTexture("GainMap",gainMap);
-            if(flagsTex!=null)glProg.setTexture("ClipFlags",flagsTex);
-            glProg.setVar("whitePoint",whitePoint);
-            glProg.setVar("inverseSize",1f/size.x,1f/size.y);
-            glProg.setVar("cropOffset",ox,oy);
-            glProg.setVar("sizeU",size.x,size.y);
-            glProg.setVar("clipLoU",cc.lo);glProg.setVar("clipHiU",cc.hi);
-            glProg.setVar("clipHiUnflaggedU",cc.hiUnflagged?1:0);
-            glProg.setVar("clipFlagsU",flagsTex!=null?1:0);
-            glProg.setBufferCompute("oppSums",sums);
-            glProg.computeManualAsync(gx,gy,1);
-            glProg.setLayout(256,1,1);
-            glProg.useAssetProgram("hlrecovery/opposed_mean",true);
-            glProg.setBufferCompute("oppSums",sums);
-            glProg.setVar("groupsU",gx*gy);
-            glProg.setTextureCompute("outMean",mean,true);
-            glProg.computeManualAsync(1,1,1);
-            glProg.closed=true;
+            shaderProg.setLayout(16,16,1);
+            shaderProg.setDefine("SPARSE",0);
+            shaderProg.useAssetProgram("hlrecovery/opposed",true);
+            shaderProg.setTexture("InputBuffer",input);shaderProg.setTexture("GainMap",gainMap);
+            if(flagsTex!=null)shaderProg.setTexture("ClipFlags",flagsTex);
+            shaderProg.setVar("whitePoint",whitePoint);
+            shaderProg.setVar("inverseSize",1f/size.x,1f/size.y);
+            shaderProg.setVar("cropOffset",ox,oy);
+            shaderProg.setVar("sizeU",size.x,size.y);
+            shaderProg.setVar("clipLoU",cc.lo);shaderProg.setVar("clipHiU",cc.hi);
+            shaderProg.setVar("clipHiUnflaggedU",cc.hiUnflagged?1:0);
+            shaderProg.setVar("clipFlagsU",flagsTex!=null?1:0);
+            shaderProg.setBufferCompute("oppSums",sums);
+            shaderProg.computeManualAsync(gx,gy,1);
+            shaderProg.setLayout(256,1,1);
+            shaderProg.useAssetProgram("hlrecovery/opposed_mean",true);
+            shaderProg.setBufferCompute("oppSums",sums);
+            shaderProg.setVar("groupsU",gx*gy);
+            shaderProg.setTextureCompute("outMean",mean,true);
+            shaderProg.computeManualAsync(1,1,1);
+            shaderProg.closed=true;
             final int error=android.opengl.GLES31.glGetError();
             if(error!=android.opengl.GLES31.GL_NO_ERROR){
                 com.scamera.app.util.Log.w("SCAM_PIPELINE","highlight opposed (GPU mean): GL error 0x"+Integer.toHexString(error)+", read back");
@@ -1023,17 +1023,17 @@ public final class ScamRgb extends Node {
         return out;
     }
 
-    @Override public void Run(){
+    @Override public void runPass(){
         final java.nio.ByteBuffer flags=lastClipFlags;lastClipFlags=null;
         try{run(flags);}finally{freeClipFlags(flags);} // P187: uploaded, ignored, unused by this shot, or a failure
     }
 
     private void run(java.nio.ByteBuffer flags){
-        PostPipeline p=(PostPipeline)basePipeline;
+        PostPipeline p=(PostPipeline)hostPipeline;
         // Bento is applied only by the hybrid merge (reset for every SCAM burst): a safety net for the shot profile.
         final boolean hybrid=PreferenceKeys.isHybridShot()||ScamHybridBurst.lastBentoApplied;
-        final Point size=p.mParameters.rawSize;
-        final boolean largeTwoX=p.mParameters.outputScale>1f&&(long)size.x*size.y>64_000_000L;
+        final Point size=p.shotParams.rawSize;
+        final boolean largeTwoX=p.shotParams.outputScale>1f&&(long)size.x*size.y>64_000_000L;
         if(flags!=null&&(!hybrid||flags.capacity()!=(long)size.x*size.y)){
             com.scamera.app.util.Log.i("SCAM_PIPELINE","highlight recovery: clip flags ignored (hybrid="+hybrid
                     +" bytes="+flags.capacity()+" expected="+(long)size.x*size.y+")");
@@ -1043,8 +1043,8 @@ public final class ScamRgb extends Node {
         // only read it); the big buffer is released once all three are done (2x grid: 604 MB). The same results as one after
         // the other (channelClip parallel: see there).
         float[] clip=null;ChannelClip cc=null;float strength=0f;
-        final java.nio.ByteBuffer big=p.mParameters.scamRgb;
-        final boolean owned=p.mParameters.scamRgbOwned;
+        final java.nio.ByteBuffer big=p.shotParams.scamRgb;
+        final boolean owned=p.shotParams.scamRgbOwned;
         final boolean bento=ScamHybridBurst.lastBentoApplied;
         final float bentoK=ScamHybridBurst.lastBentoFactor,bentoUs=ScamHybridBurst.lastBentoUsClipped;
         final boolean withFlags=flags!=null;
@@ -1106,7 +1106,7 @@ public final class ScamRgb extends Node {
                 // P145: the 3 -> 4 halves repack as a compute pass (HalfRgbUpload); the CPU repack on drivers that would not keep
                 // every half, for the old model (post_ab) and when a GL call fails
                 // P497: scam_dev half_rgb_gpu 0 = the CPU repack (the same halves; an A/B for Adreno 5xx, whose storage buffer reads are slow)
-                if(!com.scamera.app.processing.opengl.PostGlMode.legacy()&&PreferenceKeys.scamDevSwitch("half_rgb_gpu",true)){input=HalfRgbUpload.upload(glProg,size,big);gpuRepack=input!=null;}
+                if(!com.scamera.app.processing.opengl.PostGlMode.legacy()&&PreferenceKeys.scamDevSwitch("half_rgb_gpu",true)){input=HalfRgbUpload.upload(shaderProg,size,big);gpuRepack=input!=null;}
                 if(input==null)input=uploadHalfRgba(size,big);
                 rgbaBands=input!=null;
                 if(input==null)throw new IllegalStateException("no staging memory for the half-float RGB upload");
@@ -1133,8 +1133,8 @@ public final class ScamRgb extends Node {
         final boolean earlyMaps=tail&&!largeTwoX;
         if(earlyMaps){
             try{
-                p.GainMap=new GLTexture(p.mParameters.mapSize,new GLFormat(GLFormat.DataType.FLOAT_16,4),
-                        BufferUtils.getFrom(p.mParameters.gainMap),GL_LINEAR,GL_CLAMP_TO_EDGE);
+                p.GainMap=new GLTexture(p.shotParams.shadingGrid,new GLFormat(GLFormat.DataType.FLOAT_16,4),
+                        BufferUtils.floatBuffer(p.shotParams.shadingMap),GL_LINEAR,GL_CLAMP_TO_EDGE);
                 if(hybrid&&strength>0f&&flags!=null){
                     flags.rewind();
                     android.opengl.GLES30.glPixelStorei(android.opengl.GLES30.GL_UNPACK_ALIGNMENT,1);
@@ -1142,7 +1142,7 @@ public final class ScamRgb extends Node {
                 }
             }catch(RuntimeException|Error failure){
                 awaitQuietly(side);if(rest!=null)awaitQuietly(rest);
-                p.mParameters.scamRgb=null;p.mParameters.scamRgbOwned=false; // released by the helper (the upload was done)
+                p.shotParams.scamRgb=null;p.shotParams.scamRgbOwned=false; // released by the helper (the upload was done)
                 if(earlyFlags!=null)earlyFlags.close();
                 if(p.GainMap!=null){p.GainMap.close();p.GainMap=null;}
                 input.close();
@@ -1153,7 +1153,7 @@ public final class ScamRgb extends Node {
         try{
             stats=await(side);
         }catch(RuntimeException|Error failure){
-            if(rest!=null){awaitQuietly(rest);p.mParameters.scamRgb=null;p.mParameters.scamRgbOwned=false;} // released by the helper
+            if(rest!=null){awaitQuietly(rest);p.shotParams.scamRgb=null;p.shotParams.scamRgbOwned=false;} // released by the helper
             if(earlyFlags!=null)earlyFlags.close();
             throw failure;
         }
@@ -1171,7 +1171,7 @@ public final class ScamRgb extends Node {
                 p.record.nearClip=cc.nearClip;p.record.hiUnflagged=cc.hiUnflagged;p.record.ccBento=bento;
             }
             final float[] top=cc.hi[1]>0f?cc.hi:cc.lo;
-            final float[] wp=p.mParameters.whitePoint;
+            final float[] wp=p.shotParams.asShotNeutral;
             float white=0f;
             if(top[1]>0f)for(int c=0;c<3;c++)white=Math.max(white,top[c]/Math.max(wp[c],1e-6f));
             lastClipWhite=white;
@@ -1188,11 +1188,11 @@ public final class ScamRgb extends Node {
         final boolean perChannel=cc!=null&&strength>0f&&cc.enabled();
         if(owned&&tail){
             // P479: the helper releases it; the decimated copy takes its place at the end of this node (nothing reads it before)
-            p.mParameters.scamRgb=null;
-            p.mParameters.scamRgbOwned=false;
+            p.shotParams.scamRgb=null;
+            p.shotParams.scamRgbOwned=false;
         } else if(owned){
-            p.mParameters.scamRgb=stats.decimated;
-            p.mParameters.scamRgbOwned=false;
+            p.shotParams.scamRgb=stats.decimated;
+            p.shotParams.scamRgbOwned=false;
             com.scamera.app.util.Allocator.free(big);
         }
         // P33 W2.4 / P48: where the time between the worker result and the lens shading goes (stats and decimate on the helper
@@ -1203,16 +1203,16 @@ public final class ScamRgb extends Node {
         GLTexture flagsTex=null,chromaNear=null,chromaWide=null,chromaHuge=null,purpleBound=null,oppGpu=null;
         try {
             if(largeTwoX)requireTextureStorage(input);
-            float[] gm=p.mParameters.gainMap;
-            if(gm!=null&&p.mParameters.mapSize!=null&&gm.length>=4*p.mParameters.mapSize.x*p.mParameters.mapSize.y){
-                int mw=p.mParameters.mapSize.x,mh=p.mParameters.mapSize.y;
+            float[] gm=p.shotParams.shadingMap;
+            if(gm!=null&&p.shotParams.shadingGrid!=null&&gm.length>=4*p.shotParams.shadingGrid.x*p.shotParams.shadingGrid.y){
+                int mw=p.shotParams.shadingGrid.x,mh=p.shotParams.shadingGrid.y;
                 java.util.function.BiFunction<Integer,Integer,Float> g=(x,y)->{int i=4*(y*mw+x);return (gm[i]+gm[i+1]+gm[i+2]+gm[i+3])/4f;};
                 float mean=0;for(int y=0;y<mh;y++)for(int x=0;x<mw;x++)mean+=g.apply(x,y);mean/=mw*mh;
                 com.scamera.app.util.Log.i("SCAM_PIPELINE","lens shading map "+mw+"x"+mh+": centre="+g.apply(mw/2,mh/2)
                         +" corner="+g.apply(0,0)+" edge-mid="+g.apply(mw/2,0)+" mean="+mean);
             }
-            if(!earlyMaps)p.GainMap=new GLTexture(p.mParameters.mapSize,new GLFormat(GLFormat.DataType.FLOAT_16,4),
-                    BufferUtils.getFrom(p.mParameters.gainMap),GL_LINEAR,GL_CLAMP_TO_EDGE);
+            if(!earlyMaps)p.GainMap=new GLTexture(p.shotParams.shadingGrid,new GLFormat(GLFormat.DataType.FLOAT_16,4),
+                    BufferUtils.floatBuffer(p.shotParams.shadingMap),GL_LINEAR,GL_CLAMP_TO_EDGE);
             if(perChannel&&flags!=null&&earlyFlags!=null){
                 flagsTex=earlyFlags;earlyFlags=null;
                 freeClipFlags(flags); // P479: uploaded before the helper was done with them
@@ -1229,22 +1229,22 @@ public final class ScamRgb extends Node {
             }
             if(earlyFlags!=null){earlyFlags.close();earlyFlags=null;} // P479: the recovery is off after all
             com.scamera.app.processing.opengl.PostGlMode.lap("scamrgb gainmap+flags");
-            p.main1=new GLTexture(size,new GLFormat(GLFormat.DataType.FLOAT_16,GLDrawParams.WorkDim),null,GL_LINEAR,GL_CLAMP_TO_EDGE);
+            p.main1=new GLTexture(size,new GLFormat(GLFormat.DataType.FLOAT_16,GLDrawParams.WORK_CHANNELS),null,GL_LINEAR,GL_CLAMP_TO_EDGE);
             // P179: no main3 (nothing swaps it in any more: swap3 has no caller; 1.6 GB at 200 MP), and above 100 MP main2 is made
             // on its first use, after the input texture is gone, instead of next to it
             p.main3=null;
             final boolean early=earlyRelease(size);
             if(((long)size.x*size.y>100_000_000L||early)&&!largeTwoX){
                 final Point mainSize=new Point(size);
-                p.lazyMain2=()->new GLTexture(mainSize,new GLFormat(GLFormat.DataType.FLOAT_16,GLDrawParams.WorkDim),null,GL_LINEAR,GL_CLAMP_TO_EDGE);
+                p.lazyMain2=()->new GLTexture(mainSize,new GLFormat(GLFormat.DataType.FLOAT_16,GLDrawParams.WORK_CHANNELS),null,GL_LINEAR,GL_CLAMP_TO_EDGE);
             } else {
-                p.main2=new GLTexture(size,new GLFormat(GLFormat.DataType.FLOAT_16,GLDrawParams.WorkDim),null,GL_LINEAR,GL_CLAMP_TO_EDGE);
+                p.main2=new GLTexture(size,new GLFormat(GLFormat.DataType.FLOAT_16,GLDrawParams.WORK_CHANNELS),null,GL_LINEAR,GL_CLAMP_TO_EDGE);
             }
             if(largeTwoX){requireTextureStorage(p.main1);requireTextureStorage(p.main2);}
             com.scamera.app.processing.opengl.PostGlMode.lap("scamrgb mains");
             int ox=0,oy=0; // «16:9»: the frames arrive cropped (Wide169, P118)
             // Sabre 2x grid: the local chroma blocks keep their SENSOR size (8 x 8), sampled one sensor pixel apart.
-            final int s=Math.max(1,Math.round(p.mParameters.outputScale));
+            final int s=Math.max(1,Math.round(p.shotParams.outputScale));
             final int block=8*s;
             final float chromaLimit=PreferenceKeys.hybridValue("highlight_chroma",0.35f);
             // P368 clip guard (owner, 2026-10-27: «У нас нет блока который предотвращает умножение пересветов на коэффициенты CCM»):
@@ -1266,21 +1266,21 @@ public final class ScamRgb extends Node {
                             &&PreferenceKeys.scamDevSwitch("hl_chanprep_cs",true);
                     boolean drawn=false;
                     for(int attempt=cs?0:1;attempt<2&&!drawn;attempt++){
-                        if(attempt==0){glProg.setLayout(8,8,1);while(android.opengl.GLES31.glGetError()!=android.opengl.GLES31.GL_NO_ERROR){}}
-                        glProg.useAssetProgram(attempt==0?"hlrecovery/chanprep_cs":"hlrecovery/chanprep",attempt==0);
-                        glProg.setTexture("InputBuffer",input);glProg.setTexture("GainMap",p.GainMap);
-                        if(flagsTex!=null)glProg.setTexture("ClipFlags",flagsTex);
-                        glProg.setVar("whitePoint",p.mParameters.whitePoint);
-                        glProg.setVar("inverseSize",1f/size.x,1f/size.y);
-                        glProg.setVar("cropOffset",ox,oy);
-                        glProg.setVar("clipLoU",cc.lo);glProg.setVar("clipHiU",cc.hi);
-                        glProg.setVar("clipHiUnflaggedU",cc.hiUnflagged?1:0);
-                        glProg.setVar("clipFlagsU",flagsTex!=null?1:0);
-                        glProg.setVar("blockU",block);glProg.setVar("pxStepU",s);
-                        glProg.setVar("usWhiteU",usWhite);
-                        if(attempt==1){glProg.drawBlocks(chromaNear);drawn=true;continue;}
+                        if(attempt==0){shaderProg.setLayout(8,8,1);while(android.opengl.GLES31.glGetError()!=android.opengl.GLES31.GL_NO_ERROR){}}
+                        shaderProg.useAssetProgram(attempt==0?"hlrecovery/chanprep_cs":"hlrecovery/chanprep",attempt==0);
+                        shaderProg.setTexture("InputBuffer",input);shaderProg.setTexture("GainMap",p.GainMap);
+                        if(flagsTex!=null)shaderProg.setTexture("ClipFlags",flagsTex);
+                        shaderProg.setVar("whitePoint",p.shotParams.asShotNeutral);
+                        shaderProg.setVar("inverseSize",1f/size.x,1f/size.y);
+                        shaderProg.setVar("cropOffset",ox,oy);
+                        shaderProg.setVar("clipLoU",cc.lo);shaderProg.setVar("clipHiU",cc.hi);
+                        shaderProg.setVar("clipHiUnflaggedU",cc.hiUnflagged?1:0);
+                        shaderProg.setVar("clipFlagsU",flagsTex!=null?1:0);
+                        shaderProg.setVar("blockU",block);shaderProg.setVar("pxStepU",s);
+                        shaderProg.setVar("usWhiteU",usWhite);
+                        if(attempt==1){shaderProg.drawBlocks(chromaNear);drawn=true;continue;}
                         try{
-                            glProg.setTextureCompute("outChroma",chromaNear,true);
+                            shaderProg.setTextureCompute("outChroma",chromaNear,true);
                             android.opengl.GLES31.glDispatchCompute(near.x,near.y,1); // (no glFinish: the reduce passes sample it next)
                             android.opengl.GLES31.glMemoryBarrier(android.opengl.GLES31.GL_TEXTURE_FETCH_BARRIER_BIT|android.opengl.GLES31.GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
                             drawn=android.opengl.GLES31.glGetError()==android.opengl.GLES31.GL_NO_ERROR;
@@ -1289,12 +1289,12 @@ public final class ScamRgb extends Node {
                         }
                     }
                     // 32- and 128-blocks: the inside of a large clipped area still finds the colour of its light
-                    glProg.useAssetProgram("hlrecovery/reduce",false);
-                    glProg.setTexture("InputBuffer",chromaNear);
-                    glProg.drawBlocks(chromaWide);
-                    glProg.useAssetProgram("hlrecovery/reduce",false);
-                    glProg.setTexture("InputBuffer",chromaWide);
-                    glProg.drawBlocks(chromaHuge);
+                    shaderProg.useAssetProgram("hlrecovery/reduce",false);
+                    shaderProg.setTexture("InputBuffer",chromaNear);
+                    shaderProg.drawBlocks(chromaWide);
+                    shaderProg.useAssetProgram("hlrecovery/reduce",false);
+                    shaderProg.setTexture("InputBuffer",chromaWide);
+                    shaderProg.drawBlocks(chromaHuge);
                 }
             }
             // P362 (owner, 2026-10-27: «верни для пересветов там, где коротких кадров нет», «считай на гпу»): RawTherapee's
@@ -1317,8 +1317,8 @@ public final class ScamRgb extends Node {
                     // scam_dev.txt "opposed_gpu_mean 0": the read-back as before
                     if(p.record==null&&stats.oppGroups==null&&!com.scamera.app.processing.opengl.PostGlMode.legacy()
                             &&PreferenceKeys.scamDevSwitch("opposed_gpu_mean",true))
-                        oppGpu=opposedChromaGpu(input,p.GainMap,flagsTex,p.mParameters.whitePoint,cc,size,ox,oy);
-                    if(oppGpu==null)oppChroma=opposedChroma(input,p.GainMap,flagsTex,p.mParameters.whitePoint,cc,size,ox,oy,stats.oppGroups);
+                        oppGpu=opposedChromaGpu(input,p.GainMap,flagsTex,p.shotParams.asShotNeutral,cc,size,ox,oy);
+                    if(oppGpu==null)oppChroma=opposedChroma(input,p.GainMap,flagsTex,p.shotParams.asShotNeutral,cc,size,ox,oy,stats.oppGroups);
                 }
                 if(p.record!=null&&oppChroma!=null)p.record.oppChroma=oppChroma.clone();
             }
@@ -1333,70 +1333,70 @@ public final class ScamRgb extends Node {
             final String fringeMethod=CaNetP.method();
             final long fringePixels=(long)size.x*size.y;
             final CaNetP.Route fringe=CaNetP.route(purple,fringeMethod,fringePixels,purple>0f&&CaNetP.NEURAL.equals(fringeMethod)
-                    &&fringePixels<=CaNetP.MAX_PIXELS&&CaNetP.prepare(glProg,fringeNet));
+                    &&fringePixels<=CaNetP.MAX_PIXELS&&CaNetP.prepare(shaderProg,fringeNet));
             final float p399=fringe==CaNetP.Route.CLASSIC?purple:0f;
             if(p399>0f&&!com.scamera.app.processing.opengl.PostGlMode.legacy()&&PreferenceKeys.scamDevSwitch("purple_bound",true)){
                 try{
-                    purpleBound=new GLTexture(new Point((input.mSize.x+7)/8,(input.mSize.y+7)/8),new GLFormat(GLFormat.DataType.FLOAT_32,4),null,GL_NEAREST,GL_CLAMP_TO_EDGE);
-                    glProg.useAssetProgram("scamhdr/purplebound",false);
-                    glProg.setTexture("InputBuffer",input);
-                    glProg.setVar("whitePoint",p.mParameters.whitePoint);
-                    glProg.drawBlocks(purpleBound);glProg.closed=true;
+                    purpleBound=new GLTexture(new Point((input.size.x+7)/8,(input.size.y+7)/8),new GLFormat(GLFormat.DataType.FLOAT_32,4),null,GL_NEAREST,GL_CLAMP_TO_EDGE);
+                    shaderProg.useAssetProgram("scamhdr/purplebound",false);
+                    shaderProg.setTexture("InputBuffer",input);
+                    shaderProg.setVar("whitePoint",p.shotParams.asShotNeutral);
+                    shaderProg.drawBlocks(purpleBound);shaderProg.closed=true;
                 }catch(RuntimeException failure){
                     com.scamera.app.util.Log.w("SCAM_PIPELINE","purple fringe bound: "+failure+", the taps everywhere");
                     if(purpleBound!=null)purpleBound.close();
                     purpleBound=null;
                 }
             }
-            if(purpleBound!=null)glProg.setDefine("PURPLE_BOUND",1);
-            if(oppGpu!=null)glProg.setDefine("OPP_GPU",1);
-            glProg.useAssetProgram("scamhdr/scamrgb");glProg.setTexture("InputBuffer",input);glProg.setTexture("GainMap",p.GainMap);
-            if(purpleBound!=null)glProg.setTexture("PurpleBound",purpleBound);
-            if(oppGpu!=null)glProg.setTexture("OppChroma",oppGpu);
-            glProg.setVar("whitePoint",p.mParameters.whitePoint);
+            if(purpleBound!=null)shaderProg.setDefine("PURPLE_BOUND",1);
+            if(oppGpu!=null)shaderProg.setDefine("OPP_GPU",1);
+            shaderProg.useAssetProgram("scamhdr/scamrgb");shaderProg.setTexture("InputBuffer",input);shaderProg.setTexture("GainMap",p.GainMap);
+            if(purpleBound!=null)shaderProg.setTexture("PurpleBound",purpleBound);
+            if(oppGpu!=null)shaderProg.setTexture("OppChroma",oppGpu);
+            shaderProg.setVar("whitePoint",p.shotParams.asShotNeutral);
             final boolean signed=signedInput(hybrid);
-            glProg.setVar("signedU",signed?1:0);
+            shaderProg.setVar("signedU",signed?1:0);
             p.signedRgb=signed;
             if(perChannel){
-                glProg.setVar("hlModeU",1);
-                glProg.setVar("clipLoU",cc.lo);glProg.setVar("clipHiU",cc.hi);
-                glProg.setVar("clipHiUnflaggedU",cc.hiUnflagged?1:0);
-                glProg.setVar("hlStrengthU",strength);
-                glProg.setVar("clipFlagsU",flagsTex!=null?1:0);
-                if(flagsTex!=null)glProg.setTexture("ClipFlags",flagsTex);
-                glProg.setVar("chromaU",chromaNear!=null?1:0);
-                if(chromaNear!=null){glProg.setTexture("Chroma8",chromaNear);glProg.setTexture("Chroma32",chromaWide);glProg.setTexture("Chroma128",chromaHuge);}
-                glProg.setVar("blockU",block);
-                glProg.setVar("chromaLimitU",chromaLimit);
+                shaderProg.setVar("hlModeU",1);
+                shaderProg.setVar("clipLoU",cc.lo);shaderProg.setVar("clipHiU",cc.hi);
+                shaderProg.setVar("clipHiUnflaggedU",cc.hiUnflagged?1:0);
+                shaderProg.setVar("hlStrengthU",strength);
+                shaderProg.setVar("clipFlagsU",flagsTex!=null?1:0);
+                if(flagsTex!=null)shaderProg.setTexture("ClipFlags",flagsTex);
+                shaderProg.setVar("chromaU",chromaNear!=null?1:0);
+                if(chromaNear!=null){shaderProg.setTexture("Chroma8",chromaNear);shaderProg.setTexture("Chroma32",chromaWide);shaderProg.setTexture("Chroma128",chromaHuge);}
+                shaderProg.setVar("blockU",block);
+                shaderProg.setVar("chromaLimitU",chromaLimit);
                 float defringe=PreferenceKeys.hybridValue("highlight_defringe",0.85f);
-                glProg.setVar("defringeU",defringe>0f?defringe:-1f);
+                shaderProg.setVar("defringeU",defringe>0f?defringe:-1f);
                 // P539: a near-white light's surroundings at the top of the range go white (no ring round the sun), with the glow setting
-                glProg.setVar("hlWhiteU",Math.max(0f,Math.min(1f,PreferenceKeys.hybridValue("highlight_glow",1f))));
+                shaderProg.setVar("hlWhiteU",Math.max(0f,Math.min(1f,PreferenceKeys.hybridValue("highlight_glow",1f))));
                 // P399: the lens's purple fringe against a bright light goes neutral; scam_dev.txt "hybrid_highlight_purple 0" = as before
                 // P493: 0 when the fringe net runs instead (P399 is inside it)
-                glProg.setVar("purpleU",p399);
-                glProg.setVar("oppU",opposed?1:0);
+                shaderProg.setVar("purpleU",p399);
+                shaderProg.setVar("oppU",opposed?1:0);
                 // P393: a clipped channel of a coloured surface (sunlit leaves) also takes the local light's colour (Chroma8 / 32 / 128);
                 // scam_dev.txt "hybrid_highlight_opposed_local 0" = RawTherapee's reference alone, as before
-                glProg.setVar("oppLocalU",opposed&&PreferenceKeys.hybridSwitch("highlight_opposed_local",true)?1:0);
-                glProg.setVar("oppWarmU",opposed?Math.max(0f,Math.min(1f,PreferenceKeys.hybridValue("highlight_opposed_warm",1f))):0f); // P506
+                shaderProg.setVar("oppLocalU",opposed&&PreferenceKeys.hybridSwitch("highlight_opposed_local",true)?1:0);
+                shaderProg.setVar("oppWarmU",opposed?Math.max(0f,Math.min(1f,PreferenceKeys.hybridValue("highlight_opposed_warm",1f))):0f); // P506
                 // a failed measurement: chrominance 0 (RawTherapee's own result: its sum is always 0, see hlrecovery/opposed)
                 final float[] oc=oppChroma!=null?oppChroma:new float[3];
-                glProg.setVar("oppChromaU",oc[0],oc[1],oc[2]);
-                glProg.setVar("usWhiteU",usWhite);
+                shaderProg.setVar("oppChromaU",oc[0],oc[1],oc[2]);
+                shaderProg.setVar("usWhiteU",usWhite);
             } else {
                 // SCAM HDR: neutralise at the plateau; hybrid with the recovery off: plain WB and lens shading.
                 if(clip==null)clip=new float[]{1e30f,1e30f,1e30f};
-                glProg.setVar("hlModeU",0);
-                glProg.setVar("clipLevel",clip[0],clip[1],clip[2]);
+                shaderProg.setVar("hlModeU",0);
+                shaderProg.setVar("clipLevel",clip[0],clip[1],clip[2]);
             }
-            glProg.setVar("cropOffset",ox,oy);
-            glProg.setVar("inverseSize",1f/size.x,1f/size.y);
+            shaderProg.setVar("cropOffset",ox,oy);
+            shaderProg.setVar("inverseSize",1f/size.x,1f/size.y);
             // Keep the ping-pong cursor in sync for every following postprocessing pass.
-            WorkingTexture=p.getMain();glProg.drawBlocks(WorkingTexture);glProg.closed=true;
+            passOut=p.getMain();shaderProg.drawBlocks(passOut);shaderProg.closed=true;
             if(purpleBound!=null){purpleBound.close();purpleBound=null;}
             if(oppGpu!=null){oppGpu.close();oppGpu=null;}
-            final int shorter=wholeShorter(p.frozen,WhyTone.lowFactor(p.mParameters),size);
+            final int shorter=wholeShorter(p.frozen,WhyTone.lowFactor(p.shotParams),size);
             if(hybrid&&flagsTex!=null){
                 p.sunBloom=sunBloom(flagsTex,size,shorter);p.sunBloomSize=p.sunBloom!=null?new Point(size):null;p.sunBloomBlock=shareBlock(shorter);
             }
@@ -1405,7 +1405,7 @@ public final class ScamRgb extends Node {
                 p.opposedShare=opposedShare(p,input,flagsTex,cc,size,shorter);
                 p.opposedShareSize=p.opposedShare!=null?new Point(size):null;p.opposedShareBlock=shareBlock(shorter);
             }
-            final String chromaLog=chromaNear!=null?chromaNear.mSize.x+"x"+chromaNear.mSize.y+" block "+block:"neutral";
+            final String chromaLog=chromaNear!=null?chromaNear.size.x+"x"+chromaNear.size.y+" block "+block:"neutral";
             // Clip band: the dashed orange/blue line where a slanted clip edge alternates between clipped-mean and
             // unclipped-sample colours (assets/shaders/scamhdr/clipband.glsl). pref_scam_hybrid_highlight_band 0..1.
             final float band=perChannel&&flagsTex!=null?Math.max(0f,Math.min(1f,PreferenceKeys.hybridValue("highlight_band",1f))):0f;
@@ -1428,16 +1428,16 @@ public final class ScamRgb extends Node {
                 // taps - the same pixels; one R8 texture of the frame for the pass (none above 100 MP, scam_dev.txt "clipband_mask
                 // 0", the old GL model or a GL failure: the 2-D taps as before)
                 GLTexture bandMask=null;
-                if(!ScamHdrDenoise.huge(size.x,size.y)&&flagsTex.mSize.equals(WorkingTexture.mSize)
+                if(!ScamHdrDenoise.huge(size.x,size.y)&&flagsTex.size.equals(passOut.size)
                         &&!com.scamera.app.processing.opengl.PostGlMode.legacy()&&PreferenceKeys.scamDevSwitch("clipband_mask",true)){
                     try{
-                        bandMask=new GLTexture(flagsTex.mSize,new GLFormat(GLFormat.DataType.SIMPLE_8,1),null,GL_NEAREST,GL_CLAMP_TO_EDGE);
-                        glProg.useAssetProgram("scamhdr/clipmask",false);
-                        glProg.setTexture("ClipFlags",flagsTex);
-                        glProg.setVar("radiusU",3*s);glProg.setVar("zoneU",2*s);
-                        glProg.setVar("clipHiUnflaggedU",cc.hiUnflagged?1:0);
-                        glProg.setVar("glowRadiusU",glow>0f?6*s:0);
-                        glProg.drawBlocks(bandMask);glProg.closed=true;
+                        bandMask=new GLTexture(flagsTex.size,new GLFormat(GLFormat.DataType.SIMPLE_8,1),null,GL_NEAREST,GL_CLAMP_TO_EDGE);
+                        shaderProg.useAssetProgram("scamhdr/clipmask",false);
+                        shaderProg.setTexture("ClipFlags",flagsTex);
+                        shaderProg.setVar("radiusU",3*s);shaderProg.setVar("zoneU",2*s);
+                        shaderProg.setVar("clipHiUnflaggedU",cc.hiUnflagged?1:0);
+                        shaderProg.setVar("glowRadiusU",glow>0f?6*s:0);
+                        shaderProg.drawBlocks(bandMask);shaderProg.closed=true;
                     }catch(RuntimeException failure){
                         com.scamera.app.util.Log.w("SCAM_PIPELINE","clip band mask: "+failure+", the 2-D taps");
                         if(bandMask!=null)bandMask.close();
@@ -1445,19 +1445,19 @@ public final class ScamRgb extends Node {
                     }
                 }
                 GLTexture banded=p.getMain();
-                if(bandMask!=null)glProg.setDefine("BAND_MASK",1);
-                glProg.useAssetProgram("scamhdr/clipband",false);
-                if(bandMask!=null)glProg.setTexture("BandMask",bandMask);
-                glProg.setTexture("InputBuffer",WorkingTexture);
-                glProg.setTexture("ClipFlags",flagsTex);
-                glProg.setVar("radiusU",3*s);glProg.setVar("zoneU",2*s);
-                glProg.setVar("clipHiUnflaggedU",cc.hiUnflagged?1:0);
-                glProg.setVar("strengthU",band);
-                glProg.setVar("glowU",glow);glProg.setVar("glowRadiusU",glow>0f?6*s:0);
-                glProg.drawBlocks(banded);glProg.closed=true;
+                if(bandMask!=null)shaderProg.setDefine("BAND_MASK",1);
+                shaderProg.useAssetProgram("scamhdr/clipband",false);
+                if(bandMask!=null)shaderProg.setTexture("BandMask",bandMask);
+                shaderProg.setTexture("InputBuffer",passOut);
+                shaderProg.setTexture("ClipFlags",flagsTex);
+                shaderProg.setVar("radiusU",3*s);shaderProg.setVar("zoneU",2*s);
+                shaderProg.setVar("clipHiUnflaggedU",cc.hiUnflagged?1:0);
+                shaderProg.setVar("strengthU",band);
+                shaderProg.setVar("glowU",glow);shaderProg.setVar("glowRadiusU",glow>0f?6*s:0);
+                shaderProg.drawBlocks(banded);shaderProg.closed=true;
                 if(bandMask!=null)bandMask.close();
-                unbanded=WorkingTexture;
-                WorkingTexture=banded;
+                unbanded=passOut;
+                passOut=banded;
             }
             if(early){
                 // P187: what nothing reads any more goes back now instead of through WhyStats .. WhyCombine: the input (when it
@@ -1475,15 +1475,15 @@ public final class ScamRgb extends Node {
             // P493: the fringe net on scamrgb's output (after the clip band: its dashes are gone before the net looks) into the next
             // main. A GPU failure here leaves the frame as it is (purpleU was 0) and the ping-pong cursor where it was.
             if(fringe==CaNetP.Route.NEURAL){
-                final GLTexture fringeIn=WorkingTexture,fringeOut=p.getMain();
+                final GLTexture fringeIn=passOut,fringeOut=p.getMain();
                 try{
-                    CaNetP.run(glProg,fringeIn,fringeOut,p,cc.lo,fringeNet,purple);
-                    WorkingTexture=fringeOut;
+                    CaNetP.run(shaderProg,fringeIn,fringeOut,p,cc.lo,fringeNet,purple);
+                    passOut=fringeOut;
                     if(early&&!largeTwoX){android.opengl.GLES30.glFinish();p.releaseMain(fringeIn);}
                 }catch(RuntimeException failure){
                     com.scamera.app.util.Log.e("SCAM_PIPELINE","fringe net (P493) failed, the frame without fringe suppression: "+failure);
                     p.texnum=p.texnum==1?2:1;
-                    glProg.closed=true;
+                    shaderProg.closed=true;
                 }
             }
             if(hybrid)com.scamera.app.util.Log.i("SCAM_PIPELINE","scamrgb input "+(signed?"signed (clamped after the noise reduction or the WHY colour averages)":"clamped per pixel (post_ab_clamp)"));
@@ -1509,7 +1509,7 @@ public final class ScamRgb extends Node {
             if(oppGpu!=null)oppGpu.close();
             if(earlyFlags!=null)earlyFlags.close();
             // P479: the helper's decimated copy (it has released the big buffer by now or does so before this returns)
-            if(rest!=null)p.mParameters.scamRgb=await(rest);
+            if(rest!=null)p.shotParams.scamRgb=await(rest);
         }
     }
 }

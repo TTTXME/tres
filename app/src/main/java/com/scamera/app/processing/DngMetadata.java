@@ -21,7 +21,7 @@ import java.util.regex.Pattern;
  * x_N (1 = the N frames' white) over the headroom H, and x_N averages N_eff frames, var(x_N) = (S x_N + O) / N_eff. So
  * var(m) = var(x_N) / H^2 = S / (H N_eff) m + O / (H^2 N_eff). The tag held the sensor's one-frame model (S, O) instead:
  * {@code NoiseModeler.computeModel} is base / FrameNumberSelector.frameCount, which nothing sets any more (0 -> 1), and was
- * written before ScamProcessor's computeStackingNoiseModel, so the tag overstated the noise H N_eff times (that file: headroom
+ * written before ScamProcessor's rescaleForStack, so the tag overstated the noise H N_eff times (that file: headroom
  * 4.32) and a raw converter's noise reduction smeared a clean merge. Two more factors of the same kind: the binned DNG of a merge
  * without the remosaic (P195, W/b x H/b, every site the mean of a b x b colour block: the worker's own model of those sites
  * is slope / b^2, offset / b^2) and the worker's measured correction of the HAL model (HYBRID NOISE CHECK "-> model xK", P77,

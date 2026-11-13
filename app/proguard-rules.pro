@@ -8,16 +8,9 @@
 # keeps them (their names are the preference keys) and keeps itself (TunableInjector / SensorConfigInjector key them by the
 # class's simple name: it must not be merged into another class). P662: was "-keep class * { ... }", which kept every class.
 -keep class com.scamera.app.settings.annotations.** { *; }
--keepclasseswithmembers class * {
-    @com.scamera.app.settings.annotations.Tunable <fields>;
-}
--keepclasseswithmembers class * {
-    @com.scamera.app.settings.annotations.SensorConfig <fields>;
-}
--keepclassmembers class * {
-    @com.scamera.app.settings.annotations.Tunable <fields>;
-    @com.scamera.app.settings.annotations.SensorConfig <fields>;
-}
+-keepclasseswithmembers class * { @com.scamera.app.settings.annotations.Tunable <fields>; }
+-keepclasseswithmembers class * { @com.scamera.app.settings.annotations.SensorConfig <fields>; }
+-keepclassmembers class * { @com.scamera.app.settings.annotations.** <fields>; }
 -keep class com.scamera.app.settings.TunableInjector,
             com.scamera.app.settings.TunablePreferenceGenerator,
             com.scamera.app.settings.TunablePreferenceGenerator$*,

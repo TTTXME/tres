@@ -15,16 +15,16 @@ import static org.junit.Assert.assertTrue;
  * P320: a DCG mode reports its ISO times its range scale (the X300 Ultra's DCG main: ISO 1336 for the gain of 167, x8), so a
  * chosen noise profile and the no-profile fallback, both keyed by ISO, are evaluated at ISO / dcgIsoScale; P322: the HAL's own
  * profile, keyed by the same ISO, is taken as slope / scale, offset / scale^2. Parameters.applyDcgIsoScale rebuilds the model once the scale is known (after
- * FillDynamicParameters), idempotently, and leaves every other shot's model as it was.
+ * fillFromFrame), idempotently, and leaves every other shot's model as it was.
  */
 @RunWith(RobolectricTestRunner.class)
 public class NoiseModelerDcgTest {
     private static void assertSameModel(NoiseModeler expected, NoiseModeler actual) {
         for (int c = 0; c < 3; c++) {
-            assertEquals(expected.baseModel[c].first, actual.baseModel[c].first, 0);
-            assertEquals(expected.baseModel[c].second, actual.baseModel[c].second, 0);
-            assertEquals(expected.computeModel[c].first, actual.computeModel[c].first, 0);
-            assertEquals(expected.computeModel[c].second, actual.computeModel[c].second, 0);
+            assertEquals(expected.rawModel[c].first, actual.rawModel[c].first, 0);
+            assertEquals(expected.rawModel[c].second, actual.rawModel[c].second, 0);
+            assertEquals(expected.stackModel[c].first, actual.stackModel[c].first, 0);
+            assertEquals(expected.stackModel[c].second, actual.stackModel[c].second, 0);
         }
     }
 
@@ -41,10 +41,10 @@ public class NoiseModelerDcgTest {
         final NoiseModeler dcg = new NoiseModeler(null, 100, 1336, 0, 8f);
         final NoiseModeler at167 = new NoiseModeler(null, 100, 167, 0);
         assertSameModel(at167, dcg);
-        assertEquals("the reported ISO is kept", 1336, dcg.SensivityISO);
+        assertEquals("the reported ISO is kept", 1336, dcg.reportedIso);
         assertEquals(8f, dcg.isoScale, 0f);
         final NoiseModeler reported = new NoiseModeler(null, 100, 1336, 0);
-        assertTrue("the reported ISO would model x8 the slope", reported.baseModel[1].first > 4 * dcg.baseModel[1].first);
+        assertTrue("the reported ISO would model x8 the slope", reported.rawModel[1].first > 4 * dcg.rawModel[1].first);
         assertEquals(1f, reported.isoScale, 0f);
         // a scale of 1 (or none) is the plain model
         assertSameModel(reported, new NoiseModeler(null, 100, 1336, 0, 1f));
@@ -60,8 +60,8 @@ public class NoiseModelerDcgTest {
         assertEquals("the input is left as it was", 2e-4, hal[0].first, 0);
         final NoiseModeler plain = new NoiseModeler(hal, 100, 1336, 0), dcg = new NoiseModeler(hal, 100, 1336, 0, 8f);
         assertSameModel(new NoiseModeler(scaled, 100, 1336, 0), dcg);
-        assertEquals(1.6e-4, plain.baseModel[1].first, 1e-12);
-        assertEquals(1.6e-4 / 8, dcg.baseModel[1].first, 1e-12);
+        assertEquals(1.6e-4, plain.rawModel[1].first, 1e-12);
+        assertEquals(1.6e-4 / 8, dcg.rawModel[1].first, 1e-12);
     }
 
     @Test public void parametersRebuildTheModelOnlyForADcgShotWithAScale() {
@@ -69,25 +69,25 @@ public class NoiseModelerDcgTest {
         final NoiseModeler at167 = new NoiseModeler(null, 100, 167, 0);
         final Parameters p = new Parameters();
         p.applyDcgIsoScale();                                        // no model: nothing to do
-        p.noiseModeler = reported;
+        p.noiseModel = reported;
         p.dcgIsoScale = 8f;
         p.applyDcgIsoScale();
-        assertSame("a plain shot keeps its model", reported, p.noiseModeler);
+        assertSame("a plain shot keeps its model", reported, p.noiseModel);
         p.dcgShot = true;
         p.dcgIsoScale = 1f;
         p.applyDcgIsoScale();
-        assertSame("a DCG shot of unknown scale keeps its model", reported, p.noiseModeler);
+        assertSame("a DCG shot of unknown scale keeps its model", reported, p.noiseModel);
         p.dcgIsoScale = Float.NaN;
         p.applyDcgIsoScale();
-        assertSame(reported, p.noiseModeler);
+        assertSame(reported, p.noiseModel);
         p.dcgIsoScale = 8f;
         p.applyDcgIsoScale();
-        assertNotSame(reported, p.noiseModeler);
-        assertSameModel(at167, p.noiseModeler);
+        assertNotSame(reported, p.noiseModel);
+        assertSameModel(at167, p.noiseModel);
         // idempotent: a second call starts from the reported ISO again
         p.applyDcgIsoScale();
-        assertSameModel(at167, p.noiseModeler);
-        assertEquals(1336, p.noiseModeler.SensivityISO);
-        assertEquals(100, p.noiseModeler.AnalogueISO);
+        assertSameModel(at167, p.noiseModel);
+        assertEquals(1336, p.noiseModel.reportedIso);
+        assertEquals(100, p.noiseModel.analogIso);
     }
 }

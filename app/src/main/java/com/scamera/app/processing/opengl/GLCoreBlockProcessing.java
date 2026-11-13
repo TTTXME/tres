@@ -35,7 +35,7 @@ import static android.opengl.GLES30.glViewport;
 
 /**
  * The processing context of a pipeline with its output: the last pass is drawn tile by tile (at most
- * {@link GLDrawParams#TileSize} rows at the origin of a small renderbuffer) and read back - into a bitmap
+ * {@link GLDrawParams#TILE_ROWS} rows at the origin of a small renderbuffer) and read back - into a bitmap
  * ({@link #drawBlocksToBitmap}), through one pixel-pack buffer of the frame (P440) or into a sink that encodes the rows
  * straight away (P483). The renderbuffer only holds one tile: a full-frame one was ~200 MB (RGBA8) / ~400 MB (FP16) of GPU
  * memory at 50 MP for the whole run.
@@ -48,11 +48,12 @@ public class GLCoreBlockProcessing extends GLContext implements AutoCloseable {
     static final long PBO_MAX_PIXELS = 16_000_000L;
 
     /** The image the output was made for (closed with this processing). */
-    public GLImage mOut = null;
+    public GLImage outImage = null;
     /** One tile of read-back rows (null after the last read-back). */
-    public ByteBuffer mBlockBuffer;
-    private final int mOutWidth, mOutHeight;
-    private final GLFormat mglFormat;
+    public ByteBuffer tileBuffer;
+    /** The output's size and its format. */
+    private final int outW, outH;
+    private final GLFormat outFormat;
     /**
      * 10-bit HEIC: the tile target is RGB10_A2 and {@link #drawBlocksToBitmap()} returns an RGBA_1010102 bitmap. Off for every
      * other use; cleared when the driver cannot render or read it.
@@ -89,17 +90,17 @@ public class GLCoreBlockProcessing extends GLContext implements AutoCloseable {
 
     /** A processing context of its own, for an output of {@code size} in {@code format}. */
     public GLCoreBlockProcessing(Point size, GLFormat format, GLDrawParams.Allocate allocation) {
-        super(size.x, GLDrawParams.TileSize);
-        mglFormat = format;
-        mOutWidth = size.x;
-        mOutHeight = size.y;
-        mBlockBuffer = newTileBuffer();
+        super(size.x, GLDrawParams.TILE_ROWS);
+        outFormat = format;
+        outW = size.x;
+        outH = size.y;
+        tileBuffer = newTileBuffer();
         createTileTarget();
     }
 
     public GLCoreBlockProcessing(Point size, GLImage out, GLFormat format, GLDrawParams.Allocate allocation) {
         this(size, format, allocation);
-        mOut = out;
+        outImage = out;
     }
 
     /**
@@ -109,36 +110,36 @@ public class GLCoreBlockProcessing extends GLContext implements AutoCloseable {
      */
     public GLCoreBlockProcessing(Point size, GLImage out, GLFormat format, GLDrawParams.Allocate allocation, boolean tenBitOutput,
                                  boolean shared) {
-        super(size.x, GLDrawParams.TileSize, shared);
-        mglFormat = format;
-        mOutWidth = size.x;
-        mOutHeight = size.y;
-        mBlockBuffer = newTileBuffer();
+        super(size.x, GLDrawParams.TILE_ROWS, shared);
+        outFormat = format;
+        outW = size.x;
+        outH = size.y;
+        tileBuffer = newTileBuffer();
         createTileTarget();
-        mOut = out;
+        outImage = out;
         if (tenBitOutput) enableTenBit();
     }
 
     private ByteBuffer newTileBuffer() {
-        return ByteBuffer.allocateDirect(mOutWidth * GLDrawParams.TileSize * mglFormat.mFormat.mSize * mglFormat.mChannels);
+        return ByteBuffer.allocateDirect(outW * GLDrawParams.TILE_ROWS * outFormat.mFormat.mSize * outFormat.mChannels);
     }
 
     private int tileRows() {
-        return Math.max(1, Math.min(mOutHeight, GLDrawParams.TileSize));
+        return Math.max(1, Math.min(outH, GLDrawParams.TILE_ROWS));
     }
 
     private void createTileTarget() {
-        glGenFramebuffers(1, bindFB, 0);
-        glGenRenderbuffers(1, bindRB, 0);
-        storeTileTarget(mglFormat.getGLFormatInternal());
+        glGenFramebuffers(1, tileFramebuffer, 0);
+        glGenRenderbuffers(1, tileRenderbuffer, 0);
+        storeTileTarget(outFormat.getGLFormatInternal());
     }
 
     /** (Re)stores the tile renderbuffer in {@code internalFormat} and attaches it to the tile framebuffer (draw target). */
     private void storeTileTarget(int internalFormat) {
-        glBindRenderbuffer(GL_RENDERBUFFER, bindRB[0]);
-        glRenderbufferStorage(GL_RENDERBUFFER, internalFormat, mOutWidth, tileRows());
-        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, bindFB[0]);
-        glFramebufferRenderbuffer(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, bindRB[0]);
+        glBindRenderbuffer(GL_RENDERBUFFER, tileRenderbuffer[0]);
+        glRenderbufferStorage(GL_RENDERBUFFER, internalFormat, outW, tileRows());
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, tileFramebuffer[0]);
+        glFramebufferRenderbuffer(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, tileRenderbuffer[0]);
     }
 
     /** Whether the read-back gives the RGBA_1010102 bitmap of the 10-bit HEIC. */
@@ -147,7 +148,7 @@ public class GLCoreBlockProcessing extends GLContext implements AutoCloseable {
     }
 
     private boolean rgba8Output() {
-        return mglFormat.mChannels == 4 && mglFormat.mFormat.mSize == 1;
+        return outFormat.mChannels == 4 && outFormat.mFormat.mSize == 1;
     }
 
     /**
@@ -165,7 +166,7 @@ public class GLCoreBlockProcessing extends GLContext implements AutoCloseable {
         final int error = glGetError();
         if (status == GLES30.GL_FRAMEBUFFER_COMPLETE && error == GL_NO_ERROR) {
             tenBit = true;
-            Log.d(TAG, "10-bit output: RGB10_A2 tile target " + mOutWidth + "x" + tileRows());
+            Log.d(TAG, "10-bit output: RGB10_A2 tile target " + outW + "x" + tileRows());
             return;
         }
         Log.w(TAG, "RGB10_A2 target unusable (status 0x" + Integer.toHexString(status) + ", error 0x" + Integer.toHexString(error)
@@ -176,22 +177,22 @@ public class GLCoreBlockProcessing extends GLContext implements AutoCloseable {
     /** Back to the tile target of the output format (after a failed 10-bit setup or read-back). */
     private void restoreOutputTarget() {
         tenBit = false;
-        storeTileTarget(mglFormat.getGLFormatInternal());
+        storeTileTarget(outFormat.getGLFormatInternal());
     }
 
     private void requireTileBuffer() {
-        final int rows = GLDrawParams.TileSize;
-        if (mBlockBuffer == null || mBlockBuffer.capacity() < mOutWidth * 4 * Math.min(rows, mOutHeight))
-            throw new IllegalStateException("tile buffer does not match TileSize " + rows);
+        final int rows = GLDrawParams.TILE_ROWS;
+        if (tileBuffer == null || tileBuffer.capacity() < outW * 4 * Math.min(rows, outH))
+            throw new IllegalStateException("tile buffer does not match TILE_ROWS " + rows);
     }
 
     /** One tile of the output program at the origin of the tile target (rows y .. y + rows - 1 of the frame). */
     private void drawTile(GLProg program, int y, int rows, OutputTiming timing) {
-        glViewport(0, 0, mOutWidth, rows);
-        checkEglError("glViewport");
-        program.setVar("yOffset", y);
+        program.setVar("yOffset", y); // the tile's first row in the frame
+        glViewport(0, 0, outW, rows);
+        checkEglError("tile viewport");
         program.draw();
-        checkEglError("program");
+        checkEglError("tile draw");
         timing.rendered();
     }
 
@@ -205,7 +206,7 @@ public class GLCoreBlockProcessing extends GLContext implements AutoCloseable {
         sinkTook = false;
         // P187: above 100 MP the textures the last nodes gave back are freed only once the GPU is done with them; the read-back
         // waits for that GPU work anyway, so the 0.8 GB bitmap is made after their storage is back, not on top of it
-        if ((long) mOutWidth * mOutHeight > 100_000_000L) GLES30.glFinish();
+        if ((long) outW * outH > 100_000_000L) GLES30.glFinish();
         // P440 step 0c: where the time between the last node and the bitmap goes (SCAM_PIPELINE "final output ms"); with
         // scam_dev post_sync 1 the earlier nodes' GPU work is finished first and every step is its own
         final OutputTiming timing = new OutputTiming(PostGlMode.syncNodes());
@@ -215,17 +216,17 @@ public class GLCoreBlockProcessing extends GLContext implements AutoCloseable {
         }
         if (tenBit) return drawBlocksToBitmap1010102(timing);
         if (!rgba8Output())
-            throw new IllegalStateException("bitmap readback needs an RGBA8 output, not " + mglFormat.mFormat + "x" + mglFormat.mChannels);
+            throw new IllegalStateException("bitmap readback needs an RGBA8 output, not " + outFormat.mFormat + "x" + outFormat.mChannels);
         requireTileBuffer();
         String path = "tiles";
-        if (pboReadbackWanted(mOutWidth, mOutHeight)) {
+        if (pboReadbackWanted(outW, outH)) {
             final Bitmap direct = drawBlocksToBitmapPbo(timing);
             if (sinkTook) {
-                timing.log("pbo -> jpeg (no bitmap)", mOutWidth, mOutHeight);
+                timing.log("pbo -> jpeg (no bitmap)", outW, outH);
                 return null;
             }
             if (direct != null) {
-                timing.log("pbo", mOutWidth, mOutHeight);
+                timing.log("pbo", outW, outH);
                 return direct;
             }
             timing.reset();
@@ -233,33 +234,33 @@ public class GLCoreBlockProcessing extends GLContext implements AutoCloseable {
         }
         // P662 (item 4): above 16 MP the tiles through a ring of pixel-pack buffers, each mapped once the next tile's read-back
         // is queued, its rows copied into the bitmap in one native copy (the same bytes as the strip bitmap below)
-        if (ringReadbackWanted(mOutWidth, mOutHeight)) {
+        if (ringReadbackWanted(outW, outH)) {
             final Bitmap ringed = drawBlocksToBitmapRing(timing);
             if (ringed != null) {
-                timing.log("tiles ring", mOutWidth, mOutHeight);
+                timing.log("tiles ring", outW, outH);
                 return ringed;
             }
             timing.reset();
             path = "tiles (after the pixel-pack ring failed)";
         }
-        final Bitmap dst = Bitmap.createBitmap(mOutWidth, mOutHeight, Bitmap.Config.ARGB_8888);
+        final Bitmap dst = Bitmap.createBitmap(outW, outH, Bitmap.Config.ARGB_8888);
         try (TileBlitter blitter = new TileBlitter(dst, stripRows())) {
-            glBindFramebuffer(GL_FRAMEBUFFER, bindFB[0]);
-            final GLBlockDivider tiles = new GLBlockDivider(mOutHeight, GLDrawParams.TileSize);
+            glBindFramebuffer(GL_FRAMEBUFFER, tileFramebuffer[0]);
+            final GLBlockDivider tiles = new GLBlockDivider(outH, GLDrawParams.TILE_ROWS);
             final int[] tile = new int[2];
             while (tiles.nextBlock(tile)) {
-                drawTile(mProgram, tile[0], tile[1], timing);
-                mBlockBuffer.clear();
-                glReadPixels(0, 0, mOutWidth, tile[1], mglFormat.getGLFormatExternal(), mglFormat.getGLType(), mBlockBuffer);
+                drawTile(program, tile[0], tile[1], timing);
+                tileBuffer.clear();
+                glReadPixels(0, 0, outW, tile[1], outFormat.getGLFormatExternal(), outFormat.getGLType(), tileBuffer);
                 checkEglError("glReadPixels");
                 timing.readBack();
-                blitter.blit(mBlockBuffer, tile[0], tile[1]);
+                blitter.blit(tileBuffer, tile[0], tile[1]);
                 timing.copied();
                 timing.tiles++;
             }
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
-            mBlockBuffer = null;
-            timing.log(path, mOutWidth, mOutHeight);
+            tileBuffer = null;
+            timing.log(path, outW, outH);
             return dst;
         } catch (RuntimeException e) {
             dst.recycle();
@@ -268,7 +269,7 @@ public class GLCoreBlockProcessing extends GLContext implements AutoCloseable {
     }
 
     private static int stripRows() {
-        return GLDrawParams.TileSize % BITMAP_STRIP_ROWS == 0 ? BITMAP_STRIP_ROWS : GLDrawParams.TileSize;
+        return GLDrawParams.TILE_ROWS % BITMAP_STRIP_ROWS == 0 ? BITMAP_STRIP_ROWS : GLDrawParams.TILE_ROWS;
     }
 
     /**
@@ -387,12 +388,12 @@ public class GLCoreBlockProcessing extends GLContext implements AutoCloseable {
      * a buffer cannot be mapped or lost its contents, or the copy is refused: the caller draws the tiles again.
      */
     private Bitmap drawBlocksToBitmapRing(OutputTiming timing) {
-        final long tileBytes = (long) mOutWidth * GLDrawParams.TileSize * 4;
+        final long tileBytes = (long) outW * GLDrawParams.TILE_ROWS * 4;
         if (tileBytes > Integer.MAX_VALUE) return null;
         final java.util.ArrayList<int[]> tileList = new java.util.ArrayList<>();
-        final GLBlockDivider divider = new GLBlockDivider(mOutHeight, GLDrawParams.TileSize);
+        final GLBlockDivider divider = new GLBlockDivider(outH, GLDrawParams.TILE_ROWS);
         for (int[] t = new int[2]; divider.nextBlock(t); ) tileList.add(t.clone());
-        final int ring = Math.min(ringSize((long) mOutWidth * mOutHeight), Math.max(1, tileList.size()));
+        final int ring = Math.min(ringSize((long) outW * outH), Math.max(1, tileList.size()));
         drainGlErrors();
         final int[] pbo = new int[ring];
         GLES30.glGenBuffers(ring, pbo, 0);
@@ -405,26 +406,26 @@ public class GLCoreBlockProcessing extends GLContext implements AutoCloseable {
                 GLES30.glBufferData(GLES30.GL_PIXEL_PACK_BUFFER, (int) tileBytes, null, GLES30.GL_STREAM_READ);
             }
             if (glGetError() != GL_NO_ERROR) return null;
-            glBindFramebuffer(GL_FRAMEBUFFER, bindFB[0]);
+            glBindFramebuffer(GL_FRAMEBUFFER, tileFramebuffer[0]);
             final boolean invalidate = PostGlMode.invalidate();
             final int[] colour = {GLES30.GL_COLOR_ATTACHMENT0};
             for (int[] step : ringSteps(tileList.size(), ring)) {
                 final int[] tile = tileList.get(step[0]);
                 GLES30.glBindBuffer(GLES30.GL_PIXEL_PACK_BUFFER, pbo[step[0] % ring]);
-                final int bytes = mOutWidth * tile[1] * 4;
+                final int bytes = outW * tile[1] * 4;
                 if (step[1] == 0) {
                     // the tile's old rows are not needed (P479: the rows drawn are the rows read back)
                     if (invalidate) GLES30.glInvalidateFramebuffer(GLES30.GL_FRAMEBUFFER, 1, colour, 0);
-                    glViewport(0, 0, mOutWidth, tile[1]);
-                    mProgram.setVar("yOffset", tile[0]);
-                    mProgram.draw();
+                    glViewport(0, 0, outW, tile[1]);
+                    program.setVar("yOffset", tile[0]);
+                    program.draw();
                     timing.rendered();
-                    GLES30.glReadPixels(0, 0, mOutWidth, tile[1], mglFormat.getGLFormatExternal(), mglFormat.getGLType(), 0);
+                    GLES30.glReadPixels(0, 0, outW, tile[1], outFormat.getGLFormatExternal(), outFormat.getGLType(), 0);
                     timing.readBack();
                     timing.tiles++;
                     if (dst == null) {
                         // made while the GPU draws the first tiles, its pages faulted in on four threads (P473)
-                        dst = Bitmap.createBitmap(mOutWidth, mOutHeight, Bitmap.Config.ARGB_8888);
+                        dst = Bitmap.createBitmap(outW, outH, Bitmap.Config.ARGB_8888);
                         com.scamera.app.processing.JpegliEncoder.touchPixels(dst);
                     }
                     continue;
@@ -445,7 +446,7 @@ public class GLCoreBlockProcessing extends GLContext implements AutoCloseable {
                 timing.copied();
             }
             if (glGetError() != GL_NO_ERROR) return null;
-            mBlockBuffer = null;
+            tileBuffer = null;
             final Bitmap out = dst;
             dst = null;
             return out;
@@ -504,7 +505,7 @@ public class GLCoreBlockProcessing extends GLContext implements AutoCloseable {
      * function of its textures and uniforms).
      */
     private Bitmap drawBlocksToBitmapPbo(OutputTiming timing) {
-        final long frameBytes = (long) mOutWidth * mOutHeight * 4;
+        final long frameBytes = (long) outW * outH * 4;
         if (frameBytes > Integer.MAX_VALUE) return null;
         final int bytes = (int) frameBytes;
         drainGlErrors();
@@ -517,20 +518,20 @@ public class GLCoreBlockProcessing extends GLContext implements AutoCloseable {
             GLES30.glBindBuffer(GLES30.GL_PIXEL_PACK_BUFFER, pbo[0]);
             GLES30.glBufferData(GLES30.GL_PIXEL_PACK_BUFFER, bytes, null, GLES30.GL_STREAM_READ);
             if (glGetError() != GL_NO_ERROR) return null;
-            glBindFramebuffer(GL_FRAMEBUFFER, bindFB[0]);
-            final GLBlockDivider tiles = new GLBlockDivider(mOutHeight, GLDrawParams.TileSize);
+            glBindFramebuffer(GL_FRAMEBUFFER, tileFramebuffer[0]);
+            final GLBlockDivider tiles = new GLBlockDivider(outH, GLDrawParams.TILE_ROWS);
             final int[] tile = new int[2];
             final boolean invalidate = PostGlMode.invalidate();
             final int[] colour = {GLES30.GL_COLOR_ATTACHMENT0};
             while (tiles.nextBlock(tile)) {
                 // P479: the tile's old rows are not needed (the rows drawn are the rows read back)
                 if (invalidate) GLES30.glInvalidateFramebuffer(GLES30.GL_FRAMEBUFFER, 1, colour, 0);
-                glViewport(0, 0, mOutWidth, tile[1]);
-                mProgram.setVar("yOffset", tile[0]);
-                mProgram.draw();
+                glViewport(0, 0, outW, tile[1]);
+                program.setVar("yOffset", tile[0]);
+                program.draw();
                 timing.rendered();
-                GLES30.glReadPixels(0, 0, mOutWidth, tile[1], mglFormat.getGLFormatExternal(), mglFormat.getGLType(),
-                        (int) pboOffset(tile[0], mOutWidth));
+                GLES30.glReadPixels(0, 0, outW, tile[1], outFormat.getGLFormatExternal(), outFormat.getGLType(),
+                        (int) pboOffset(tile[0], outW));
                 timing.readBack();
                 timing.tiles++;
             }
@@ -539,7 +540,7 @@ public class GLCoreBlockProcessing extends GLContext implements AutoCloseable {
             if (sink == null) {
                 // no bitmap is made for a sink; P473: one made here is touched while the GPU still draws the tiles
                 try {
-                    dst = Bitmap.createBitmap(mOutWidth, mOutHeight, Bitmap.Config.ARGB_8888);
+                    dst = Bitmap.createBitmap(outW, outH, Bitmap.Config.ARGB_8888);
                     JpegliEncoder.touchPixels(dst);
                 } catch (OutOfMemoryError pendingGpuStorage) {
                     Log.w(TAG, "bitmap allocation postponed until queued GPU work finishes");
@@ -554,18 +555,18 @@ public class GLCoreBlockProcessing extends GLContext implements AutoCloseable {
             src.limit(bytes);
             // P483: the rows straight to the sink (the JPEG encode) while mapped - before any bitmap copy; a sink that fails
             // leaves the bitmap path below
-            if (sink != null && sink.accept(src, mOutWidth, mOutHeight)) {
+            if (sink != null && sink.accept(src, outW, outH)) {
                 mapped = false;
                 if (!GLES30.glUnmapBuffer(GLES30.GL_PIXEL_PACK_BUFFER)) {
                     Log.w(TAG, "final readback: the pixel-pack buffer was lost while mapped, the sink's result is dropped, the tiles are read again");
                     return null;
                 }
                 timing.copied();
-                mBlockBuffer = null;
+                tileBuffer = null;
                 sinkTook = true;
                 return null;
             }
-            if (dst == null) dst = Bitmap.createBitmap(mOutWidth, mOutHeight, Bitmap.Config.ARGB_8888);
+            if (dst == null) dst = Bitmap.createBitmap(outW, outH, Bitmap.Config.ARGB_8888);
             if (!JpegliEncoder.copyPixels(src, dst)) dst.copyPixelsFromBuffer(src);
             mapped = false;
             // false: the buffer's contents were lost while it was mapped (e.g. a display mode change): the copy is not used
@@ -574,7 +575,7 @@ public class GLCoreBlockProcessing extends GLContext implements AutoCloseable {
                 return null;
             }
             timing.copied();
-            mBlockBuffer = null;
+            tileBuffer = null;
             final Bitmap out = dst;
             dst = null;
             return out;
@@ -598,17 +599,17 @@ public class GLCoreBlockProcessing extends GLContext implements AutoCloseable {
      */
     private Bitmap drawBlocksToBitmap1010102(OutputTiming timing) {
         requireTileBuffer();
-        final Bitmap dst = Bitmap.createBitmap(mOutWidth, mOutHeight, Bitmap.Config.RGBA_1010102);
+        final Bitmap dst = Bitmap.createBitmap(outW, outH, Bitmap.Config.RGBA_1010102);
         boolean done = false;
         try (TileBlitter blitter = new TileBlitter(dst, stripRows())) {
-            glBindFramebuffer(GL_FRAMEBUFFER, bindFB[0]);
-            final GLBlockDivider tiles = new GLBlockDivider(mOutHeight, GLDrawParams.TileSize);
+            glBindFramebuffer(GL_FRAMEBUFFER, tileFramebuffer[0]);
+            final GLBlockDivider tiles = new GLBlockDivider(outH, GLDrawParams.TILE_ROWS);
             final int[] tile = new int[2];
             boolean first = true;
             while (tiles.nextBlock(tile)) {
-                drawTile(mProgram, tile[0], tile[1], timing);
-                mBlockBuffer.clear();
-                glReadPixels(0, 0, mOutWidth, tile[1], GLES30.GL_RGBA, GLES30.GL_UNSIGNED_INT_2_10_10_10_REV, mBlockBuffer);
+                drawTile(program, tile[0], tile[1], timing);
+                tileBuffer.clear();
+                glReadPixels(0, 0, outW, tile[1], GLES30.GL_RGBA, GLES30.GL_UNSIGNED_INT_2_10_10_10_REV, tileBuffer);
                 timing.readBack();
                 if (first) {
                     first = false;
@@ -621,14 +622,14 @@ public class GLCoreBlockProcessing extends GLContext implements AutoCloseable {
                         return drawBlocksToBitmap();
                     }
                 }
-                blitter.blit(mBlockBuffer, tile[0], tile[1]);
+                blitter.blit(tileBuffer, tile[0], tile[1]);
                 timing.copied();
                 timing.tiles++;
             }
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
-            mBlockBuffer = null;
+            tileBuffer = null;
             done = true;
-            timing.log("tiles 10-bit", mOutWidth, mOutHeight);
+            timing.log("tiles 10-bit", outW, outH);
             return dst;
         } finally {
             if (!done && !dst.isRecycled()) dst.recycle();
@@ -665,7 +666,7 @@ public class GLCoreBlockProcessing extends GLContext implements AutoCloseable {
 
         /**
          * Rows {@code y .. y + height - 1} from the start of {@code tile} (whatever its position). copyPixelsFromBuffer always
-         * takes a whole strip: the tile buffer must hold whole strips (TileSize rows); bytes past the tile are stale and never
+         * takes a whole strip: the tile buffer must hold whole strips (TILE_ROWS rows); bytes past the tile are stale and never
          * drawn.
          */
         void blit(ByteBuffer tile, int y, int height) {
@@ -710,21 +711,21 @@ public class GLCoreBlockProcessing extends GLContext implements AutoCloseable {
         // P353: the tile target goes with the shot (a kept context would hold one per shot otherwise)
         quietly(() -> {
             makeCurrent();
-            GLES30.glDeleteFramebuffers(1, bindFB, 0);
-            GLES30.glDeleteRenderbuffers(1, bindRB, 0);
+            GLES30.glDeleteFramebuffers(1, tileFramebuffer, 0);
+            GLES30.glDeleteRenderbuffers(1, tileRenderbuffer, 0);
             // P638: gone - the deletes below are only for a context that could not be made current here (they ran again after
             // super.close() had released the context: «call to OpenGL ES API with no current context» in every shot's log)
-            bindFB[0] = 0;
-            bindRB[0] = 0;
+            tileFramebuffer[0] = 0;
+            tileRenderbuffer[0] = 0;
         });
         quietly(super::close);
-        final GLImage out = mOut;
-        mOut = null;
+        final GLImage out = outImage;
+        outImage = null;
         if (out != null) quietly(out::close);
-        final ByteBuffer tile = mBlockBuffer;
-        mBlockBuffer = null;
+        final ByteBuffer tile = tileBuffer;
+        tileBuffer = null;
         if (tile != null) quietly(tile::clear);
-        if (bindFB[0] != 0) quietly(() -> GLES30.glDeleteFramebuffers(1, bindFB, 0));
-        if (bindRB[0] != 0) quietly(() -> GLES30.glDeleteRenderbuffers(1, bindRB, 0));
+        if (tileFramebuffer[0] != 0) quietly(() -> GLES30.glDeleteFramebuffers(1, tileFramebuffer, 0));
+        if (tileRenderbuffer[0] != 0) quietly(() -> GLES30.glDeleteRenderbuffers(1, tileRenderbuffer, 0));
     }
 }

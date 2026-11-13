@@ -53,7 +53,7 @@ public class MainRendererLatchTest {
 
     /**
      * Review: the pause destroys the EGL context (not preserved), so onSurfaceCreated makes a new SurfaceTexture on resume and
-     * releases the old one; a GLPreview still reporting the old one as available let resumeCamera open the camera against it.
+     * releases the old one; a GLPreview still reporting the old one as available let screenResumed open the camera against it.
      */
     @Test
     public void aPauseDropsTheSurfaceTexture() throws Exception {

@@ -1,16 +1,14 @@
 package com.scamera.app.settings;
 
 /**
- * Single source of truth for all classes that carry {@code @SensorConfig} annotations.
- * Add or remove entries here; {@link SensorConfigPreferenceGenerator} and
- * {@link SensorConfigInjector} both derive their class lists from this array.
+ * The classes whose fields carry {@code @SensorConfig} (the per-module settings): SensorConfigPreferenceGenerator,
+ * SensorConfigInjector and the module copy read them from this list alone (SessionKeys files each one under a session kind).
  */
 public final class SensorConfigRegistry {
+    public static final Class<?>[] OWNERS = {
+            com.scamera.app.processing.render.Parameters.class,
+            com.scamera.app.capture.CaptureController.class};
 
-    private SensorConfigRegistry() {}
-
-    public static final Class<?>[] SENSOR_CONFIG_CLASSES = {
-        com.scamera.app.processing.render.Parameters.class,
-        com.scamera.app.capture.CaptureController.class,
-    };
+    private SensorConfigRegistry() {
+    }
 }

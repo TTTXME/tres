@@ -44,7 +44,7 @@ public final class ScamDenoise {
      * one finish denoise); {@link ScamHdrDenoise} stays the fallback when this node fails.
      */
     public static boolean enabledFor(PostPipeline p) {
-        return p != null && p.mParameters != null && p.mParameters.scamRgb != null && PreferenceKeys.isHybridShot();
+        return p != null && p.shotParams != null && p.shotParams.scamRgb != null && PreferenceKeys.isHybridShot();
     }
 
 
@@ -132,14 +132,14 @@ public final class ScamDenoise {
 
     /** Reads an RGBA32UI statistics texture back as 8 floats per block. */
     private static float[] readStats(GLTexture t) {
-        int w = t.mSize.x, h = t.mSize.y;
+        int w = t.size.x, h = t.size.y;
         int[] oldRead = new int[1], framebuffer = new int[1];
         android.opengl.GLES30.glGetIntegerv(android.opengl.GLES30.GL_READ_FRAMEBUFFER_BINDING, oldRead, 0);
         try {
             android.opengl.GLES30.glGenFramebuffers(1, framebuffer, 0);
             android.opengl.GLES30.glBindFramebuffer(android.opengl.GLES30.GL_READ_FRAMEBUFFER, framebuffer[0]);
             android.opengl.GLES30.glFramebufferTexture2D(android.opengl.GLES30.GL_READ_FRAMEBUFFER, android.opengl.GLES30.GL_COLOR_ATTACHMENT0,
-                    android.opengl.GLES30.GL_TEXTURE_2D, t.mTextureID, 0);
+                    android.opengl.GLES30.GL_TEXTURE_2D, t.id, 0);
             ByteBuffer data = ByteBuffer.allocateDirect(w * h * 16).order(ByteOrder.nativeOrder());
             android.opengl.GLES30.glReadPixels(0, 0, w, h, android.opengl.GLES30.GL_RGBA_INTEGER, android.opengl.GLES30.GL_UNSIGNED_INT, data);
             float[] out = new float[w * h * 8];
@@ -158,7 +158,7 @@ public final class ScamDenoise {
     /** Block statistics of one level (scamdn/stats), reduced on the host; null when too few flat blocks (old model of post_ab). */
     private static float[] levelNoise(GLProg glProg, List<GLTexture> owned, GLTexture level, int block, float sY, float rY, float[] dcg,
                                       float[][] rawOut) {
-        Point blocks = new Point(Math.max(1, level.mSize.x / block), Math.max(1, level.mSize.y / block));
+        Point blocks = new Point(Math.max(1, level.size.x / block), Math.max(1, level.size.y / block));
         GLTexture st = tex(owned, blocks, GLFormat.DataType.UNSIGNED_32, 4, GL_NEAREST);
         try {
             statsProgram(glProg, dcg, sY, rY);
@@ -206,8 +206,8 @@ public final class ScamDenoise {
         final int n = levels.length;
         final int[] bw = new int[n], bh = new int[n], ax = new int[n], ay = new int[n];
         for (int i = 0; i < n; i++) {
-            bw[i] = Math.max(1, levels[i].mSize.x / block);
-            bh[i] = Math.max(1, levels[i].mSize.y / block);
+            bw[i] = Math.max(1, levels[i].size.x / block);
+            bh[i] = Math.max(1, levels[i].size.y / block);
         }
         final int[] atlasSize = statsAtlas(bw, bh, ax, ay);
         final float[][] raws = new float[n][];
@@ -279,9 +279,9 @@ public final class ScamDenoise {
 
     /** P364: one pass into the rectangle (x, y, w, h) of target, rows tiled as drawBlocks tiles them (gl_FragCoord is target's). */
     private static void drawRegion(GLProg glProg, GLTexture target, int x, int y, int w, int h) {
-        target.BufferLoad();
+        target.renderInto();
         final com.scamera.app.processing.opengl.GLBlockDivider divider =
-                new com.scamera.app.processing.opengl.GLBlockDivider(h, com.scamera.app.processing.opengl.GLDrawParams.TileSize);
+                new com.scamera.app.processing.opengl.GLBlockDivider(h, com.scamera.app.processing.opengl.GLDrawParams.TILE_ROWS);
         final int[] row = new int[2];
         while (divider.nextBlock(row)) {
             android.opengl.GLES30.glViewport(x, y + row[0], w, row[1]);
@@ -292,14 +292,14 @@ public final class ScamDenoise {
 
     /** P364: an RGBA32UI texture read back whole as ints (4 per texel, rows from y = 0): one glReadPixels. */
     private static int[] readInts(GLTexture t) {
-        int w = t.mSize.x, h = t.mSize.y;
+        int w = t.size.x, h = t.size.y;
         int[] oldRead = new int[1], framebuffer = new int[1];
         android.opengl.GLES30.glGetIntegerv(android.opengl.GLES30.GL_READ_FRAMEBUFFER_BINDING, oldRead, 0);
         try {
             android.opengl.GLES30.glGenFramebuffers(1, framebuffer, 0);
             android.opengl.GLES30.glBindFramebuffer(android.opengl.GLES30.GL_READ_FRAMEBUFFER, framebuffer[0]);
             android.opengl.GLES30.glFramebufferTexture2D(android.opengl.GLES30.GL_READ_FRAMEBUFFER, android.opengl.GLES30.GL_COLOR_ATTACHMENT0,
-                    android.opengl.GLES30.GL_TEXTURE_2D, t.mTextureID, 0);
+                    android.opengl.GLES30.GL_TEXTURE_2D, t.id, 0);
             ByteBuffer data = ByteBuffer.allocateDirect(w * h * 16).order(ByteOrder.nativeOrder());
             android.opengl.GLES30.glReadPixels(0, 0, w, h, android.opengl.GLES30.GL_RGBA_INTEGER, android.opengl.GLES30.GL_UNSIGNED_INT, data);
             final int[] out = new int[w * h * 4];
@@ -376,7 +376,7 @@ public final class ScamDenoise {
                 // drain
             }
             eff.rewind();
-            android.opengl.GLES30.glBindTexture(android.opengl.GLES30.GL_TEXTURE_2D, t.mTextureID);
+            android.opengl.GLES30.glBindTexture(android.opengl.GLES30.GL_TEXTURE_2D, t.id);
             android.opengl.GLES30.glTexSubImage2D(android.opengl.GLES30.GL_TEXTURE_2D, 0, 0, 0, size.x, size.y,
                     android.opengl.GLES30.GL_RED_INTEGER, android.opengl.GLES30.GL_UNSIGNED_BYTE, eff);
             uploadError = android.opengl.GLES30.glGetError();
@@ -384,7 +384,7 @@ public final class ScamDenoise {
         }
         final boolean loaded = real && uploadError == android.opengl.GLES30.GL_NO_ERROR;
         if (!loaded) {
-            t.BufferLoad();
+            t.renderInto();
             android.opengl.GLES30.glClearBufferuiv(android.opengl.GLES30.GL_COLOR, 0, new int[]{0, 0, 0, 0}, 0);
         }
         if (legacy) {
@@ -485,14 +485,14 @@ public final class ScamDenoise {
     static float[] lscTerm(PostPipeline pipeline) {
         if (com.scamera.app.processing.opengl.PostGlMode.legacy()) return null;
         if (!PreferenceKeys.scamDevSwitch("denoise_lsc", true)) return null;
-        if (pipeline == null || pipeline.GainMap == null || pipeline.mParameters == null) return null;
-        final Parameters par = pipeline.mParameters;
-        if (par.mapSize == null) return null;
+        if (pipeline == null || pipeline.GainMap == null || pipeline.shotParams == null) return null;
+        final Parameters par = pipeline.shotParams;
+        if (par.shadingGrid == null) return null;
         final float cap = clamp(PreferenceKeys.scamDevNumber("denoise_lsc_max", LSC_CAP), 1f, 16f);
         // P277: a lab fragment's map is cropped: the reference of the whole map (LabFrame), a lab shot records it
         final LabFrame frozen = pipeline.frozen;
         if (frozen != null && (frozen.lsc != null || frozen.lscNone)) return frozen.lsc == null ? null : frozen.lsc.clone();
-        final float[] term = lscTerm(par.gainMap, par.mapSize.x, par.mapSize.y, cap);
+        final float[] term = lscTerm(par.shadingMap, par.shadingGrid.x, par.shadingGrid.y, cap);
         if (pipeline.record != null) {
             pipeline.record.lsc = term == null ? null : term.clone();
             pipeline.record.lscNone = term == null;
@@ -578,8 +578,8 @@ public final class ScamDenoise {
      * and detail gain stay the same for a shot. Returns the SNR (also logged into {@code log}).
      */
     static float finishSnr(GLProg glProg, PostPipeline pipeline, GLTexture clean, StringBuilder log) {
-        final Parameters par = pipeline.mParameters;
-        final Point full = clean.mSize;
+        final Parameters par = pipeline.shotParams;
+        final Point full = clean.size;
         final int s = ScamHdrDenoise.huge(full.x, full.y) ? 2 : Math.max(1, Math.min(2, Math.round(par.outputScale)));
         final Point size0 = new Point((full.x + s - 1) / s, (full.y + s - 1) / s);
         final float rhoS = clamp(PreferenceKeys.hybridValue("dn_model_shot", 1.2f), 0.25f, 4f);
@@ -592,10 +592,10 @@ public final class ScamDenoise {
             float[] S = {2e-4f, 2e-4f, 2e-4f}, O = {2e-6f, 2e-6f, 2e-6f};
             boolean camera = false;
             final float[] zones = dcgZones(par);
-            if (par.noiseModeler != null && par.noiseModeler.baseModel != null && par.noiseModeler.baseModel[0] != null) {
+            if (par.noiseModel != null && par.noiseModel.rawModel != null && par.noiseModel.rawModel[0] != null) {
                 for (int c = 0; c < 3; c++) {
-                    S[c] = (float) Math.max(1e-9, par.noiseModeler.baseModel[c].first);
-                    O[c] = (float) Math.max(1e-12, par.noiseModeler.baseModel[c].second);
+                    S[c] = (float) Math.max(1e-9, par.noiseModel.rawModel[c].first);
+                    O[c] = (float) Math.max(1e-12, par.noiseModel.rawModel[c].second);
                 }
                 camera = true;
                 final float k = ScamHybridBurst.lastNoiseFactor;
@@ -603,7 +603,7 @@ public final class ScamDenoise {
             }
             float sY = 0f, rY = 0f, sG = 0f, rG = 0f;
             for (int c = 0; c < 3; c++) {
-                float wp = par.whitePoint != null && par.whitePoint.length > c && par.whitePoint[c] > 1e-6f ? par.whitePoint[c] : 1f;
+                float wp = par.asShotNeutral != null && par.asShotNeutral.length > c && par.asShotNeutral[c] > 1e-6f ? par.asShotNeutral[c] : 1f;
                 float g = 1f / wp;
                 sY += wY[c] * wY[c] * g * S[c];
                 rY += wY[c] * wY[c] * g * g * O[c];
@@ -612,7 +612,7 @@ public final class ScamDenoise {
             float rGhi = rG, kneeY = 0f;
             float[] dcgPass = null;
             if (zones != null) {
-                final float[] t = NoiseMath.dcgTerms(zones, S, O, par.whitePoint);
+                final float[] t = NoiseMath.dcgTerms(zones, S, O, par.asShotNeutral);
                 sY = t[0]; rY = t[1]; sG = t[3]; rG = t[4]; rGhi = t[5]; kneeY = t[6];
                 dcgPass = dcgShaderPass(rY, t[2], kneeY);
             }

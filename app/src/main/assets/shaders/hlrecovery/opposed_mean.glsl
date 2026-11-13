@@ -1,8 +1,6 @@
 #define LAYOUT //
 LAYOUT
-precision highp float;
-precision highp int;
-precision highp image2D;
+precision highp float; precision highp int; precision highp image2D;
 // P479b (speed, owner 2026-11-03: <= 1 level of the JPEG): ScamRgb.opposedMeans on the GPU - hlrecovery/opposed's per-group
 // (sum r, g, b as float bits, count r, g, b) added by one work group of 256 (each invocation a strided run of groups, then a
 // pairwise tree in shared memory; float sums instead of the CPU's double, the counts exact), the per-channel mean (0 for a channel

@@ -1,6 +1,4 @@
-precision highp float;
-precision highp int;
-precision highp sampler2D;
+precision highp float; precision highp int; precision highp sampler2D;
 // SCAM luma noise reduction, one pass of one pyramid level (9.6 LumaDenoise F16 / v11 luma_denoise.cl).
 // BilateralFilter3x3 at stride s: every neighbour of the 3x3 (at s) is compared with the centre through the
 // weighted mean absolute difference of their 3x3 patches; it is taken with its 1-2-1 weight when that distance is

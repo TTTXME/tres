@@ -18,18 +18,20 @@ import static com.scamera.app.processing.opengl.GLCoreBlockProcessing.checkEglEr
  * GL_TEXTURE_2D.
  */
 public class GLTexture implements AutoCloseable {
-    public Point mSize;
-    /** The sized internal format of the storage. */
-    public final int mGLFormat;
-    public final int mTextureID;
-    /** The framebuffer of this texture once {@link #Bufferize} made one. */
-    public int mBuffer;
-    public boolean isBuffered = false;
-    public final GLFormat mFormat;
+    /** Width and height in texels (level 0). */
+    public Point size;
+    /** The GL texture name, and the sized internal format of its storage. */
+    public final int id;
+    public final int internalFormat;
+    /** Channels, data type, filter and wrap. */
+    public final GLFormat format;
+    /** The framebuffer of this texture (0 until {@link #ensureFramebuffer} made one). */
+    public int framebuffer;
+    public boolean hasFramebuffer = false;
 
     /** The names this class made and has not deleted yet (closeAll); a texture frees its own slot (GLTextureSlots). */
     private static final GLTextureSlots SLOTS = new GLTextureSlots(256);
-    /** Framebuffer of each texture name that has one (Bufferize), for closeAll. */
+    /** Framebuffer of each texture name that has one (ensureFramebuffer), for closeAll. */
     private static final HashMap<Integer, Integer> FRAMEBUFFERS = new HashMap<>();
     private static int created = 0;
     /** This texture's slot in {@link #SLOTS} (0: not tracked, or closed). */
@@ -37,10 +39,10 @@ public class GLTexture implements AutoCloseable {
 
     // --- the shapes callers make textures in; every one ends in make() ---
     public GLTexture(GLTexture like, GLFormat format) {
-        this(like.mSize, new GLFormat(format), null, like.mFormat.filter, like.mFormat.wrap, 0);
+        this(like.size, new GLFormat(format), null, like.format.filter, like.format.wrap, 0);
     }
     public GLTexture(GLTexture like) {
-        this(like.mSize, like.mFormat, null, like.mFormat.filter, like.mFormat.wrap, 0);
+        this(like.size, like.format, null, like.format.filter, like.format.wrap, 0);
     }
     public GLTexture(int w, int h, GLFormat format, Buffer pixels) {
         this(new Point(w, h), new GLFormat(format), pixels, GL_LINEAR, GL_CLAMP_TO_EDGE, 0);
@@ -81,7 +83,7 @@ public class GLTexture implements AutoCloseable {
     }
     /** The image's pixels (its own GLFormat object takes the sampling); never a pooled name. */
     public GLTexture(GLImage image, int filter, int wrap, int level) {
-        this(image.size, image.glFormat, rewound(image.byteBuffer), filter, wrap, level, false);
+        this(image.dims, image.layout, rewound(image.pixelData), filter, wrap, level, false);
     }
     /** {@code format} is this texture's own from now on (its filter and wrap are set here). */
     public GLTexture(Point size, GLFormat format, Buffer pixels, int filter, int wrap, int level) {
@@ -94,23 +96,23 @@ public class GLTexture implements AutoCloseable {
     }
 
     private GLTexture(Point size, GLFormat format, Buffer pixels, int filter, int wrap, int level, boolean poolable) {
-        mFormat = format;
+        this.format = format;
         format.filter = filter;
         format.wrap = wrap;
-        mSize = size;
-        mGLFormat = format.getGLFormatInternal();
+        this.size = size;
+        internalFormat = format.getGLFormatInternal();
         // P477: a texture without data may take a closed one's name and storage of its size and format ("tex_pool")
-        final int pooled = poolable && pixels == null ? GLTexturePool.take(size.x, size.y, mGLFormat) : 0;
-        mTextureID = pooled != 0 ? pooled : newName();
+        final int pooled = poolable && pixels == null ? GLTexturePool.take(size.x, size.y, internalFormat) : 0;
+        id = pooled != 0 ? pooled : newName();
         // Shot speed (W1.0): no log line per texture; the count per run is in the "runAll programs" line (takeCreated)
         created++;
-        slot = SLOTS.take(mTextureID);
-        GLTexturePool.allocated(mTextureID, bytes(), describe(), pooled != 0);
+        slot = SLOTS.take(id);
+        GLTexturePool.allocated(id, bytes(), describe(), pooled != 0);
         final int previous = beginEdit();
         try {
             final long t0 = GLGpuTimer.measuring() ? System.nanoTime() : 0L; // P479: post_sync only (profiling)
             if (pooled == 0) {
-                glTexStorage2D(GL_TEXTURE_2D, 1, mGLFormat, size.x, size.y);
+                glTexStorage2D(GL_TEXTURE_2D, 1, internalFormat, size.x, size.y);
                 checkEglError("glTexStorage2D");
             }
             if (t0 != 0L) GLGpuTimer.alloc(System.nanoTime() - t0, bytes());
@@ -137,16 +139,15 @@ public class GLTexture implements AutoCloseable {
     private int beginEdit() {
         final int[] bound = new int[1];
         glGetIntegerv(GL_TEXTURE_BINDING_2D, bound, 0);
-        glBindTexture(GL_TEXTURE_2D, mTextureID);
+        glBindTexture(GL_TEXTURE_2D, id);
         return bound[0];
     }
 
     /** The format's filter (minification and magnification) and wrap (both axes) on the bound texture. */
     private void applySampling() {
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, mFormat.filter);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, mFormat.filter);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, mFormat.wrap);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, mFormat.wrap);
+        final int filter = format.filter, wrap = format.wrap;
+        for (int pname : new int[]{GL_TEXTURE_MAG_FILTER, GL_TEXTURE_MIN_FILTER}) glTexParameteri(GL_TEXTURE_2D, pname, filter);
+        for (int pname : new int[]{GL_TEXTURE_WRAP_S, GL_TEXTURE_WRAP_T}) glTexParameteri(GL_TEXTURE_2D, pname, wrap);
     }
 
     /**
@@ -154,7 +155,7 @@ public class GLTexture implements AutoCloseable {
      * main2: a main samples GL_LINEAR).
      */
     public void setFilter(int filter) {
-        mFormat.filter = filter;
+        format.filter = filter;
         final int previous = beginEdit();
         try {
             applySampling();
@@ -165,54 +166,54 @@ public class GLTexture implements AutoCloseable {
 
     /** P187: RGBA16F, the format of the pipeline's ping-pong textures (main1 / main2). */
     public boolean mainFormat() {
-        return mFormat.mFormat == GLFormat.DataType.FLOAT_16 && mFormat.mChannels == GLDrawParams.WorkDim;
+        return format.mFormat == GLFormat.DataType.FLOAT_16 && format.mChannels == GLDrawParams.WORK_CHANNELS;
     }
 
     /** New pixels for the whole level 0. */
     public void loadData(Buffer pixels) {
         final int previous = beginEdit();
         try {
-            glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, mSize.x, mSize.y, mFormat.getGLFormatExternal(), mFormat.getGLType(), pixels);
+            glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, size.x, size.y, format.getGLFormatExternal(), format.getGLType(), pixels);
         } finally {
             glBindTexture(GL_TEXTURE_2D, previous);
         }
     }
 
-    /** Makes this texture's framebuffer once (attached when bound: BindBuffer / BufferLoad). */
-    public void Bufferize() {
-        if (isBuffered) return;
+    /** Makes this texture's framebuffer once (attached when bound: bindFramebuffer / renderInto). */
+    public void ensureFramebuffer() {
+        if (hasFramebuffer) return;
         final int[] fbo = new int[1];
         glGenFramebuffers(1, fbo, 0);
-        mBuffer = fbo[0];
-        isBuffered = true;
+        framebuffer = fbo[0];
+        hasFramebuffer = true;
         synchronized (FRAMEBUFFERS) {
-            FRAMEBUFFERS.put(mTextureID, mBuffer);
+            FRAMEBUFFERS.put(id, framebuffer);
         }
     }
 
-    public void BindBuffer() {
-        glBindFramebuffer(GL_FRAMEBUFFER, mBuffer);
-        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, mTextureID, 0);
+    public void bindFramebuffer() {
+        glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, id, 0);
     }
 
     /** Renders into this texture from now on: its framebuffer bound with it attached, the viewport its size. */
-    public void BufferLoad() {
-        Bufferize();
-        BindBuffer();
-        glViewport(0, 0, mSize.x, mSize.y);
-        checkEglError("Tex BufferLoad");
+    public void renderInto() {
+        ensureFramebuffer();
+        bindFramebuffer();
+        glViewport(0, 0, size.x, size.y);
+        checkEglError("Tex renderInto");
     }
 
     /** Binds this texture to texture unit {@code unit} (GL_TEXTURE0 + n). */
     public void bind(int unit) {
         glActiveTexture(unit);
-        glBindTexture(GL_TEXTURE_2D, mTextureID);
-        checkEglError("Tex " + mTextureID + " bind");
+        glBindTexture(GL_TEXTURE_2D, id);
+        checkEglError("Tex " + id + " bind");
     }
 
-    /** Reads the bound framebuffer (this texture after BufferLoad) into {@code output} in {@code format}. */
+    /** Reads the bound framebuffer (this texture after renderInto) into {@code output} in {@code format}. */
     public void textureBuffer(GLFormat format, ByteBuffer output) {
-        glReadPixels(0, 0, mSize.x, mSize.y, format.getGLFormatExternal(), format.getGLType(), output);
+        glReadPixels(0, 0, size.x, size.y, format.getGLFormatExternal(), format.getGLType(), output);
     }
 
     /**
@@ -221,7 +222,7 @@ public class GLTexture implements AutoCloseable {
      */
     public ByteBuffer textureBuffer(GLFormat format) {
         final int bytesPerChannel = format.mFormat == GLFormat.DataType.FLOAT_16 ? 4 : format.mFormat.mSize;
-        final ByteBuffer out = ByteBuffer.allocateDirect(GLLimits.bufferBytes(mSize.x, mSize.y,
+        final ByteBuffer out = ByteBuffer.allocateDirect(GLLimits.bufferBytes(size.x, size.y,
                 (long) bytesPerChannel * format.mChannels, "texture readback"));
         textureBuffer(format, out);
         return out;
@@ -234,16 +235,16 @@ public class GLTexture implements AutoCloseable {
 
     /** P477: the bytes of this texture's storage (one level). */
     long bytes() {
-        return (long) mSize.x * mSize.y * mFormat.mFormat.mSize * mFormat.mChannels;
+        return (long) size.x * size.y * format.mFormat.mSize * format.mChannels;
     }
 
     private String describe() {
-        return mSize.x + "x" + mSize.y + " " + mFormat.mFormat + "x" + mFormat.mChannels;
+        return size.x + "x" + size.y + " " + format.mFormat + "x" + format.mChannels;
     }
 
     @Override
     public String toString() {
-        return "GLTexture{mSize=" + mSize + ", mGLFormat=" + mGLFormat + ", mTextureID=" + mTextureID + ", mFormat=" + mFormat + '}';
+        return "GLTexture{mSize=" + size + ", mGLFormat=" + internalFormat + ", mTextureID=" + id + ", mFormat=" + format + '}';
     }
 
     public static void notClosed() {
@@ -278,25 +279,25 @@ public class GLTexture implements AutoCloseable {
     public void close() {
         final long t0 = GLGpuTimer.measuring() ? System.nanoTime() : 0L; // P479: post_sync only (profiling)
         // P477: kept for the next texture of its size and format (GLTexturePool, during a post run), else deleted
-        final boolean kept = GLTexturePool.give(mTextureID, mSize.x, mSize.y, mGLFormat, bytes());
-        if (!kept) glDeleteTextures(1, new int[]{mTextureID}, 0);
-        GLTexturePool.closed(mTextureID, bytes(), kept);
+        final boolean kept = GLTexturePool.give(id, size.x, size.y, internalFormat, bytes());
+        if (!kept) glDeleteTextures(1, new int[]{id}, 0);
+        GLTexturePool.closed(id, bytes(), kept);
         // its own slot, not the one its name would index (another texture's once a raw glGenTextures took a name: P369)
-        SLOTS.release(slot, mTextureID);
+        SLOTS.release(slot, id);
         slot = 0;
         if (t0 != 0L) GLGpuTimer.free(System.nanoTime() - t0);
-        if (!isBuffered) return;
+        if (!hasFramebuffer) return;
         synchronized (FRAMEBUFFERS) {
-            FRAMEBUFFERS.remove(mTextureID);
+            FRAMEBUFFERS.remove(id);
         }
         if (PostGlMode.legacy()) {
             // the old model (post_ab only): the FBO name went to glDeleteBuffers - framebuffer and storage lived on until the
             // EGL context was destroyed
-            glDeleteBuffers(1, new int[]{mBuffer}, 0);
+            glDeleteBuffers(1, new int[]{framebuffer}, 0);
         } else {
             // W1.1: the framebuffer itself, which releases the texture's storage now
-            glDeleteFramebuffers(1, new int[]{mBuffer}, 0);
-            isBuffered = false;
+            glDeleteFramebuffers(1, new int[]{framebuffer}, 0);
+            hasFramebuffer = false;
         }
     }
 }

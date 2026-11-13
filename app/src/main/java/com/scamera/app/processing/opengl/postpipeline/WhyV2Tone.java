@@ -21,7 +21,7 @@ import static android.opengl.GLES20.GL_LINEAR;
  */
 public final class WhyV2Tone extends Node {
     public WhyV2Tone() { super("", "WhyV2Tone"); }
-    @Override public void Compile() {}
+    @Override public void bindShader() {}
 
     /** The reference's own curve table (a 1024-float vector uploaded as 1024 x 1). */
     static final int CURVE_SAMPLES = 1024;
@@ -32,8 +32,8 @@ public final class WhyV2Tone extends Node {
     }
 
     @Override
-    public void Run() {
-        final PostPipeline pipeline = (PostPipeline) basePipeline;
+    public void runPass() {
+        final PostPipeline pipeline = (PostPipeline) hostPipeline;
         final WhyV2Stats.State v2 = pipeline.whyV2;
         final WhyTone.State st = pipeline.why;
         if (v2 == null || v2.ae == null || v2.clean == null || v2.fused == null)
@@ -42,7 +42,7 @@ public final class WhyV2Tone extends Node {
         final long started = System.currentTimeMillis();
         final WhyV2Ae.Params p = v2.params;
         final WhyV2Ae.Result r = v2.ae;
-        final Point size = v2.clean.mSize;
+        final Point size = v2.clean.size;
         // what V1's WhyCombine consumes of the merge's side data: not drawn by the reference tone, given back here
         if (pipeline.sunBloom != null) { pipeline.sunBloom.close(); pipeline.sunBloom = null; }
         if (pipeline.opposedShare != null) { pipeline.opposedShare.close(); pipeline.opposedShare = null; }
@@ -60,75 +60,75 @@ public final class WhyV2Tone extends Node {
         try {
             // the reference: glTexImage2D(GL_R16F, 1024, 1, GL_RED, GL_FLOAT), GL_LINEAR, clamp to edge (half floats filter in ES 3.0)
             curve = new GLTexture(new Point(CURVE_SAMPLES, 1), new GLFormat(GLFormat.DataType.FLOAT_16, 1),
-                    BufferUtils.getFrom(curveSamples(p)), GL_LINEAR, GL_CLAMP_TO_EDGE);
+                    BufferUtils.floatBuffer(curveSamples(p)), GL_LINEAR, GL_CLAMP_TO_EDGE);
             if (st.inputReleased) android.opengl.GLES30.glFinish();
-            WorkingTexture = pipeline.getMain();
-            if (pipeline.p3Output) glProg.setDefine("P3_OUT", 1);
-            if (lut != null) glProg.setDefine("FILM_LUT", 1);
-            if (v2.fusedScale > 1) glProg.setDefine("EF_SCALED", 1);
-            if (!pipeline.tenBitOutput) glProg.setDefine("QUANT8", 1);
-            glProg.useAssetProgram("why/v2_tonemap", false);
-            glProg.setTexture("u_tex_clean_rgb", v2.clean);
-            glProg.setTexture("u_tex_accum_ef", v2.fused);
-            glProg.setTexture("u_tex_hires_luma", st.lumaS);
-            glProg.setTexture("u_tex_custom_curve", curve);
+            passOut = pipeline.getMain();
+            if (pipeline.p3Output) shaderProg.setDefine("P3_OUT", 1);
+            if (lut != null) shaderProg.setDefine("FILM_LUT", 1);
+            if (v2.fusedScale > 1) shaderProg.setDefine("EF_SCALED", 1);
+            if (!pipeline.tenBitOutput) shaderProg.setDefine("QUANT8", 1);
+            shaderProg.useAssetProgram("why/v2_tonemap", false);
+            shaderProg.setTexture("u_tex_clean_rgb", v2.clean);
+            shaderProg.setTexture("u_tex_accum_ef", v2.fused);
+            shaderProg.setTexture("u_tex_hires_luma", st.lumaS);
+            shaderProg.setTexture("u_tex_custom_curve", curve);
             if (lut != null) {
                 lutTexture = lut.upload();
-                glProg.setTexture3D("FilmLut", lutTexture);
-                glProg.setVar("lutU", lutStrength, (float) lut.size);
+                shaderProg.setTexture3D("FilmLut", lutTexture);
+                shaderProg.setVar("lutU", lutStrength, (float) lut.size);
             }
-            glProg.setVar("u_width", size.x);
-            glProg.setVar("u_height", size.y);
-            glProg.setVar("u_auto_exposure", r.ae);
-            glProg.setVar("u_clip_ceiling", r.clip);
-            glProg.setVar("u_hdr_shoulder_strength", p.shoulderStrength);
-            glProg.setVar("u_hdr_shoulder_knee", p.shoulderKnee);
-            glProg.setVar("u_hdr_shoulder_headroom", p.shoulderHeadroom);
-            glProg.setVar("u_aces_toe", p.acesToe);
-            glProg.setVar("u_tonemap_operator", p.toneOperator);
-            glProg.setVar("u_agx_look", p.agxLook);
-            glProg.setVar("u_agx_slope", r.agxSlope);
-            glProg.setVar("u_agx_sp", p.agxSp);
-            glProg.setVar("u_agx_tp", p.agxTp);
-            glProg.setVar("u_agx_min_ev", p.agxMinEv);
-            glProg.setVar("u_agx_max_ev", p.agxMaxEv);
-            glProg.setVar("u_agx_sat_boost", p.agxSat);
-            glProg.setVar("u_agx_ev", p.agxEv);
-            glProg.setVar("u_agx_hue_lock", p.agxHueLock ? 1 : 0);
+            shaderProg.setVar("u_width", size.x);
+            shaderProg.setVar("u_height", size.y);
+            shaderProg.setVar("u_auto_exposure", r.ae);
+            shaderProg.setVar("u_clip_ceiling", r.clip);
+            shaderProg.setVar("u_hdr_shoulder_strength", p.shoulderStrength);
+            shaderProg.setVar("u_hdr_shoulder_knee", p.shoulderKnee);
+            shaderProg.setVar("u_hdr_shoulder_headroom", p.shoulderHeadroom);
+            shaderProg.setVar("u_aces_toe", p.acesToe);
+            shaderProg.setVar("u_tonemap_operator", p.toneOperator);
+            shaderProg.setVar("u_agx_look", p.agxLook);
+            shaderProg.setVar("u_agx_slope", r.agxSlope);
+            shaderProg.setVar("u_agx_sp", p.agxSp);
+            shaderProg.setVar("u_agx_tp", p.agxTp);
+            shaderProg.setVar("u_agx_min_ev", p.agxMinEv);
+            shaderProg.setVar("u_agx_max_ev", p.agxMaxEv);
+            shaderProg.setVar("u_agx_sat_boost", p.agxSat);
+            shaderProg.setVar("u_agx_ev", p.agxEv);
+            shaderProg.setVar("u_agx_hue_lock", p.agxHueLock ? 1 : 0);
             // column-major, as the reference uploads them (glUniformMatrix3fv without transpose)
-            glProg.setVar("u_agx_mat_inset", false, WhyV2Ae.insetMatrix(p.agxInset));
-            glProg.setVar("u_agx_mat_outset", false, WhyV2Ae.outsetMatrix(p.agxInset));
-            glProg.setVar("u_aces_pre_gain", p.acesPreGain);
-            glProg.setVar("u_aces_a_coeff", p.acesA);
-            glProg.setVar("u_aces_d_coeff", r.acesD);
-            glProg.setVar("u_uchi_pre_gain", p.uchiPreGain);
-            glProg.setVar("u_uchi_post_gain", p.uchiPostGain);
-            glProg.setVar("u_uchi_p", p.uchiP);
-            glProg.setVar("u_uchi_a", r.uchiA);
-            glProg.setVar("u_uchi_m", p.uchiM);
-            glProg.setVar("u_uchi_l", p.uchiL);
-            glProg.setVar("u_uchi_c", p.uchiC);
-            glProg.setVar("u_uchi_b", p.uchiB);
-            glProg.setVar("u_macro_contrast", r.macroContrast);
-            glProg.setVar("u_contrast_boost", r.contrastBoost);
-            glProg.setVar("u_vibrance_strength", p.vibStrength);
-            glProg.setVar("u_vibrance_saturated", p.vibSaturated);
-            glProg.setVar("u_skin_protect_toggle", p.skinProtect);
-            glProg.setVar("u_vibrance_sky_str", p.vibSky);
-            glProg.setVar("u_vibrance_green_str", p.vibGreen);
-            glProg.setVar("u_vibrance_hl_str", p.vibHl);
-            glProg.setVar("u_vibrance_mid_str", p.vibMid);
-            glProg.setVar("u_vibrance_shadow_str", p.vibShadow);
-            glProg.setVar("u_skin_hue_shift", p.skinHueShift);
-            glProg.setVar("u_skin_sat_shift", p.skinSatShift);
-            glProg.setVar("u_skin_hue_center", p.skinHueCenterRad());
-            glProg.setVar("u_skin_luma_min", p.skinLumaMin);
-            glProg.setVar("u_gamma_curve_type", p.gammaType);
-            glProg.setVar("u_gamma", p.gamma);
-            glProg.setVar("u_gamma_inv", 1f / Math.max(p.gamma, 1f));
-            glProg.setVar("u_film_toe", p.filmToe);
-            glProg.drawBlocks(WorkingTexture);
-            glProg.closed = true;
+            shaderProg.setVar("u_agx_mat_inset", false, WhyV2Ae.insetMatrix(p.agxInset));
+            shaderProg.setVar("u_agx_mat_outset", false, WhyV2Ae.outsetMatrix(p.agxInset));
+            shaderProg.setVar("u_aces_pre_gain", p.acesPreGain);
+            shaderProg.setVar("u_aces_a_coeff", p.acesA);
+            shaderProg.setVar("u_aces_d_coeff", r.acesD);
+            shaderProg.setVar("u_uchi_pre_gain", p.uchiPreGain);
+            shaderProg.setVar("u_uchi_post_gain", p.uchiPostGain);
+            shaderProg.setVar("u_uchi_p", p.uchiP);
+            shaderProg.setVar("u_uchi_a", r.uchiA);
+            shaderProg.setVar("u_uchi_m", p.uchiM);
+            shaderProg.setVar("u_uchi_l", p.uchiL);
+            shaderProg.setVar("u_uchi_c", p.uchiC);
+            shaderProg.setVar("u_uchi_b", p.uchiB);
+            shaderProg.setVar("u_macro_contrast", r.macroContrast);
+            shaderProg.setVar("u_contrast_boost", r.contrastBoost);
+            shaderProg.setVar("u_vibrance_strength", p.vibStrength);
+            shaderProg.setVar("u_vibrance_saturated", p.vibSaturated);
+            shaderProg.setVar("u_skin_protect_toggle", p.skinProtect);
+            shaderProg.setVar("u_vibrance_sky_str", p.vibSky);
+            shaderProg.setVar("u_vibrance_green_str", p.vibGreen);
+            shaderProg.setVar("u_vibrance_hl_str", p.vibHl);
+            shaderProg.setVar("u_vibrance_mid_str", p.vibMid);
+            shaderProg.setVar("u_vibrance_shadow_str", p.vibShadow);
+            shaderProg.setVar("u_skin_hue_shift", p.skinHueShift);
+            shaderProg.setVar("u_skin_sat_shift", p.skinSatShift);
+            shaderProg.setVar("u_skin_hue_center", p.skinHueCenterRad());
+            shaderProg.setVar("u_skin_luma_min", p.skinLumaMin);
+            shaderProg.setVar("u_gamma_curve_type", p.gammaType);
+            shaderProg.setVar("u_gamma", p.gamma);
+            shaderProg.setVar("u_gamma_inv", 1f / Math.max(p.gamma, 1f));
+            shaderProg.setVar("u_film_toe", p.filmToe);
+            shaderProg.drawBlocks(passOut);
+            shaderProg.closed = true;
         } finally {
             if (curve != null) curve.close();
             if (lutTexture != 0) android.opengl.GLES30.glDeleteTextures(1, new int[]{lutTexture}, 0);

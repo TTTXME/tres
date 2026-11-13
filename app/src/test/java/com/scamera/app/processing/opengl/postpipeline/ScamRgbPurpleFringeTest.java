@@ -29,7 +29,7 @@ public class ScamRgbPurpleFringeTest {
         assertTrue("on by default", rgb.contains("final float purple=perChannel?Math.max(0f,Math.min(1f,PreferenceKeys.hybridValue(\"highlight_purple\",1f))):0f;"));
         // P493: P399 only on the «Классическое» route (or where the fringe net cannot run); the net's route sets 0
         assertTrue(rgb.contains("final float p399=fringe==CaNetP.Route.CLASSIC?purple:0f;"));
-        assertTrue(rgb.contains("glProg.setVar(\"purpleU\",p399);"));
+        assertTrue(rgb.contains("shaderProg.setVar(\"purpleU\",p399);"));
         assertTrue(read("src/main/java/com/scamera/app/settings/DevKeys.java").contains("\"hybrid_highlight_purple\", \"1.0\""));
     }
 }

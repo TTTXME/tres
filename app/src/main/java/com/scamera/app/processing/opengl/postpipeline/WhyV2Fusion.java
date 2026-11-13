@@ -20,7 +20,7 @@ import static android.opengl.GLES20.GL_LINEAR;
  */
 public final class WhyV2Fusion extends Node {
     public WhyV2Fusion() { super("", "WhyV2Fusion"); }
-    @Override public void Compile() {}
+    @Override public void bindShader() {}
 
     /**
      * Above this many pixels level 0 would be half the grid (2x2 mean of the clean RGB): never on V2's grids (PostPipeline.V2_MAX_PIXELS).
@@ -38,16 +38,16 @@ public final class WhyV2Fusion extends Node {
     }
 
     @Override
-    public void Run() {
-        final PostPipeline pipeline = (PostPipeline) basePipeline;
-        WorkingTexture = previousNode.WorkingTexture;
-        glProg.closed = true;
+    public void runPass() {
+        final PostPipeline pipeline = (PostPipeline) hostPipeline;
+        passOut = prevPass.passOut;
+        shaderProg.closed = true;
         final WhyV2Stats.State v2 = pipeline.whyV2;
         if (v2 == null || v2.ae == null || v2.clean == null) throw new IllegalStateException("WHY V2: no statistics (WhyV2Stats did not run)");
         final long started = System.currentTimeMillis();
         final WhyV2Ae.Params p = v2.params;
         final WhyV2Ae.Result r = v2.ae;
-        final Point grid = v2.clean.mSize;
+        final Point grid = v2.clean.size;
         final int scale = baseScale(grid.x, grid.y);
         final int[][] lv = WhyV2Ae.levels((grid.x + scale - 1) / scale, (grid.y + scale - 1) / scale);
         final int n = lv.length;
@@ -60,50 +60,50 @@ public final class WhyV2Fusion extends Node {
                 fu[l] = plane(lv[l][0], lv[l][1], 1);
             }
             for (int mode = 0; mode < 2; mode++) {
-                glProg.setDefine("MODE", mode);
-                if (scale == 2) glProg.setDefine("SCALE", 2);
-                glProg.useAssetProgram("why/v2_ef_prep", false);
-                glProg.setTexture("u_tex_clean_rgb", v2.clean);
-                glProg.setVar("u_width", lv[0][0]);
-                glProg.setVar("u_height", lv[0][1]);
-                glProg.setVar("u_exp_multipliers", em[0], em[1], em[2], em[3]);
-                glProg.setVar("u_layer_weights", lw[0], lw[1], lw[2], lw[3]);
-                glProg.setVar("u_weight_center", p.weightCenter);
-                glProg.setVar("u_auto_exposure", r.ae);
-                glProg.setVar("u_blend_smoothness", p.blendSmoothness);
-                glProg.setVar("u_gamma_curve_type", p.gammaType);
-                glProg.setVar("u_gamma_inv", 1f / Math.max(p.gamma, 1f));
-                glProg.setVar("u_aces_toe", p.acesToe);
-                glProg.drawBlocks(mode == 0 ? g[0] : w[0]);
+                shaderProg.setDefine("MODE", mode);
+                if (scale == 2) shaderProg.setDefine("SCALE", 2);
+                shaderProg.useAssetProgram("why/v2_ef_prep", false);
+                shaderProg.setTexture("u_tex_clean_rgb", v2.clean);
+                shaderProg.setVar("u_width", lv[0][0]);
+                shaderProg.setVar("u_height", lv[0][1]);
+                shaderProg.setVar("u_exp_multipliers", em[0], em[1], em[2], em[3]);
+                shaderProg.setVar("u_layer_weights", lw[0], lw[1], lw[2], lw[3]);
+                shaderProg.setVar("u_weight_center", p.weightCenter);
+                shaderProg.setVar("u_auto_exposure", r.ae);
+                shaderProg.setVar("u_blend_smoothness", p.blendSmoothness);
+                shaderProg.setVar("u_gamma_curve_type", p.gammaType);
+                shaderProg.setVar("u_gamma_inv", 1f / Math.max(p.gamma, 1f));
+                shaderProg.setVar("u_aces_toe", p.acesToe);
+                shaderProg.drawBlocks(mode == 0 ? g[0] : w[0]);
             }
             for (int l = 0; l + 1 < n; l++) {
                 for (GLTexture[] pyr : new GLTexture[][]{g, w}) {
-                    glProg.useAssetProgram("why/v2_pyr_down", false);
-                    glProg.setTexture("u_tex_src", pyr[l]);
-                    glProg.setVar("u_texel_size", 1f / lv[l][0], 1f / lv[l][1]);
-                    glProg.setVar("u_dst_w", lv[l + 1][0]);
-                    glProg.setVar("u_dst_h", lv[l + 1][1]);
-                    glProg.drawBlocks(pyr[l + 1]);
+                    shaderProg.useAssetProgram("why/v2_pyr_down", false);
+                    shaderProg.setTexture("u_tex_src", pyr[l]);
+                    shaderProg.setVar("u_texel_size", 1f / lv[l][0], 1f / lv[l][1]);
+                    shaderProg.setVar("u_dst_w", lv[l + 1][0]);
+                    shaderProg.setVar("u_dst_h", lv[l + 1][1]);
+                    shaderProg.drawBlocks(pyr[l + 1]);
                 }
             }
-            glProg.useAssetProgram("why/v2_ef_coarsest", false);
-            glProg.setTexture("u_tex_G", g[n - 1]);
-            glProg.setTexture("u_tex_W", w[n - 1]);
-            glProg.setVar("u_width", lv[n - 1][0]);
-            glProg.setVar("u_height", lv[n - 1][1]);
-            glProg.drawBlocks(fu[n - 1]);
+            shaderProg.useAssetProgram("why/v2_ef_coarsest", false);
+            shaderProg.setTexture("u_tex_G", g[n - 1]);
+            shaderProg.setTexture("u_tex_W", w[n - 1]);
+            shaderProg.setVar("u_width", lv[n - 1][0]);
+            shaderProg.setVar("u_height", lv[n - 1][1]);
+            shaderProg.drawBlocks(fu[n - 1]);
             for (int l = n - 2; l >= 0; l--) {
-                glProg.useAssetProgram("why/v2_ef_collapse", false);
-                glProg.setTexture("u_tex_G_fine", g[l]);
-                glProg.setTexture("u_tex_G_coarse", g[l + 1]);
-                glProg.setTexture("u_tex_W_fine", w[l]);
-                glProg.setTexture("u_tex_fused_coarse", fu[l + 1]);
-                glProg.setVar("u_width", lv[l][0]);
-                glProg.setVar("u_height", lv[l][1]);
-                glProg.setVar("u_clarity", p.clarity);
-                glProg.drawBlocks(fu[l]);
+                shaderProg.useAssetProgram("why/v2_ef_collapse", false);
+                shaderProg.setTexture("u_tex_G_fine", g[l]);
+                shaderProg.setTexture("u_tex_G_coarse", g[l + 1]);
+                shaderProg.setTexture("u_tex_W_fine", w[l]);
+                shaderProg.setTexture("u_tex_fused_coarse", fu[l + 1]);
+                shaderProg.setVar("u_width", lv[l][0]);
+                shaderProg.setVar("u_height", lv[l][1]);
+                shaderProg.setVar("u_clarity", p.clarity);
+                shaderProg.drawBlocks(fu[l]);
             }
-            glProg.closed = true;
+            shaderProg.closed = true;
             v2.fused = fu[0];
             v2.fusedScale = scale;
             fu[0] = null;

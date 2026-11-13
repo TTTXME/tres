@@ -49,12 +49,12 @@ public class WhySkyTest {
     @Test
     public void everySkyDefineComesWithItsMask() throws IOException {
         final String combine = read(SRC + "WhyCombine.java");
-        assertTrue("the photo's combine: SKY with the mask only", combine.contains("if (st.sky != null) glProg.setDefine(\"SKY\", 1);"));
+        assertTrue("the photo's combine: SKY with the mask only", combine.contains("if (st.sky != null) shaderProg.setDefine(\"SKY\", 1);"));
         assertEquals("one SKY define in WhyCombine", 1, count(combine, "setDefine(\"SKY\""));
         assertTrue("its uniforms with the mask only", combine.contains("if (st.sky != null) {\n                // P378: L2 / L3 keep the backlit sky's level"));
         final String fusion = read(SRC + "WhyFusion.java");
         assertTrue("the fusion's SKY with the guided share and the mask", fusion.contains("final boolean sky = !aux && guidedF != null && st.sky != null;")
-                && fusion.contains("if (sky) glProg.setDefine(\"SKY\", 1);"));
+                && fusion.contains("if (sky) shaderProg.setDefine(\"SKY\", 1);"));
         assertEquals(1, count(fusion, "setDefine(\"SKY\""));
         final String live = read(SRC + "LiveWhyTone.java");
         assertTrue("the viewfinder's SKY with its cells, vf_why 1", live.contains("if (withSky && point) defs.add(new String[]{\"SKY\", \"1\"});"));

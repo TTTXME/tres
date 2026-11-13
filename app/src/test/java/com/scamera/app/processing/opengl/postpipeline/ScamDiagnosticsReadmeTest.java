@@ -108,7 +108,7 @@ public class ScamDiagnosticsReadmeTest {
         final Parameters p = new Parameters();
         p.physicalID = 4;
         p.cameraID = "4";
-        p.ReCalcColor(false, result(X8U_CST, 0.54785156f, 0.41796875f));
+        p.resolveColour(false, result(X8U_CST, 0.54785156f, 0.41796875f));
         assertEquals("ISP_CST", p.colourSource);
         final String readme = ScamDiagnostics.readme(p, 597, 9999998L, 423793451406446L, 3.4935298E-4f, 5.384647E-7f, "scene", 13602550L,
                 WhyTone.colourMatrixOf(p, null));
@@ -118,7 +118,7 @@ public class ScamDiagnosticsReadmeTest {
         final float[] isp = {2.852f, -0.484f, -0.187f, -0.242f, 1.344f, -0.505f, 0.113f, -0.543f, 3.542f};
         final float[] sat = WhyTone.cctSat(WhyTone.CCT_SAT, null), want = mul3(sat, isp);
         for (int i = 0; i < 9; i++) assertEquals("element " + i, want[i], chain[i], 3e-3f);
-        final float[] n = p.whitePoint;
+        final float[] n = p.asShotNeutral;
         for (int r = 0; r < 3; r++) assertEquals("row " + r + " maps the neutral to white", 1f,
                 chain[r * 3] * n[0] + chain[r * 3 + 1] * n[1] + chain[r * 3 + 2] * n[2], 1e-4f);
         assertTrue(readme, readme.contains("\ncameraMatrix=["));
@@ -139,14 +139,14 @@ public class ScamDiagnosticsReadmeTest {
     @Test public void theUploadedMatrixCarriesTheLook() {
         final Parameters p = new Parameters();
         p.physicalID = 4;
-        p.ReCalcColor(false, result(X8U_CST, 0.54785156f, 0.41796875f));
+        p.resolveColour(false, result(X8U_CST, 0.54785156f, 0.41796875f));
         final float[] white = {1.1f, -0.05f, -0.05f, 0f, 1f, 0f, -0.02f, -0.02f, 1.04f};
         final float[] up = WhyTone.colourMatrixOf(p, white);
         final float[] look = WhyTone.withCctSat(white);   // P407: the default matrix saturation 1.1 on the white matrix
         for (int r = 0; r < 3; r++)
             for (int c = 0; c < 3; c++) {
                 float s = 0f;
-                for (int k = 0; k < 3; k++) s += look[r * 3 + k] * p.CCT.matrix[k * 3 + c];
+                for (int k = 0; k < 3; k++) s += look[r * 3 + k] * p.colorTransform.matrix[k * 3 + c];
                 assertEquals(s, up[r * 3 + c], 1e-6f);
             }
         final String readme = ScamDiagnostics.readme(p, 597, 1L, 1L, 0f, 0f, "scene", null, up);
@@ -163,7 +163,7 @@ public class ScamDiagnosticsReadmeTest {
         p.physicalID = 4;
         when(CaptureController.mCameraCharacteristics.get(CameraCharacteristics.SENSOR_FORWARD_MATRIX2))
                 .thenReturn(cst(128, 70, 40, 14, 30, 90, 8, 4, 20, 82));
-        p.ReCalcColor(false, result(cst(1, 1, 0, 0, 0, 1, 0, 0, 0, 1), 0.54785156f, 0.41796875f));
+        p.resolveColour(false, result(cst(1, 1, 0, 0, 0, 1, 0, 0, 0, 1), 0.54785156f, 0.41796875f));
         assertEquals("DNG_FM", p.colourSource);
         assertTrue(p.colourSummary(), p.colourSummary().startsWith("colour: DNG_FM"));
     }

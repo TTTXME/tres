@@ -421,7 +421,7 @@ public class SettingsAuditFixTest {
     /** Texts: the generated RAW-metadata rows speak Russian on a Russian system; the two denoise pairs have distinct names. */
     @Test @Config(qualifiers="ru-w400dp-h880dp-mdpi") public void russianTitlesAndDistinctDenoiseNames() {
         PreferenceScreen screen=inflate();
-        for(Class<?> type:TunableRegistry.TUNABLE_CLASSES)TunablePreferenceGenerator.registerTunableClass(type);
+        for(Class<?> type:TunableRegistry.OWNERS)TunablePreferenceGenerator.registerTunableClass(type);
         TunablePreferenceGenerator.generatePreferences(context,screen);
         assertEquals("Динамический уровень чёрного",String.valueOf(screen.findPreference("pref_tunable_parameters_usedynamicblacklevel").getTitle()));
         assertEquals("Не зеркалить селфи",String.valueOf(screen.findPreference("pref_tunable_parameters_disablemirror").getTitle()));

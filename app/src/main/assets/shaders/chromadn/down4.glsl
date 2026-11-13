@@ -1,5 +1,4 @@
-precision highp float;
-precision highp sampler2D;
+precision highp float; precision highp sampler2D;
 // Post-network luma noise, coarse step 1: factor x factor average of u
 // (factor = 4 * outputScale: the blotch stage runs at a quarter of the SENSOR resolution on any grid).
 uniform sampler2D InputBuffer;

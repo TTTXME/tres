@@ -298,18 +298,13 @@ final class TrayMotion {
     /** {@link #pressable}'s touch listener, for a view that watches its touches for more (P382: a tab's double tap). */
     static View.OnTouchListener press() {
         return (view, e) -> {
-            switch (e.getActionMasked()) {
-                case MotionEvent.ACTION_DOWN:
-                    view.animate().cancel();
-                    view.animate().scaleX(.95f).scaleY(.95f).setDuration(90).setStartDelay(0).setInterpolator(EASE_OUT).start();
-                    break;
-                case MotionEvent.ACTION_UP:
-                case MotionEvent.ACTION_CANCEL:
-                    view.animate().cancel();
-                    view.animate().scaleX(1f).scaleY(1f).setDuration(RELEASE.durationMs).setStartDelay(0).setInterpolator(RELEASE).start();
-                    break;
-                default:
-                    break;
+            final int action = e.getActionMasked();
+            if (action == MotionEvent.ACTION_DOWN) {
+                view.animate().cancel();
+                view.animate().scaleX(.95f).scaleY(.95f).setDuration(90).setStartDelay(0).setInterpolator(EASE_OUT).start();
+            } else if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+                view.animate().cancel();
+                view.animate().scaleX(1f).scaleY(1f).setDuration(RELEASE.durationMs).setStartDelay(0).setInterpolator(RELEASE).start();
             }
             return false;
         };

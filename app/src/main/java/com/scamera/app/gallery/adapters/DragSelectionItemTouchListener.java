@@ -10,8 +10,8 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.scamera.app.gallery.interfaces.OnItemInteractionListener;
 
 /**
- * Taps and selection drags on the library grid. A tap reports {@link OnItemInteractionListener#onItemClicked}; a long press
- * reports {@link OnItemInteractionListener#onLongItemClicked} and starts a selection; dragging then reports the range from
+ * Taps and selection drags on the library grid. A tap reports {@link OnItemInteractionListener#itemTapped}; a long press
+ * reports {@link OnItemInteractionListener#itemLongPressed} and starts a selection; dragging then reports the range from
  * the long-pressed item to the item under the finger ({@link OnItemInteractionListener#onDragRange}): rows and columns
  * alike (P59b: a vertical drag in one column hovered one cell only, the cells in between were never selected). Near the
  * top / bottom edge the list scrolls and the range follows.
@@ -48,7 +48,7 @@ public class DragSelectionItemTouchListener implements RecyclerView.OnItemTouchL
             @Override public void onLongPress(MotionEvent e) {
                 if (touched == null || DragSelectionItemTouchListener.this.listener == null) return;
                 RecyclerView list = (RecyclerView) touched.itemView.getParent();
-                DragSelectionItemTouchListener.this.listener.onLongItemClicked(list, touched, touched.getAbsoluteAdapterPosition());
+                DragSelectionItemTouchListener.this.listener.itemLongPressed(list, touched, touched.getAbsoluteAdapterPosition());
                 anchor = touched;
             }
         });
@@ -75,7 +75,7 @@ public class DragSelectionItemTouchListener implements RecyclerView.OnItemTouchL
         View under = rv.findChildViewUnder(e.getX(), e.getY());
         if (under == null) return;
         touched = rv.findContainingViewHolder(under);
-        if (gestures.onTouchEvent(e) && listener != null) listener.onItemClicked(rv, touched, rv.getChildAdapterPosition(under));
+        if (gestures.onTouchEvent(e) && listener != null) listener.itemTapped(rv, touched, rv.getChildAdapterPosition(under));
     }
 
     @Override

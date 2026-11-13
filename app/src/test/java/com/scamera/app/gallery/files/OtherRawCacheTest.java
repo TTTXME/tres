@@ -184,7 +184,7 @@ public class OtherRawCacheTest {
         assertEquals(null, back.data);
         assertEquals(1700000000L, back.addedSec);
         assertEquals("Canon", back.bucket);
-        assertEquals(1700000000_000L, r.file().getLastModified());
-        assertEquals("content://media/external/file/42", r.file().getFileUri().toString());
+        assertEquals(1700000000_000L, r.file().modifiedMs());
+        assertEquals("content://media/external/file/42", r.file().contentUri().toString());
     }
 }

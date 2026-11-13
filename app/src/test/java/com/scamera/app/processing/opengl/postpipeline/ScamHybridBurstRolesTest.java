@@ -66,7 +66,7 @@ public class ScamHybridBurstRolesTest {
     }
     private static Parameters parameters() {
         Parameters p = new Parameters();
-        p.rawSize = new Point(64, 64); p.cfaPattern = 0; p.whiteLevel = 1023; p.blackLevel = new float[]{64, 64, 64, 64};
+        p.rawSize = new Point(64, 64); p.cfaPattern = 0; p.whiteLevel = 1023; p.cfaBlack = new float[]{64, 64, 64, 64};
         return p;
     }
     private static Object burst(List<ImageFrame> frames) throws Exception {
@@ -157,7 +157,7 @@ public class ScamHybridBurstRolesTest {
         for (int i = 0; i < 3; i++) frames.add(frame(ImageFrame.CaptureRole.NORMAL, 2_382_580L, 72));
         frames.add(frame(ImageFrame.CaptureRole.EXTRA_SHORT, 313_000L, 72));
         frames.add(frame(ImageFrame.CaptureRole.LONG, 4_765_160L, 72));
-        Parameters p = parameters(); p.aperture = 2.0f;
+        Parameters p = parameters(); p.fNumber = 2.0f;
         Constructor<ScamHybridBurst> c = ScamHybridBurst.class.getDeclaredConstructor(List.class, Parameters.class, boolean.class);
         c.setAccessible(true);
         ScamHybridBurst b = c.newInstance(frames, p, false);
@@ -183,7 +183,7 @@ public class ScamHybridBurstRolesTest {
         for (int i = 0; i < 3; i++) frames.add(frame(ImageFrame.CaptureRole.NORMAL, 10_000_000L, 100));
         Constructor<ScamHybridBurst> c = ScamHybridBurst.class.getDeclaredConstructor(List.class, Parameters.class, boolean.class);
         c.setAccessible(true);
-        Parameters p = parameters(); p.whitePoint = new float[]{0.4787f, 1f, 0.6535f};
+        Parameters p = parameters(); p.asShotNeutral = new float[]{0.4787f, 1f, 0.6535f};
         ScamHybridBurst b = c.newInstance(frames, p, false);
         assertTrue(b.tuningOverride(), b.tuningOverride().contains("wbR 0.47870\nwbB 0.65350\n"));
         ScamHybridBurst none = c.newInstance(new ArrayList<>(frames), parameters(), false);

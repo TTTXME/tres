@@ -90,12 +90,12 @@ public final class VivoPd2454Isz {
     }
 
     private static int forceValue(@Nullable VendorTagUtils.TunableKey key, boolean sessionOnly) {
-        if (key == null || !key.enabled || !VivoQcomIsz.KEY.equals(key.name)
-                || !"Integer".equals(key.valueType)
-                || !(VendorTagUtils.TunableKey.TYPE_SESSION.equals(key.type)
-                || !sessionOnly && "CaptureRequest".equals(key.type))) return -1;
+        if (key == null || !key.enabled || !VivoQcomIsz.KEY.equals(key.tag)
+                || !"Integer".equals(key.typeName)
+                || !(VendorTagUtils.TunableKey.TYPE_SESSION.equals(key.kind)
+                || !sessionOnly && "CaptureRequest".equals(key.kind))) return -1;
         try {
-            return (Integer) key.parseValue();
+            return (Integer) key.typedValue();
         } catch (RuntimeException invalid) {
             return -1;
         }

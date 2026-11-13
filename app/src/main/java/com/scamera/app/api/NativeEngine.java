@@ -22,25 +22,25 @@ public class NativeEngine {
     /** Sets up the hidden-API exemption once (any lookup does it first). */
     public static synchronized void initialize() {
         if (initialized) return;
-        Log.d(TAG, "hidden-API exemption set up");
-        nativeInitialize();
+        openHiddenApi();
         initialized = true;
+        Log.d(TAG, "hidden-API exemption set up");
     }
 
     /** A method of {@code clazz} by name and parameter types, accessible; null when there is none. */
-    public static Method getCameraMethod(Class<?> clazz, String methodName, Class<?>... parameterTypes) {
+    public static Method findMethod(Class<?> owner, String name, Class<?>... parameterTypes) {
         initialize();
-        if (clazz == null || methodName == null) {
+        if (owner == null || name == null) {
             Log.e(TAG, "method lookup without a class or a name");
             return null;
         }
         // P214a: one lookup per (class, name, parameter types) for the process; a failed one is tried again next time.
-        return LOOKUPS.method(clazz, methodName, parameterTypes, NativeEngine::lookUpMethod);
+        return LOOKUPS.method(owner, name, parameterTypes, NativeEngine::lookUpMethod);
     }
 
     private static Method lookUpMethod(Class<?> clazz, String methodName, Class<?>[] parameterTypes) {
         try {
-            final Method viaJni = nativeGetCameraMethod(clazz, methodName, parameterTypes);
+            final Method viaJni = hiddenMethod(clazz, methodName, parameterTypes);
             if (viaJni != null) return viaJni;
             Log.d(TAG, "no JNI method " + methodName + ": plain reflection");
             final Method reflected = clazz.getDeclaredMethod(methodName, parameterTypes);
@@ -53,7 +53,7 @@ public class NativeEngine {
     }
 
     /** A field of {@code clazz} by name, accessible; null when there is none. */
-    public static Field getCameraField(Class<?> clazz, String fieldName) {
+    public static Field findField(Class<?> clazz, String fieldName) {
         initialize();
         if (clazz == null || fieldName == null) {
             Log.e(TAG, "field lookup without a class or a name");
@@ -65,7 +65,7 @@ public class NativeEngine {
 
     private static Field lookUpField(Class<?> clazz, String fieldName) {
         try {
-            final Field viaJni = nativeGetCameraField(clazz, fieldName);
+            final Field viaJni = hiddenField(clazz, fieldName);
             if (viaJni != null) return viaJni;
             Log.d(TAG, "no JNI field " + fieldName + ": plain reflection");
             final Field reflected = clazz.getDeclaredField(fieldName);
@@ -77,10 +77,8 @@ public class NativeEngine {
         }
     }
 
-    // camera2native's entry points (JNI names: Java_com_scamera_app_api_NativeEngine_*)
-    private static native void nativeInitialize();
-
-    private static native Method nativeGetCameraMethod(Class<?> clazz, String methodName, Class<?>[] parameterTypes);
-
-    private static native Field nativeGetCameraField(Class<?> clazz, String fieldName);
+    // camera2native's entry points (JNI names: Java_com_scamera_app_api_NativeEngine_*): the exemption, then a member by name
+    private static native void openHiddenApi();
+    private static native Method hiddenMethod(Class<?> owner, String name, Class<?>[] parameterTypes);
+    private static native Field hiddenField(Class<?> owner, String name);
 }

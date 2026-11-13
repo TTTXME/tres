@@ -152,14 +152,14 @@ public final class GalleryLayout {
 
     static long newest(List<GalleryItem> files) {
         long t = 0;
-        if (files != null) for (GalleryItem i : files) if (i != null && i.getFile() != null) t = Math.max(t, i.getFile().getLastModified());
+        if (files != null) for (GalleryItem i : files) if (i != null && i.mediaFile() != null) t = Math.max(t, i.mediaFile().modifiedMs());
         return t;
     }
 
     /** How many of {@code files} are newer than {@code seen}. */
     public static int countNewer(List<GalleryItem> files, long seen) {
         int n = 0;
-        if (files != null) for (GalleryItem i : files) if (i != null && i.getFile() != null && i.getFile().getLastModified() > seen) ++n;
+        if (files != null) for (GalleryItem i : files) if (i != null && i.mediaFile() != null && i.mediaFile().modifiedMs() > seen) ++n;
         return n;
     }
 

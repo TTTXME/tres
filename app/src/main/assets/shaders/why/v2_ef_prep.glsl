@@ -1,5 +1,4 @@
-precision highp float;
-precision highp sampler2D;
+precision highp float; precision highp sampler2D;
 // P614 «Why тон» V2 (WhyV2Fusion): the reference tone's ef_pyr_prep, one to one - four synthetic exposures of the clean RGB x AE,
 // each metered as max(Y709, 0.5 max channel), through the ACEScg toe and the display gamma (o_G), and their Gaussian weights
 // around the centre, x the layer weights, normalised (o_W). The reference writes both at once (two colour attachments); here

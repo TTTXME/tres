@@ -17,8 +17,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * every GL node construction and every capture walked all declared fields of its class again.
  */
 final class FieldSpec {
-    /** The annotations' «no default given» value. */
-    static final float NO_DEFAULT = -999999f;
+    /** The annotations' «no default given» value is NaN (the field's initial value is the default). */
 
     final Field field;
     final String name;
@@ -75,7 +74,7 @@ final class FieldSpec {
     private static FieldSpec ofTunable(Field f) {
         Tunable t = f.getAnnotation(Tunable.class);
         return t == null ? null : new FieldSpec(f, t.title(), t.description(), t.category(), t.min(), t.max(), t.step(),
-                t.defaultValue(), t.entries(), t.entryValues(), t.allowedPngSizes());
+                t.defaultValue(), t.entries(), t.entryValues(), t.pngEdges());
     }
 
     private static FieldSpec ofSensor(Field f) {
@@ -86,11 +85,11 @@ final class FieldSpec {
 
     /** The default a row and the injector use: the declared one, else the minimum. */
     float fallback() {
-        return declared == NO_DEFAULT ? min : declared;
+        return Float.isNaN(declared) ? min : declared;
     }
 
     boolean hasDeclaredDefault() {
-        return declared != NO_DEFAULT;
+        return !Float.isNaN(declared);
     }
 
     /** A list row: both labels and values given. */

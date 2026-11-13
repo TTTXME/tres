@@ -72,7 +72,7 @@ public class ParametersColourMethodTest {
     }
 
     private Parameters shot(int method, boolean mosaicOwn) {
-        settings.colorMethod = method;
+        settings.colourMethod = method;
         final Parameters p = new Parameters();
         p.physicalID = 3;
         p.cameraID = "3";
@@ -80,9 +80,9 @@ public class ParametersColourMethodTest {
             p.mosaicShot = true;
             p.ownNeutral = true;
             p.customNeutral = new float[]{0.42f, 1f, 0.66f};
-            p.ReCalcColor(true, result(VIVO, new float[]{0.3945f, 1f, 0.6396f}));
+            p.resolveColour(true, result(VIVO, new float[]{0.3945f, 1f, 0.6396f}));
         } else {
-            p.ReCalcColor(false, result(VIVO, new float[]{0.3945f, 1f, 0.6396f}));
+            p.resolveColour(false, result(VIVO, new float[]{0.3945f, 1f, 0.6396f}));
         }
         return p;
     }
@@ -94,8 +94,8 @@ public class ParametersColourMethodTest {
             final Parameters p = shot(method, false);
             assertEquals(one.colourSource, p.colourSource);
             for (int i = 0; i < 9; i++) {
-                assertEquals("CCT " + i, one.CCT.matrix[i], p.CCT.matrix[i], 0f);
-                assertEquals("s2p " + i, one.sensorToProPhoto[i], p.sensorToProPhoto[i], 0f);
+                assertEquals("CCT " + i, one.colorTransform.matrix[i], p.colorTransform.matrix[i], 0f);
+                assertEquals("s2p " + i, one.cameraToProPhoto[i], p.cameraToProPhoto[i], 0f);
             }
         }
     }
@@ -106,24 +106,24 @@ public class ParametersColourMethodTest {
         final Parameters capture = shot(2, true);
         assertEquals("LEGACY_CAPTURED", capture.colourSource);
         assertTrue(capture.mosaicMatrixSource, capture.mosaicMatrixSource.contains("LEGACY_CAPTURED"));
-        assertEquals(1f / 0.42f, capture.sensorToProPhoto[0], 1e-5f);
-        assertTrue(Math.abs(capture.CCT.matrix[0] - characteristics.CCT.matrix[0]) > 0.05f);
+        assertEquals(1f / 0.42f, capture.cameraToProPhoto[0], 1e-5f);
+        assertTrue(Math.abs(capture.colorTransform.matrix[0] - characteristics.colorTransform.matrix[0]) > 0.05f);
     }
 
     /** A7: the X200 Ultra (PD2454) with the logical-physical id "0-3": the scene light from its camera 3's daylight neutral. */
     @Test public void sceneIlluminantKnowsThePhysicalCamera() {
         org.robolectric.shadows.ShadowBuild.setDevice("PD2454");
-        settings.colorMethod = 1;
+        settings.colourMethod = 1;
         final Parameters p = new Parameters();
         p.physicalID = 3;
         p.cameraID = "0-3";
-        p.ReCalcColor(false, result(VIVO, new float[]{0.55f, 1f, 0.45f}));
+        p.resolveColour(false, result(VIVO, new float[]{0.55f, 1f, 0.45f}));
         assertEquals("ISP_CST", p.colourSource);
-        final float want = SceneIlluminant.cct("3", p.whitePoint, p.CCT.matrix);
+        final float want = SceneIlluminant.cct("3", p.asShotNeutral, p.colorTransform.matrix);
         assertTrue(want > 0f);
         assertEquals(want, p.sceneCct, 0f);
         assertTrue(p.sceneCctSource, p.sceneCctSource.contains("SceneIlluminant"));
-        assertEquals(-1f, SceneIlluminant.cct("0-3", p.whitePoint, p.CCT.matrix), 0f);
+        assertEquals(-1f, SceneIlluminant.cct("0-3", p.asShotNeutral, p.colorTransform.matrix), 0f);
         assertNotNull(p.colourSummary());
     }
 }

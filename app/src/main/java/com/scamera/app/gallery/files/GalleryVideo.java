@@ -31,9 +31,9 @@ public final class GalleryVideo {
 
     public static boolean isVideo(@Nullable MediaFile f) {
         if (f == null) return false;
-        Uri u = f.getFileUri();
+        Uri u = f.contentUri();
         if (u != null && u.getPath() != null && u.getPath().contains("/video/")) return true;
-        return isVideoName(f.getDisplayName());
+        return isVideoName(f.displayName());
     }
 
     static void remember(long id, long durationMs) {
@@ -43,7 +43,7 @@ public final class GalleryVideo {
     /** The video's length in ms, 0 when unknown. */
     public static long durationMs(@Nullable MediaFile f) {
         if (f == null) return 0;
-        Long d = DURATION.get(f.getId());
+        Long d = DURATION.get(f.rowId());
         return d != null ? d : 0;
     }
 

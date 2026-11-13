@@ -1,6 +1,6 @@
 package com.scamera.app.processing.processor;
 
-import com.scamera.app.processing.ProcessingEventsListener;
+import com.scamera.app.processing.ProcessingEvents;
 import com.scamera.app.processing.opengl.postpipeline.PostPipeline;
 
 import org.junit.Test;
@@ -23,14 +23,14 @@ import static org.mockito.Mockito.verify;
  * pipeline a failed shot left open is torn down as a deferred teardown.
  */
 public class ScamProcessorFailureTest {
-    static final class Events implements ProcessingEventsListener {
+    static final class Events implements ProcessingEvents {
         final List<String> saved = new ArrayList<>(), notices = new ArrayList<>();
 
-        @Override public void onProcessingStarted(String processName) {}
-        @Override public void onProcessingChanged(Object obj) { if (obj instanceof String) notices.add((String) obj); }
-        @Override public void onProcessingFinished(Object obj) {}
-        @Override public void notifyImageSavedStatus(boolean ok, Path savedFilePath) { saved.add(ok + " " + savedFilePath); }
-        @Override public void onProcessingError(Object obj) {}
+        @Override public void processingStarted(String processName) {}
+        @Override public void processingProgress(Object obj) { if (obj instanceof String) notices.add((String) obj); }
+        @Override public void processingFinished(Object obj) {}
+        @Override public void imageSaved(boolean ok, Path savedFilePath) { saved.add(ok + " " + savedFilePath); }
+        @Override public void processingFailed(Object obj) {}
     }
 
     private static final Path DNG = Paths.get("IMG_1.dng");

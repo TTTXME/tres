@@ -49,7 +49,7 @@ public final class FilmGrain extends Node {
     }
 
     @Override
-    public void Compile() {}
+    public void bindShader() {}
 
     /** P286: the reference model's grain. */
     private void runReference(GLTexture in, float um, long started) {
@@ -58,37 +58,37 @@ public final class FilmGrain extends Node {
                 com.scamera.app.processing.color.FilmSim.grainLut(set, GRAIN_LUT);
         if (lut == null) return;
         final int tex = lut.upload();
-        final GLTexture noise = new GLTexture(in.mSize, new com.scamera.app.processing.opengl.GLFormat(
+        final GLTexture noise = new GLTexture(in.size, new com.scamera.app.processing.opengl.GLFormat(
                 com.scamera.app.processing.opengl.GLFormat.DataType.FLOAT_16, 4));
-        final GLTexture h = new GLTexture(in.mSize, noise.mFormat), v = new GLTexture(in.mSize, noise.mFormat);
+        final GLTexture h = new GLTexture(in.size, noise.format), v = new GLTexture(in.size, noise.format);
         try {
             // the white noise, blurred by the reference app's 11.8 um of film (P289) x (format / 35 mm)^0.62 (P380: spektrafilm-ofx's
             // grainFinalBlurFormatScale), then seen through the print and the scan
-            glProg.useAssetProgram("film/noise", false);
-            glProg.setVar("seed", (float) (Math.abs(set.stock.id.hashCode()) % 9973));
-            glProg.drawBlocks(noise);
+            shaderProg.useAssetProgram("film/noise", false);
+            shaderProg.setVar("seed", (float) (Math.abs(set.stock.id.hashCode()) % 9973));
+            shaderProg.drawBlocks(noise);
             final float blur = FilmSim.grainBlurUm(set.format) / um;
-            glProg.useAssetProgram("film/blur", false);
-            glProg.setTexture("InputBuffer", noise);
-            glProg.setVar("dir", 1f, 0f);
-            glProg.setVar("sigma", blur);
-            glProg.drawBlocks(h);
-            glProg.useAssetProgram("film/blur", false);
-            glProg.setTexture("InputBuffer", h);
-            glProg.setVar("dir", 0f, 1f);
-            glProg.setVar("sigma", blur);
-            glProg.drawBlocks(v);
-            final GLTexture out = new GLTexture(in.mSize, in.mFormat);
-            glProg.useAssetProgram("film/grain_sf", false);
-            glProg.setTexture("InputBuffer", in);
-            glProg.setTexture("Noise", v);
-            glProg.setTexture3D("GrainLut", tex);
+            shaderProg.useAssetProgram("film/blur", false);
+            shaderProg.setTexture("InputBuffer", noise);
+            shaderProg.setVar("dir", 1f, 0f);
+            shaderProg.setVar("sigma", blur);
+            shaderProg.drawBlocks(h);
+            shaderProg.useAssetProgram("film/blur", false);
+            shaderProg.setTexture("InputBuffer", h);
+            shaderProg.setVar("dir", 0f, 1f);
+            shaderProg.setVar("sigma", blur);
+            shaderProg.drawBlocks(v);
+            final GLTexture out = new GLTexture(in.size, in.format);
+            shaderProg.useAssetProgram("film/grain_sf", false);
+            shaderProg.setTexture("InputBuffer", in);
+            shaderProg.setTexture("Noise", v);
+            shaderProg.setTexture3D("GrainLut", tex);
             final float scale = set.grainApplied() / um;
-            glProg.setVar("scale", scale);
-            glProg.setVar("lutSize", (float) GRAIN_LUT);
-            glProg.drawBlocks(out);
-            glProg.closed = true;
-            WorkingTexture = out;
+            shaderProg.setVar("scale", scale);
+            shaderProg.setVar("lutSize", (float) GRAIN_LUT);
+            shaderProg.drawBlocks(out);
+            shaderProg.closed = true;
+            passOut = out;
             Log.i("SCAM_PIPELINE", "film grain (reference) " + set.stock.id + " " + set.format.id + String.format(java.util.Locale.ROOT,
                     " pixel %.2f um blur %.2f px scale %.4f ms=%d", um, blur, scale, System.currentTimeMillis() - started));
         } finally {
@@ -103,11 +103,11 @@ public final class FilmGrain extends Node {
     static final int GRAIN_LUT = 17;
 
     @Override
-    public void Run() {
-        final GLTexture in = previousNode.WorkingTexture;
-        WorkingTexture = in;
+    public void runPass() {
+        final GLTexture in = prevPass.passOut;
+        passOut = in;
         final long started = System.currentTimeMillis();
-        final float um = set.pixelUm(FilmHalation.filmLongPx(Math.max(in.mSize.x, in.mSize.y), basePipeline.mParameters));
+        final float um = set.pixelUm(FilmHalation.filmLongPx(Math.max(in.size.x, in.size.y), hostPipeline.shotParams));
         if (um <= 0f) return;
         GLTexture cur = in;
         if (set.stock.spectral != null) {
@@ -116,19 +116,19 @@ public final class FilmGrain extends Node {
         }
         final float blur = FilmSim.classicBlurPx(set, um); // x the simulation's strength, as the grain
         if (blur >= FilmSim.CLASSIC_BLUR_MIN_PX) {
-            final GLTexture h = new GLTexture(in.mSize, in.mFormat);
-            glProg.useAssetProgram("film/blur", false);
-            glProg.setTexture("InputBuffer", cur);
-            glProg.setVar("dir", 1f, 0f);
-            glProg.setVar("sigma", blur);
-            glProg.drawBlocks(h);
-            final GLTexture v = new GLTexture(in.mSize, in.mFormat);
-            glProg.useAssetProgram("film/blur", false);
-            glProg.setTexture("InputBuffer", h);
-            glProg.setVar("dir", 0f, 1f);
-            glProg.setVar("sigma", blur);
-            glProg.drawBlocks(v);
-            glProg.closed = true;
+            final GLTexture h = new GLTexture(in.size, in.format);
+            shaderProg.useAssetProgram("film/blur", false);
+            shaderProg.setTexture("InputBuffer", cur);
+            shaderProg.setVar("dir", 1f, 0f);
+            shaderProg.setVar("sigma", blur);
+            shaderProg.drawBlocks(h);
+            final GLTexture v = new GLTexture(in.size, in.format);
+            shaderProg.useAssetProgram("film/blur", false);
+            shaderProg.setTexture("InputBuffer", h);
+            shaderProg.setVar("dir", 0f, 1f);
+            shaderProg.setVar("sigma", blur);
+            shaderProg.drawBlocks(v);
+            shaderProg.closed = true;
             h.close();
             cur = v;
         }
@@ -138,21 +138,21 @@ public final class FilmGrain extends Node {
             // P369: FilmSim's (the settings' preview, FilmEffects, takes the same)
             s = FilmSim.classicGrainSigma(set, um);
             final float cell = FilmSim.classicGrainCell(set, um);
-            final GLTexture out = new GLTexture(in.mSize, in.mFormat);
-            glProg.useAssetProgram("film/grain", false);
-            glProg.setTexture("InputBuffer", cur);
-            glProg.setVar("sigma", s, s, s * 1.25f);
-            glProg.setVar("cell", cell, cell, cell * 1.4f);
-            glProg.setVar("sharedPart", st.mono() ? 1f : .55f);
-            glProg.setVar("slide", st.reversal() ? 1 : 0);
-            glProg.setVar("mono", st.mono() ? 1 : 0);
-            glProg.setVar("seed", (float) (Math.abs(st.id.hashCode()) % 9973));
-            glProg.drawBlocks(out);
-            glProg.closed = true;
+            final GLTexture out = new GLTexture(in.size, in.format);
+            shaderProg.useAssetProgram("film/grain", false);
+            shaderProg.setTexture("InputBuffer", cur);
+            shaderProg.setVar("sigma", s, s, s * 1.25f);
+            shaderProg.setVar("cell", cell, cell, cell * 1.4f);
+            shaderProg.setVar("sharedPart", st.mono() ? 1f : .55f);
+            shaderProg.setVar("slide", st.reversal() ? 1 : 0);
+            shaderProg.setVar("mono", st.mono() ? 1 : 0);
+            shaderProg.setVar("seed", (float) (Math.abs(st.id.hashCode()) % 9973));
+            shaderProg.drawBlocks(out);
+            shaderProg.closed = true;
             if (cur != in) cur.close();
             cur = out;
         }
-        WorkingTexture = cur;
+        passOut = cur;
         Log.i("SCAM_PIPELINE", "film grain " + set.stock.id + " " + set.format.id + String.format(java.util.Locale.ROOT,
                 " pixel %.2f um blur %.2f px grain sigma %.4f cell %.2f px ms=%d", um, blur, s,
                 FilmSim.classicGrainCell(set, um), System.currentTimeMillis() - started));

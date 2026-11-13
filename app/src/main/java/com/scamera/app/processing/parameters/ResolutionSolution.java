@@ -1,7 +1,9 @@
 package com.scamera.app.processing.parameters;
 
-public class ResolutionSolution {
-    public static final int highRes = 30 * 1000000;
-    public static final int smallRes = 8 * 1000000;
-    public static final int previewRes = 5 * 1000000;
+/** Pixel counts the stream choice compares a size with: a full photo, a small one and the preview's ceiling. */
+public final class ResolutionSolution {
+    public static final int PHOTO_PIXELS = 30_000_000, SMALL_PIXELS = 8_000_000, PREVIEW_PIXELS = 5_000_000;
+
+    private ResolutionSolution() {
+    }
 }

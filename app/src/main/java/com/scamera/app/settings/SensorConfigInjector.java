@@ -14,9 +14,10 @@ public final class SensorConfigInjector {
 
     private SensorConfigInjector() {}
 
-    /** @param sensorId physical camera id ("0", "1", ...) or module slot */
-    public static void applyToSensor(String sensorId, Object target) {
-        if (target == null || sensorId == null || sensorId.isEmpty()) {
+    /** {@code target}'s fields from the values of module {@code sensorId} (a physical camera id "0", "1", ... or a module slot). */
+    public static void fillForModule(String sensorId, Object target) {
+        final boolean nothing = target == null || sensorId == null || sensorId.isEmpty();
+        if (nothing) {
             Log.w(TAG, "nothing to fill (target " + target + ", sensor " + sensorId + ")");
             return;
         }

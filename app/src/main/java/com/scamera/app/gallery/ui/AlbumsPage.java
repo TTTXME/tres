@@ -64,12 +64,12 @@ public final class AlbumsPage {
         }
 
         int count() {
-            return folder.getFiles().size();
+            return folder.groupedItems().size();
         }
 
         @Nullable
         Uri cover() {
-            return folder.getFiles().isEmpty() ? null : folder.getFiles().get(0).getFile().getFileUri();
+            return folder.groupedItems().isEmpty() ? null : folder.groupedItems().get(0).mediaFile().contentUri();
         }
     }
 

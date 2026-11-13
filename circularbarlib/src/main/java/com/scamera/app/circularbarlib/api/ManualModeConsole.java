@@ -7,35 +7,36 @@ import com.scamera.app.circularbarlib.control.ManualParamModel;
 
 import java.util.Observer;
 
+/**
+ * The manual-controls panel as the camera screen drives it: attached to the open camera's characteristics, following the
+ * screen's lifecycle, its values observed through {@link #valueModel}, shown / hidden and reset from the screen.
+ */
 public interface ManualModeConsole {
+    // ── lifecycle ──
+    /** Builds the panel's parameters for {@code camera} (again after a lens switch). */
+    void attachCamera(Activity activity, CameraCharacteristics camera);
+    void resumePanel();
+    void pausePanel();
+    void destroyPanel();
 
-    void init(Activity activity, CameraCharacteristics cameraCharacteristics);
+    // ── the values ──
+    /** The manual values the camera reads, and their observers. */
+    ManualParamModel valueModel();
+    void observeValues(Observer observer);
+    void stopObservingValues();
+    /** Any value off auto. */
+    boolean offAuto();
+    /** Every value back to auto (the observers are told). */
+    void clearValues();
 
-    void onResume();
-
-    void onPause();
-
-    void onDestroy();
-
-    void addParamObserver(Observer observer);
-
-    ManualParamModel getManualParamModel();
-
-    void removeParamObservers();
-
-    void setPanelVisibility(boolean visible);
-
-    void resetAllValues();
-
-    boolean isManualMode();
-
-    boolean isPanelVisible();
-
-    void retractAllKnobs();
-
-    boolean isFocusParameterSelected();
-
-    boolean isManualFocusModeActive();
+    // ── the panel on screen ──
+    void setPanelShown(boolean visible);
+    boolean isPanelShown();
+    /** Closes every open knob. */
+    void collapseKnobs();
+    /** The focus knob is the open one; the focus is set by hand. */
+    boolean focusKnobOpen();
+    boolean manualFocusOn();
 
     /**
      * The camera's metered values from the latest preview result, shown by the chips of parameters in auto and used as

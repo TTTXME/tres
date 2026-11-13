@@ -1,5 +1,4 @@
-precision highp float;
-precision highp sampler2D;
+precision highp float; precision highp sampler2D;
 // P145: the second pass of GainMapComputer.compute on the GPU - every encoded byte of the gain map (R of ultrahdr/gainmap's
 // RGBA8 output) to the byte of the map whose range is [0, GainMapMax]. The table is GainMapComputer.requantisation (the
 // Java arithmetic, 256 bytes as vec4 lutU[64]); a byte k / 255 written to the RGBA8 target is k again.

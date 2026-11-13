@@ -301,7 +301,7 @@ public class AvifSettingsTest {
             FileManager.sRAW_DIR = rawOld;
         }
         assertEquals("AVIF", new GalleryItem(new ImageFile(1, Uri.parse("content://media/1"), "IMG_1.avif", 0, 1, "/x/IMG_1.avif"))
-                .getMediaTypeTag());
+                .typeTag());
         // share / edit / media scanner get the AVIF MIME type
         assertEquals("image/avif", PhotoFormat.mimeForName("IMG_1.avif"));
     }

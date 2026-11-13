@@ -39,12 +39,12 @@ public class JpegStreamSaveTest {
 
     private static ParseExif.ExifData exif() {
         ParseExif.ExifData d = new ParseExif.ExifData();
-        d.SENSITIVITY_TYPE = String.valueOf(ExifInterface.SENSITIVITY_TYPE_ISO_SPEED);
-        d.PHOTOGRAPHIC_SENSITIVITY = "400";
-        d.F_NUMBER = "1.8";
-        d.EXPOSURE_TIME = "0.01";
-        d.DATETIME = "2026:11:03 10:10:10";
-        d.COLOR_SPACE = "sRGB";
+        d.sensitivityType = String.valueOf(ExifInterface.SENSITIVITY_TYPE_ISO_SPEED);
+        d.isoValue = "400";
+        d.fNumber = "1.8";
+        d.exposureTime = "0.01";
+        d.dateTime = "2026:11:03 10:10:10";
+        d.colorSpace = "sRGB";
         return d;
     }
 
@@ -63,7 +63,7 @@ public class JpegStreamSaveTest {
 
         // the plan's wrap (ScamProcessor): COMPRESSION 6, the APP1 of the photo's size, inserted after SOI
         final ParseExif.ExifData e = exif();
-        e.COMPRESSION = ParseExif.COMPRESSION_JPEG;
+        e.compression = ParseExif.COMPRESSION_JPEG;
         // P620: and its IFD1 thumbnail from the readback's pixels (PhotoThumbnail.scaledRgba: the samples of the bitmap path)
         final java.nio.ByteBuffer rgba = java.nio.ByteBuffer.allocateDirect(4 * w * h); // the GL readback's R, G, B, A bytes
         for (int y = 0; y < h; y++)

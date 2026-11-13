@@ -1,8 +1,6 @@
 #define LAYOUT //
 LAYOUT
-precision highp float;
-precision highp int;
-precision highp sampler2D;
+precision highp float; precision highp int; precision highp sampler2D;
 // P482 (speed, owner 2026-11-03): ScamRgb.channelClip's walk on the GPU, exactly - every 17th pixel of the uploaded half-float RGB;
 // a sample's histogram bin comes from the CPU's own table (binLut: the bin of every half value, -1 none, -2 NaN), its value
 // is counted as an integer of 2^-11 (every half in [0.8, 1.1) is one), so the per-bin counts and sums equal the CPU's double

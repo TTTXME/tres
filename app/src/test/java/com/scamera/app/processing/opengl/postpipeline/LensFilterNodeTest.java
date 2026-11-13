@@ -21,7 +21,7 @@ public class LensFilterNodeTest {
         StringBuilder shaders = new StringBuilder();
         for (String s : new String[]{"blur", "up", "down"})
             shaders.append(read("src/main/assets/shaders/lensgauss/" + s + ".glsl"));
-        Matcher m = Pattern.compile("glProg\\.set(?:Var|Texture)\\(\"(\\w+)\"").matcher(node);
+        Matcher m = Pattern.compile("shaderProg\\.set(?:Var|Texture)\\(\"(\\w+)\"").matcher(node);
         int n = 0;
         while (m.find()) {
             n++;

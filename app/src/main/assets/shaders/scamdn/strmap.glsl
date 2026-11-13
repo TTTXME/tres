@@ -1,7 +1,4 @@
-precision highp float;
-precision highp int;
-precision highp sampler2D;
-precision highp usampler2D;
+precision highp float; precision highp int; precision highp sampler2D; precision highp usampler2D;
 // SCAM noise reduction, strength map "frames" (the counterpart of the reference q8 denoise strength map): the noise
 // variance multiplier f = clamp(sqrt(E_ref / E(p)), 1, effMax)^2 from the worker's effective-frame map (code 0 =
 // unknown or clip-flagged: f = 1), averaged over factor x factor output pixels. One-sided (W3.5): only pixels merged

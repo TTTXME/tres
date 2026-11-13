@@ -82,7 +82,7 @@ public class FilmGatesTest {
 
     static java.util.List<String> names(java.util.List<com.scamera.app.processing.opengl.nodes.Node> nodes) {
         final java.util.List<String> out = new java.util.ArrayList<>();
-        for (com.scamera.app.processing.opengl.nodes.Node n : nodes) out.add(n.Name);
+        for (com.scamera.app.processing.opengl.nodes.Node n : nodes) out.add(n.passName);
         return out;
     }
 

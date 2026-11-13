@@ -14,15 +14,15 @@ public class ScamRgbUniformParityTest {
     @Test public void clipBandReceivesEveryDeclaredInput() throws Exception {
         String shader = read("src/main/assets/shaders/scamhdr/clipband.glsl");
         String java = read("src/main/java/com/scamera/app/processing/opengl/postpipeline/ScamRgb.java");
-        int start = java.indexOf("glProg.useAssetProgram(\"scamhdr/clipband\"");
+        int start = java.indexOf("shaderProg.useAssetProgram(\"scamhdr/clipband\"");
         assertTrue(start >= 0);
-        String pass = java.substring(start, java.indexOf("glProg.drawBlocks(", start));
+        String pass = java.substring(start, java.indexOf("shaderProg.drawBlocks(", start));
         Matcher uniforms = Pattern.compile("(?m)^uniform\\s+\\w+\\s+(\\w+)\\s*;").matcher(shader);
         int count = 0;
         while (uniforms.find()) {
             String uniform = uniforms.group(1);
             assertTrue("clipband input missing: " + uniform,
-                    Pattern.compile("glProg\\.set(?:Texture|Var)\\(\\s*\"" + uniform + "\"").matcher(pass).find());
+                    Pattern.compile("shaderProg\\.set(?:Texture|Var)\\(\\s*\"" + uniform + "\"").matcher(pass).find());
             count++;
         }
         assertTrue("the shader's inputs must actually be inspected", count >= 6);

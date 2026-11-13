@@ -141,7 +141,7 @@ public final class Camera2ApiAutoFix {
 
     /** Full-size GL tiles for a capture (PostPipeline drops them to 8 only for small RAW sizes). */
     public static void resetTileSize() {
-        GLDrawParams.TileSize = 256;
+        GLDrawParams.TILE_ROWS = 256;
     }
 
     /** The viewfinder's OIS on where the lens lists it (the preview and the series then shake alike). */

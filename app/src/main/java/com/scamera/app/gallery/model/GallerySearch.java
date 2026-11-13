@@ -42,9 +42,9 @@ public final class GallerySearch {
     /** What is known of {@code f} as searchable text. */
     public static String haystack(MediaFile f, boolean favourite, long nowMs) {
         StringBuilder b = new StringBuilder();
-        String name = f.getDisplayName() != null ? f.getDisplayName() : "";
+        String name = f.displayName() != null ? f.displayName() : "";
         b.append(name).append(' ');
-        String path = f.getAbsolutePath();
+        String path = f.filePath();
         if (path != null) {
             int slash = path.lastIndexOf('/');
             int prev = slash > 0 ? path.lastIndexOf('/', slash - 1) : -1;
@@ -62,7 +62,7 @@ public final class GallerySearch {
         }
         if (format != GalleryFormat.VIDEO) b.append("фото photo снимок ");
         if (favourite) b.append("избранное избранные favourite favorite ");
-        long t = f.getLastModified();
+        long t = f.modifiedMs();
         if (t > 0) {
             Calendar c = Calendar.getInstance();
             c.setTimeInMillis(t);
@@ -89,16 +89,16 @@ public final class GallerySearch {
         List<GalleryItem> out = new ArrayList<>();
         Map<GalleryItem, String> texts = cache != null ? cache : new IdentityHashMap<>();
         for (GalleryItem i : all) {
-            if (i == null || i.getFile() == null) continue;
+            if (i == null || i.mediaFile() == null) continue;
             if (words.isEmpty()) {
                 out.add(i);
                 continue;
             }
             String text = texts.get(i);
             if (text == null) {
-                text = haystack(i.getFile(), favourites.contains(GalleryView.key(i.getFile())), nowMs);
+                text = haystack(i.mediaFile(), favourites.contains(GalleryView.key(i.mediaFile())), nowMs);
                 // P504: the text read on the photo (OcrIndex; SearchPage drops this cache when the index grows)
-                String onPhoto = com.scamera.app.gallery.ocr.OcrIndex.searchText(i.getFile());
+                String onPhoto = com.scamera.app.gallery.ocr.OcrIndex.searchText(i.mediaFile());
                 if (onPhoto != null && !onPhoto.isEmpty()) text = text + " " + onPhoto;
                 texts.put(i, text);
             }

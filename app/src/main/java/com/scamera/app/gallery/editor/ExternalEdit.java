@@ -83,7 +83,7 @@ public final class ExternalEdit {
         return guessed != null ? guessed : "image/*";
     }
 
-    /** Another app's editor (the chooser without this gallery); the result comes back as Constants.REQUEST_EDIT_IMAGE. */
+    /** Another app's editor (the chooser without this gallery); the result comes back as Constants.REQ_EXTERNAL_EDIT. */
     public static void openInOtherApp(Fragment f, Uri uri, String fileName) {
         Intent edit = new Intent(Intent.ACTION_EDIT);
         edit.setDataAndType(uri, mediaTypeOf(fileName));
@@ -94,6 +94,6 @@ public final class ExternalEdit {
         chooser.putExtra(Intent.EXTRA_EXCLUDE_COMPONENTS, new ComponentName[]{
                 new ComponentName(f.requireContext(), GalleryActivity.class),
                 new ComponentName(f.requireContext().getPackageName(), GalleryActivity.class.getName() + "Launcher")});
-        f.startActivityForResult(chooser, Constants.REQUEST_EDIT_IMAGE);
+        f.startActivityForResult(chooser, Constants.REQ_EXTERNAL_EDIT);
     }
 }

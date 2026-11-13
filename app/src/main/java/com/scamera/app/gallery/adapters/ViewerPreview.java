@@ -124,10 +124,10 @@ final class ViewerPreview {
     private static ThumbPlan.Jpeg header(Context app, MediaFile file, ByteBuffer[] out) {
         ParcelFileDescriptor pfd = null;
         try {
-            if (file.getFileUri() != null && ContentResolver.SCHEME_CONTENT.equals(file.getFileUri().getScheme()))
-                pfd = app.getContentResolver().openFileDescriptor(file.getFileUri(), "r");
-            else if (file.getAbsolutePath() != null)
-                pfd = ParcelFileDescriptor.open(new File(file.getAbsolutePath()), ParcelFileDescriptor.MODE_READ_ONLY);
+            if (file.contentUri() != null && ContentResolver.SCHEME_CONTENT.equals(file.contentUri().getScheme()))
+                pfd = app.getContentResolver().openFileDescriptor(file.contentUri(), "r");
+            else if (file.filePath() != null)
+                pfd = ParcelFileDescriptor.open(new File(file.filePath()), ParcelFileDescriptor.MODE_READ_ONLY);
             if (pfd == null) return null;
             FileChannel ch = new FileInputStream(pfd.getFileDescriptor()).getChannel();
             // the frame follows the APP segments: EXIF (64 KB at most), ICC, Ultra HDR's XMP and MPF

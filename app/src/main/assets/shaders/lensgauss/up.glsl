@@ -1,5 +1,4 @@
-precision highp float;
-precision highp sampler2D;
+precision highp float; precision highp sampler2D;
 // P289 (LensFilter, DiffusionGauss.apply): a level's sum plus the coarser levels' sum bilinearly enlarged (a GL_LINEAR sample
 // at the pixel's centre); on level 0 (finalU) the filter itself: (1 - p) E + p (that sum), E's alpha kept.
 uniform sampler2D Fine;      // this level's own sum (hasFineU 0: none)

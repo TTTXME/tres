@@ -1,6 +1,4 @@
-precision highp float;
-precision highp int;
-precision highp sampler2D;
+precision highp float; precision highp int; precision highp sampler2D;
 uniform sampler2D u_tex_oklab;
 uniform int u_width;
 uniform int u_height;

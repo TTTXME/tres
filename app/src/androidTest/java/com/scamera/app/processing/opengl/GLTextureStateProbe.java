@@ -38,7 +38,7 @@ public final class GLTextureStateProbe {
                 pixels.put(0, (byte) 91);
                 texture.loadData(pixels);
                 binding(active, sentinel);
-                texture.BufferLoad();
+                texture.renderInto();
                 ByteBuffer read = ByteBuffer.allocateDirect(4);
                 glReadPixels(0, 0, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, read);
                 for (int i = 0; i < 4; i++) {

@@ -10,14 +10,14 @@ import com.scamera.app.util.Log;
  */
 public class YUVSaver extends DefaultSaver {
     private static final String TAG = "YUVSaver";
-    public YUVSaver(ProcessingEventsListener processingEventsListener) {
+    public YUVSaver(ProcessingEvents processingEventsListener) {
         super(processingEventsListener);
     }
 
     public void addImage(Image image) {
-        Log.d(TAG, "start buffer size:" + IMAGE_BUFFER.size());
+        Log.d(TAG, "start buffer size:" + FRAME_QUEUE.size());
         final ImageFrame frame = getFrame(image);
-        if (frame != null) IMAGE_BUFFER.add(frame);
+        if (frame != null) FRAME_QUEUE.add(frame);
         image.close();
         bufferLock = false;
     }

@@ -64,7 +64,7 @@ public class ManualRulerTest {
         }
         ruler.setMode(LinearScaleView.MODE_ISO, ManualFormat.EN);
         ruler.setListener(new LinearScaleView.OnValueChangedListener() {
-            @Override public void onValueChanged(KnobItemInfo item, boolean fromUser) { committed.add(item.value); }
+            @Override public void onValueChanged(KnobItemInfo item, boolean fromUser) { committed.add(item.cameraValue); }
             @Override public void onDragStateChanged(boolean dragging) {}
             @Override public void onAutoRequested() { autoRequests++; ruler.setSelectedItem(auto); }
         });
@@ -73,7 +73,7 @@ public class ManualRulerTest {
     }
 
     private KnobItemInfo iso(long value) {
-        for (KnobItemInfo item : items) if (item.value == value) return item;
+        for (KnobItemInfo item : items) if (item.cameraValue == value) return item;
         throw new AssertionError(value);
     }
 
@@ -92,7 +92,7 @@ public class ManualRulerTest {
         ruler.onTouchEvent(ev(MotionEvent.ACTION_UP, t += 200, 202)); // no movement in the last 80 ms: no fling
         assertFalse(ruler.isFlinging());
         shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(300));
-        assertEquals(1600, ruler.getSelected().value, 0);
+        assertEquals(1600, ruler.getSelected().cameraValue, 0);
         assertEquals(0f, ruler.getOffset(), 0.01f);
         // back to the right: two stops down
         committed.clear();
@@ -114,7 +114,7 @@ public class ManualRulerTest {
         shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(3));
         assertFalse(ruler.isFlinging());
         assertTrue("the fling moved on", committed.size() > before);
-        assertEquals("a long fling stops at the end", 12800, ruler.getSelected().value, 0);
+        assertEquals("a long fling stops at the end", 12800, ruler.getSelected().cameraValue, 0);
         assertEquals("then snaps onto the stop", 0f, ruler.getOffset(), 0.01f);
         // every stop on the way was committed once, in order
         for (int i = 1; i < committed.size(); i++) assertTrue(committed.get(i) > committed.get(i - 1));
@@ -130,7 +130,7 @@ public class ManualRulerTest {
         shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(2));
         assertFalse(ruler.isFlinging());
         assertEquals(0f, ruler.getOffset(), 0.01f);
-        double v = ruler.getSelected().value;
+        double v = ruler.getSelected().cameraValue;
         assertTrue(v > 400 && v < 12800);
         assertEquals(v, committed.get(committed.size() - 1), 0);
     }
@@ -140,7 +140,7 @@ public class ManualRulerTest {
         ruler.setItems(items, auto, auto);
         ruler.setMeteredValue(612); // metered ISO 612: the nearest stop is 640
         assertTrue(ruler.isAuto());
-        assertEquals(640, ruler.getMarkerItem().value, 0);
+        assertEquals(640, ruler.getMarkerItem().cameraValue, 0);
         long t = 0;
         ruler.onTouchEvent(ev(MotionEvent.ACTION_DOWN, t, 200));
         for (int i = 1; i <= 4; i++) ruler.onTouchEvent(ev(MotionEvent.ACTION_MOVE, t += 200, 200 - 4 * i));
@@ -154,7 +154,7 @@ public class ManualRulerTest {
         assertEquals(1, autoRequests);
         assertTrue(ruler.isAuto());
         ruler.setMeteredValue(3100);
-        assertEquals(3200, ruler.getMarkerItem().value, 0);
+        assertEquals(3200, ruler.getMarkerItem().cameraValue, 0);
     }
 
     @Test

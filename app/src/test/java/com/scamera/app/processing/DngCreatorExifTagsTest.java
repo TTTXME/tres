@@ -81,23 +81,23 @@ public class DngCreatorExifTagsTest {
         p.captureTimeMs = SHOT;
         p.iso = 102400;
         p.exposureTime = 1 / 852.0;
-        p.focalLength = 9.12f;
-        p.aperture = 1.69f;
+        p.focalMm = 9.12f;
+        p.fNumber = 1.69f;
         p.focalLengthOfShot = p.apertureOfShot = true;
         p.lensFocalLengths = new float[]{9.12f};
         p.lensApertures = new float[]{1.69f};
         p.lensFacing = 1;
-        p.sensorSize = new SizeF(9.83f, 7.37f);
+        p.sensorSizeMm = new SizeF(9.83f, 7.37f);
         p.dngFieldZoom = 1f;
         p.cameraID = "5";
         p.physicalID = 5;
         p.multiFrameCount = 8;
         p.dngMerged = true;
         p.rawSize = new Point(4080, 3072);
-        p.mapSize = new Point(1, 1);
-        p.gainMap = new float[]{1, 1, 1, 1};
-        p.whitePoint = new float[]{0.5f, 1f, 0.6f};
-        p.blackLevel = new float[]{64, 64, 64, 64};
+        p.shadingGrid = new Point(1, 1);
+        p.shadingMap = new float[]{1, 1, 1, 1};
+        p.asShotNeutral = new float[]{0.5f, 1f, 0.6f};
+        p.cfaBlack = new float[]{64, 64, 64, 64};
         return p;
     }
 

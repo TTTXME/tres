@@ -2,18 +2,18 @@ package com.scamera.app.circularbarlib.api;
 
 import com.scamera.app.circularbarlib.console.ManualModeConsoleImpl;
 
-public class ManualInstanceProvider {
-    /**
-     * @return Singleton Instance
-     */
-    public static ManualModeConsole getManualModeConsole() {
+/** Where the app gets its manual-controls panel. */
+public final class ManualInstanceProvider {
+    private ManualInstanceProvider() {
+    }
+
+    /** The process's one panel (made on first use). */
+    public static ManualModeConsole sharedConsole() {
         return ManualModeConsoleImpl.getInstance();
     }
 
-    /**
-     * @return new Instance
-     */
-    public static ManualModeConsole getNewManualModeConsole() {
+    /** A panel of its own (one per camera screen). */
+    public static ManualModeConsole newConsole() {
         return ManualModeConsoleImpl.newInstance();
     }
 }

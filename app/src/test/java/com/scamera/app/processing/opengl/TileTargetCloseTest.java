@@ -25,8 +25,8 @@ import java.lang.reflect.Field;
 public class TileTargetCloseTest {
     private static GLCoreBlockProcessing processing() throws Exception {
         final GLCoreBlockProcessing p = mock(GLCoreBlockProcessing.class, CALLS_REAL_METHODS);
-        set(p, "bindFB", new int[]{7});
-        set(p, "bindRB", new int[]{8});
+        set(p, "tileFramebuffer", new int[]{7});
+        set(p, "tileRenderbuffer", new int[]{8});
         return p;
     }
 
@@ -44,8 +44,8 @@ public class TileTargetCloseTest {
             gl.verify(() -> GLES20.glDeleteFramebuffers(anyInt(), any(int[].class), anyInt()), times(1));
             gl.verify(() -> GLES20.glDeleteRenderbuffers(anyInt(), any(int[].class), anyInt()), times(1));
         }
-        assertEquals(0, p.bindFB[0]);
-        assertEquals(0, p.bindRB[0]);
+        assertEquals(0, p.tileFramebuffer[0]);
+        assertEquals(0, p.tileRenderbuffer[0]);
     }
 
     @Test public void aContextThatCouldNotBeMadeCurrentStillGetsTheDelete() throws Exception {

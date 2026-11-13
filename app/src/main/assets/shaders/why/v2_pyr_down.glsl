@@ -1,5 +1,4 @@
-precision highp float;
-precision highp sampler2D;
+precision highp float; precision highp sampler2D;
 // P614 «Why тон» V2 (WhyV2Fusion): the reference tone's pyr_downsample, one to one - the next level of the Gaussian pyramids of
 // the lumas and the weights: 9 bilinear taps of the finer level (the source texture LINEAR, clamp to edge) at the coarse texel's
 // centre, +-1 and +-0.5 source texels (weights 1/4, 1/16 diagonals, 1/8 axes).

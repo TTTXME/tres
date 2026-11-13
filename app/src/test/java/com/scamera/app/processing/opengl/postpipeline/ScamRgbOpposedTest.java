@@ -74,7 +74,7 @@ public class ScamRgbOpposedTest {
         // (the chroma blocks are made whenever it can: perChannel && nearClip), scam_dev hybrid_highlight_opposed_local 0 = before;
         // unset in the shader = 0 = RawTherapee's reference alone (the checks that do not set it render the shader before P393)
         final String rgb = read("src/main/java/com/scamera/app/processing/opengl/postpipeline/ScamRgb.java");
-        assertEquals(true, rgb.contains("glProg.setVar(\"oppLocalU\",opposed&&PreferenceKeys.hybridSwitch(\"highlight_opposed_local\",true)?1:0);"));
+        assertEquals(true, rgb.contains("shaderProg.setVar(\"oppLocalU\",opposed&&PreferenceKeys.hybridSwitch(\"highlight_opposed_local\",true)?1:0);"));
         final String shader = read("src/main/assets/shaders/scamhdr/scamrgb.glsl");
         assertEquals(true, shader.contains("uniform int oppLocalU;"));
         assertEquals(true, shader.contains("if (oppLocalU != 0 && chromaU != 0) {"));

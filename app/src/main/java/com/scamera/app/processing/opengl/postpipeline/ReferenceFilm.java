@@ -21,7 +21,7 @@ import static android.opengl.GLES31.*;
 
 final class ReferenceFilm extends Node {
     ReferenceFilm(){super("","ReferenceFilm");}
-    @Override public void Compile(){}
+    @Override public void bindShader(){}
 
     static boolean supported(FilmSim.Settings settings){
         return FilmReferenceParameters.supports(settings)&&FilmReferenceEngine.available();
@@ -61,7 +61,7 @@ final class ReferenceFilm extends Node {
         if(!NoiseQuantileGpu.rawReadbackExact(prog))throw new IllegalStateException("Exact half-image access unavailable");
         long[] storageLimit=new long[1];glGetInteger64v(GL_MAX_SHADER_STORAGE_BLOCK_SIZE,storageLimit,0);
         if(glGetError()!=GL_NO_ERROR)throw new IllegalStateException("Film storage buffer limit unavailable");
-        final int width=source.mSize.x,height=source.mSize.y;
+        final int width=source.size.x,height=source.size.y;
         final int rows=transferRows(width,height,requestedRows,storageLimit[0]);
         int[] generic=new int[1],binding=new int[1];
         glGetIntegerv(GL_SHADER_STORAGE_BUFFER_BINDING,generic,0);
@@ -105,38 +105,38 @@ final class ReferenceFilm extends Node {
             GLTexture gainMap=p.GainMap;
             if(gainMap==null){
                 fallback=new GLTexture(new android.graphics.Point(1,1),new GLFormat(GLFormat.DataType.FLOAT_16,4),
-                        com.scamera.app.util.BufferUtils.getFrom(new float[]{1f,1f,1f,1f}),GL_LINEAR,GL_CLAMP_TO_EDGE);
+                        com.scamera.app.util.BufferUtils.floatBuffer(new float[]{1f,1f,1f,1f}),GL_LINEAR,GL_CLAMP_TO_EDGE);
                 gainMap=fallback;
             }
-            final int factor=WhyTone.lowFactor(p.mParameters);
-            low=new GLTexture(WhyTone.reduced(WorkingTexture.mSize,factor),new GLFormat(GLFormat.DataType.FLOAT_16,4),null,GL_NEAREST,GL_CLAMP_TO_EDGE);
-            glProg.useAssetProgram("why/low",false);
-            glProg.setTexture("InputBuffer",WorkingTexture);
-            WhyTone.setColour(glProg,p,gainMap,inScale);
-            glProg.setVar("factorU",factor);
-            glProg.drawBlocks(low);
-            glProg.closed=true;
-            WhyAe.Settings settings=WhyStats.aeSettings(p,WorkingTexture.mSize.x,WorkingTexture.mSize.y,inScale,new String[1]);
-            WhyAe.Stats stats=WhyAeGpu.stats(glProg,low,settings.metering);
-            glProg.closed=true;
+            final int factor=WhyTone.lowFactor(p.shotParams);
+            low=new GLTexture(WhyTone.reduced(passOut.size,factor),new GLFormat(GLFormat.DataType.FLOAT_16,4),null,GL_NEAREST,GL_CLAMP_TO_EDGE);
+            shaderProg.useAssetProgram("why/low",false);
+            shaderProg.setTexture("InputBuffer",passOut);
+            WhyTone.setColour(shaderProg,p,gainMap,inScale);
+            shaderProg.setVar("factorU",factor);
+            shaderProg.drawBlocks(low);
+            shaderProg.closed=true;
+            WhyAe.Settings settings=WhyStats.aeSettings(p,passOut.size.x,passOut.size.y,inScale,new String[1]);
+            WhyAe.Stats stats=WhyAeGpu.stats(shaderProg,low,settings.metering);
+            shaderProg.closed=true;
             if(stats==null)return Float.NaN;
-            float gain=inScale*WhyAe.finish(stats,settings,p.mParameters.iso,WhyStats.maxAnalogIso(p.mParameters)).ae;
+            float gain=inScale*WhyAe.finish(stats,settings,p.shotParams.iso,WhyStats.maxAnalogIso(p.shotParams)).ae;
             return gain>0f&&Float.isFinite(gain)?(float)(Math.log(gain)/Math.log(2.0)):Float.NaN;
         }finally{
             if(low!=null)low.close();if(fallback!=null)fallback.close();
         }
     }
 
-    @Override public void Run(){
-        PostPipeline p=(PostPipeline)basePipeline;
-        WorkingTexture=previousNode.WorkingTexture;glProg.closed=true;
+    @Override public void runPass(){
+        PostPipeline p=(PostPipeline)hostPipeline;
+        passOut=prevPass.passOut;shaderProg.closed=true;
         ByteBuffer input=null,output=null;
         GLTexture scene=null,result=null;
         try{
             Context context=ScameraApp.getAppContext();
             ActivityManager.MemoryInfo memory=new ActivityManager.MemoryInfo();
             ((ActivityManager)context.getSystemService(Context.ACTIVITY_SERVICE)).getMemoryInfo(memory);
-            long bytes=(long)WorkingTexture.mSize.x*WorkingTexture.mSize.y*8;
+            long bytes=(long)passOut.size.x*passOut.size.y*8;
             if(bytes>Integer.MAX_VALUE||memory.availMem<2*bytes+(256L<<20))
                 throw new IllegalStateException("Insufficient film memory headroom");
             long budget=Math.min(3072L<<20,Math.max(64L<<20,(memory.availMem-2*bytes)*3/4));
@@ -149,40 +149,40 @@ final class ReferenceFilm extends Node {
             final boolean shotAe=PreferenceKeys.scamDevSwitch("film_why_ae",true);
             final float aeEv=shotAe?whyAeEv(p):Float.NaN;
             com.scamera.app.processing.portrait.PortraitSkin.Result skin=null;
-            if(p.mParameters.portraitEnabled&&p.mParameters.portraitFaceDetected&&p.mParameters.portraitSkinWarmth)
-                skin=PortraitGpu.measureScene(glProg,p,WorkingTexture,p.mParameters.portraitFaces);
-            scene=new GLTexture(WorkingTexture.mSize,new GLFormat(GLFormat.DataType.FLOAT_16,4),null,GL_NEAREST,GL_CLAMP_TO_EDGE);
-            if(skin!=null&&skin.corrected())glProg.setDefine("PORTRAIT",1);
-            glProg.useAssetProgram("why/low",false);
-            glProg.setTexture("InputBuffer",WorkingTexture);
-            WhyTone.setColour(glProg,p,p.GainMap,1f);
-            glProg.setVar("factorU",1);
+            if(p.shotParams.portraitEnabled&&p.shotParams.portraitFaceDetected&&p.shotParams.portraitSkinWarmth)
+                skin=PortraitGpu.measureScene(shaderProg,p,passOut,p.shotParams.portraitFaces);
+            scene=new GLTexture(passOut.size,new GLFormat(GLFormat.DataType.FLOAT_16,4),null,GL_NEAREST,GL_CLAMP_TO_EDGE);
+            if(skin!=null&&skin.corrected())shaderProg.setDefine("PORTRAIT",1);
+            shaderProg.useAssetProgram("why/low",false);
+            shaderProg.setTexture("InputBuffer",passOut);
+            WhyTone.setColour(shaderProg,p,p.GainMap,1f);
+            shaderProg.setVar("factorU",1);
             if(skin!=null&&skin.corrected()){
-                glProg.setVar("portraitCountU",skin.count);
-                glProg.setVarVec4s("portraitFacesU",skin.faces);
-                glProg.setVarVec4s("portraitAdjustU",skin.adjust);
+                shaderProg.setVar("portraitCountU",skin.count);
+                shaderProg.setVarVec4s("portraitFacesU",skin.faces);
+                shaderProg.setVarVec4s("portraitAdjustU",skin.adjust);
             }
-            glProg.drawBlocks(scene);
-            readHalf(glProg,scene,input);
+            shaderProg.drawBlocks(scene);
+            readHalf(shaderProg,scene,input);
             scene.close();scene=null;
             FilmLut user=p.filmUserStrength>0&&!p.filmUserLut.isEmpty()?FilmLut.chosen(context,p.filmUserLut):null;
             boolean nativeP3=p.p3Output&&user==null;
             FilmReferenceParameters settings=FilmReferenceParameters.from(p.film,nativeP3,1);
             if(Float.isFinite(aeEv))settings.real(84,p.film.exposure+aeEv);
             else if(shotAe)settings.integer(88,1);
-            String report=FilmReferenceEngine.render(context,input,output,settings,WorkingTexture.mSize.x,WorkingTexture.mSize.y,budget,0);
-            dump(context,input,output,settings,WorkingTexture.mSize.x,WorkingTexture.mSize.y);
-            result=new GLTexture(WorkingTexture.mSize,new GLFormat(GLFormat.DataType.FLOAT_16,4),null,GL_NEAREST,GL_CLAMP_TO_EDGE);
+            String report=FilmReferenceEngine.render(context,input,output,settings,passOut.size.x,passOut.size.y,budget,0);
+            dump(context,input,output,settings,passOut.size.x,passOut.size.y);
+            result=new GLTexture(passOut.size,new GLFormat(GLFormat.DataType.FLOAT_16,4),null,GL_NEAREST,GL_CLAMP_TO_EDGE);
             int[] previous=new int[1];glGetIntegerv(GL_TEXTURE_BINDING_2D,previous,0);
-            glBindTexture(GL_TEXTURE_2D,result.mTextureID);
-            try{glTexSubImage2D(GL_TEXTURE_2D,0,0,0,result.mSize.x,result.mSize.y,GL_RGBA,GL_HALF_FLOAT,output);}
+            glBindTexture(GL_TEXTURE_2D,result.id);
+            try{glTexSubImage2D(GL_TEXTURE_2D,0,0,0,result.size.x,result.size.y,GL_RGBA,GL_HALF_FLOAT,output);}
             finally{glBindTexture(GL_TEXTURE_2D,previous[0]);}
             if(glGetError()!=GL_NO_ERROR)throw new IllegalStateException("Film image upload failed");
             p.referenceFilmSettings=p.film;
             p.referenceFilmTexture=result;result=null;
             p.referenceFilmUserLut=user;p.referenceFilmNativeP3=nativeP3;
             p.referenceFilmApplied=true;
-            if(p.film.strength>=1)WorkingTexture=p.referenceFilmTexture;
+            if(p.film.strength>=1)passOut=p.referenceFilmTexture;
             else p.film=null;
             Log.i("SCAM_PIPELINE","spectral film "+report+" full="+(p.referenceFilmSettings.strength>=1)
                     +" stock="+p.referenceFilmSettings.stock.id+" paper="+p.referenceFilmSettings.print.id
@@ -196,7 +196,7 @@ final class ReferenceFilm extends Node {
         }finally{
             if(scene!=null)scene.close();if(result!=null)result.close();
             if(input!=null)Allocator.free(input);if(output!=null)Allocator.free(output);
-            glProg.closed=true;
+            shaderProg.closed=true;
         }
     }
 }

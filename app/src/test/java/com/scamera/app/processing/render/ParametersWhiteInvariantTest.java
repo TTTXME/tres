@@ -66,7 +66,7 @@ public class ParametersWhiteInvariantTest {
     @Before public void setUp() {
         ispCcm = 1f;
         settings = new com.scamera.app.api.Settings();
-        settings.colorMethod = 1;
+        settings.colourMethod = 1;
         app = mockStatic(com.scamera.app.app.ScameraApp.class);
         app.when(com.scamera.app.app.ScameraApp::getSettings).thenReturn(settings);
         prefsKeys = mockStatic(PreferenceKeys.class, invocation -> {
@@ -95,7 +95,7 @@ public class ParametersWhiteInvariantTest {
     static float[] white(Parameters p) {
         final float[] m = p.cameraToSrgb(), w = new float[3];
         assertNotNull(p.colourSource, m);
-        for (int r = 0; r < 3; r++) w[r] = m[r * 3] * p.whitePoint[0] + m[r * 3 + 1] * p.whitePoint[1] + m[r * 3 + 2] * p.whitePoint[2];
+        for (int r = 0; r < 3; r++) w[r] = m[r * 3] * p.asShotNeutral[0] + m[r * 3 + 1] * p.asShotNeutral[1] + m[r * 3 + 2] * p.asShotNeutral[2];
         return w;
     }
 
@@ -109,13 +109,13 @@ public class ParametersWhiteInvariantTest {
         final Parameters p = new Parameters();
         p.physicalID = camera;
         p.cameraID = String.valueOf(camera);
-        p.ReCalcColor(false, result(transform, n));
+        p.resolveColour(false, result(transform, n));
         return p;
     }
 
     private static void assertRoute(String route, Parameters p) {
         assertEquals(p.colourSourceWhy, route, p.colourSource);
-        assertWhite(route + " " + java.util.Arrays.toString(p.whitePoint), white(p));
+        assertWhite(route + " " + java.util.Arrays.toString(p.asShotNeutral), white(p));
     }
 
     /** The ISP route: diag(1 / n) and the X8U's row-normalised transform (and with the AWB label of B7). */
@@ -126,7 +126,7 @@ public class ParametersWhiteInvariantTest {
         when(labelled.get(Parameters.AWB_CCT_LABEL)).thenReturn(new int[]{5100});
         final Parameters p = new Parameters();
         p.physicalID = 2;
-        p.ReCalcColor(false, labelled);
+        p.resolveColour(false, labelled);
         assertRoute("ISP_CST", p);
     }
 
@@ -203,7 +203,7 @@ public class ParametersWhiteInvariantTest {
         when(oplus.get(new CaptureResult.Key<>(OplusCcm.TAG_NAME, byte[].class))).thenReturn(hex(OPLUS_HEX));
         final Parameters o = new Parameters();
         o.physicalID = 4;
-        o.ReCalcColor(false, oplus);
+        o.resolveColour(false, oplus);
         assertRoute("OPLUS_CCM", o);
         ispCcm = 0f;
         assertRoute("ISP_CST_PLACEHOLDER", shot(4, X8U_CST, X8U_N));
@@ -214,11 +214,11 @@ public class ParametersWhiteInvariantTest {
         // A5: a singular calibration (the white balance alone) and «Захват» (colour method 2: the result's transform)
         final CameraCharacteristics phy = ParametersSceneCctTest.phy110();
         CaptureController.mCameraCharacteristics = phy;
-        settings.colorMethod = 2;
+        settings.colourMethod = 2;
         ispCcm = 0f; // with the ISP branch on, the same transform is the ISP route (above)
         assertRoute("LEGACY_CAPTURED", shot(2, X8U_CST, new float[]{0.5f, 1f, 0.6f}));
         ispCcm = 1f;
-        settings.colorMethod = 1;
+        settings.colourMethod = 1;
         when(phy.get(CameraCharacteristics.SENSOR_CALIBRATION_TRANSFORM1)).thenReturn(cst(1, 0, 0, 0, 0, 1, 0, 0, 0, 1));
         when(phy.get(CameraCharacteristics.SENSOR_CALIBRATION_TRANSFORM2)).thenReturn(cst(1, 0, 0, 0, 0, 1, 0, 0, 0, 1));
         assertRoute("IDENTITY_FALLBACK", shot(2, IDENTITY, new float[]{0.5f, 1f, 0.6f}));

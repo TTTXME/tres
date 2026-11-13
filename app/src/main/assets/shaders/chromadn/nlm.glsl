@@ -1,6 +1,4 @@
-precision highp float;
-precision highp sampler2D;
-precision highp usampler2D;
+precision highp float; precision highp sampler2D; precision highp usampler2D;
 // Post-network luma noise, pxStep 2: non-local means on u (3x3 patches, 5x5 candidates spaced
 // two pixels apart, all in SENSOR pixels: every offset is dilated by pxStep = outputScale).
 // u = sqrt(Y + c) is roughly perceptual, so one absolute strength h gives the same visible
@@ -32,10 +30,10 @@ void main() {
         if (v > 0u && float(v) * 0.125 < effRef) hp = h * clamp(sqrt(effRef / (float(v) * 0.125)), 1.0, (effMax > 0.0 ? effMax : 3.0));
     }
     float norm = 1.0 / (hp * hp);
-    for (int j = -2; j <= 2; j++) {
-        for (int i = -2; i <= 2; i++) {
-            if (i == 0 && j == 0) continue;
-            ivec2 q = p + ivec2(i, j) * (2 * pxStep);
+    for (int dy = -2; dy <= 2; dy++) {
+        for (int dx = -2; dx <= 2; dx++) {
+            if (dx == 0 && dy == 0) continue; // the patch itself
+            ivec2 q = p + ivec2(dx, dy) * (2 * pxStep);
             float d = 0.0;
             for (int k = 0; k < 9; k++) {
                 float v = texelFetch(InputBuffer, clamp(q + ivec2(k % 3 - 1, k / 3 - 1) * pxStep, ivec2(0), last), 0).r;

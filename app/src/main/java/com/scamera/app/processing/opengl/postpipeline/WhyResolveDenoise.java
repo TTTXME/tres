@@ -55,9 +55,9 @@ public final class WhyResolveDenoise {
 
     /** {S, O} of the shot (see the class comment). */
     static float[] shotNoise(Parameters par) {
-        if (par == null || par.noiseModeler == null || par.noiseModeler.baseModel == null || par.noiseModeler.baseModel.length < 2
-                || par.noiseModeler.baseModel[1] == null) return new float[]{FALLBACK_S, FALLBACK_O};
-        float s = (float) Math.max(1e-9, par.noiseModeler.baseModel[1].first), o = (float) Math.max(1e-12, par.noiseModeler.baseModel[1].second);
+        if (par == null || par.noiseModel == null || par.noiseModel.rawModel == null || par.noiseModel.rawModel.length < 2
+                || par.noiseModel.rawModel[1] == null) return new float[]{FALLBACK_S, FALLBACK_O};
+        float s = (float) Math.max(1e-9, par.noiseModel.rawModel[1].first), o = (float) Math.max(1e-12, par.noiseModel.rawModel[1].second);
         final float k = ScamHybridBurst.lastNoiseFactor;
         if (k != 1f && DenoiseStats.dcgZones(par) == null) { s *= k; o *= k; }
         return new float[]{s, o};
@@ -72,8 +72,8 @@ public final class WhyResolveDenoise {
     static GLTexture process(GLProg glProg, PostPipeline pipeline, GLTexture input) {
         if (!DenoiseStages.on()) return input;
         final long started = System.nanoTime();
-        final Parameters par = pipeline.mParameters;
-        final Point size = input.mSize;
+        final Parameters par = pipeline.shotParams;
+        final Point size = input.size;
         final Point sensorSize = par.labWholeSize != null ? par.labWholeSize : size;
         final int sensorX = par.labOrigin != null ? Math.round(par.labOrigin.x * sensorSize.x) : 0;
         final int sensorY = par.labOrigin != null ? Math.round(par.labOrigin.y * sensorSize.y) : 0;
@@ -189,9 +189,9 @@ public final class WhyResolveDenoise {
     }
 
     private static void drawRegion(GLProg prog, GLTexture target, int y, int height) {
-        target.BufferLoad();
+        target.renderInto();
         for (int row = 0; row < height; row += 256) {
-            android.opengl.GLES30.glViewport(0, y + row, target.mSize.x, Math.min(256, height - row));
+            android.opengl.GLES30.glViewport(0, y + row, target.size.x, Math.min(256, height - row));
             prog.draw();
             com.scamera.app.processing.opengl.GpuPace.block(); // P616: a submission per block while paced
         }

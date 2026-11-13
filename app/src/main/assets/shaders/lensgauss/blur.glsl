@@ -1,5 +1,4 @@
-precision highp float;
-precision highp sampler2D;
+precision highp float; precision highp sampler2D;
 // P289 (LensFilter, DiffusionGauss.blur): one axis of a Gaussian of sigma pixels (radius 3 sigma, at most 24; the edge
 // mirrored as the reference pads its image, numpy 'reflect'). The y pass
 // (accU 1) adds weight x the blur to the level's running sum (Acc; hasAccU 0: the first Gaussian of the level).

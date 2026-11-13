@@ -68,7 +68,7 @@ public class GLInterfaceLayoutsTest {
                     if (!b.find()) continue;
                     GLComputeLayout l = layouts.get(m.group(2));
                     assertNotNull(f + ": " + m.group(2) + " missing from " + layouts.keySet(), l);
-                    assertEquals(f + ": " + m.group(2), Integer.parseInt(b.group(1)), l.binding);
+                    assertEquals(f + ": " + m.group(2), Integer.parseInt(b.group(1)), l.bindingIndex);
                     blocks++;
                 }
             }
@@ -82,31 +82,31 @@ public class GLInterfaceLayoutsTest {
         String[] names = {"aeMax", "aeHistY", "aeHistM", "aeSums", "aeTail"};
         for (int i = 0; i < names.length; i++) {
             assertNotNull(names[i], ae.get(names[i]));
-            assertEquals(names[i], i + 1, ae.get(names[i]).binding);
+            assertEquals(names[i], i + 1, ae.get(names[i]).bindingIndex);
         }
         assertNotNull("local size", ae.get("in"));
-        assertEquals(1, ae.get("in").z);
+        assertEquals(1, ae.get("in").groupZ);
         Map<String, GLComputeLayout> gain = GLInterface.getLayouts(withLayout(read(src(SHADERS + "/ultrahdr/gainmax.glsl"))));
-        assertEquals(1, gain.get("gainMax").binding);
+        assertEquals(1, gain.get("gainMax").bindingIndex);
         Map<String, GLComputeLayout> half = GLInterface.getLayouts(withLayout(read(src(SHADERS + "/scamhdr/halfrgba.glsl"))));
-        assertEquals(1, half.get("halfRgb").binding);
-        assertEquals(0, half.get("outImage").binding);
+        assertEquals(1, half.get("halfRgb").bindingIndex);
+        assertEquals(0, half.get("outImage").bindingIndex);
     }
 
     @Test public void multiLineBlocksAndImagesKeepTheirKeys() throws IOException {
         Map<String, GLComputeLayout> hist = GLInterface.getLayouts(withLayout(read(src(SHADERS + "/GLHistogram/histogram.glsl"))));
         String[] names = {"histogramRed", "histogramGreen", "histogramBlue", "histogramAlpha"};
-        for (int i = 0; i < names.length; i++) assertEquals(names[i], i + 1, hist.get(names[i]).binding);
+        for (int i = 0; i < names.length; i++) assertEquals(names[i], i + 1, hist.get(names[i]).bindingIndex);
         assertNotNull("local size", hist.get("in"));
         // the forms the parser met before P317 give the keys of before
         Map<String, GLComputeLayout> l = GLInterface.getLayouts("layout(rgba16f, binding = 0) uniform highp writeonly image2D outTexture;\n"
                 + "layout(std430, binding = 3) buffer   spaced   \n{\n uint a[];\n};\n"
                 + "layout(std430, binding = 4) readonly buffer tabbed\t{ uint b[]; };   // a comment { }\n"
                 + "#define LAYOUT layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;\n");
-        assertEquals(0, l.get("outTexture").binding);
-        assertEquals(3, l.get("spaced").binding);
-        assertEquals(4, l.get("tabbed").binding);
-        assertEquals(1, l.get("in").z);
+        assertEquals(0, l.get("outTexture").bindingIndex);
+        assertEquals(3, l.get("spaced").bindingIndex);
+        assertEquals(4, l.get("tabbed").bindingIndex);
+        assertEquals(1, l.get("in").groupZ);
         assertEquals(4, l.size());
     }
 

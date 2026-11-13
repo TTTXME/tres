@@ -26,7 +26,7 @@ public final class WhyCombine extends Node {
         super("", "WhyCombine");
     }
 
-    @Override public void Compile() {}
+    @Override public void bindShader() {}
 
     /** P479b: why/hlmask's gaussian weights (FAST), 160 floats (40 vec4), or null when off or the radius does not fit. */
     static float[] hlWeights(float sigmaU) {
@@ -114,7 +114,7 @@ public final class WhyCombine extends Node {
     static GLTexture detailRef(com.scamera.app.processing.opengl.GLProg glProg, PostPipeline pipeline, GLTexture input,
                                GLTexture gainMap, float detailClip) {
         WhyTone.State st = pipeline.why;
-        GLTexture ref = new GLTexture(st.low.mSize, new GLFormat(GLFormat.DataType.FLOAT_32, 1), null,
+        GLTexture ref = new GLTexture(st.low.size, new GLFormat(GLFormat.DataType.FLOAT_32, 1), null,
                 GL_NEAREST, GL_CLAMP_TO_EDGE);
         glProg.setDefine("DETAIL_REF", 1);
         glProg.useAssetProgram("why/low", false);
@@ -165,8 +165,8 @@ public final class WhyCombine extends Node {
     }
 
     @Override
-    public void Run() {
-        PostPipeline pipeline = (PostPipeline) basePipeline;
+    public void runPass() {
+        PostPipeline pipeline = (PostPipeline) hostPipeline;
         WhyTone.State st = pipeline.why;
         if (st == null || st.ae == null || st.fused == null) throw new IllegalStateException("WHY tone: no fusion (WhyStats/WhyFusion did not run)");
         // Capture the remaining inputs before combine closes them; inactive outside an explicit diagnostic shot.
@@ -174,13 +174,13 @@ public final class WhyCombine extends Node {
         ScamDiagnostics.gpu("WhyLumaS", st.lumaS);
         ScamDiagnostics.gpu("WhyDetailRef", st.detailRef);
         long started = System.currentTimeMillis();
-        GLTexture input = previousNode.WorkingTexture;
+        GLTexture input = prevPass.passOut;
         WhyAe.Result r = st.ae;
         GLTexture gainMap = pipeline.GainMap;
         GLTexture fallback = null;
         if (gainMap == null) {
             fallback = new GLTexture(new Point(1, 1), new GLFormat(GLFormat.DataType.FLOAT_16, 4),
-                    BufferUtils.getFrom(new float[]{1f, 1f, 1f, 1f}), GL_LINEAR, GL_CLAMP_TO_EDGE);
+                    BufferUtils.floatBuffer(new float[]{1f, 1f, 1f, 1f}), GL_LINEAR, GL_CLAMP_TO_EDGE);
             gainMap = fallback;
         }
         // With WhyLumaSharpen (always in the pipeline since P118) the delta is WhyCam's own (cbrt S(Ya) - cbrt ref, x1);
@@ -189,7 +189,7 @@ public final class WhyCombine extends Node {
         final float sharpMul = st.sharpMul;
         // P369: the shot's film snapshot (PostPipeline.takeFilm); null: no film, every expression as before
         final com.scamera.app.processing.color.FilmSim.Settings film = pipeline.film;
-        final float detail = sharp ? detailGain(WhyTone.value("sharp_gain", 1.0f), pipeline.mParameters.finishSnr, film) : 2.0f;
+        final float detail = sharp ? detailGain(WhyTone.value("sharp_gain", 1.0f), pipeline.shotParams.finishSnr, film) : 2.0f;
         // P134 «Цвет»: COLOUR_LOOK only when a colour setting is off its default (else the shader before P134)
         final com.scamera.app.processing.color.ColourLook look = WhyTone.colourLook(pipeline);
         final int toneOp = WhyTone.toneOperator();
@@ -226,19 +226,19 @@ public final class WhyCombine extends Node {
             int colourFactor = st.factor;
             if (st.factor > 2) {
                 // 2x grid: the 1x-equivalent colour source (verify_tone risk D).
-                st.mid = new GLTexture(WhyTone.reduced(input.mSize, 2), new GLFormat(GLFormat.DataType.FLOAT_16, 4), null,
+                st.mid = new GLTexture(WhyTone.reduced(input.size, 2), new GLFormat(GLFormat.DataType.FLOAT_16, 4), null,
                         GL_NEAREST, GL_CLAMP_TO_EDGE);
-                glProg.useAssetProgram("why/low", false);
-                glProg.setTexture("InputBuffer", input);
-                WhyTone.setColour(glProg, pipeline, gainMap, st.inScale);
-                glProg.setVar("factorU", 2);
-                glProg.drawBlocks(st.mid);
+                shaderProg.useAssetProgram("why/low", false);
+                shaderProg.setTexture("InputBuffer", input);
+                WhyTone.setColour(shaderProg, pipeline, gainMap, st.inScale);
+                shaderProg.setVar("factorU", 2);
+                shaderProg.drawBlocks(st.mid);
                 colour = st.mid;
                 colourFactor = 2;
             }
             if (detail == 0f && st.detailRef != null) { st.detailRef.close(); st.detailRef = null; }
             // P187: WhyLumaSharpen drew it already when it gave the full-size image back (above 100 MP)
-            if (detail != 0f && st.detailRef == null) st.detailRef = detailRef(glProg, pipeline, input, gainMap, sharp ? st.sharpMul : r.ae);
+            if (detail != 0f && st.detailRef == null) st.detailRef = detailRef(shaderProg, pipeline, input, gainMap, sharp ? st.sharpMul : r.ae);
             com.scamera.app.processing.opengl.PostGlMode.lap("why detailRef");
             // P154: the highlight landing and the upward path to white (HL_LANDING 0 = the shader before P154)
             final float hlSoft = hlSoft();
@@ -249,31 +249,31 @@ public final class WhyCombine extends Node {
             if (hlSoft > 0f && realClip && !filmOnly) {
                 // the blurred share of the ceiling on the whyLow grid (why/hlmask.glsl): max channel / ceiling, then a gaussian of
                 // 1.2 % of the width along x and y
-                final Point hlSize = st.low.mSize;
+                final Point hlSize = st.low.size;
                 hlA = new GLTexture(hlSize, new GLFormat(GLFormat.DataType.FLOAT_16, 1), null, GL_LINEAR, GL_CLAMP_TO_EDGE);
                 hlB = new GLTexture(hlSize, new GLFormat(GLFormat.DataType.FLOAT_16, 1), null, GL_LINEAR, GL_CLAMP_TO_EDGE);
                 // P277: of the whole frame's width on a lab fragment
                 final float sigma = Math.max(1f, 0.012f * (pipeline.frozen != null && pipeline.frozen.lowWidth > 0 ? pipeline.frozen.lowWidth : hlSize.x));
-                glProg.useAssetProgram("why/hlmask", false);
-                glProg.setTexture("InputBuffer", st.low);
+                shaderProg.useAssetProgram("why/hlmask", false);
+                shaderProg.setTexture("InputBuffer", st.low);
                 // P216: the share of the REAL ceiling (Bento data above the capped clip): a window at 4-8 x white is not blown
-                glProg.setVar("invClipU", 1f / Math.max(Math.max(Math.max(r.clip, r.hr), measCeil), 1e-6f));   // P623 round 3
-                glProg.setVar("dirU", 0, 0);
-                glProg.drawBlocks(hlB);
+                shaderProg.setVar("invClipU", 1f / Math.max(Math.max(Math.max(r.clip, r.hr), measCeil), 1e-6f));   // P623 round 3
+                shaderProg.setVar("dirU", 0, 0);
+                shaderProg.drawBlocks(hlB);
                 // P479b (speed): the blur's weights once here (float exp, the shader's formula) and paired taps; scam_dev.txt
                 // "hlmask_fast 0", the old GL model or a radius over 159 taps: the shader's own exp per tap as before
                 final float[] hw = hlWeights(sigma);
                 for (int pass = 0; pass < 2; pass++) {
-                    if (hw != null) glProg.setDefine("FAST", 1);
-                    glProg.useAssetProgram("why/hlmask", false);
-                    glProg.setTexture("InputBuffer", pass == 0 ? hlB : hlA);
-                    glProg.setVar("dirU", pass == 0 ? 1 : 0, pass == 0 ? 0 : 1);
-                    glProg.setVar("sigmaU", sigma);
+                    if (hw != null) shaderProg.setDefine("FAST", 1);
+                    shaderProg.useAssetProgram("why/hlmask", false);
+                    shaderProg.setTexture("InputBuffer", pass == 0 ? hlB : hlA);
+                    shaderProg.setVar("dirU", pass == 0 ? 1 : 0, pass == 0 ? 0 : 1);
+                    shaderProg.setVar("sigmaU", sigma);
                     if (hw != null) {
-                        glProg.setVarVec4s("weightsU", hw);
-                        glProg.setVar("radiusU", (int) Math.ceil(3.0 * Math.max(sigma, 0.5f)));
+                        shaderProg.setVarVec4s("weightsU", hw);
+                        shaderProg.setVar("radiusU", (int) Math.ceil(3.0 * Math.max(sigma, 0.5f)));
                     }
-                    glProg.drawBlocks(pass == 0 ? hlA : hlB);
+                    shaderProg.drawBlocks(pass == 0 ? hlA : hlB);
                 }
                 // P187: hlA is only the middle step of the blur
                 hlA.close();
@@ -284,25 +284,25 @@ public final class WhyCombine extends Node {
             final float lc = WhyTone.localContrast();
             if (lc > 0f && !filmOnly) {
                 final GLFormat one16 = new GLFormat(GLFormat.DataType.FLOAT_16, 1);
-                final GLTexture lcA = new GLTexture(st.fused.mSize, one16, null, GL_NEAREST, GL_CLAMP_TO_EDGE);
-                final GLTexture lcB = new GLTexture(st.fused.mSize, one16, null, GL_NEAREST, GL_CLAMP_TO_EDGE);
+                final GLTexture lcA = new GLTexture(st.fused.size, one16, null, GL_NEAREST, GL_CLAMP_TO_EDGE);
+                final GLTexture lcB = new GLTexture(st.fused.size, one16, null, GL_NEAREST, GL_CLAMP_TO_EDGE);
                 try {
                     final float lcSigma = WhyTone.LOCAL_CONTRAST_SIGMA / Math.max(1, st.factor);
                     for (int pass = 0; pass < 2; pass++) {
-                        glProg.setDefine("MODE", 0);
-                        glProg.useAssetProgram("why/localcontrast", false);
-                        glProg.setTexture("InputBuffer", pass == 0 ? st.fused : lcA);
-                        glProg.setVar("dirU", pass == 0 ? 1 : 0, pass == 0 ? 0 : 1);
-                        glProg.setVar("sigmaU", lcSigma);
-                        glProg.drawBlocks(pass == 0 ? lcA : lcB);
+                        shaderProg.setDefine("MODE", 0);
+                        shaderProg.useAssetProgram("why/localcontrast", false);
+                        shaderProg.setTexture("InputBuffer", pass == 0 ? st.fused : lcA);
+                        shaderProg.setVar("dirU", pass == 0 ? 1 : 0, pass == 0 ? 0 : 1);
+                        shaderProg.setVar("sigmaU", lcSigma);
+                        shaderProg.drawBlocks(pass == 0 ? lcA : lcB);
                     }
-                    fusedLc = new GLTexture(st.fused.mSize, new GLFormat(GLFormat.DataType.FLOAT_32, 1), null, GL_NEAREST, GL_CLAMP_TO_EDGE);
-                    glProg.setDefine("MODE", 1);
-                    glProg.useAssetProgram("why/localcontrast", false);
-                    glProg.setTexture("InputBuffer", st.fused);
-                    glProg.setTexture("Blurred", lcB);
-                    glProg.setVar("lcU", lc, WhyTone.LOCAL_CONTRAST_T);
-                    glProg.drawBlocks(fusedLc);
+                    fusedLc = new GLTexture(st.fused.size, new GLFormat(GLFormat.DataType.FLOAT_32, 1), null, GL_NEAREST, GL_CLAMP_TO_EDGE);
+                    shaderProg.setDefine("MODE", 1);
+                    shaderProg.useAssetProgram("why/localcontrast", false);
+                    shaderProg.setTexture("InputBuffer", st.fused);
+                    shaderProg.setTexture("Blurred", lcB);
+                    shaderProg.setVar("lcU", lc, WhyTone.LOCAL_CONTRAST_T);
+                    shaderProg.drawBlocks(fusedLc);
                 } finally {
                     lcA.close();
                     lcB.close();
@@ -311,116 +311,116 @@ public final class WhyCombine extends Node {
             // P512: «Маска лица» of «Портрет» (a face found and its skin measured) on the whyLow grid, before the combine's defines
             final boolean faceShot = r.portraitFace && st.portrait != null && st.portrait.count > 0;
             final float[] faceMask = faceShot ? WhyTone.faceMask() : null;
-            if (faceMask != null) faceTex = faceMaskTexture(glProg, st.low, st.portrait, faceMask[8], faceMask[9]);
+            if (faceMask != null) faceTex = faceMaskTexture(shaderProg, st.low, st.portrait, faceMask[8], faceMask[9]);
             if (WhyTone.edgeHold() > 0f && !st.inputReleased && !filmOnly && sharp && st.factor > 1
                     && detail != 0f && st.detailRef != null && PreferenceKeys.hybridSwitch("why_edge_luma_cache", true)) {
-                sceneY = SceneLumaCache.prepare(glProg, pipeline, input, gainMap);
+                sceneY = SceneLumaCache.prepare(shaderProg, pipeline, input, gainMap);
             }
             if (WhyTone.rimSmooth() && st.factor > 1 && detail != 0f && st.detailRef != null
-                    && st.low.mSize.equals(st.detailRef.mSize)
+                    && st.low.size.equals(st.detailRef.size)
                     && PreferenceKeys.hybridSwitch("why_rim_support", true)) {
-                rimTiles = RimSupportGpu.prepare(glProg, st.low, r.ae, sharp,
+                rimTiles = RimSupportGpu.prepare(shaderProg, st.low, r.ae, sharp,
                         sharp ? r.ae / Math.max(st.sharpMul, 1e-6f) : 1f);
             }
-            if (hlB != null) glProg.setDefine("HL_LANDING", 1);
+            if (hlB != null) shaderProg.setDefine("HL_LANDING", 1);
             // P378: the low-chroma glow round a light «Inpaint opposed» rebuilt (ScamRgb.opposedShare: none without a filled block)
             // lands on white, with the landing only and on the image the map covers
             oppShare = pipeline.opposedShare;
             pipeline.opposedShare = null;
             final Point oppSize = pipeline.opposedShareSize;
-            if (oppShare != null && (hlB == null || oppSize == null || oppSize.x * input.mSize.y != oppSize.y * input.mSize.x)) {
+            if (oppShare != null && (hlB == null || oppSize == null || oppSize.x * input.size.y != oppSize.y * input.size.x)) {
                 oppShare.close();
                 oppShare = null;
             }
-            if (oppShare != null) glProg.setDefine("HL_OPPOSED", 1);
+            if (oppShare != null) shaderProg.setDefine("HL_OPPOSED", 1);
             oppOn = oppShare != null;
             // P46 Display P3: the same shader with P3_OUT 1 (colour source, OKLab and gamut in P3); sRGB sets no define.
-            if (pipeline.p3Output) glProg.setDefine("P3_OUT", 1);
-            if (colourOn) glProg.setDefine("COLOUR_LOOK", 1);
-            if (st.portrait != null && st.portrait.corrected()) glProg.setDefine("PORTRAIT", 1);
+            if (pipeline.p3Output) shaderProg.setDefine("P3_OUT", 1);
+            if (colourOn) shaderProg.setDefine("COLOUR_LOOK", 1);
+            if (st.portrait != null && st.portrait.corrected()) shaderProg.setDefine("PORTRAIT", 1);
             // P512: «Маска лица» and Face AWB of «Портрет» (a face found and its skin measured); P577: Face AWB's default the XML's 1
             // (P513; the code's 0.5 was left from before it)
-            if (faceTex != null) glProg.setDefine("FACE_MASK", 1);
+            if (faceTex != null) shaderProg.setDefine("FACE_MASK", 1);
             float[] faceAwb = faceShot ? com.scamera.app.processing.portrait.PortraitSkin.faceAwb(st.portrait,
                     Math.max(0f, Math.min(1f, WhyTone.value("portrait_awb", 1f)))) : null;
             if (faceAwb != null && faceAwb[0] == 0f && faceAwb[1] == 0f) faceAwb = null;
-            if (faceAwb != null) glProg.setDefine("FACE_AWB", 1);
+            if (faceAwb != null) shaderProg.setDefine("FACE_AWB", 1);
             if (faceShot) Log.i("SCAM_PIPELINE", "Portrait: mask " + (faceMask != null ? java.util.Arrays.toString(faceMask) : "off")
                     + ", Face AWB " + (faceAwb != null ? String.format(java.util.Locale.ROOT, "%+.4f %+.4f", faceAwb[0], faceAwb[1]) : "none"));
             // P144: ACES / Uchimura / the own curve instead of AgX (TONE_OP 0, the AgX shader, otherwise)
-            if (toneOp != com.scamera.app.processing.color.ToneCurve.AGX) glProg.setDefine("TONE_OP", 1);
-            if (lut != null) glProg.setDefine("FILM_LUT", 1);
+            if (toneOp != com.scamera.app.processing.color.ToneCurve.AGX) shaderProg.setDefine("TONE_OP", 1);
+            if (lut != null) shaderProg.setDefine("FILM_LUT", 1);
             // P369: the film's scene feed (never with FILM_LUT: the chosen LUT is in the scene table then)
-            if (scene != null) glProg.setDefine("FILM_SIM", 1);
+            if (scene != null) shaderProg.setDefine("FILM_SIM", 1);
             // P216: real Bento headroom above the capped clip (without it the shader is the one before P216, token for token)
-            if (r.hr > 0f) glProg.setDefine("HEADROOM_WIDE", 1);
+            if (r.hr > 0f) shaderProg.setDefine("HEADROOM_WIDE", 1);
             // P623: the fast merge's measured light above white on the real-headroom shoulder (no grey glow round the sun)
-            if (measured > 0f) glProg.setDefine("HL_MEASURED", 1);
+            if (measured > 0f) shaderProg.setDefine("HL_MEASURED", 1);
             // P349: the sun bloom round fully clipped cores (ScamRgb.sunBloom), on the image those flags covered
             sunBloom = pipeline.sunBloom;
             pipeline.sunBloom = null;
             final Point bloomSize = pipeline.sunBloomSize;
-            if (sunBloom != null && (filmOnly || bloomSize == null || bloomSize.x * input.mSize.y != bloomSize.y * input.mSize.x)) {
+            if (sunBloom != null && (filmOnly || bloomSize == null || bloomSize.x * input.size.y != bloomSize.y * input.size.x)) {
                 sunBloom.close();
                 sunBloom = null;
             }
-            if (sunBloom != null) glProg.setDefine("SUN_BLOOM", 1);
+            if (sunBloom != null) shaderProg.setDefine("SUN_BLOOM", 1);
             sunBloomOn = sunBloom != null;
             // P378: the sky term only with a sky mask (WhySky; none: the shader before P378 token for token)
-            if (st.sky != null) glProg.setDefine("SKY", 1);
+            if (st.sky != null) shaderProg.setDefine("SKY", 1);
             // window burst (a room 7 EV under the window crushed to black): the macro contrast below its pivot as a power
-            if (WhyTone.macroToe()) glProg.setDefine("MACRO_TOE", 1);
+            if (WhyTone.macroToe()) shaderProg.setDefine("MACRO_TOE", 1);
             // P393: a saturated colour's light tones under the AgX white keep its mid-tone chroma (0: the shader before, token for token)
-            if (lightChroma > 0f) glProg.setDefine("LIGHT_CHROMA", 1);
-            if (WhyTone.yellowHue() > 0f) glProg.setDefine("YELLOW_HUE", 1);   // P395
-            if (WhyTone.hlNeutral() > 0f) glProg.setDefine("HL_NEUTRAL", 1);   // P398
+            if (lightChroma > 0f) shaderProg.setDefine("LIGHT_CHROMA", 1);
+            if (WhyTone.yellowHue() > 0f) shaderProg.setDefine("YELLOW_HUE", 1);   // P395
+            if (WhyTone.hlNeutral() > 0f) shaderProg.setDefine("HL_NEUTRAL", 1);   // P398
             // P506: the own curve's light orange-yellows leave the hue lock (AgX has LIGHT_CHROMA for that)
             final float[] lightWarm = toneOp != com.scamera.app.processing.color.ToneCurve.AGX ? WhyTone.lightWarm() : null;
-            if (lightWarm != null && lightWarm[0] > 0f) glProg.setDefine("LIGHT_WARM", 1);
+            if (lightWarm != null && lightWarm[0] > 0f) shaderProg.setDefine("LIGHT_WARM", 1);
             final float[] hlLocal = WhyTone.hlLocal();
-            if (hlLocal[0] > 0f) glProg.setDefine("HL_LOCAL", 1);   // P508: the photo only (the viewfinder has no whyLow grid)
+            if (hlLocal[0] > 0f) shaderProg.setDefine("HL_LOCAL", 1);   // P508: the photo only (the viewfinder has no whyLow grid)
             // P607: a line of taps that leaves the light (a glow's falloff) does not darken the pixel (no grey band along a sign's glow)
-            if (hlLocal[0] > 0f && WhyTone.hlLocalRim()) glProg.setDefine("HL_LOCAL_RIM", 1);
+            if (hlLocal[0] > 0f && WhyTone.hlLocalRim()) shaderProg.setDefine("HL_LOCAL_RIM", 1);
             // P623 round 2: HL_LOCAL's mean bilinear over the whyLow texels round the pixel (no 2 px teeth along a light's rim)
-            if (hlLocal[0] > 0f && WhyTone.hlLocalSmooth()) glProg.setDefine("HL_LOCAL_SMOOTH", 1);
+            if (hlLocal[0] > 0f && WhyTone.hlLocalSmooth()) shaderProg.setDefine("HL_LOCAL_SMOOTH", 1);
             // P623 round 6: P349's rim stop lifted where its far side is the brighter (a dark strip between two bright sides)
-            if (WhyTone.rimFar()) glProg.setDefine("RIM_FAR_SIDE", 1);
+            if (WhyTone.rimFar()) shaderProg.setDefine("RIM_FAR_SIDE", 1);
             // P607 round 3: at night HL_LOCAL and the hr detail fade with WhyAe's night weight (no faint marks in lit signs' cores)
             final float nightFade = 1f - Math.max(0f, Math.min(1f, r.nightW)) * WhyTone.hlLocalNight();
-            if (WhyTone.whyLayout()) glProg.setDefine("WHY_BASE", 1);   // P402: the reference fusion's base of the tone
-            if (WhyTone.insetStrength() < 0.999f) glProg.setDefine("AGX_INSET", 1);   // P402: the inset's strength
-            if (WhyTone.gammaType() != 0) glProg.setDefine("GAMMA_TYPE", WhyTone.gammaType());   // P404: the display standard
+            if (WhyTone.whyLayout()) shaderProg.setDefine("WHY_BASE", 1);   // P402: the reference fusion's base of the tone
+            if (WhyTone.insetStrength() < 0.999f) shaderProg.setDefine("AGX_INSET", 1);   // P402: the inset's strength
+            if (WhyTone.gammaType() != 0) shaderProg.setDefine("GAMMA_TYPE", WhyTone.gammaType());   // P404: the display standard
             final float[][] whyVib = WhyTone.whyVibrance();
-            if (whyVib != null) glProg.setDefine("WHY_VIB", 1);   // P404: saturated / mid / shadow vibrance, the skin's own mask
+            if (whyVib != null) shaderProg.setDefine("WHY_VIB", 1);   // P404: saturated / mid / shadow vibrance, the skin's own mask
             final boolean whyVibrance = WhyTone.whyVibranceOn();
-            if (whyVibrance) glProg.setDefine("WHY_VIBRANCE", 1);   // P419: the reference app's vibrance in one gain
-            if (WhyTone.edgeHold() > 0f && !st.inputReleased && !filmOnly) glProg.setDefine("EDGE_HOLD", 1);   // P394 (the full-size merge)
-            if (WhyTone.rimSmooth()) glProg.setDefine("RIM_SMOOTH", 1);   // P441: the rim rules without steps along edges (photo only)
-            glProg.setDefine("DITHER_TPDF", 1);   // P595: the photo's dither triangular (no 8-bit bands on a clean sky)
+            if (whyVibrance) shaderProg.setDefine("WHY_VIBRANCE", 1);   // P419: the reference app's vibrance in one gain
+            if (WhyTone.edgeHold() > 0f && !st.inputReleased && !filmOnly) shaderProg.setDefine("EDGE_HOLD", 1);   // P394 (the full-size merge)
+            if (WhyTone.rimSmooth()) shaderProg.setDefine("RIM_SMOOTH", 1);   // P441: the rim rules without steps along edges (photo only)
+            shaderProg.setDefine("DITHER_TPDF", 1);   // P595: the photo's dither triangular (no 8-bit bands on a clean sky)
             skyLog = st.sky == null ? "" : " sky=" + Math.round(100f * st.skyMask.coverage) + "%" + (st.skyMask.keep < 1f
                     ? " backlit (level x" + Math.round(100f * st.skyMask.keep) / 100f + ")" : "");
             // P378 review: Ultra HDR keeps the sky term's change - the combine at whyLow with and without it (skyHdrRatio), its
             // targets made before the combine's samplers are bound: RGBA8 (the output is display-encoded; review: two RGBA16F were
             // 802 MB at 200 MP), none above 100 MP (P187's window for the output: the gain map takes the scene as before there)
             if (st.sky != null && st.skyMask.keep > 0f && pipeline.captureDemosaic && !filmOnly) {
-                if (ScamRgb.earlyRelease(input.mSize)) skyLog += " hdrSkyRatio=skipped (over 100 MP)";
+                if (ScamRgb.earlyRelease(input.size)) skyLog += " hdrSkyRatio=skipped (over 100 MP)";
                 else {
-                    skyWith = new GLTexture(st.low.mSize, new GLFormat(GLFormat.DataType.SIMPLE_8, 4), null, GL_NEAREST, GL_CLAMP_TO_EDGE);
-                    skyWithout = new GLTexture(st.low.mSize, new GLFormat(GLFormat.DataType.SIMPLE_8, 4), null, GL_NEAREST, GL_CLAMP_TO_EDGE);
+                    skyWith = new GLTexture(st.low.size, new GLFormat(GLFormat.DataType.SIMPLE_8, 4), null, GL_NEAREST, GL_CLAMP_TO_EDGE);
+                    skyWithout = new GLTexture(st.low.size, new GLFormat(GLFormat.DataType.SIMPLE_8, 4), null, GL_NEAREST, GL_CLAMP_TO_EDGE);
                 }
             }
             // P187: above 100 MP the 1.6 GB output is made only after the GPU has finished with the fusion's and the mask's
             // temporaries (their storage is freed when the GPU is done with them). Made before the combine's samplers are bound:
             // a new texture binds itself on unit 1 + its name, which may be a sampler's unit (the pass then read its own output).
             if (st.inputReleased) android.opengl.GLES30.glFinish();
-            WorkingTexture = pipeline.getMain();
-            if (rimTiles != null) glProg.setDefine("RIM_SUPPORT", 1);
-            if (sceneY != null) glProg.setDefine("EDGE_LUMA_CACHE", 1);
+            passOut = pipeline.getMain();
+            if (rimTiles != null) shaderProg.setDefine("RIM_SUPPORT", 1);
+            if (sceneY != null) shaderProg.setDefine("EDGE_LUMA_CACHE", 1);
             // P497: scam_dev why_combine_stop 1..4 cuts the pass after a stage (timing on old GPUs only: the photo is wrong)
             final int stop = Math.round(PreferenceKeys.scamDevNumber("why_combine_stop", 0f));
-            if (stop > 0) glProg.setDefine("WHY_STOP", stop);
+            if (stop > 0) shaderProg.setDefine("WHY_STOP", stop);
             try {
-                glProg.useAssetProgram("why/combine", false);
+                shaderProg.useAssetProgram("why/combine", false);
             } catch (RuntimeException error) {
                 if (rimTiles == null && sceneY == null) throw error;
                 if (rimTiles != null) rimTiles.close();
@@ -429,178 +429,178 @@ public final class WhyCombine extends Node {
                 sceneY = null;
                 Log.w("SCAM_PIPELINE", "optional tone cache program failed: " + error + "; reference evaluation");
                 // A failed compile leaves the tone defines pending; override only the support gate.
-                glProg.setDefine("RIM_SUPPORT", 0);
-                glProg.setDefine("EDGE_LUMA_CACHE", 0);
-                glProg.useAssetProgram("why/combine", false);
+                shaderProg.setDefine("RIM_SUPPORT", 0);
+                shaderProg.setDefine("EDGE_LUMA_CACHE", 0);
+                shaderProg.useAssetProgram("why/combine", false);
             }
             if (rimTiles != null) {
                 rimBindings = new int[2];
                 android.opengl.GLES31.glGetIntegerv(android.opengl.GLES31.GL_SHADER_STORAGE_BUFFER_BINDING, rimBindings, 0);
                 android.opengl.GLES31.glGetIntegeri_v(android.opengl.GLES31.GL_SHADER_STORAGE_BUFFER_BINDING, 0, rimBindings, 1);
-                glProg.setBufferCompute("rimTiles", rimTiles);
+                shaderProg.setBufferCompute("rimTiles", rimTiles);
             }
             if (sunBloom != null) {
                 final int block = Math.max(1, pipeline.sunBloomBlock);
-                glProg.setTexture("SunBloom", sunBloom);
-                glProg.setVar("sunGridU", bloomSize.x / (float) (sunBloom.mSize.x * block), bloomSize.y / (float) (sunBloom.mSize.y * block));
-                glProg.setVar("sunBloomU", WhyTone.sunBloom()[0]);
+                shaderProg.setTexture("SunBloom", sunBloom);
+                shaderProg.setVar("sunGridU", bloomSize.x / (float) (sunBloom.size.x * block), bloomSize.y / (float) (sunBloom.size.y * block));
+                shaderProg.setVar("sunBloomU", WhyTone.sunBloom()[0]);
                 final float[] sunGate = WhyTone.sunBloomGate();
-                glProg.setVar("sunGateU", sunGate[0], sunGate[1]);   // P506
+                shaderProg.setVar("sunGateU", sunGate[0], sunGate[1]);   // P506
             }
             if (oppShare != null) {
                 final int block = Math.max(1, pipeline.opposedShareBlock);
-                glProg.setTexture("OppShare", oppShare);
-                glProg.setVar("oppGridU", oppSize.x / (float) (oppShare.mSize.x * block), oppSize.y / (float) (oppShare.mSize.y * block));
+                shaderProg.setTexture("OppShare", oppShare);
+                shaderProg.setVar("oppGridU", oppSize.x / (float) (oppShare.size.x * block), oppSize.y / (float) (oppShare.size.y * block));
             }
             if (lut != null) {
                 lutTexture = lut.upload();
-                glProg.setTexture3D("FilmLut", lutTexture);
-                glProg.setVar("lutU", lutStrength, (float) lut.size);
-                glProg.setVar("lutMinU", lut.domainMin);
-                glProg.setVar("lutScaleU", 1f / (lut.domainMax[0] - lut.domainMin[0]), 1f / (lut.domainMax[1] - lut.domainMin[1]),
+                shaderProg.setTexture3D("FilmLut", lutTexture);
+                shaderProg.setVar("lutU", lutStrength, (float) lut.size);
+                shaderProg.setVar("lutMinU", lut.domainMin);
+                shaderProg.setVar("lutScaleU", 1f / (lut.domainMax[0] - lut.domainMin[0]), 1f / (lut.domainMax[1] - lut.domainMin[1]),
                         1f / (lut.domainMax[2] - lut.domainMin[2]));
             }
             if (scene != null) {
                 // P369: the film's exposure is the meter's before the highlight overflow's cut (ae x deficit, B1); the noise
                 // clamp and the Bento hold stay in ae
                 lutTexture = scene.lut.upload();
-                glProg.setTexture3D("FilmLut", lutTexture);
-                glProg.setVar("lutU", scene.strength, (float) scene.lut.size);
-                glProg.setVar("filmExpU", filmExp);
-                glProg.setVar("filmLogU", com.scamera.app.processing.color.FilmSim.LOG_LO,
+                shaderProg.setTexture3D("FilmLut", lutTexture);
+                shaderProg.setVar("lutU", scene.strength, (float) scene.lut.size);
+                shaderProg.setVar("filmExpU", filmExp);
+                shaderProg.setVar("filmLogU", com.scamera.app.processing.color.FilmSim.LOG_LO,
                         com.scamera.app.processing.color.FilmSim.LOG_SPAN);
             }
             // P187: with WhyCam's sharpened luma (sharpU 1) the shader reads nothing of InputBuffer but its size; once the
             // image is given back, the same-size lumaS stands in (the image's texture name may be another texture's now)
             if (st.inputReleased && !sharp) throw new IllegalStateException("WHY combine: the full-size image was released without a sharpened luma");
-            glProg.setTexture("InputBuffer", st.inputReleased ? st.lumaS : input);
-            WhyTone.setColour(glProg, pipeline, gainMap, st.inScale);
-            glProg.setTexture("WhyLow", st.low);
-            glProg.setTexture("WhyColour", colour);
-            glProg.setTexture("WhyFused", fusedLc != null ? fusedLc : st.fused);
-            glProg.setTexture("WhyDetailRef", st.detailRef != null ? st.detailRef : st.low);
-            glProg.setVar("detailRefU", st.detailRef != null ? 1 : 0);
-            glProg.setTexture("WhyLumaS", sharp ? st.lumaS : st.low);
-            if (hlB != null) glProg.setTexture("WhyHl", hlB);
+            shaderProg.setTexture("InputBuffer", st.inputReleased ? st.lumaS : input);
+            WhyTone.setColour(shaderProg, pipeline, gainMap, st.inScale);
+            shaderProg.setTexture("WhyLow", st.low);
+            shaderProg.setTexture("WhyColour", colour);
+            shaderProg.setTexture("WhyFused", fusedLc != null ? fusedLc : st.fused);
+            shaderProg.setTexture("WhyDetailRef", st.detailRef != null ? st.detailRef : st.low);
+            shaderProg.setVar("detailRefU", st.detailRef != null ? 1 : 0);
+            shaderProg.setTexture("WhyLumaS", sharp ? st.lumaS : st.low);
+            if (hlB != null) shaderProg.setTexture("WhyHl", hlB);
             if (st.sky != null) {
                 // P378: L2 / L3 keep the backlit sky's level (owner: «наш тонмапинг не должен затемнять небо в контровых сценах»);
                 // C1, M1 and L4 act on every sky
                 final float sky = WhyTone.sky();
                 final float[] tone = WhyTone.skyTone(), tops = st.skyMask.tops();
-                glProg.setTexture("WhySky", st.sky);
-                glProg.setVar("skyU", sky * st.skyMask.keep, tone[0], tone[1], tone[2]);
-                glProg.setVar("skyMU", sky, sky, sky * WhyTone.SKY_GLOW, WhyTone.SKY_VIBRANCE);
-                glProg.setVar("skyTopU", tops[0], tops[1]);
+                shaderProg.setTexture("WhySky", st.sky);
+                shaderProg.setVar("skyU", sky * st.skyMask.keep, tone[0], tone[1], tone[2]);
+                shaderProg.setVar("skyMU", sky, sky, sky * WhyTone.SKY_GLOW, WhyTone.SKY_VIBRANCE);
+                shaderProg.setVar("skyTopU", tops[0], tops[1]);
             }
-            glProg.setVar("sharpU", sharp ? 1 : 0);
-            glProg.setVar("fullInputU", st.inputReleased ? 0 : 1);   // P349: the bright rim reads the full-size merge
+            shaderProg.setVar("sharpU", sharp ? 1 : 0);
+            shaderProg.setVar("fullInputU", st.inputReleased ? 0 : 1);   // P349: the bright rim reads the full-size merge
             if (WhyTone.edgeHold() > 0f && !st.inputReleased && !filmOnly) {
-                glProg.setVar("edgeHoldU", WhyTone.edgeHold());   // P394: smooth edges (photo only)
-                glProg.setVar("edgeHoldLightU", WhyTone.edgeHoldLight());   // P623 round 7: only edges against light
+                shaderProg.setVar("edgeHoldU", WhyTone.edgeHold());   // P394: smooth edges (photo only)
+                shaderProg.setVar("edgeHoldLightU", WhyTone.edgeHoldLight());   // P623 round 7: only edges against light
             }
-            glProg.setVar("sharpToneU", sharp ? r.ae / Math.max(st.sharpMul, 1e-6f) : 1f);
-            glProg.setVar("fU", st.factor);
-            glProg.setVar("colourFU", colourFactor);
-            glProg.setVar("signedColourU", pipeline.signedRgb ? 1 : 0);
-            glProg.setVar("signedHueU", WhyTone.signedHue() ? 1 : 0);   // P370 (B2): a colour outside sRGB keeps its hue
-            glProg.setVar("aeU", r.ae);
-            glProg.setVar("clipU", r.clip);
-            if (WhyTone.insetStrength() < 0.999f) glProg.setVar("insetU", WhyTone.insetStrength());   // P402
+            shaderProg.setVar("sharpToneU", sharp ? r.ae / Math.max(st.sharpMul, 1e-6f) : 1f);
+            shaderProg.setVar("fU", st.factor);
+            shaderProg.setVar("colourFU", colourFactor);
+            shaderProg.setVar("signedColourU", pipeline.signedRgb ? 1 : 0);
+            shaderProg.setVar("signedHueU", WhyTone.signedHue() ? 1 : 0);   // P370 (B2): a colour outside sRGB keeps its hue
+            shaderProg.setVar("aeU", r.ae);
+            shaderProg.setVar("clipU", r.clip);
+            if (WhyTone.insetStrength() < 0.999f) shaderProg.setVar("insetU", WhyTone.insetStrength());   // P402
             if (whyVib != null) {
-                glProg.setVar("whyVibU", whyVib[0]);
-                glProg.setVar("whySkinU", whyVib[1]);
+                shaderProg.setVar("whyVibU", whyVib[0]);
+                shaderProg.setVar("whySkinU", whyVib[1]);
             }
             if (whyVibrance) {
-                glProg.setVar("vibWhyU", WhyTone.vibranceWhyUniform());
-                glProg.setVar("vibSkinU", WhyTone.vibranceSkinUniform());
-                glProg.setVar("vibSkinHueU", WhyTone.vibranceSkinHue());   // P519
+                shaderProg.setVar("vibWhyU", WhyTone.vibranceWhyUniform());
+                shaderProg.setVar("vibSkinU", WhyTone.vibranceSkinUniform());
+                shaderProg.setVar("vibSkinHueU", WhyTone.vibranceSkinHue());   // P519
             }
             // P216: real Bento headroom above the capped clip - WhyCam 1.58's shoulder, the landing on the real ceiling and the
             // highlight detail (not when the full-size image is gone: InputBuffer is then the sharpened luma)
             if (r.hr > 0f) {
                 final float[] hrTone = WhyTone.headroomTone();
-                glProg.setVar("hrU", r.hr);
-                glProg.setVar("hrKneeU", hrTone[0]);
-                glProg.setVar("hrRoomU", hrTone[1]);
-                glProg.setVar("hrEaseU", 1f - WhyTone.shoulderStrength());   // P402
-                glProg.setVar("hrDetailU", st.inputReleased ? 0f : hrTone[2] * nightFade);   // P607: faded at night
+                shaderProg.setVar("hrU", r.hr);
+                shaderProg.setVar("hrKneeU", hrTone[0]);
+                shaderProg.setVar("hrRoomU", hrTone[1]);
+                shaderProg.setVar("hrEaseU", 1f - WhyTone.shoulderStrength());   // P402
+                shaderProg.setVar("hrDetailU", st.inputReleased ? 0f : hrTone[2] * nightFade);   // P607: faded at night
             }
             if (measured > 0f) {   // P623: HEADROOM_WIDE's shoulder for the measured light above white
                 final float[] hrTone = WhyTone.headroomTone();
-                glProg.setVar("hlMeasU", WhyTone.HL_MEASURED_LO, WhyTone.HL_MEASURED_HI, measured, WhyTone.hlMeasuredLanding());
-                glProg.setVar("hlMeasShoulderU", hrTone[0], hrTone[1], 1f - WhyTone.shoulderStrength(), WhyTone.hlMeasuredMax() ? 1f : 0f);
-                glProg.setVar("hlMeasCeilU", measCeil);   // P623 round 3
-                glProg.setVar("hlMeasSceneU", WhyTone.hlMeasuredScene() ? 1f : 0f);   // P623 round 5
+                shaderProg.setVar("hlMeasU", WhyTone.HL_MEASURED_LO, WhyTone.HL_MEASURED_HI, measured, WhyTone.hlMeasuredLanding());
+                shaderProg.setVar("hlMeasShoulderU", hrTone[0], hrTone[1], 1f - WhyTone.shoulderStrength(), WhyTone.hlMeasuredMax() ? 1f : 0f);
+                shaderProg.setVar("hlMeasCeilU", measCeil);   // P623 round 3
+                shaderProg.setVar("hlMeasSceneU", WhyTone.hlMeasuredScene() ? 1f : 0f);   // P623 round 5
                 // P623 round 4: the measured light's own detail (not when the full-size image is gone: InputBuffer is the sharpened luma)
-                glProg.setVar("hlMeasDetailU", st.inputReleased ? 0f : WhyTone.hlMeasuredDetail());
+                shaderProg.setVar("hlMeasDetailU", st.inputReleased ? 0f : WhyTone.hlMeasuredDetail());
                 // P623 round 6: the fade beside a measured glare streak (its taps are the full-size image's)
-                glProg.setVar("hlMeasGlareU", st.inputReleased ? 0f : WhyTone.hlMeasuredGlare());
+                shaderProg.setVar("hlMeasGlareU", st.inputReleased ? 0f : WhyTone.hlMeasuredGlare());
             }
             // P11: the Bento ceiling / roll-off only with real headroom; saturated light fades towards white in the shoulder.
-            glProg.setVar("headroomU", ScamRgb.lastRealClip || ScamHybridBurst.lastBentoUsClipped > 0f ? 1 : 0);
-            glProg.setVar("hlWhiteU", Math.max(0f, Math.min(1f, WhyTone.value("hl_white", 0.15f))));
-            if (lightChroma > 0f) glProg.setVar("lightChromaU", lightChroma);
+            shaderProg.setVar("headroomU", ScamRgb.lastRealClip || ScamHybridBurst.lastBentoUsClipped > 0f ? 1 : 0);
+            shaderProg.setVar("hlWhiteU", Math.max(0f, Math.min(1f, WhyTone.value("hl_white", 0.15f))));
+            if (lightChroma > 0f) shaderProg.setVar("lightChromaU", lightChroma);
             // P154 «Мягкость засветов»: the landing of blown light on the white point starts this far below the ceiling
-            if (hlB != null) glProg.setVar("hlSoftU", hlSoft);
-            glProg.setVar("toeU", WhyTone.value("aces_toe", 0.05f));
-            glProg.setVar("gammaInvU", 1f / WhyTone.gamma());
-            glProg.setVar("macroU", r.portraitFace ? 1f : WhyTone.value("macro_contrast", 1.1f));
+            if (hlB != null) shaderProg.setVar("hlSoftU", hlSoft);
+            shaderProg.setVar("toeU", WhyTone.value("aces_toe", 0.05f));
+            shaderProg.setVar("gammaInvU", 1f / WhyTone.gamma());
+            shaderProg.setVar("macroU", r.portraitFace ? 1f : WhyTone.value("macro_contrast", 1.1f));
             if (st.portrait != null && st.portrait.corrected()) {
-                glProg.setVar("portraitCountU", st.portrait.count);
-                glProg.setVarVec4s("portraitFacesU", st.portrait.faces);
-                glProg.setVarVec4s("portraitAdjustU", st.portrait.adjust);
-                glProg.setVar("portraitMapU", new float[]{1, 0, 0, 0, 1, 0, 0, 0, 1});
+                shaderProg.setVar("portraitCountU", st.portrait.count);
+                shaderProg.setVarVec4s("portraitFacesU", st.portrait.faces);
+                shaderProg.setVarVec4s("portraitAdjustU", st.portrait.adjust);
+                shaderProg.setVar("portraitMapU", new float[]{1, 0, 0, 0, 1, 0, 0, 0, 1});
             }
             if (faceTex != null) {   // P512
-                glProg.setTexture("FaceMask", faceTex);
-                glProg.setVar("faceAU", faceMask[0], faceMask[1], faceMask[2], faceMask[3]);
-                glProg.setVar("faceBU", faceMask[4], faceMask[5], faceMask[6], faceMask[7]);
+                shaderProg.setTexture("FaceMask", faceTex);
+                shaderProg.setVar("faceAU", faceMask[0], faceMask[1], faceMask[2], faceMask[3]);
+                shaderProg.setVar("faceBU", faceMask[4], faceMask[5], faceMask[6], faceMask[7]);
             }
-            if (faceAwb != null) glProg.setVar("faceAwbU", faceAwb[0], faceAwb[1]);   // P512
-            glProg.setVar("vibU", WhyTone.value("vibrance", 0f), WhyTone.value("vibrance_sky", 0.25f), WhyTone.value("vibrance_green", 0.05f));
-            glProg.setVar("vibHlU", WhyTone.vibranceHl());
-            glProg.setVar("vibHlShapeU", WhyTone.vibranceHlShape());   // P393: no cast doubled on pale mid-light tones
-            if (WhyTone.yellowHue() > 0f) glProg.setVar("yellowHueU", WhyTone.yellowHue());   // P395: the orange-yellows towards yellow
-            if (WhyTone.hlNeutral() > 0f) glProg.setVar("hlNeutralU", WhyTone.hlNeutral());   // P398: pale light lands on white
-            if (lightWarm != null && lightWarm[0] > 0f) glProg.setVar("lightWarmU", lightWarm[0], lightWarm[1], lightWarm[2], lightWarm[3]);   // P506
-            if (hlLocal[0] > 0f) glProg.setVar("hlLocalU", hlLocal[0] * nightFade, hlLocal[1], hlLocal[2], hlLocal[3]);   // P508; P607 night fade
-            glProg.setVar("chromaDnU", 0f);
-            glProg.setVar("clarityU", WhyTone.value("clarity", 0f));
-            glProg.setVar("flatProtectU", WhyTone.value("flat_protect", 0f));
-            glProg.setVar("detailGainU", detail);
-            glProg.setVar("deltaChromaU", Math.max(0f, Math.min(1f, WhyTone.value("delta_chroma", 1f))));
-            glProg.setVar("filmToeU", WhyTone.value("film_toe", 0f));
-            glProg.setVar("agxAU", r.slope, r.sp, r.tp, r.sat);
-            glProg.setVar("agxBU", r.minEv, r.maxEv, r.ev,
+            if (faceAwb != null) shaderProg.setVar("faceAwbU", faceAwb[0], faceAwb[1]);   // P512
+            shaderProg.setVar("vibU", WhyTone.value("vibrance", 0f), WhyTone.value("vibrance_sky", 0.25f), WhyTone.value("vibrance_green", 0.05f));
+            shaderProg.setVar("vibHlU", WhyTone.vibranceHl());
+            shaderProg.setVar("vibHlShapeU", WhyTone.vibranceHlShape());   // P393: no cast doubled on pale mid-light tones
+            if (WhyTone.yellowHue() > 0f) shaderProg.setVar("yellowHueU", WhyTone.yellowHue());   // P395: the orange-yellows towards yellow
+            if (WhyTone.hlNeutral() > 0f) shaderProg.setVar("hlNeutralU", WhyTone.hlNeutral());   // P398: pale light lands on white
+            if (lightWarm != null && lightWarm[0] > 0f) shaderProg.setVar("lightWarmU", lightWarm[0], lightWarm[1], lightWarm[2], lightWarm[3]);   // P506
+            if (hlLocal[0] > 0f) shaderProg.setVar("hlLocalU", hlLocal[0] * nightFade, hlLocal[1], hlLocal[2], hlLocal[3]);   // P508; P607 night fade
+            shaderProg.setVar("chromaDnU", 0f);
+            shaderProg.setVar("clarityU", WhyTone.value("clarity", 0f));
+            shaderProg.setVar("flatProtectU", WhyTone.value("flat_protect", 0f));
+            shaderProg.setVar("detailGainU", detail);
+            shaderProg.setVar("deltaChromaU", Math.max(0f, Math.min(1f, WhyTone.value("delta_chroma", 1f))));
+            shaderProg.setVar("filmToeU", WhyTone.value("film_toe", 0f));
+            shaderProg.setVar("agxAU", r.slope, r.sp, r.tp, r.sat);
+            shaderProg.setVar("agxBU", r.minEv, r.maxEv, r.ev,
                     toneOp == com.scamera.app.processing.color.ToneCurve.AGX ? (float) r.look : 0f);
             if (toneOp != com.scamera.app.processing.color.ToneCurve.AGX) {
-                glProg.setVar("toneOpU", toneOp);
-                glProg.setVar("acesU", WhyTone.acesUniform());
+                shaderProg.setVar("toneOpU", toneOp);
+                shaderProg.setVar("acesU", WhyTone.acesUniform());
                 float[][] uchi = WhyTone.uchimuraUniforms();
-                glProg.setVar("uchiAU", uchi[0]);
-                glProg.setVar("uchiBU", uchi[1]);
-                glProg.setVarVec4s("curveU", WhyTone.curveSamples(r.portraitFace));   // P512: the portrait curve with a face
-                glProg.setVar("curveBoostU", WhyTone.curveBoost(r.contrastC));   // P404: the flat scene's contrast on the own curve, as AgX's slope
+                shaderProg.setVar("uchiAU", uchi[0]);
+                shaderProg.setVar("uchiBU", uchi[1]);
+                shaderProg.setVarVec4s("curveU", WhyTone.curveSamples(r.portraitFace));   // P512: the portrait curve with a face
+                shaderProg.setVar("curveBoostU", WhyTone.curveBoost(r.contrastC));   // P404: the flat scene's contrast on the own curve, as AgX's slope
             }
-            glProg.setVar("ditherU", 1);
+            shaderProg.setVar("ditherU", 1);
             if (colourOn) {
-                glProg.setVar("skinU", look.skinUniform());
-                glProg.setVar("vibLU", look.vibUniform());
-                glProg.setVarFloats("mixU", look.mixUniform());
-                glProg.setVar("mixOnU", look.mixerOn() ? 1 : 0);
-                glProg.setVar("monoU", look.monoUniform());
-                glProg.setVar("gamutU", Math.max(0f, Math.min(1f, look.gamut / 100f)));
-                glProg.setVar("hueLockU", look.hueLock);
+                shaderProg.setVar("skinU", look.skinUniform());
+                shaderProg.setVar("vibLU", look.vibUniform());
+                shaderProg.setVarFloats("mixU", look.mixUniform());
+                shaderProg.setVar("mixOnU", look.mixerOn() ? 1 : 0);
+                shaderProg.setVar("monoU", look.monoUniform());
+                shaderProg.setVar("gamutU", Math.max(0f, Math.min(1f, look.gamut / 100f)));
+                shaderProg.setVar("hueLockU", look.hueLock);
                 float[][] grade = look.gradeUniforms();
-                glProg.setVar("gradeAU", grade[0]);
-                glProg.setVar("gradeBU", grade[1]);
+                shaderProg.setVar("gradeAU", grade[0]);
+                shaderProg.setVar("gradeBU", grade[1]);
             }
-            if (sceneY != null) SceneLumaCache.bind(glProg, sceneY);
+            if (sceneY != null) SceneLumaCache.bind(shaderProg, sceneY);
             com.scamera.app.processing.opengl.PostGlMode.lap("why combine prep");
-            glProg.drawBlocks(WorkingTexture);
-            if (sceneY != null) Log.i("SCAM_PIPELINE", "WHY scene luma cache=" + sceneY.mSize.x + "x" + sceneY.mSize.y
-                    + " bytes=" + ((long) sceneY.mSize.x * sceneY.mSize.y * 4));
-            if (rimTiles != null) Log.i("SCAM_PIPELINE", "WHY rim support tiles=" + rimTiles.size);
+            shaderProg.drawBlocks(passOut);
+            if (sceneY != null) Log.i("SCAM_PIPELINE", "WHY scene luma cache=" + sceneY.size.x + "x" + sceneY.size.y
+                    + " bytes=" + ((long) sceneY.size.x * sceneY.size.y * 4));
+            if (rimTiles != null) Log.i("SCAM_PIPELINE", "WHY rim support tiles=" + rimTiles.elementCount);
             if (skyWith != null) {
                 try {
                     skyMeasured = measured > 0f;   // P623 round 4
@@ -613,7 +613,7 @@ public final class WhyCombine extends Node {
                     Log.w("SCAM_PIPELINE", "WHY combine: the sky's Ultra HDR ratio failed (" + e + ")");
                 }
             }
-            glProg.closed = true;
+            shaderProg.closed = true;
         } finally {
             if (sceneY != null) sceneY.close();
             if (rimTiles != null) rimTiles.close();
@@ -635,7 +635,7 @@ public final class WhyCombine extends Node {
         }
         Log.i("SCAM_PIPELINE", "WHY combine ae=" + r.ae + " clip=" + r.clip + (r.hr > 0f ? " hr=" + r.hr : "") + (measured > 0f ? " measured=" + measured + " gmax=" + r.gmax : "") + " headroom=" + (ScamRgb.lastRealClip || ScamHybridBurst.lastBentoUsClipped > 0f)
                 + " hlWhite=" + WhyTone.value("hl_white", 0.15f) + " hlSoft=" + WhyTone.value("hl_soft", 0.7f)
-                + (lightChroma > 0f ? " lightChroma=" + lightChroma : "") + " grid=" + input.mSize.x + "x" + input.mSize.y
+                + (lightChroma > 0f ? " lightChroma=" + lightChroma : "") + " grid=" + input.size.x + "x" + input.size.y
                 + " lowFactor=" + st.factor + (st.factor > 2 ? " colour=whyMid" : " colour=whyLow") + " detail=" + detail
                 + (sharp ? " (WhyLumaS, mul " + sharpMul + ")" : " (Sabre Y, bounded ref)")
                 + (sunBloomOn ? " sunBloom=" + WhyTone.sunBloom()[0] + "@" + WhyTone.sunBloom()[1] : "")
@@ -683,8 +683,8 @@ public final class WhyCombine extends Node {
         final GLFormat rg = new GLFormat(GLFormat.DataType.FLOAT_16, 2);
         GLTexture a = null, b = null;
         try {
-            a = new GLTexture(low.mSize, rg, null, GL_LINEAR, GL_CLAMP_TO_EDGE);
-            b = new GLTexture(low.mSize, rg, null, GL_LINEAR, GL_CLAMP_TO_EDGE);
+            a = new GLTexture(low.size, rg, null, GL_LINEAR, GL_CLAMP_TO_EDGE);
+            b = new GLTexture(low.size, rg, null, GL_LINEAR, GL_CLAMP_TO_EDGE);
             glProg.setDefine("MODE", 0);
             glProg.useAssetProgram("why/facemask", false);
             glProg.setTexture("InputBuffer", low);
@@ -694,7 +694,7 @@ public final class WhyCombine extends Node {
             glProg.setVarFloats("faceLightU", light);
             glProg.setVar("faceMaskU", size, follow);
             glProg.drawBlocks(a);
-            final float sigma = Math.max(2f, 0.004f * low.mSize.x);
+            final float sigma = Math.max(2f, 0.004f * low.size.x);
             for (int pass = 0; pass < 2; pass++) {
                 glProg.setDefine("MODE", 1);
                 glProg.useAssetProgram("why/facemask", false);
@@ -720,34 +720,34 @@ public final class WhyCombine extends Node {
 
     private void skyHdrRatio(PostPipeline pipeline, WhyTone.State st, WhyAe.Result r, GLTexture with, GLTexture without, boolean lightChroma) {
         final GLTexture colour = st.lowDn != null ? st.lowDn : st.low;
-        if (lightChroma) glProg.setVar("lightChromaU", 0f);
-        glProg.setTexture("InputBuffer", st.low);
-        glProg.setTexture("WhyColour", colour);
-        glProg.setVar("fU", 1);
-        glProg.setVar("colourFU", 1);
-        glProg.setVar("detailGainU", 0f);
-        glProg.setVar("ditherU", 0);
-        if (r.hr > 0f) glProg.setVar("hrDetailU", 0f);
+        if (lightChroma) shaderProg.setVar("lightChromaU", 0f);
+        shaderProg.setTexture("InputBuffer", st.low);
+        shaderProg.setTexture("WhyColour", colour);
+        shaderProg.setVar("fU", 1);
+        shaderProg.setVar("colourFU", 1);
+        shaderProg.setVar("detailGainU", 0f);
+        shaderProg.setVar("ditherU", 0);
+        if (r.hr > 0f) shaderProg.setVar("hrDetailU", 0f);
         if (skyMeasured) {   // P623 rounds 4 and 6: InputBuffer is whyLow here
-            glProg.setVar("hlMeasDetailU", 0f);
-            glProg.setVar("hlMeasGlareU", 0f);
+            shaderProg.setVar("hlMeasDetailU", 0f);
+            shaderProg.setVar("hlMeasGlareU", 0f);
         }
-        glProg.drawBlocks(with);
-        glProg.setVar("skyU", 0f, 0f, 1f, 1f);
-        glProg.setVar("skyMU", 0f, 0f, 0f, 1f);
-        glProg.drawBlocks(without);
-        final Point low = st.low.mSize;
+        shaderProg.drawBlocks(with);
+        shaderProg.setVar("skyU", 0f, 0f, 1f, 1f);
+        shaderProg.setVar("skyMU", 0f, 0f, 0f, 1f);
+        shaderProg.drawBlocks(without);
+        final Point low = st.low.size;
         final int box = Math.max(1, (Math.max(low.x, low.y) + SKY_RATIO_SIDE - 1) / SKY_RATIO_SIDE);
         final Point size = WhyTone.reduced(low, box);
         final GLTexture ratio = new GLTexture(size, new GLFormat(GLFormat.DataType.FLOAT_32, 4), null, GL_NEAREST, GL_CLAMP_TO_EDGE);
         try {
-            glProg.useAssetProgram("why/skyratio", false);
-            glProg.setTexture("WithSky", with);
-            glProg.setTexture("WithoutSky", without);
-            glProg.setVar("boxU", box);
-            glProg.setVar("p3U", pipeline.p3Output ? 1 : 0);
-            glProg.setVar("epsU", com.scamera.app.processing.ultrahdr.GainMapComputer.DECODE_OFFSET);
-            glProg.drawBlocks(ratio);
+            shaderProg.useAssetProgram("why/skyratio", false);
+            shaderProg.setTexture("WithSky", with);
+            shaderProg.setTexture("WithoutSky", without);
+            shaderProg.setVar("boxU", box);
+            shaderProg.setVar("p3U", pipeline.p3Output ? 1 : 0);
+            shaderProg.setVar("epsU", com.scamera.app.processing.ultrahdr.GainMapComputer.DECODE_OFFSET);
+            shaderProg.drawBlocks(ratio);
             final java.nio.ByteBuffer b = java.nio.ByteBuffer.allocateDirect(size.x * size.y * 16).order(java.nio.ByteOrder.nativeOrder());
             ratio.textureBuffer(new GLFormat(GLFormat.DataType.FLOAT_32, 4), b);
             b.rewind();

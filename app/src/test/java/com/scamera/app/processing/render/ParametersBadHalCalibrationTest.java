@@ -51,7 +51,7 @@ public class ParametersBadHalCalibrationTest {
 
     @Before public void setUp() {
         final com.scamera.app.api.Settings settings = new com.scamera.app.api.Settings();
-        settings.colorMethod = 1;
+        settings.colourMethod = 1;
         app = mockStatic(com.scamera.app.app.ScameraApp.class);
         app.when(com.scamera.app.app.ScameraApp::getSettings).thenReturn(settings);
         prefsKeys = mockStatic(PreferenceKeys.class, invocation -> {
@@ -82,7 +82,7 @@ public class ParametersBadHalCalibrationTest {
     private static Parameters shot(float[] n) {
         final Parameters p = new Parameters();
         p.physicalID = 2;
-        p.ReCalcColor(false, result(IDENTITY, n));
+        p.resolveColour(false, result(IDENTITY, n));
         return p;
     }
 
@@ -103,9 +103,9 @@ public class ParametersBadHalCalibrationTest {
     private static void assertSameColour(String what, Parameters want, Parameters got) {
         assertEquals(what + ": route", want.colourSource, got.colourSource);
         for (int i = 0; i < 9; i++) {
-            assertTrue(what + ": finite", Float.isFinite(got.sensorToProPhoto[i]));
-            assertEquals(what + ": sensorToProPhoto " + i, want.sensorToProPhoto[i], got.sensorToProPhoto[i], 1e-6f);
-            assertEquals(what + ": CCT " + i, want.CCT.matrix[i], got.CCT.matrix[i], 1e-6f);
+            assertTrue(what + ": finite", Float.isFinite(got.cameraToProPhoto[i]));
+            assertEquals(what + ": sensorToProPhoto " + i, want.cameraToProPhoto[i], got.cameraToProPhoto[i], 1e-6f);
+            assertEquals(what + ": CCT " + i, want.colorTransform.matrix[i], got.colorTransform.matrix[i], 1e-6f);
         }
         assertEquals(what + ": scene light", want.sceneCct, got.sceneCct, 1f);
     }
@@ -113,9 +113,9 @@ public class ParametersBadHalCalibrationTest {
     /** Neutral -> white: the channels of CCT . sensorToProPhoto . n agree within 1e-3. */
     private static void assertWhite(String what, Parameters p) {
         final float[] m = new float[9];
-        Converter.multiply(p.CCT.matrix, p.sensorToProPhoto, m);
+        Converter.multiply(p.colorTransform.matrix, p.cameraToProPhoto, m);
         final float[] w = new float[3];
-        for (int r = 0; r < 3; r++) w[r] = m[r * 3] * p.whitePoint[0] + m[r * 3 + 1] * p.whitePoint[1] + m[r * 3 + 2] * p.whitePoint[2];
+        for (int r = 0; r < 3; r++) w[r] = m[r * 3] * p.asShotNeutral[0] + m[r * 3 + 1] * p.asShotNeutral[1] + m[r * 3 + 2] * p.asShotNeutral[2];
         assertEquals(what + " white R/G", 1f, w[0] / w[1], 1e-3f);
         assertEquals(what + " white B/G", 1f, w[2] / w[1], 1e-3f);
     }
@@ -129,7 +129,7 @@ public class ParametersBadHalCalibrationTest {
             second(ZERO, ZERO, ZERO, (byte) 21);
             final Parameters got = shot(n);
             assertSameColour("zero calibration 2 at " + t + " K", want, got);
-            assertEquals("the DNG's second illuminant follows the profile", 17, got.calibrationIlluminant2);
+            assertEquals("the DNG's second illuminant follows the profile", 17, got.refIlluminant2);
         }
     }
 
@@ -160,7 +160,7 @@ public class ParametersBadHalCalibrationTest {
         final Parameters dual = shot(n);
         assertEquals("DNG_FM", dual.colourSource);
         assertWhite("dual", dual);
-        assertEquals(21, dual.calibrationIlluminant2);
+        assertEquals(21, dual.refIlluminant2);
         assertEquals("D65 light read", 6504, dual.sceneCct, 6504 * 0.015);
     }
 

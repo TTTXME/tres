@@ -122,7 +122,7 @@ public class FlashModeTest {
                 "mDcgRequestKeys", "mDcgOperationMode != 0", "mShutterIszAspect4x3", "mCroppedRawSession", "XiaomiTeleZoom.isz()",
                 "SensorModePick.session() != null", "forcedMode != 0"})
             assertTrue(flag, routeBody.contains(flag));
-        final int ae = s.indexOf("private void setAEMode(CaptureRequest.Builder requestBuilder, int aeMode)");
+        final int ae = s.indexOf("private void applyAeMode(CaptureRequest.Builder requestBuilder, int aeMode)");
         assertTrue(s.substring(ae, s.indexOf("\n    }\n", ae)).contains("mFlashSupported && flashRouteBlock(false) == null"));
         // FULLRES (the vivo / OPPO SDK session) posts its own capture: never the flash shot
         final int sdk = s.indexOf("flashShotAtPress(); // P590: FULLRES takes no flash shot");

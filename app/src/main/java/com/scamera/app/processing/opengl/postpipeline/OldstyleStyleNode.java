@@ -21,21 +21,21 @@ public final class OldstyleStyleNode extends Node {
         this.style = style;
     }
 
-    @Override public void Compile() {}
+    @Override public void bindShader() {}
 
     @Override
-    public void Run() {
-        final GLTexture in = previousNode.WorkingTexture;
-        final Point size = in.mSize;
+    public void runPass() {
+        final GLTexture in = prevPass.passOut;
+        final Point size = in.size;
         final float[] u = style.uniformsAfterTone();
-        glProg.useAssetProgram("oldstyle/adjust", false);
-        glProg.setTexture("InputBuffer", in);
-        for (int i = 0; i < 4; i++) glProg.setVar("uOs" + i, u[i * 4], u[i * 4 + 1], u[i * 4 + 2], u[i * 4 + 3]);
+        shaderProg.useAssetProgram("oldstyle/adjust", false);
+        shaderProg.setTexture("InputBuffer", in);
+        for (int i = 0; i < 4; i++) shaderProg.setVar("uOs" + i, u[i * 4], u[i * 4 + 1], u[i * 4 + 2], u[i * 4 + 3]);
         // the main textures alternate: the tone wrote one, this pass writes the other
-        WorkingTexture = basePipeline.getMain();
-        if (WorkingTexture == in) WorkingTexture = basePipeline.getMain();
-        glProg.drawBlocks(WorkingTexture);
-        glProg.closed = true;
+        passOut = hostPipeline.getMain();
+        if (passOut == in) passOut = hostPipeline.getMain();
+        shaderProg.drawBlocks(passOut);
+        shaderProg.closed = true;
         Log.i("SCAM_PIPELINE", "Oldstyle style " + style + " grid=" + size.x + "x" + size.y);
     }
 }

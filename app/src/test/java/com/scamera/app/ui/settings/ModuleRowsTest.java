@@ -124,11 +124,11 @@ public class ModuleRowsTest {
         e.putString("module_auto_front0", "1").putString("module_label_front0", "1×").putBoolean("module_visible_front0", true);
         e.putString("module_active", "back0");
         VendorTagUtils.TunableKey key = new VendorTagUtils.TunableKey();
-        key.type = VendorTagUtils.TunableKey.TYPE_SESSION;
-        key.name = "vivo.control.forceSensorMode";
-        key.value = "3";
-        key.tested = true;
-        key.supported = true;
+        key.kind = VendorTagUtils.TunableKey.TYPE_SESSION;
+        key.tag = "vivo.control.forceSensorMode";
+        key.text = "3";
+        key.sent = true;
+        key.known = true;
         e.putString("pref_sensorconfig_back1_tunablekeys", new Gson().toJson(Collections.singletonList(key)));
         e.commit();
         return copy ? ModuleRegistry.duplicate("back0", 1.3f) : null;

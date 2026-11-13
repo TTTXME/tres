@@ -39,18 +39,18 @@ public class DngCreatorColourTagsTest {
 
     private static Parameters parameters(float[] cm, float[] fm1, float[] fm2) {
         final Parameters p = mock(Parameters.class);
-        p.ColorMatrix1 = cm.clone();
-        p.ColorMatrix2 = cm.clone();
-        p.ForwardTransform1 = fm1.clone();
-        p.ForwardTransform2 = fm2.clone();
-        p.calibrationTransform1 = new float[]{1, 0, 0, 0, 1, 0, 0, 0, 1};
-        p.calibrationTransform2 = new float[]{1, 0, 0, 0, 1, 0, 0, 0, 1};
-        p.calibrationIlluminant1 = 21;
-        p.calibrationIlluminant2 = 17;
-        p.whitePoint = new float[]{0.5f, 1f, 0.6f};
-        p.blackLevel = new float[]{64, 64, 64, 64};
-        p.gainMap = new float[]{1, 1, 1, 1};
-        p.mapSize = new Point(1, 1);
+        p.colorMatrix1 = cm.clone();
+        p.colorMatrix2 = cm.clone();
+        p.forwardMatrix1 = fm1.clone();
+        p.forwardMatrix2 = fm2.clone();
+        p.cameraCalibration1 = new float[]{1, 0, 0, 0, 1, 0, 0, 0, 1};
+        p.cameraCalibration2 = new float[]{1, 0, 0, 0, 1, 0, 0, 0, 1};
+        p.refIlluminant1 = 21;
+        p.refIlluminant2 = 17;
+        p.asShotNeutral = new float[]{0.5f, 1f, 0.6f};
+        p.cfaBlack = new float[]{64, 64, 64, 64};
+        p.shadingMap = new float[]{1, 1, 1, 1};
+        p.shadingGrid = new Point(1, 1);
         p.rawSize = new Point(64, 48);
         doCallRealMethod().when(p).dngForwardMatrices();
         return p;

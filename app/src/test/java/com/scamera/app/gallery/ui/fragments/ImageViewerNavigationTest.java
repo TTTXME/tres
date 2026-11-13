@@ -46,7 +46,7 @@ public class ImageViewerNavigationTest {
 
     @Test
     public void aNewViewerStartsAtItsSavedPositionElseItsArguments() {
-        Bundle args = position(Constants.IMAGE_POSITION_KEY, 3);
+        Bundle args = position(Constants.ARG_POSITION, 3);
         assertEquals("tapped in the grid", 3, ImageViewerFragment.startPosition(null, args));
         assertEquals("recreated: the photo shown before", 5, ImageViewerFragment.startPosition(position(ImageViewerFragment.KEY_SEEK, 5), args));
         assertEquals("the camera's viewer recreated (no arguments)", 6, ImageViewerFragment.startPosition(position(ImageViewerFragment.KEY_SEEK, 6), null));

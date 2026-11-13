@@ -73,7 +73,7 @@ public class OldstyleStyleTest {
         assertTrue(renderer.contains("\"shaders/utils/import_oldstyle_adjust.glsl\"") && renderer.contains("\"uOs\" + i"));
         final String node = new String(Files.readAllBytes(Paths.get(
                 "src/main/java/com/scamera/app/processing/opengl/postpipeline/OldstyleStyleNode.java")), StandardCharsets.UTF_8);
-        assertTrue(node.contains("glProg.setVar(\"uOs\" + i") && node.contains("useAssetProgram(\"oldstyle/adjust\""));
+        assertTrue(node.contains("shaderProg.setVar(\"uOs\" + i") && node.contains("useAssetProgram(\"oldstyle/adjust\""));
     }
 
     /** P630e: the order with the tone - the exposure before it (the TETs), every other parameter after it (its display values). */

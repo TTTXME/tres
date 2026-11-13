@@ -188,13 +188,13 @@ public class ShotExifTest {
         assertEquals(SHOT, f.timeMs);
         assertEquals(ShotExif.focal35(9.12, 9.83, 7.37, 1), f.focal35);
         // no focal length / aperture in the result or request: the camera's declared lens
-        p.focalLength = 4.75f;
-        p.aperture = 1.8f;
+        p.focalMm = 4.75f;
+        p.fNumber = 1.8f;
         p.focalLengthOfShot = p.apertureOfShot = false;
         f = ShotExif.of(p, 1, DeviceName.make(), DeviceName.model());
         assertEquals(9.12, f.focalLength, 1e-6);
         assertEquals(1.69, f.fNumber, 1e-6);
-        // nor declared: none (FillDynamicParameters' 4.75 mm / f/1.8 stay for the processing only)
+        // nor declared: none (fillFromFrame' 4.75 mm / f/1.8 stay for the processing only)
         p.lensFocalLengths = null;
         p.lensApertures = null;
         f = ShotExif.of(p, 1, DeviceName.make(), DeviceName.model());
@@ -219,7 +219,7 @@ public class ShotExifTest {
         // the gallery still reads the route of the photo's description
         final ParseExif.ExifData data = new ParseExif.ExifData();
         ParseExif.syncWithParameters(data, p);
-        assertEquals("SHDR", com.scamera.app.gallery.ui.GalleryFormat.routeOf(data.IMAGE_DESCRIPTION));
+        assertEquals("SHDR", com.scamera.app.gallery.ui.GalleryFormat.routeOf(data.description));
     }
 
     @Test
@@ -234,8 +234,8 @@ public class ShotExifTest {
     public void thePhotoRecordsWhatTheDngRecords() throws Exception {
         final Parameters p = shot();
         final ParseExif.ExifData data = new ParseExif.ExifData();
-        data.COMPRESSION = ParseExif.COMPRESSION_JPEG;
-        data.COLOR_SPACE = "sRGB";
+        data.compression = ParseExif.COMPRESSION_JPEG;
+        data.colorSpace = "sRGB";
         ParseExif.syncWithParameters(data, p);
         final ShotExif.Facts dng = ShotExif.of(p, p.photoFieldZoom, DeviceName.make(), DeviceName.model());
         // the JPEG writer (its APP1, ExifBlock) and an ExifInterface rewrite of a plain JPEG (the other formats' tags)
@@ -276,11 +276,11 @@ public class ShotExifTest {
         // the photo of a 2x digital zoom shows half the field: twice the 35 mm focal length
         p.photoFieldZoom = 2f;
         ParseExif.syncWithParameters(data, p);
-        assertEquals(String.valueOf(ShotExif.focal35(9.12, 9.83, 7.37, 2)), data.FOCAL_LENGTH_35MM);
+        assertEquals(String.valueOf(ShotExif.focal35(9.12, 9.83, 7.37, 2)), data.focal35mm);
         // an ISZ frame: none
         p.photoFieldZoom = 0f;
         ParseExif.syncWithParameters(data, p);
-        assertNull(data.FOCAL_LENGTH_35MM);
+        assertNull(data.focal35mm);
     }
 
     private static Parameters shot() {
@@ -294,13 +294,13 @@ public class ShotExifTest {
         p.captureTimeMs = SHOT;
         p.iso = 800;
         p.exposureTime = 1 / 852.0;
-        p.focalLength = 9.12f;
-        p.aperture = 1.69f;
+        p.focalMm = 9.12f;
+        p.fNumber = 1.69f;
         p.focalLengthOfShot = p.apertureOfShot = true;
         p.lensFocalLengths = new float[]{9.12f};
         p.lensApertures = new float[]{1.69f};
         p.lensFacing = 1;
-        p.sensorSize = new SizeF(9.83f, 7.37f);
+        p.sensorSizeMm = new SizeF(9.83f, 7.37f);
         p.photoFieldZoom = 1f;
         p.dngFieldZoom = 1f;
         p.multiFrameCount = 8;

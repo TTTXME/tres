@@ -54,7 +54,7 @@ public final class VivoPd2454NativeRaw {
     public static boolean active(String physicalId) {
         Context context = ScameraApp.getAppContext();
         String slot = ModuleRegistry.active();
-        CameraMode mode = ScameraApp.getSettings().selectedMode;
+        CameraMode mode = ScameraApp.getSettings().mode;
         return context != null && (mode == CameraMode.PHOTO || mode == CameraMode.MOTION || mode == CameraMode.NIGHT)
                 && ModuleRegistry.visible(slot)
                 && physicalId != null && physicalId.equals(ModuleRegistry.camera(slot))
@@ -139,7 +139,7 @@ public final class VivoPd2454NativeRaw {
                 if (target == null) continue;
                 float zoom = ModuleRegistry.zoom(source) * factor(camera, mode);
                 List<VendorTagUtils.TunableKey> keys = new ArrayList<>(TunableKeyManager.loadKeys(context, target));
-                keys.removeIf(key -> VivoQcomIsz.KEY.equals(key.name));
+                keys.removeIf(key -> VivoQcomIsz.KEY.equals(key.tag));
                 keys.add(VivoQcomIsz.sessionKey(mode));
                 TunableKeyManager.saveKeys(context, target, keys);
                 prefs.edit().putString("module_name_" + target, VivoQcomIsz.label(zoom))

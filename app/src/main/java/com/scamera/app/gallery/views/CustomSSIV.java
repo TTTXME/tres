@@ -9,10 +9,10 @@ import androidx.annotation.NonNull;
 
 import com.davemorrissey.labs.subscaleview.SubsamplingScaleImageView;
 
-import static com.scamera.app.gallery.helper.Constants.DOUBLE_TAP_ZOOM_DURATION_MS;
+import static com.scamera.app.gallery.helper.Constants.ZOOM_ANIMATION_MS;
 
 /**
- * The viewer's zoomable photo: EXIF orientation, quick scale, a double tap zooms (Constants.DOUBLE_TAP_ZOOM_DURATION_MS),
+ * The viewer's zoomable photo: EXIF orientation, quick scale, a double tap zooms (Constants.ZOOM_ANIMATION_MS),
  * full-colour tiles; reports touches to its {@link TouchCallBack} (the compare panes follow each other) and a swipe down at
  * the fit scale (the viewer closes).
  */
@@ -35,7 +35,7 @@ public class CustomSSIV extends SubsamplingScaleImageView {
         setOrientation(ORIENTATION_USE_EXIF);
         setQuickScaleEnabled(true);
         setEagerLoadingEnabled(false);
-        setDoubleTapZoomDuration(DOUBLE_TAP_ZOOM_DURATION_MS);
+        setDoubleTapZoomDuration(ZOOM_ANIMATION_MS);
         setPreferredBitmapConfig(Bitmap.Config.ARGB_8888);
     }
 

@@ -1,5 +1,4 @@
-precision highp float;
-precision highp sampler2D;
+precision highp float; precision highp sampler2D;
 // P286: the reference model's halation bounces summed (FilmHalation): sum_k w_k G(sigma_h sqrt(k)) * E, the three blurred
 // levels already at one size, w = 1, 1/2, 1/4 over their sum.
 uniform sampler2D B1;

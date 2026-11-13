@@ -50,7 +50,7 @@ public class ParametersPedestalLossTest {
 
     private static Parameters parameters() throws Exception {
         Parameters p = new Parameters();
-        p.whiteLevel = 1023; p.blackLevel = new float[]{64, 64, 64, 64};
+        p.whiteLevel = 1023; p.cfaBlack = new float[]{64, 64, 64, 64};
         Field override = Parameters.class.getDeclaredField("blackLevelOverride");
         override.setAccessible(true); override.setFloat(p, -1f);
         Field white = Parameters.class.getDeclaredField("whiteLevelOverride");
@@ -89,7 +89,7 @@ public class ParametersPedestalLossTest {
         Parameters p = parameters();
         p.refineBlackLevel(f, w, h, block, stream);
         float max = 0;
-        for (float v : p.blackLevel) max = Math.max(max, v);
+        for (float v : p.cfaBlack) max = Math.max(max, v);
         return max;
     }
 
@@ -193,7 +193,7 @@ public class ParametersPedestalLossTest {
             // a frame of the stream with deep shade proves the loss: its floor is remembered for the stream
             Parameters proof = parameters();
             proof.refineBlackLevel(daylight(block, 0, 60 + block), 1024, 768, block, stream);
-            assertTrue(b + "the proof " + proof.blackLevel[0], proof.blackLevel[0] < 3f);
+            assertTrue(b + "the proof " + proof.cfaBlack[0], proof.cfaBlack[0] < 3f);
             assertTrue(b + "remembered", PedestalMemory.floor(stream, 1023f) < 3f);
             // now the frames without deep shade of that stream take it; another stream's do not
             assertEquals(b + "A with the stream's floor", 0f, black(sky, block, stream), 2f);

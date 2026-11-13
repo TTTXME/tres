@@ -37,7 +37,7 @@ public final class WhyLumaSharpen extends Node {
     private static final int MAX_HALF = 8;
 
     public WhyLumaSharpen() { super("", "WhyLumaSharpen"); }
-    @Override public void Compile() {}
+    @Override public void bindShader() {}
 
     private static GLTexture plane(Point size, GLFormat.DataType type, int channels) {
         return new GLTexture(size, new GLFormat(type, channels), null, GL_NEAREST, GL_CLAMP_TO_EDGE);
@@ -318,11 +318,11 @@ public final class WhyLumaSharpen extends Node {
     }
 
     @Override
-    public void Run() {
-        PostPipeline pipeline = (PostPipeline) basePipeline;
-        GLTexture input = previousNode.WorkingTexture;
-        WorkingTexture = input;
-        glProg.closed = true;
+    public void runPass() {
+        PostPipeline pipeline = (PostPipeline) hostPipeline;
+        GLTexture input = prevPass.passOut;
+        passOut = input;
+        shaderProg.closed = true;
         WhyTone.State st = pipeline.why;
         if (earlyInput != null) {
             final boolean same = earlyInput == input;
@@ -343,16 +343,16 @@ public final class WhyLumaSharpen extends Node {
     private void issue(PostPipeline pipeline, GLTexture input, boolean early) {
         WhyTone.State st = pipeline.why;
         long started = System.currentTimeMillis();
-        Point size = input.mSize;
+        Point size = input.size;
         boolean gClean = cleanDomain(WhyTone.value("sharp_domain", 1f), pipeline.film);
         float mul = gClean ? 1f : st.ae.ae;
         float scaleSetting = WhyTone.value("sharp_scale", 0f);
-        float s = scaleSetting > 0f ? Math.min(scaleSetting, 4f) : Math.max(1, Math.round(pipeline.mParameters.outputScale));
+        float s = scaleSetting > 0f ? Math.min(scaleSetting, 4f) : Math.max(1, Math.round(pipeline.shotParams.outputScale));
         int down = Math.max(1, (int) Math.floor(s + 1e-4f));
         int nb = Math.max(1, Math.round(s));
 
         // P135: a noisy (night) shot gets a share of the sharpening, by the SNR the denoise measured
-        final float lowLight = lowLightFactor(pipeline.mParameters.finishSnr);
+        final float lowLight = lowLightFactor(pipeline.shotParams.finishSnr);
         float usmRadius = WhyTone.value("sharp_usm_radius", 0.1f);
         float usmAmount = filmShare(WhyTone.value("sharp_usm_amount", 0.5f) * lowLight, pipeline.film);
         float usmThresh = WhyTone.value("sharp_usm_thresh", 0f) / 255f;
@@ -381,32 +381,32 @@ public final class WhyLumaSharpen extends Node {
                 {WhyTone.value("sharp_rl2_kernel", 1f), WhyTone.value("sharp_rl2_rad", 0f), filmShare(WhyTone.value("sharp_rl2_amount", 0f) * lowLight, pipeline.film), WhyTone.value("sharp_rl2_iters", 0f),
                         WhyTone.value("sharp_rl2_damping", 0f)},
                 {WhyTone.value("sharp_rl3_kernel", 0f), WhyTone.value("sharp_rl3_rad", 0.5f),
-                        filmShare(com.scamera.app.settings.DeviceDefaults.rl3Amount(WhyTone.value("sharp_rl3_amount", 1.5f), pipeline.mParameters.cameraID) * lowLight, pipeline.film),
+                        filmShare(com.scamera.app.settings.DeviceDefaults.rl3Amount(WhyTone.value("sharp_rl3_amount", 1.5f), pipeline.shotParams.cameraID) * lowLight, pipeline.film),
                         WhyTone.value("sharp_rl3_iters", 3f), WhyTone.value("sharp_rl3_damping", 0f)}};   // P404: the TV damping per stage
 
         GLTexture gainMap = pipeline.GainMap;
         GLTexture fallback = null;
         if (gainMap == null) {
             fallback = new GLTexture(new Point(1, 1), new GLFormat(GLFormat.DataType.FLOAT_16, 4),
-                    BufferUtils.getFrom(new float[]{1f, 1f, 1f, 1f}), GL_LINEAR, GL_CLAMP_TO_EDGE);
+                    BufferUtils.floatBuffer(new float[]{1f, 1f, 1f, 1f}), GL_LINEAR, GL_CLAMP_TO_EDGE);
             gainMap = fallback;
         }
         GLTexture ya = plane(size, GLFormat.DataType.FLOAT_16, 1);
         // P614 «Why тон» V2: the guide is the reference's luma_extract of V2's clean RGB (unclamped), as its tone sharpens it
         final GLTexture v2Clean = pipeline.whyV2 != null ? pipeline.whyV2.clean : null;
-        if (v2Clean != null) glProg.setDefine("REF_LUMA", 1);
-        glProg.useAssetProgram("why/sharp_in", false);
-        glProg.setTexture("InputBuffer", input);
-        if (v2Clean != null) glProg.setTexture("CleanBuffer", v2Clean);
-        WhyTone.setColour(glProg, pipeline, gainMap, st.inScale);
-        glProg.setVar("mulU", mul);
-        glProg.drawBlocks(ya);
+        if (v2Clean != null) shaderProg.setDefine("REF_LUMA", 1);
+        shaderProg.useAssetProgram("why/sharp_in", false);
+        shaderProg.setTexture("InputBuffer", input);
+        if (v2Clean != null) shaderProg.setTexture("CleanBuffer", v2Clean);
+        WhyTone.setColour(shaderProg, pipeline, gainMap, st.inScale);
+        shaderProg.setVar("mulU", mul);
+        shaderProg.drawBlocks(ya);
         final boolean released = releaseImage(pipeline, input, gainMap, mul);
         if (fallback != null) fallback.close();
         if (neutralFilmGuide(pipeline.film)) {
             st.lumaS = ya;
             st.sharpMul = mul;
-            glProg.closed = true;
+            shaderProg.closed = true;
             Log.i("SCAM_PIPELINE", "WHY luma sharpen film neutral guide grid=" + size.x + "x" + size.y
                     + " domain=G_CLEAN mul=" + mul + " ms=" + (System.currentTimeMillis() - started)
                     + (early ? " (issued before the AE)" : "") + (released ? " imageReleased" : ""));
@@ -416,7 +416,7 @@ public final class WhyLumaSharpen extends Node {
         // P214e R1: on a mosaic shot every pass below reads B(Ya), the 3x3 binomial of Ya, and the residual Ya - B lives until
         // the last pass (S(B) + Ya - B): one full plane more through the RL stages (P214z: so not above 100 MP, r1Fits).
         // Otherwise src is ya, as before.
-        final int block = pipeline.mParameters.mosaicBlock;
+        final int block = pipeline.shotParams.mosaicBlock;
         final boolean r1 = smoothedSource(block, size.x, size.y);
         // P337: a plain Bayer shot reads Ya without its 2 px lattice (sharp_r1 mode 3), which comes back at its own level
         final boolean lattice = !r1 && latticeSource(block, size.x, size.y);
@@ -429,19 +429,19 @@ public final class WhyLumaSharpen extends Node {
         final boolean gather = !com.scamera.app.processing.opengl.PostGlMode.legacy();
         if (r1 || lattice) {
             src = plane(size, GLFormat.DataType.FLOAT_16, 1);
-            if (gather && !r1) glProg.setDefine("GATHER", 1);
-            glProg.useAssetProgram("why/sharp_r1", false);
-            glProg.setTexture("InputBuffer", ya);
+            if (gather && !r1) shaderProg.setDefine("GATHER", 1);
+            shaderProg.useAssetProgram("why/sharp_r1", false);
+            shaderProg.setTexture("InputBuffer", ya);
             // P441: the lattice estimate clamped to this share of Ya (edges no longer dashed); why_sharp_lattice_cap 0 = unclamped
-            if (!r1) glProg.setVar("latCapU", WhyTone.latticeCap());
-            glProg.setVar("modeU", r1 ? 0 : 3);
-            glProg.drawBlocks(src);
+            if (!r1) shaderProg.setVar("latCapU", WhyTone.latticeCap());
+            shaderProg.setVar("modeU", r1 ? 0 : 3);
+            shaderProg.drawBlocks(src);
             residual = plane(size, GLFormat.DataType.FLOAT_16, 1);
-            glProg.useAssetProgram("why/sharp_r1", false);
-            glProg.setTexture("InputBuffer", ya);
-            glProg.setTexture("Smoothed", src);
-            glProg.setVar("modeU", 1);
-            glProg.drawBlocks(residual);
+            shaderProg.useAssetProgram("why/sharp_r1", false);
+            shaderProg.setTexture("InputBuffer", ya);
+            shaderProg.setTexture("Smoothed", src);
+            shaderProg.setVar("modeU", 1);
+            shaderProg.drawBlocks(residual);
             ya.close();
         }
 
@@ -453,21 +453,21 @@ public final class WhyLumaSharpen extends Node {
             gfBox = Math.max(1, Math.round(gfRadius * s / gfDown));
             Point reduced = WhyTone.reduced(size, gfDown);
             GLTexture h = plane(reduced, GLFormat.DataType.FLOAT_32, 2);
-            if (gather) glProg.setDefine("GATHER", 1);
-            glProg.useAssetProgram("why/sharp_box", false);
-            glProg.setTexture("InputBuffer", src);
-            glProg.setVar("modeU", 0);
-            glProg.setVar("radiusU", gfBox);
-            glProg.setVar("downU", gfDown);
-            glProg.drawBlocks(h);
+            if (gather) shaderProg.setDefine("GATHER", 1);
+            shaderProg.useAssetProgram("why/sharp_box", false);
+            shaderProg.setTexture("InputBuffer", src);
+            shaderProg.setVar("modeU", 0);
+            shaderProg.setVar("radiusU", gfBox);
+            shaderProg.setVar("downU", gfDown);
+            shaderProg.drawBlocks(h);
             for (int mode = 1; mode <= 3; mode++) {
                 GLTexture next = plane(reduced, GLFormat.DataType.FLOAT_16, 2);
-                glProg.useAssetProgram("why/sharp_box", false);
-                glProg.setTexture("InputBuffer", h);
-                glProg.setVar("modeU", mode);
-                glProg.setVar("radiusU", gfBox);
-                glProg.setVar("epsU", gfEps);
-                glProg.drawBlocks(next);
+                shaderProg.useAssetProgram("why/sharp_box", false);
+                shaderProg.setTexture("InputBuffer", h);
+                shaderProg.setVar("modeU", mode);
+                shaderProg.setVar("radiusU", gfBox);
+                shaderProg.setVar("epsU", gfEps);
+                shaderProg.drawBlocks(next);
                 h.close();
                 h = next;
             }
@@ -478,27 +478,27 @@ public final class WhyLumaSharpen extends Node {
         boolean bil = bilRadius > 0f && Math.abs(bilAmount) > 0.001f;
         List<GLTexture> pool = new ArrayList<>();
         GLTexture obs = spare(pool, size);
-        if (gather) glProg.setDefine("GATHER", 1);
-        glProg.useAssetProgram("why/sharp_compose", false);
-        glProg.setTexture("InputBuffer", src);
-        glProg.setTexture("GfAB", ab != null ? ab : src);
-        glProg.setVar("downU", gfDown);
-        glProg.setVar("gfLcU", gf ? gfLc : 0f);
-        glProg.setVar("usmSigmaU", usm ? usmRadius * s : 0f);
-        glProg.setVar("usmAmountU", usmAmount);
-        glProg.setVar("usmThreshU", usmThresh);
-        glProg.setVar("bilAmountU", bil ? bilAmount * scaleComp(s, SCALE2_BIL) : 0f);
-        glProg.setVar("bilRadiusU", (int) Math.ceil(Math.ceil(bilRadius) * s));
-        glProg.setVar("bilSigmaSU", Math.max(0.5f, bilRadius * 0.5f) * s);
-        glProg.setVar("bilSigmaLU", bilColor);
-        glProg.setVar("nbU", nb);
-        glProg.setVar("haloU", halo);
-        glProg.setVar("protectShadowsU", protectShadows);
-        glProg.setVar("protectHighlightsU", protectHighlights);
-        glProg.setVar("grainU", grain);
-        glProg.setVar("sobelU", sobelAmount, sobelThresh);   // P404
-        glProg.setVar("thinU", thin);
-        glProg.drawBlocks(obs);
+        if (gather) shaderProg.setDefine("GATHER", 1);
+        shaderProg.useAssetProgram("why/sharp_compose", false);
+        shaderProg.setTexture("InputBuffer", src);
+        shaderProg.setTexture("GfAB", ab != null ? ab : src);
+        shaderProg.setVar("downU", gfDown);
+        shaderProg.setVar("gfLcU", gf ? gfLc : 0f);
+        shaderProg.setVar("usmSigmaU", usm ? usmRadius * s : 0f);
+        shaderProg.setVar("usmAmountU", usmAmount);
+        shaderProg.setVar("usmThreshU", usmThresh);
+        shaderProg.setVar("bilAmountU", bil ? bilAmount * scaleComp(s, SCALE2_BIL) : 0f);
+        shaderProg.setVar("bilRadiusU", (int) Math.ceil(Math.ceil(bilRadius) * s));
+        shaderProg.setVar("bilSigmaSU", Math.max(0.5f, bilRadius * 0.5f) * s);
+        shaderProg.setVar("bilSigmaLU", bilColor);
+        shaderProg.setVar("nbU", nb);
+        shaderProg.setVar("haloU", halo);
+        shaderProg.setVar("protectShadowsU", protectShadows);
+        shaderProg.setVar("protectHighlightsU", protectHighlights);
+        shaderProg.setVar("grainU", grain);
+        shaderProg.setVar("sobelU", sobelAmount, sobelThresh);   // P404
+        shaderProg.setVar("thinU", thin);
+        shaderProg.drawBlocks(obs);
         src.close(); // ya itself without R1
         if (ab != null) ab.close();
 
@@ -517,33 +517,33 @@ public final class WhyLumaSharpen extends Node {
             final int gatherHalf = !com.scamera.app.processing.opengl.PostGlMode.legacy() && k.half <= 4 ? k.half : 0;
             GLTexture est = obs;
             for (int it = 0; it < iters; it++) {
-                if (gatherHalf > 0) glProg.setDefine("PSF_HALF", gatherHalf);
-                glProg.useAssetProgram("why/sharp_rl", false);
-                glProg.setTexture("Observed", obs);
-                glProg.setTexture("Estimate", est);
-                glProg.setVar("modeU", 0);
-                glProg.setVar("psfHalfU", k.half);
-                glProg.setVarFloats("psfU", k.quadrant);
-                glProg.drawBlocks(ratio);
+                if (gatherHalf > 0) shaderProg.setDefine("PSF_HALF", gatherHalf);
+                shaderProg.useAssetProgram("why/sharp_rl", false);
+                shaderProg.setTexture("Observed", obs);
+                shaderProg.setTexture("Estimate", est);
+                shaderProg.setVar("modeU", 0);
+                shaderProg.setVar("psfHalfU", k.half);
+                shaderProg.setVarFloats("psfU", k.quadrant);
+                shaderProg.drawBlocks(ratio);
                 GLTexture next = spare(pool, size, obs, est);
-                if (gatherHalf > 0) glProg.setDefine("PSF_HALF", gatherHalf);
-                glProg.useAssetProgram("why/sharp_rl", false);
-                glProg.setTexture("Observed", obs);
-                glProg.setTexture("Estimate", est);
-                glProg.setTexture("Ratio", ratio);
-                glProg.setVar("modeU", it == iters - 1 ? 2 : 1);
-                glProg.setVar("psfHalfU", k.half);
-                glProg.setVarFloats("psfU", k.quadrant);
-                glProg.setVar("amountU", amount);
-                glProg.setVar("dampU", Math.max(0f, rl[i][4]));   // P404
-                glProg.setVar("haloU", rlHalo);
-                glProg.setVar("marginU", rlMargin);
-                glProg.setVar("macroU", rlMacro);
-                glProg.setVar("edgeGuardU", rlEdgeGuard);
-                glProg.setVar("protectShadowsU", protectShadows);
-                glProg.setVar("protectHighlightsU", protectHighlights);
-                glProg.setVar("nbU", nb);
-                glProg.drawBlocks(next);
+                if (gatherHalf > 0) shaderProg.setDefine("PSF_HALF", gatherHalf);
+                shaderProg.useAssetProgram("why/sharp_rl", false);
+                shaderProg.setTexture("Observed", obs);
+                shaderProg.setTexture("Estimate", est);
+                shaderProg.setTexture("Ratio", ratio);
+                shaderProg.setVar("modeU", it == iters - 1 ? 2 : 1);
+                shaderProg.setVar("psfHalfU", k.half);
+                shaderProg.setVarFloats("psfU", k.quadrant);
+                shaderProg.setVar("amountU", amount);
+                shaderProg.setVar("dampU", Math.max(0f, rl[i][4]));   // P404
+                shaderProg.setVar("haloU", rlHalo);
+                shaderProg.setVar("marginU", rlMargin);
+                shaderProg.setVar("macroU", rlMacro);
+                shaderProg.setVar("edgeGuardU", rlEdgeGuard);
+                shaderProg.setVar("protectShadowsU", protectShadows);
+                shaderProg.setVar("protectHighlightsU", protectHighlights);
+                shaderProg.setVar("nbU", nb);
+                shaderProg.drawBlocks(next);
                 est = next;
             }
             obs = est;
@@ -554,16 +554,16 @@ public final class WhyLumaSharpen extends Node {
             // P214e R1: S(B) + (Ya - B); the RL ratio goes first, the output takes a free plane of the pool
             if (ratio != null) { ratio.close(); ratio = null; }
             GLTexture out = spare(pool, size, obs);
-            glProg.useAssetProgram("why/sharp_r1", false);
-            glProg.setTexture("Sharpened", obs);
-            glProg.setTexture("Residual", residual);
-            glProg.setVar("modeU", 2);
-            glProg.drawBlocks(out);
+            shaderProg.useAssetProgram("why/sharp_r1", false);
+            shaderProg.setTexture("Sharpened", obs);
+            shaderProg.setTexture("Residual", residual);
+            shaderProg.setVar("modeU", 2);
+            shaderProg.drawBlocks(out);
             residual.close();
             obs = out;
             stages.append(r1 ? " r1=B3(block " + block + ")" : " lattice=off-sharpened" + (quadBoost ? " quad(rl3 x" + QUAD_RL3_BOOST + ")" : ""));
         } else if (block > 1) stages.append(r1Fits(size.x, size.y) ? " r1=off(block " : " r1=off(>100MP, block ").append(block).append(")");
-        glProg.closed = true;
+        shaderProg.closed = true;
         if (ratio != null) ratio.close();
         for (GLTexture t : pool) if (t != obs) t.close();
         st.lumaS = obs;
@@ -585,10 +585,10 @@ public final class WhyLumaSharpen extends Node {
      */
     private boolean releaseImage(PostPipeline pipeline, GLTexture input, GLTexture gainMap, float mul) {
         WhyTone.State st = pipeline.why;
-        if (!ScamRgb.earlyRelease(input.mSize) || st.factor > 2) return false;
+        if (!ScamRgb.earlyRelease(input.size) || st.factor > 2) return false;
         if (input != pipeline.main1 && input != pipeline.main2) return false;
         if (detailReferenceWanted(WhyTone.value("sharp_gain", 1.0f), pipeline.film) && st.detailRef == null)
-            st.detailRef = WhyCombine.detailRef(glProg, pipeline, input, gainMap, mul);
+            st.detailRef = WhyCombine.detailRef(shaderProg, pipeline, input, gainMap, mul);
         android.opengl.GLES30.glFinish();
         st.inputReleased = pipeline.releaseMain(input);
         return st.inputReleased;

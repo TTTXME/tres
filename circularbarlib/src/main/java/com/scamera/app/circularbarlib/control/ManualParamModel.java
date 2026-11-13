@@ -7,17 +7,13 @@ import java.util.Observable;
  * kelvin; each at its *_AUTO value while automatic). Every change tells the observers which value changed (the ID_* names).
  */
 public class ManualParamModel extends Observable {
-    public static final double EXPOSURE_AUTO = 0;
-    public static final double EV_AUTO = 0;
-    public static final double ISO_AUTO = 0;
-    public static final double FOCUS_AUTO = -1.0d;
-    public static final String ID_FOCUS = "focus";
-    public static final String ID_EV = "ev";
-    public static final String ID_SHUTTER = "shutter";
-    public static final String ID_ISO = "iso";
-    public static final String ID_WB = "wb";
+    /** The values that mean «auto»: shutter, EV index and ISO 0; focus -1 diopters (white balance: 0 K). */
+    public static final double SHUTTER_AUTO_NS = 0, EV_AUTO_STEP = 0, ISO_AUTO_VALUE = 0, FOCUS_AUTO_DIOPTERS = -1.0d;
+    /** What an observer is told changed (the texts are the observers' contract). */
+    public static final String CHANGED_FOCUS = "focus", CHANGED_EV = "ev", CHANGED_SHUTTER = "shutter", CHANGED_ISO = "iso",
+            CHANGED_WB = "wb";
     /** Sent by {@link #reset}: everything went back to auto. */
-    public static final String PANEL_INVISIBILITY = "panel_invisibility";
+    public static final String ALL_AUTO = "panel_invisibility";
 
     private double focus, ev, exposureNs, iso;
     private int kelvin;
@@ -33,39 +29,39 @@ public class ManualParamModel extends Observable {
         super.notifyObservers(what);
     }
 
-    public double getCurrentFocusValue() { return focus; }
+    public double focusValue() { return focus; }
 
-    public void setCurrentFocusValue(double diopters) { focus = diopters; changed(ID_FOCUS); }
+    public void setFocusValue(double diopters) { focus = diopters; changed(CHANGED_FOCUS); }
 
-    public double getCurrentEvValue() { return ev; }
+    public double evIndex() { return ev; }
 
-    public void setCurrentEvValue(double index) { ev = index; changed(ID_EV); }
+    public void setEvIndex(double index) { ev = index; changed(CHANGED_EV); }
 
-    public double getCurrentExposureValue() { return exposureNs; }
+    public double shutterValueNs() { return exposureNs; }
 
-    public void setCurrentExposureValue(double ns) { exposureNs = ns; changed(ID_SHUTTER); }
+    public void setShutterValueNs(double ns) { exposureNs = ns; changed(CHANGED_SHUTTER); }
 
-    public double getCurrentISOValue() { return iso; }
+    public double isoSetting() { return iso; }
 
-    public void setCurrentISOValue(double value) { iso = value; changed(ID_ISO); }
+    public void setIsoSetting(double value) { iso = value; changed(CHANGED_ISO); }
 
-    public int getWhiteBalanceKelvin() { return kelvin; }
+    public int kelvinSetting() { return kelvin; }
 
-    public void setWhiteBalanceKelvin(int value) { kelvin = value; changed(ID_WB); }
+    public void setKelvinSetting(int value) { kelvin = value; changed(CHANGED_WB); }
 
     /** Any value off auto. */
-    public boolean isManualMode() {
-        boolean allAuto = exposureNs == EXPOSURE_AUTO && focus == FOCUS_AUTO && iso == ISO_AUTO && ev == EV_AUTO && kelvin == 0;
+    public boolean offAuto() {
+        boolean allAuto = exposureNs == SHUTTER_AUTO_NS && focus == FOCUS_AUTO_DIOPTERS && iso == ISO_AUTO_VALUE && ev == EV_AUTO_STEP && kelvin == 0;
         return !allAuto;
     }
 
     /** Everything back to auto, observers told once. */
     public void reset() {
-        focus = FOCUS_AUTO;
-        ev = EV_AUTO;
-        exposureNs = EXPOSURE_AUTO;
-        iso = ISO_AUTO;
+        focus = FOCUS_AUTO_DIOPTERS;
+        ev = EV_AUTO_STEP;
+        exposureNs = SHUTTER_AUTO_NS;
+        iso = ISO_AUTO_VALUE;
         kelvin = 0;
-        changed(PANEL_INVISIBILITY);
+        changed(ALL_AUTO);
     }
 }

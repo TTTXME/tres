@@ -12,13 +12,14 @@ import com.scamera.app.app.ScameraApp;
 import com.scamera.app.settings.BackupRestoreUtil;
 import com.scamera.app.util.Lang;
 
+/** «Сбросить все настройки»: a row that stores nothing itself; its dialog texts are what {@link #confirm} shows. */
 public class ResetPreferences extends DialogPreference {
-    public ResetPreferences(Context context, AttributeSet attributeSet) {
-        super(context, attributeSet);
+    public ResetPreferences(Context context, AttributeSet attrs) {
+        super(context, attrs);
+        setDialogTitle(context.getString(android.R.string.dialog_alert_title));
+        setDialogMessage(context.getString(R.string.reset_preferences_warning));
+        setPositiveButtonText(context.getString(R.string.yes));
         setPersistent(false);
-        setDialogTitle(android.R.string.dialog_alert_title);
-        setDialogMessage(R.string.reset_preferences_warning);
-        setPositiveButtonText(R.string.yes);
     }
 
     /**

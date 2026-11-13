@@ -39,12 +39,12 @@ public class GallerySearchTest {
             this.modified = modified;
         }
 
-        @Override public long getId() { return id; }
-        @Override public Uri getFileUri() { return Uri.parse("content://media/external/images/media/" + id); }
-        @Override public long getLastModified() { return modified; }
-        @Override public String getDisplayName() { return name; }
-        @Override public long getSize() { return 1; }
-        @Override public String getAbsolutePath() { return path; }
+        @Override public long rowId() { return id; }
+        @Override public Uri contentUri() { return Uri.parse("content://media/external/images/media/" + id); }
+        @Override public long modifiedMs() { return modified; }
+        @Override public String displayName() { return name; }
+        @Override public long sizeBytes() { return 1; }
+        @Override public String filePath() { return path; }
     }
 
     private static long at(int y, int m, int d) {
@@ -81,7 +81,7 @@ public class GallerySearchTest {
         File sign = new File(41, "/storage/DCIM/Camera/IMG_41.jpg", now - 1000);
         List<GalleryItem> all = new ArrayList<>(Collections.singletonList(new GalleryItem(sign)));
         assertTrue(GallerySearch.find(all, "аптека", Collections.emptySet(), now, null).isEmpty());
-        OcrIndex.put(RuntimeEnvironment.getApplication(), 41, sign.getLastModified(), "АПТЕКА 24 часа\nPharmacy");
+        OcrIndex.put(RuntimeEnvironment.getApplication(), 41, sign.modifiedMs(), "АПТЕКА 24 часа\nPharmacy");
         assertEquals(1, GallerySearch.find(all, "аптека pharmacy", Collections.emptySet(), now, null).size());
         // a changed photo (another modification time) is read again: its old text no longer matches
         File edited = new File(41, "/storage/DCIM/Camera/IMG_41.jpg", now);

@@ -48,7 +48,7 @@ public class WhySharpenR1Test {
         assertFalse(WhyLumaSharpen.smoothedSource(0));
         // every shot that is not a hybrid merge is Bayer (Parameters needs the app to be built; its declaration is read)
         assertTrue(read("src/main/java/com/scamera/app/processing/render/Parameters.java").contains("public int mosaicBlock = 1;"));
-        assertTrue(read("src/main/java/com/scamera/app/processing/render/Parameters.java").contains("params.mosaicBlock = mosaicBlock;"));
+        assertTrue(read("src/main/java/com/scamera/app/processing/render/Parameters.java").contains("c.mosaicBlock = mosaicBlock;"));
     }
 
     @Test public void mosaicShotsTakeR1UnlessSwitchedOff() {
@@ -197,10 +197,10 @@ public class WhySharpenR1Test {
         assertTrue(glsl.contains("texelFetch(InputBuffer, xy, 0).r - texelFetch(Smoothed, xy, 0).r"));
         assertTrue(glsl.contains("max(texelFetch(Sharpened, xy, 0).r + texelFetch(Residual, xy, 0).r, 0.0)"));
         // the passes in the order the shader's modes need them: B, then D (Ya goes), the chain on B, then S + D
-        final int b = java.indexOf("glProg.setVar(\"modeU\", r1 ? 0 : 3);\n            glProg.drawBlocks(src);");
-        final int d = java.indexOf("glProg.drawBlocks(residual);");
+        final int b = java.indexOf("shaderProg.setVar(\"modeU\", r1 ? 0 : 3);\n            shaderProg.drawBlocks(src);");
+        final int d = java.indexOf("shaderProg.drawBlocks(residual);");
         final int compose = java.indexOf("useAssetProgram(\"why/sharp_compose\"");
-        final int last = java.indexOf("glProg.setVar(\"modeU\", 2);");
+        final int last = java.indexOf("shaderProg.setVar(\"modeU\", 2);");
         assertTrue(b > 0 && d > b && compose > d && last > compose);
     }
 }

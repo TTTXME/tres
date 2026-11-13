@@ -180,7 +180,7 @@ public class GLPreview extends GLSurfaceView {
     public void onPause() {
         textureGone(getSurfaceTexture());
         // the EGL context goes with the pause (it is not preserved): the renderer makes a new SurfaceTexture in onSurfaceCreated on
-        // resume and releases this one, so the camera must not open against it (resumeCamera waits for the new one instead)
+        // resume and releases this one, so the camera must not open against it (screenResumed waits for the new one instead)
         surfaceReady = false;
         super.onPause();
         // P616: the GL thread is paused now (no draw after this one): the gap until the next draw is not a stutter (the settings

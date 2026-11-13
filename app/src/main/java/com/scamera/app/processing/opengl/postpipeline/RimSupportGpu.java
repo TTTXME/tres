@@ -11,7 +11,7 @@ final class RimSupportGpu {
     private RimSupportGpu() {}
 
     static GLBuffer prepare(GLProg prog, GLTexture low, float ae, boolean sharp, float sharpTone) {
-        final int width = (low.mSize.x + 7) / 8, height = (low.mSize.y + 7) / 8;
+        final int width = (low.size.x + 7) / 8, height = (low.size.y + 7) / 8;
         int[] previous = new int[2], fragmentBlocks = new int[1];
         GLES31.glGetIntegerv(GLES31.GL_MAX_FRAGMENT_SHADER_STORAGE_BLOCKS, fragmentBlocks, 0);
         if (fragmentBlocks[0] < 1) return null;
@@ -22,7 +22,7 @@ final class RimSupportGpu {
             tiles = new GLBuffer(width * height, new GLFormat(GLFormat.DataType.UNSIGNED_32));
             int[] bytes = new int[1];
             GLES31.glGetBufferParameteriv(GLES31.GL_SHADER_STORAGE_BUFFER, GLES31.GL_BUFFER_SIZE, bytes, 0);
-            if (tiles.mBufferID == 0 || bytes[0] != width * height * 4)
+            if (tiles.bufferId == 0 || bytes[0] != width * height * 4)
                 throw new IllegalStateException("rim support buffer allocation");
             prog.setLayout(8, 8, 1);
             prog.useAssetProgram("why/rim_support", true);

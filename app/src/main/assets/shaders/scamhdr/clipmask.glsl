@@ -1,5 +1,4 @@
-precision highp float;
-precision highp sampler2D;
+precision highp float; precision highp sampler2D;
 // P479 (speed): the vertical half of scamhdr/clipband's two flag dilations (its "zone" and "reach" tests), the same taps and
 // the same clamping per axis, so clipband's horizontal half ORs exactly the 2-D window it tested pixel by pixel before (74 R8
 // fetches a pixel there, 12 here + 12 there). Normalised R8 out: bit 0 = a flagged pixel (flagAt & 15) within zoneU rows,

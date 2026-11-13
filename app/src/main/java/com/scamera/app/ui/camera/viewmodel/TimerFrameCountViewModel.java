@@ -22,7 +22,7 @@ public class TimerFrameCountViewModel extends ViewModel {
     }
 
     public void setFrameTimeCnt(FrameCntTime at) {
-        final CameraMode mode = ScameraApp.getSettings().selectedMode;
+        final CameraMode mode = ScameraApp.getSettings().mode;
         final int last = mode == CameraMode.UNLIMITED || mode == CameraMode.RAWVIDEO ? 0 : at.maxframe;
         final int frame = at.frame;
         final double perFrame = at.time;

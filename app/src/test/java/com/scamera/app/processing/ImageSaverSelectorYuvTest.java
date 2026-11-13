@@ -20,7 +20,7 @@ import org.robolectric.annotation.Config;
  * P650 «Склейка YUV»: the after-shutter YUV session delivers YCBCR_P010 frames (format 54). Before P650 ImageSaverSelector rejected
  * them in its default branch ("unexpected image format:54"), so the frames never reached the YUV merge and the shot failed with
  * "the camera delivered no RAW frame". The route now sends P010 (and 8-bit YUV_420_888) to the YUVSaver, which keeps them as the
- * burst's frames (IMAGE_BUFFER) exactly as the ring path does - so the series after the shutter is merged and saved like the ring.
+ * burst's frames (FRAME_QUEUE) exactly as the ring path does - so the series after the shutter is merged and saved like the ring.
  */
 @RunWith(RobolectricTestRunner.class)
 @Config(sdk = 35, application = Application.class)
@@ -28,7 +28,7 @@ public class ImageSaverSelectorYuvTest {
     private SaverImplementation base;
 
     @Before public void setup() {
-        base = new SaverImplementation(mock(ProcessingEventsListener.class));
+        base = new SaverImplementation(mock(ProcessingEvents.class));
         ImageSaverSelector.init(base);
     }
 
@@ -39,7 +39,7 @@ public class ImageSaverSelectorYuvTest {
         final SaverImplementation forYuv8 = ImageSaverSelector.getImageSaver(ImageFormat.YUV_420_888, base);
         assertNotNull("P010 must not be rejected", forP010);
         assertTrue("P010 takes the YUVSaver", forP010 instanceof YUVSaver);
-        assertSame("the 10-bit and 8-bit YUV frames share one saver, so both reach IMAGE_BUFFER", forYuv8, forP010);
+        assertSame("the 10-bit and 8-bit YUV frames share one saver, so both reach FRAME_QUEUE", forYuv8, forP010);
     }
 
     @Test public void rawAndJpegKeepTheirOwnSavers() {

@@ -1,5 +1,4 @@
-precision highp float;
-precision highp int;
+precision highp float; precision highp int;
 #define LAYOUT //
 LAYOUT
 layout(rgba16ui,binding=0) readonly uniform highp uimage2D SourceBits;

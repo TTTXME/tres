@@ -33,20 +33,16 @@ public class ImagePath {
         return Paths.get(FileManager.sRAW_DIR.getAbsolutePath(), name + ".dng");
     }
 
-    public static Path newImageFilePath() {
-        return getNewImageFilePath("");
+    /** A new photo name in the camera folder, without an extension. */
+    public static Path newPhotoPath() {
+        return newPhotoPath("");
     }
 
-    public static Path getNewImageFilePath(String extension) {
-        File dir = FileManager.sDCIM_CAMERA;
-        if (extension.equalsIgnoreCase("dng")) {
-            dir = FileManager.sRAW_DIR;
-        }
-        if(!extension.isEmpty()) {
-            return Paths.get(dir.getAbsolutePath(), newBaseName() + '.' + extension);
-        } else {
-            return Paths.get(dir.getAbsolutePath(), newBaseName());
-        }
+    /** A new photo name with {@code extension} ("" for none): a DNG in the RAW folder, anything else in the camera folder. */
+    public static Path newPhotoPath(String extension) {
+        final File folder = extension.equalsIgnoreCase("dng") ? FileManager.sRAW_DIR : FileManager.sDCIM_CAMERA;
+        final String name = extension.isEmpty() ? newBaseName() : newBaseName() + '.' + extension;
+        return Paths.get(folder.getAbsolutePath(), name);
     }
 
 }

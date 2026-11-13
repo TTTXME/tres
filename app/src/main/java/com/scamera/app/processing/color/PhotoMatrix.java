@@ -124,7 +124,7 @@ public final class PhotoMatrix {
         final Integer ill1 = c.get(android.hardware.camera2.CameraCharacteristics.SENSOR_REFERENCE_ILLUMINANT1);
         final Byte ill2 = c.get(android.hardware.camera2.CameraCharacteristics.SENSOR_REFERENCE_ILLUMINANT2);
         int i1 = ill1 != null ? ill1 : 21, i2 = ill2 != null ? ill2 : i1;
-        // P580: the photo's rules (Parameters.ReCalcColor): an all-zero / non-finite matrix is none; an unknown illuminant (0) or an
+        // P580: the photo's rules (Parameters.resolveColour): an all-zero / non-finite matrix is none; an unknown illuminant (0) or an
         // unusable ColorMatrix2 makes a single-illuminant profile
         if (cm1 == null && cm2 != null) cm1 = cm2;
         if (cm1 == null) return null;

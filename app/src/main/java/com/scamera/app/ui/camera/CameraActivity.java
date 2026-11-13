@@ -74,10 +74,7 @@ public class CameraActivity extends BaseActivity {
             finish();
             return;
         }
-        // full screen, portrait and awake before the first frame (no flicker of the bars, as the gallery)
-        immersive();
-        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        setContentView(R.layout.activity_camera);
+        showScreen();
 
         PreferenceManager.setDefaultValues(this, R.xml.preferences, MigrationManager.readAgain);
         PreferenceKeys.setDefaults(this);
@@ -96,7 +93,7 @@ public class CameraActivity extends BaseActivity {
 
         permissionLauncher = registerForActivityResult(new ActivityResultContracts.RequestMultiplePermissions(), this::permissionsAnswered);
         dcimLauncher = registerForActivityResult(
-                new RequestStorageAccessContract(this, StorageType.EXTERNAL, SimpleStorageHelper.DCIM_BASE_PATH), this::dcimAnswered);
+                new RequestStorageAccessContract(this, StorageType.EXTERNAL, SimpleStorageHelper.DCIM_DIR), this::dcimAnswered);
 
         if (ScameraApp.DEBUG) getSupportFragmentManager().registerFragmentLifecycleCallbacks(new FragmentLifeCycleMonitor(), true);
 
@@ -306,5 +303,11 @@ public class CameraActivity extends BaseActivity {
                 | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
                 | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_FULLSCREEN);
     }
-}
 
+    /** Full screen, portrait and awake before the first frame (no flicker of the bars, as the gallery), then the layout. */
+    private void showScreen() {
+        immersive();
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        setContentView(R.layout.activity_camera);
+    }
+}

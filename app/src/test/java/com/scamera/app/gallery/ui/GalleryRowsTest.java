@@ -354,7 +354,7 @@ public class GalleryRowsTest {
                 item(1, "IMG_20261111_101700_SHDR_very_long_file_name_from_another_camera_app_0123456789.jpg", now, 13_002_342L),
                 item(2, "IMG_20261111_101500.heic", now - 1000, 4_002_342L),
                 item(3, "IMG_20261111_101400.dng", now - 2000, 24_002_342L));
-        ItemMeta.put(items.get(0).getFile(), new ItemMeta.Info(new int[]{8192, 6144}, "SHDR", true));
+        ItemMeta.put(items.get(0).mediaFile(), new ItemMeta.Info(new int[]{8192, 6144}, "SHDR", true));
         LibraryAdapter a = adapter(items);
         a.setStyle(new ListRows(menu()));
         RecyclerView rv = new RecyclerView(context);

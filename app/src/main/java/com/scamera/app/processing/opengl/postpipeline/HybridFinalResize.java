@@ -32,55 +32,55 @@ public class HybridFinalResize extends Node {
     }
 
     @Override
-    public void Compile() {}
+    public void bindShader() {}
 
     /**
      * P145: {@code in} - linear light, values above 1 kept (the Ultra HDR linear snapshot) - resized to {@code target} on the
      * GPU with the same shader (LINEAR_IN 1; "area": a box mean) into a new texture of its format; the caller closes it.
      */
     static GLTexture resized(com.scamera.app.processing.opengl.GLProg prog, GLTexture in, Point target, String kernelName) {
-        if (target.x >= in.mSize.x || target.y >= in.mSize.y || target.x * 4 < in.mSize.x || target.y * 4 < in.mSize.y)
-            throw new IllegalStateException("resize " + in.mSize.x + "x" + in.mSize.y + " -> " + target.x + "x" + target.y + " out of range");
+        if (target.x >= in.size.x || target.y >= in.size.y || target.x * 4 < in.size.x || target.y * 4 < in.size.y)
+            throw new IllegalStateException("resize " + in.size.x + "x" + in.size.y + " -> " + target.x + "x" + target.y + " out of range");
         prog.setDefine("LINEAR_IN", 1);
         prog.useAssetProgram("hybrid/final_resize", false);
         prog.setTexture("InputBuffer", in);
         prog.setVar("kernel", kernelIndex(kernelName));
-        prog.setVar("inSize", in.mSize.x, in.mSize.y);
+        prog.setVar("inSize", in.size.x, in.size.y);
         prog.setVar("outSize", target.x, target.y);
-        GLTexture out = new GLTexture(target, in.mFormat, null, GL_LINEAR, GL_CLAMP_TO_EDGE);
+        GLTexture out = new GLTexture(target, in.format, null, GL_LINEAR, GL_CLAMP_TO_EDGE);
         prog.drawBlocks(out);
         prog.closed = true;
         return out;
     }
 
     @Override
-    public void Run() {
-        GLTexture in = previousNode.WorkingTexture;
-        if (target.x >= in.mSize.x || target.y >= in.mSize.y || target.x * 4 < in.mSize.x || target.y * 4 < in.mSize.y)
-            throw new IllegalStateException("final resize " + in.mSize.x + "x" + in.mSize.y + " -> " + target.x + "x" + target.y
+    public void runPass() {
+        GLTexture in = prevPass.passOut;
+        if (target.x >= in.size.x || target.y >= in.size.y || target.x * 4 < in.size.x || target.y * 4 < in.size.y)
+            throw new IllegalStateException("final resize " + in.size.x + "x" + in.size.y + " -> " + target.x + "x" + target.y
                     + " out of range (the output buffer is already at the final size)");
         final long started = System.nanoTime();
         // The two idle ping-pong textures (and the scratch one) are not needed any more: free them before the
         // allocation so the GPU peak drops instead of growing (runAll would only close them after the readback).
-        basePipeline.lazyMain2 = null; // P179: never made now
-        basePipeline.lazyMain1 = null;
-        GLTexture[] mains = {basePipeline.main1, basePipeline.main2, basePipeline.main3};
+        hostPipeline.lazyMain2 = null; // P179: never made now
+        hostPipeline.lazyMain1 = null;
+        GLTexture[] mains = {hostPipeline.main1, hostPipeline.main2, hostPipeline.main3};
         for (int i = 0; i < mains.length; i++) {
             if (mains[i] != null && mains[i] != in) {
                 mains[i].close();
-                if (i == 0) basePipeline.main1 = null; else if (i == 1) basePipeline.main2 = null; else basePipeline.main3 = null;
+                if (i == 0) hostPipeline.main1 = null; else if (i == 1) hostPipeline.main2 = null; else hostPipeline.main3 = null;
             }
         }
-        glProg.useAssetProgram("hybrid/final_resize", false);
-        glProg.setTexture("InputBuffer", in);
-        glProg.setVar("kernel", kernelIndex(kernelName));
+        shaderProg.useAssetProgram("hybrid/final_resize", false);
+        shaderProg.setTexture("InputBuffer", in);
+        shaderProg.setVar("kernel", kernelIndex(kernelName));
         // Integer sizes: the shader splits the input-space centre exactly (a float centre lost precision on Adreno).
-        glProg.setVar("inSize", in.mSize.x, in.mSize.y);
-        glProg.setVar("outSize", target.x, target.y);
-        WorkingTexture = new GLTexture(target, in.mFormat, null, GL_LINEAR, GL_CLAMP_TO_EDGE);
-        glProg.drawBlocks(WorkingTexture);
-        ((PostPipeline) basePipeline).finalResized = true;
+        shaderProg.setVar("inSize", in.size.x, in.size.y);
+        shaderProg.setVar("outSize", target.x, target.y);
+        passOut = new GLTexture(target, in.format, null, GL_LINEAR, GL_CLAMP_TO_EDGE);
+        shaderProg.drawBlocks(passOut);
+        ((PostPipeline) hostPipeline).finalResized = true;
         android.util.Log.i("SCAM_HDR", "hybrid final size " + target.x + "x" + target.y + " (" + kernelName + ", GPU) from "
-                + in.mSize.x + "x" + in.mSize.y + " ms=" + (System.nanoTime() - started) / 1000000);
+                + in.size.x + "x" + in.size.y + " ms=" + (System.nanoTime() - started) / 1000000);
     }
 }

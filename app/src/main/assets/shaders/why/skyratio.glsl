@@ -1,6 +1,4 @@
-precision highp float;
-precision highp int;
-precision highp sampler2D;
+precision highp float; precision highp int; precision highp sampler2D;
 // P378 review (WhyCombine, Ultra HDR on with a sky lowered by the sky term: the gain map's boost is the scene plane over the SDR, so
 // an HDR display showed the lowered sky at its old light): the SDR's own ratio of the sky term - why/combine at whyLow (the kernel's
 // same-size bypass fU 1, no detail, no dither) with it (WithSky) over the same without it (WithoutSky: every sky branch skipped),
@@ -14,14 +12,14 @@ uniform int p3U;                    // 1: the output is Display P3 (its luminanc
 uniform float epsU;                 // the gain map's offset (GainMapComputer.DECODE_OFFSET)
 out vec4 Output;
 
-float srgbToLinear(float c) {
-    c = clamp(c, 0.0, 1.0);
-    if (c <= 0.04045) return c / 12.92;
-    return pow((c + 0.055) / 1.055, 2.4);
+// the sRGB transfer undone (the display value clamped to 0..1 first)
+float decodeSrgb(float v) {
+    float e = clamp(v, 0.0, 1.0);
+    return e <= 0.04045 ? e / 12.92 : pow((e + 0.055) / 1.055, 2.4);
 }
 
 float lumOf(vec3 c) {
-    vec3 l = vec3(srgbToLinear(c.r), srgbToLinear(c.g), srgbToLinear(c.b));
+    vec3 l = vec3(decodeSrgb(c.r), decodeSrgb(c.g), decodeSrgb(c.b));
     return p3U == 1 ? dot(l, vec3(0.2290, 0.6917, 0.0793)) : dot(l, vec3(0.2126, 0.7152, 0.0722));
 }
 

@@ -87,13 +87,13 @@ public class ParametersStoredShadingTest {
         OppoPlainStateAccess.remember("2", 8192, 6144, 0.408f, 0.614f, g, 17, 13);
         final Parameters p = parameters(2, 8192, 6144);
         assertTrue(p.applyStoredShading(neutralResult(0.41f, 0.61f)));
-        assertTrue(p.hasGainMap);
-        assertEquals(new Point(17, 13), p.mapSize);
-        assertArrayEquals(g, p.gainMap, 0f);
-        p.gainMap[0] = 99f; // the photo's copy (the crops write into it): the store keeps its own
+        assertTrue(p.shadingMapUsed);
+        assertEquals(new Point(17, 13), p.shadingGrid);
+        assertArrayEquals(g, p.shadingMap, 0f);
+        p.shadingMap[0] = 99f; // the photo's copy (the crops write into it): the store keeps its own
         final Parameters q = parameters(2, 8192, 6144);
         assertTrue("no neutral: the newest map", q.applyStoredShading(null));
-        assertEquals(g[0], q.gainMap[0], 0f);
+        assertEquals(g[0], q.shadingMap[0], 0f);
     }
 
     /** A plain 12 MP frame, another camera or a phone of another brand never takes it. */

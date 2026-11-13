@@ -85,7 +85,7 @@ public class ParametersHandSetWbTest {
         assertFalse(p.keepHandSetWhiteBalance(null));
         // AWB off without gains: the white point already read stays
         final Parameters q = new Parameters();
-        q.whitePoint = new float[]{0.41f, 1f, 0.62f};
+        q.asShotNeutral = new float[]{0.41f, 1f, 0.62f};
         assertTrue(q.keepHandSetWhiteBalance(result(CaptureRequest.CONTROL_AWB_MODE_OFF, null)));
         assertArrayEquals(new float[]{0.41f, 1f, 0.62f}, q.customNeutral, 0f);
         // a bad gain is no hand-set white point

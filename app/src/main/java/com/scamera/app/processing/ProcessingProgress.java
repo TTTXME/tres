@@ -1,7 +1,7 @@
 package com.scamera.app.processing;
 
 /**
- * P220: a progress event of the shot being processed for the processing ring (ProcessingEventsListener.onProcessingChanged;
+ * P220: a progress event of the shot being processed for the processing ring (ProcessingEvents.processingProgress;
  * a Float there stays a milestone of the pipeline): the shot is large (above 16 MP: a long merge follows, the ring does not run
  * ahead on the last 12 MP shot's time), or the merge worker's measured progress.
  */

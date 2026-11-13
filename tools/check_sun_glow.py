@@ -150,7 +150,7 @@ def check(report=False):
     level, _ = scene()
     java = (JAVA / 'WhyCombine.java').read_text(encoding='utf-8')
     tone = (JAVA / 'WhyTone.java').read_text(encoding='utf-8')
-    if 'glProg.setDefine("HL_MEASURED", 1);' not in java or 'fastShortFrames(report) <= 0' not in java:
+    if 'shaderProg.setDefine("HL_MEASURED", 1);' not in java or 'fastShortFrames(report) <= 0' not in java:
         failures.append('WhyCombine does not set HL_MEASURED from the fast merge\'s short frames')
     if 'value("hl_measured", 1f)' not in tone:
         failures.append('no scam_dev hybrid_why_hl_measured (default 1) in WhyTone')

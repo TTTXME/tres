@@ -123,8 +123,8 @@ public final class YuvBurst {
         final double s = Math.max(0, stats[2]), o = Math.max(0, stats[3]);
         @SuppressWarnings("unchecked") final android.util.Pair<Double, Double>[] model = new android.util.Pair[4];
         for (int i = 0; i < 4; i++) model[i] = new android.util.Pair<>(s, o);
-        final int analog = p.noiseModeler != null ? p.noiseModeler.AnalogueISO : first.measuredIso;
-        if (s > 0 || o > 0) p.noiseModeler = new NoiseModeler(model, analog, first.measuredIso, p.cfaPattern);
+        final int analog = p.noiseModel != null ? p.noiseModel.analogIso : first.measuredIso;
+        if (s > 0 || o > 0) p.noiseModel = new NoiseModeler(model, analog, first.measuredIso, p.cfaPattern);
         p.effectiveStackSamples = Math.max(1, stats[1]);
         p.multiFrameCount = merged - shorts - longs;
         final int median = Math.max(1, Math.round(stats[9]));
@@ -163,16 +163,16 @@ public final class YuvBurst {
 
     /** The colour route of a YUV shot: the camera's own balance and matrix are in the frames already. */
     static void identityColour(Parameters p) {
-        p.whitePoint = new float[]{1f, 1f, 1f};
-        for (int i = 0; i < 9; i++) p.sensorToProPhoto[i] = i % 4 == 0 ? 1f : 0f;
-        p.proPhotoToSRGB = new float[]{1f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 1f};
-        if (p.CCT == null) p.CCT = new ColorCorrectionTransform();
-        p.CCT.matrix = p.proPhotoToSRGB;
+        p.asShotNeutral = new float[]{1f, 1f, 1f};
+        for (int i = 0; i < 9; i++) p.cameraToProPhoto[i] = i % 4 == 0 ? 1f : 0f;
+        p.proPhotoToSrgb = new float[]{1f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 1f};
+        if (p.colorTransform == null) p.colorTransform = new ColorCorrectionTransform();
+        p.colorTransform.matrix = p.proPhotoToSrgb;
         p.colourSource = "YUV_ISP";
         p.colourSourceWhy = "the camera's YUV: its white balance and colour matrix";
-        p.hasGainMap = false;
-        p.mapSize = new android.graphics.Point(1, 1);
-        p.gainMap = new float[]{1f, 1f, 1f, 1f};
+        p.shadingMapUsed = false;
+        p.shadingGrid = new android.graphics.Point(1, 1);
+        p.shadingMap = new float[]{1f, 1f, 1f, 1f};
         Log.i(TAG, "colour: YUV_ISP (the frames carry the camera's white balance and colour matrix: identity, no lens shading map)");
     }
 }

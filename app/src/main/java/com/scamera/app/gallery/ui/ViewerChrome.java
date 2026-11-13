@@ -333,16 +333,16 @@ public final class ViewerChrome {
             f.setForeground(on ? GalleryUi.round(c, 0, GalleryUi.accent(c), 10) : null);
             if (on) ((android.graphics.drawable.GradientDrawable) f.getForeground()).setStroke(GalleryUi.dp(c, 2), GalleryUi.accent(c));
             f.setSelected(on);
-            f.setContentDescription(GalleryUi.dayTime(item.getFile().getLastModified(), System.currentTimeMillis()));
+            f.setContentDescription(GalleryUi.dayTime(item.mediaFile().modifiedMs(), System.currentTimeMillis()));
             androidx.core.view.ViewCompat.setStateDescription(f, on ? Lang.t("текущий", "current") : null);
             f.setOnClickListener(v -> open.open(holder.getAbsoluteAdapterPosition()));
-            if (item.getFile().getFileUri() != null && GalleryKeys.waitForFile(i, item.getFile(), () -> {
+            if (item.mediaFile().contentUri() != null && GalleryKeys.waitForFile(i, item.mediaFile(), () -> {
                 if (holder.getAbsoluteAdapterPosition() == position) notifyItemChanged(position);
             })) Glide.with(i).clear(i); // P89: after the camera has finished writing the file
-            else if (item.getFile().getFileUri() != null)
+            else if (item.mediaFile().contentUri() != null)
                 // P620: the grid's thumbnail (cached by the grid, the view crops it): not a decode of each 50 MP photo at 132 px
                 com.scamera.app.gallery.glide.GalleryThumb.request(Glide.with(i),
-                        com.scamera.app.gallery.glide.GalleryThumb.of(item.getFile()),
+                        com.scamera.app.gallery.glide.GalleryThumb.of(item.mediaFile()),
                         com.scamera.app.gallery.glide.GalleryThumb.gridPx(c)).into(i);
         }
 

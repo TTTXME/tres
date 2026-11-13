@@ -73,7 +73,7 @@ public class CameraFragmentViewModel extends AndroidViewModel {
         if (shown == null) {
             final ImageFile newest = GalleryFileOperations.fetchLatestImage(getApplication().getContentResolver());
             com.scamera.app.gallery.ui.CameraHandoff.latest(newest); // P637: the photo the thumbnail opens
-            if (newest != null) shown = newest.getFileUri();
+            if (newest != null) shown = newest.contentUri();
         }
         if (shown == null) return;
         // a 200 px bitmap for the round gallery button

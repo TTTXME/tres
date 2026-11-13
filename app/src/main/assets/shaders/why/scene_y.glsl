@@ -1,10 +1,8 @@
-precision highp float;
-precision highp int;
-precision highp sampler2D;
+precision highp float; precision highp int; precision highp sampler2D;
 #import interpolation
 uniform sampler2D InputBuffer;
-uniform sampler2D GainMap;
 uniform mat3 sensorToIntermediate;
+uniform sampler2D GainMap;
 uniform mat3 intermediateToSRGB;
 uniform vec3 neutralPointU;
 uniform float inScaleU;

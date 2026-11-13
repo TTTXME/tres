@@ -37,7 +37,7 @@ public final class PhotoSize {
 
     /** Called on every characteristics update (CameraFragment): which sizes this module has. */
     public static void bind(@Nullable CameraCharacteristics characteristics) {
-        String id = ScameraApp.getSettings().mCameraID;
+        String id = ScameraApp.getSettings().cameraId;
         if (characteristics != null) com.scamera.app.capture.OppoNativeFullRes.learn(id, characteristics); // P192
         if (characteristics != null) com.scamera.app.capture.NubiaFullRes.learn(id, characteristics); // P575
         final boolean nubia = com.scamera.app.capture.NubiaFullRes.device();
@@ -243,7 +243,7 @@ public final class PhotoSize {
     private static int[] output(int w, int h) {
         try {
             final boolean hybrid = com.scamera.app.settings.PreferenceKeys.isHybridShot();
-            return output(w, h, ScameraApp.getSettings().aspect169,
+            return output(w, h, ScameraApp.getSettings().wide169,
                     hybrid ? com.scamera.app.settings.PreferenceKeys.hybridOutputMode() : "sensor");
         } catch (RuntimeException e) {
             Log.d("PhotoSize", "output size: " + e);

@@ -43,7 +43,7 @@ public class DefaultSaver extends SaverImplementation {
     com.scamera.app.processing.opengl.postpipeline.ShotLook ownedLook;
     com.scamera.app.settings.MotionMode.Snapshot ownedMotion;
 
-    public DefaultSaver(ProcessingEventsListener processingEventsListener) {
+    public DefaultSaver(ProcessingEvents processingEventsListener) {
         super(processingEventsListener);
         this.scamProcessor = new ScamProcessor(processingEventsListener);
     }
@@ -81,8 +81,8 @@ public class DefaultSaver extends SaverImplementation {
             ownedManualWb = null;
             scamProcessor.ownedMosaicWb = ownedMosaicWb;
             ownedMosaicWb = null;
-            scamProcessor.configure(ScameraApp.getSettings().alignAlgorithm,
-                    ScameraApp.getSettings().rawSaver, ScameraApp.getSettings().selectedMode);
+            scamProcessor.configure(ScameraApp.getSettings().alignMethod,
+                    ScameraApp.getSettings().rawFormat, ScameraApp.getSettings().mode);
             final long shotTime = ownedShotTimeMs > 0 ? ownedShotTimeMs : System.currentTimeMillis();
             ownedShotTimeMs = 0;
             scamProcessor.start(ownedDngFile, ownedImageFile,
@@ -92,20 +92,20 @@ public class DefaultSaver extends SaverImplementation {
             return;
         }
         // at least one frame, and the capture thread done with the buffer (P659: yielding instead of a bare spin)
-        Log.d(TAG, "waiting for frames, " + IMAGE_BUFFER.size() + " so far");
-        while (bufferLock || IMAGE_BUFFER.isEmpty()) Thread.yield();
+        Log.d(TAG, "waiting for frames, " + FRAME_QUEUE.size() + " so far");
+        while (bufferLock || FRAME_QUEUE.isEmpty()) Thread.yield();
         bufferLock = true;
-        Log.d(TAG, "frames: " + IMAGE_BUFFER.size());
+        Log.d(TAG, "frames: " + FRAME_QUEUE.size());
         final long shotTime = System.currentTimeMillis(); // P618: the name's instant is the shot's EXIF / DNG time
         final String name = ImagePath.newBaseName(shotTime); // one name for both (P119)
         final Path dngFile = ImagePath.dngFile(name);
         final Path imageFile = ImagePath.imageFile(name);
-        scamProcessor.configure(ScameraApp.getSettings().alignAlgorithm, ScameraApp.getSettings().rawSaver,
-                ScameraApp.getSettings().selectedMode);
+        scamProcessor.configure(ScameraApp.getSettings().alignMethod, ScameraApp.getSettings().rawFormat,
+                ScameraApp.getSettings().mode);
         // this shot's frames out of the shared buffer (the next shot's stay); the capture may add again from here
-        final ArrayList<ImageFrame> buffered = IMAGE_BUFFER;
+        final ArrayList<ImageFrame> buffered = FRAME_QUEUE;
         final ArrayList<ImageFrame> shot = new ArrayList<>(buffered.subList(0, frameCount));
-        IMAGE_BUFFER = new ArrayList<>(buffered.subList(frameCount, buffered.size()));
+        FRAME_QUEUE = new ArrayList<>(buffered.subList(frameCount, buffered.size()));
         buffered.clear();
         bufferLock = false;
         shot.removeIf(java.util.Objects::isNull);

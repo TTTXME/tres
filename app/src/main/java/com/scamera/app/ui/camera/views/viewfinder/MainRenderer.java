@@ -1170,10 +1170,10 @@ public class MainRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFr
 
     /** Focus peaking: 1 drawn, 0 not. The setting 1 always, 2 (auto) while the manual focus is on or its dial is chosen. */
     private int peakMode() {
-        final int setting = ScameraApp.getSettings().focusPeak;
+        final int setting = ScameraApp.getSettings().peakingColour;
         if (setting == 1) return 1;
         final ManualModeConsole manual = manualPanel;
-        final boolean manualFocus = manual != null && (manual.isManualFocusModeActive() || manual.isFocusParameterSelected());
+        final boolean manualFocus = manual != null && (manual.manualFocusOn() || manual.focusKnobOpen());
         return setting == 2 && manualFocus ? 1 : 0;
     }
 

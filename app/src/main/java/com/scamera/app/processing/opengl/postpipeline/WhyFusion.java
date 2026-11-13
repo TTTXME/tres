@@ -42,7 +42,7 @@ import static android.opengl.GLES20.GL_NEAREST;
  */
 public final class WhyFusion extends Node {
     public WhyFusion() { super("", "WhyFusion"); }
-    @Override public void Compile() {}
+    @Override public void bindShader() {}
 
     private static final GLFormat STATS = new GLFormat(GLFormat.DataType.FLOAT_32, 4);
 
@@ -72,52 +72,52 @@ public final class WhyFusion extends Node {
 
     /** {@code asset} (gf or lpyr) in MODE {@code mode} with the fusion's uniforms of this shot (import why_fusion). */
     private void fusionProgram(String asset, int mode, GLTexture source, float[] em, float[] lw, float ae, float center, float[] satLight) {
-        glProg.setDefine("MODE", mode);
+        shaderProg.setDefine("MODE", mode);
         gammaDefine();
-        glProg.useAssetProgram(asset, false);
-        glProg.setTexture("InputBuffer", source);
-        glProg.setVar("expU", em[0], em[1], em[2], em[3]);
-        glProg.setVar("layerU", lw[0], lw[1], lw[2], lw[3]);
-        glProg.setVar("aeU", ae);
-        glProg.setVar("centerU", center);
-        glProg.setVar("smoothU", WhyTone.value("blend_smoothness", 0.45f));
-        glProg.setVar("gammaInvU", 1f / WhyTone.gamma());
-        glProg.setVar("toeU", WhyTone.value("aces_toe", 0.05f));
+        shaderProg.useAssetProgram(asset, false);
+        shaderProg.setTexture("InputBuffer", source);
+        shaderProg.setVar("expU", em[0], em[1], em[2], em[3]);
+        shaderProg.setVar("layerU", lw[0], lw[1], lw[2], lw[3]);
+        shaderProg.setVar("aeU", ae);
+        shaderProg.setVar("centerU", center);
+        shaderProg.setVar("smoothU", WhyTone.value("blend_smoothness", 0.45f));
+        shaderProg.setVar("gammaInvU", 1f / WhyTone.gamma());
+        shaderProg.setVar("toeU", WhyTone.value("aces_toe", 0.05f));
         // P291 (owner, 2026-10-20: «сделай максимально похоже на результат Why, но с чуть большим количеством информации»): the
         // fusion lifted to its monotonic envelope where its curve falls (Bento headroom: no dark ring round a lamp); 0.04 = the
         // replay of the owner's desk-lamp sheet closest to WhyCam with its gradient kept. 0 = the kernel's fusion.
-        glProg.setVar("monoU", WhyTone.fusionMono());
+        shaderProg.setVar("monoU", WhyTone.fusionMono());
         // P310: bright saturated light keeps the kernel's weights (the P291 lift's plateau, not its rise); zeros: off
-        glProg.setVar("satLightU", satLight[0], satLight[1], satLight[2], satLight[3]);
-        glProg.setVar("satLevelU", satLight[4], satLight[5]);
+        shaderProg.setVar("satLightU", satLight[0], satLight[1], satLight[2], satLight[3]);
+        shaderProg.setVar("satLevelU", satLight[4], satLight[5]);
         final float[] warm = WhyTone.warmLight();
-        glProg.setVar("warmU", warm[0], warm[1]);
-        glProg.setVar("deepFloorU", WhyTone.deepFloor());
+        shaderProg.setVar("warmU", warm[0], warm[1]);
+        shaderProg.setVar("deepFloorU", WhyTone.deepFloor());
         // set on every pass (a linked program keeps its uniforms): zeros = the floor as before
-        glProg.setVar("deepNoiseU", deepNoise[0], deepNoise[1], deepNoise[2], deepNoise[3]);
+        shaderProg.setVar("deepNoiseU", deepNoise[0], deepNoise[1], deepNoise[2], deepNoise[3]);
     }
 
     /** P404: «Стандарт гаммы дисплея» on the next fusion program (import why_fusion GAMMA_TYPE; the pure power sets none). */
     private void gammaDefine() {
         final int t = WhyTone.gammaType();
-        if (t != 0) glProg.setDefine("GAMMA_TYPE", t);
+        if (t != 0) shaderProg.setDefine("GAMMA_TYPE", t);
     }
 
     /** Separable box of radius r; closes the input. */
     private GLTexture box(GLTexture in, int r) {
-        GLTexture h = stats(in.mSize);
-        glProg.useAssetProgram("why/box", false);
-        glProg.setTexture("InputBuffer", in);
-        glProg.setVar("dirU", 1, 0);
-        glProg.setVar("radiusU", r);
-        glProg.drawBlocks(h);
+        GLTexture h = stats(in.size);
+        shaderProg.useAssetProgram("why/box", false);
+        shaderProg.setTexture("InputBuffer", in);
+        shaderProg.setVar("dirU", 1, 0);
+        shaderProg.setVar("radiusU", r);
+        shaderProg.drawBlocks(h);
         in.close();
-        GLTexture v = stats(in.mSize);
-        glProg.useAssetProgram("why/box", false);
-        glProg.setTexture("InputBuffer", h);
-        glProg.setVar("dirU", 0, 1);
-        glProg.setVar("radiusU", r);
-        glProg.drawBlocks(v);
+        GLTexture v = stats(in.size);
+        shaderProg.useAssetProgram("why/box", false);
+        shaderProg.setTexture("InputBuffer", h);
+        shaderProg.setVar("dirU", 0, 1);
+        shaderProg.setVar("radiusU", r);
+        shaderProg.drawBlocks(v);
         h.close();
         return v;
     }
@@ -140,25 +140,25 @@ public final class WhyFusion extends Node {
     }
 
     @Override
-    public void Run() {
-        PostPipeline pipeline = (PostPipeline) basePipeline;
-        WorkingTexture = previousNode.WorkingTexture;
-        glProg.closed = true;
+    public void runPass() {
+        PostPipeline pipeline = (PostPipeline) hostPipeline;
+        passOut = prevPass.passOut;
+        shaderProg.closed = true;
         WhyTone.State st = pipeline.why;
         if (st == null || st.ae == null || st.low == null) throw new IllegalStateException("WHY tone: no statistics (WhyStats did not run)");
         long started = System.currentTimeMillis();
         WhyAe.Result r = st.ae;
-        Point lowSize = st.low.mSize;
-        float strength = whyDenoise(basePipeline.mParameters) ? WhyTone.value("bracket_denoise", 0f) : 0f;
-        strength = bracketStrength(strength, basePipeline.mParameters != null && basePipeline.mParameters.dcgShot,
+        Point lowSize = st.low.size;
+        float strength = whyDenoise(hostPipeline.shotParams) ? WhyTone.value("bracket_denoise", 0f) : 0f;
+        strength = bracketStrength(strength, hostPipeline.shotParams != null && hostPipeline.shotParams.dcgShot,
                 ScamHybridBurst.lastBentoApplied, com.scamera.app.processing.opengl.PostGlMode.legacy());
         st.lowDn = st.low;
         if (r.clip > 1.05f && strength > 0.001f) {
             st.lowDn = new GLTexture(lowSize, new GLFormat(GLFormat.DataType.FLOAT_16, 4), null, GL_NEAREST, GL_CLAMP_TO_EDGE);
-            glProg.useAssetProgram("why/bracket_dn", false);
-            glProg.setTexture("InputBuffer", st.low);
-            glProg.setVar("strengthU", strength);
-            glProg.drawBlocks(st.lowDn);
+            shaderProg.useAssetProgram("why/bracket_dn", false);
+            shaderProg.setTexture("InputBuffer", st.low);
+            shaderProg.setVar("strengthU", strength);
+            shaderProg.drawBlocks(st.lowDn);
         }
         final boolean why = WhyTone.whyLayout();
         float[] em = why ? exposures207(r) : WhyAe.exposures(r, headroomExposure(WhyAe.darkestExposure(r), r.ae, r.clip, r.hr));
@@ -191,19 +191,19 @@ public final class WhyFusion extends Node {
             // P378: the sky mask, once per photo (none: no SKY define in the fusion or the combine, the tone as before); a failure
             // gives the photo no sky term, not a failed shot
             try {
-                WhySky.build(glProg, pipeline, st, st.lowDn);
+                WhySky.build(shaderProg, pipeline, st, st.lowDn);
                 com.scamera.app.processing.opengl.PostGlMode.lap("why sky");
             } catch (RuntimeException e) {
                 Log.w("SCAM_PIPELINE", "WHY sky: failed (" + e + "), no sky term");
                 if (st.sky != null) st.sky.close();
                 st.sky = null;
                 st.skyMask = null;
-                glProg.closed = true;
+                shaderProg.closed = true;
             }
             // P401: a room with daylit windows takes build 31091's fusion inside them (why/lpyr WINDOW; null: off)
-            final com.scamera.app.processing.render.Parameters prm = basePipeline.mParameters;
+            final com.scamera.app.processing.render.Parameters prm = hostPipeline.shotParams;
             final float[] win = WhyTone.bands() != null && !why ? windowParams(WhyTone.windowShare(), r, prm != null
-                    ? WhySkyMask.evOffset(prm.iso, prm.exposureTime, prm.aperture, st.inScale) : Float.NaN) : null;
+                    ? WhySkyMask.evOffset(prm.iso, prm.exposureTime, prm.fNumber, st.inScale) : Float.NaN) : null;
             GLTexture fused31 = null;
             try {
                 if (win != null) fused31 = pyramid(st, exposures31(r), LAYERS_31091.clone(), r.ae, CENTER_31091, new float[6], started,
@@ -221,7 +221,7 @@ public final class WhyFusion extends Node {
 
     /** The guided filter's fused luma of whyLow (why/gf, WhyCam's kernel): the post_ab old run, and P349's share in the lights. */
     private GLTexture guided(WhyTone.State st, float[] em, float[] lw, float ae, float center, float[] satLight) {
-        final Point lowSize = st.low.mSize;
+        final Point lowSize = st.low.size;
         final int radius = GF_RADIUS > 1 ? GF_RADIUS >> 1 : 1;                                    // [code 0x78f80-0x78f9c]
         final float eps = GF_EPS;
         Point half = new Point((lowSize.x + 1) / 2, (lowSize.y + 1) / 2);
@@ -229,28 +229,28 @@ public final class WhyFusion extends Node {
         for (int mode = 0; mode < 3; mode++) {
             GLTexture down = stats(half);
             weightsProgram(mode, st.lowDn, em, lw, ae, center, satLight);
-            glProg.drawBlocks(down);
+            shaderProg.drawBlocks(down);
             means[mode] = box(down, radius);
         }
         GLTexture[] ab = new GLTexture[2];
         for (int mode = 0; mode < 2; mode++) {
             GLTexture coef = stats(half);
-            glProg.setDefine("MODE", mode);
-            glProg.useAssetProgram("why/ab", false);
-            glProg.setTexture("MeanII", means[0]);
-            glProg.setTexture("MeanP", means[1]);
-            glProg.setTexture("MeanIP", means[2]);
-            glProg.setVar("epsU", eps);
-            glProg.drawBlocks(coef);
+            shaderProg.setDefine("MODE", mode);
+            shaderProg.useAssetProgram("why/ab", false);
+            shaderProg.setTexture("MeanII", means[0]);
+            shaderProg.setTexture("MeanP", means[1]);
+            shaderProg.setTexture("MeanIP", means[2]);
+            shaderProg.setVar("epsU", eps);
+            shaderProg.drawBlocks(coef);
             ab[mode] = box(coef, radius);
         }
         for (GLTexture t : means) t.close();
         final GLTexture fused = new GLTexture(lowSize, new GLFormat(GLFormat.DataType.FLOAT_32, 1), null, GL_NEAREST, GL_CLAMP_TO_EDGE);
         weightsProgram(3, st.lowDn, em, lw, ae, center, satLight);
-        glProg.setTexture("MeanA", ab[0]);
-        glProg.setTexture("MeanB", ab[1]);
-        glProg.drawBlocks(fused);
-        glProg.closed = true;
+        shaderProg.setTexture("MeanA", ab[0]);
+        shaderProg.setTexture("MeanB", ab[1]);
+        shaderProg.drawBlocks(fused);
+        shaderProg.closed = true;
         ab[0].close();
         ab[1].close();
         return fused;
@@ -327,14 +327,14 @@ public final class WhyFusion extends Node {
      */
     private GLTexture pyramid(WhyTone.State st, float[] em, float[] lw, float ae, float center, float[] satLight, long started, float strength,
                               float[] noiseI, boolean aux, float[] win, GLTexture fused31) {
-        final Point low = st.low.mSize;
+        final Point low = st.low.size;
         final float coarse = WhyTone.value("ef_coarse", COARSE);
         // P391: the edge-aware bands (null: off, the pyramid as before)
         final float[] band = WhyTone.bands();
         final boolean bands = band != null;
         // a lab fragment takes the whole frame's depth (its own size would give its lowest band weights blurred ~4x less), as far as
         // the fragment halves (fewer levels than the whole frame only for a fragment under ~2 px at that depth)
-        final LabFrame frozen = ((PostPipeline) basePipeline).frozen;
+        final LabFrame frozen = ((PostPipeline) hostPipeline).frozen;
         final boolean fragment = frozen != null && frozen.lowWidth > 0 && frozen.lowHeight > 0;
         final int levels;
         // P391: the lowest band's weight of the fractional depth (1: whole levels)
@@ -384,57 +384,57 @@ public final class WhyFusion extends Node {
             }
             // level 1 of the lumas and the weights straight from whyLow, then the Gaussian pyramids
             fusionProgram("why/lpyr", 0, st.lowDn, em, lw, ae, center, satLight);
-            glProg.drawBlocks(L[1]);
+            shaderProg.drawBlocks(L[1]);
             fusionProgram("why/lpyr", 1, st.lowDn, em, lw, ae, center, satLight);
-            glProg.drawBlocks(W[1]);
+            shaderProg.drawBlocks(W[1]);
             for (int l = 2; l <= levels; l++) {
                 for (GLTexture[] p : new GLTexture[][]{L, W}) {
-                    glProg.setDefine("MODE", 2);
+                    shaderProg.setDefine("MODE", 2);
                     gammaDefine();
-                    glProg.useAssetProgram("why/lpyr", false);
-                    glProg.setTexture("InputBuffer", p[l - 1]);
-                    glProg.drawBlocks(p[l]);
+                    shaderProg.useAssetProgram("why/lpyr", false);
+                    shaderProg.setTexture("InputBuffer", p[l - 1]);
+                    shaderProg.drawBlocks(p[l]);
                 }
             }
             if (bands) {
                 // P391: level 1 of the guide's log light and the per-pixel fusion from whyLow (MODE 7), the Gaussian pyramid of both
                 // REF_DOWN - 1 levels beyond the pyramid's
                 fusionProgram("why/lpyr", 7, st.lowDn, em, lw, ae, center, satLight);
-                glProg.setVar("bandEdgeU", 0f, 0f, band[2], band[3]);
-                glProg.drawBlocks(GF[1]);
+                shaderProg.setVar("bandEdgeU", 0f, 0f, band[2], band[3]);
+                shaderProg.drawBlocks(GF[1]);
                 for (int l = 2; l <= deep; l++) {
-                    glProg.setDefine("MODE", 2);
+                    shaderProg.setDefine("MODE", 2);
                     gammaDefine();
-                    glProg.useAssetProgram("why/lpyr", false);
-                    glProg.setTexture("InputBuffer", GF[l - 1]);
-                    glProg.drawBlocks(GF[l]);
+                    shaderProg.useAssetProgram("why/lpyr", false);
+                    shaderProg.setTexture("InputBuffer", GF[l - 1]);
+                    shaderProg.drawBlocks(GF[l]);
                 }
                 // the edge measure D of level 0 (MODE 9, whyLow's size) and of the levels 1 .. n - 1 (MODE 8): the guide's log light
                 // against its Gaussian REF_DOWN levels down, its noise taken out
                 D0 = new GLTexture(low, new GLFormat(GLFormat.DataType.FLOAT_16, 1), null, GL_NEAREST, GL_CLAMP_TO_EDGE);
                 fusionProgram("why/lpyr", 9, st.lowDn, em, lw, ae, center, satLight);
-                glProg.setTexture("RefG", GF[REF_DOWN]);
+                shaderProg.setTexture("RefG", GF[REF_DOWN]);
                 measureUniforms(band, noiseI, 0);
-                glProg.drawBlocks(D0);
+                shaderProg.drawBlocks(D0);
                 for (int l = 1; l < levels; l++) {
-                    glProg.setDefine("MODE", 8);
+                    shaderProg.setDefine("MODE", 8);
                     gammaDefine();
-                    glProg.useAssetProgram("why/lpyr", false);
-                    glProg.setTexture("LevelGF", GF[l]);
-                    glProg.setTexture("RefG", GF[l + REF_DOWN]);
+                    shaderProg.useAssetProgram("why/lpyr", false);
+                    shaderProg.setTexture("LevelGF", GF[l]);
+                    shaderProg.setTexture("RefG", GF[l + REF_DOWN]);
                     measureUniforms(band, noiseI, l);
-                    glProg.drawBlocks(D[l]);
+                    shaderProg.drawBlocks(D[l]);
                 }
                 // the edge share of the levels 1 .. n (MODE 10): the ramp of the level's cone max of D, at least the finer level's
                 // carried 3 x 3 (a coarse band never keeps more excess than the finer one round the same edge); the coarsest the carry
                 for (int l = 1; l <= levels; l++) {
-                    glProg.setDefine("MODE", 10);
+                    shaderProg.setDefine("MODE", 10);
                     gammaDefine();
-                    glProg.useAssetProgram("why/lpyr", false);
-                    glProg.setTexture("FineA", l == 1 ? D0 : A[l - 1]);
-                    if (l < levels) glProg.setTexture("LevelA", D[l]);
+                    shaderProg.useAssetProgram("why/lpyr", false);
+                    shaderProg.setTexture("FineA", l == 1 ? D0 : A[l - 1]);
+                    if (l < levels) shaderProg.setTexture("LevelA", D[l]);
                     shareUniforms(band, l, l == levels);
-                    glProg.drawBlocks(A[l]);
+                    shaderProg.drawBlocks(A[l]);
                 }
                 for (int l = 1; l < levels; l++) {
                     D[l].close();
@@ -450,48 +450,48 @@ public final class WhyFusion extends Node {
             final float edgeScale = (float) (1 << levels);
             if (edgeOn) {
                 fusionProgram("why/lpyr", 6, st.lowDn, em, lw, ae, center, satLight);
-                glProg.setVar("edgeMixU", edge[0], edge[1], edge[2], edgeScale);
-                glProg.drawBlocks(G[1]);
+                shaderProg.setVar("edgeMixU", edge[0], edge[1], edge[2], edgeScale);
+                shaderProg.drawBlocks(G[1]);
                 for (int l = 2; l <= levels; l++) {
-                    glProg.setDefine("MODE", 2);
+                    shaderProg.setDefine("MODE", 2);
                     gammaDefine();
-                    glProg.useAssetProgram("why/lpyr", false);
-                    glProg.setTexture("InputBuffer", G[l - 1]);
-                    glProg.drawBlocks(G[l]);
+                    shaderProg.useAssetProgram("why/lpyr", false);
+                    shaderProg.setTexture("InputBuffer", G[l - 1]);
+                    shaderProg.drawBlocks(G[l]);
                     G[l - 1].close();
                     G[l - 1] = null;
                 }
             }
             // the coarsest level blended by its weights (P391 bands: moved towards the per-pixel fusion's by its carried edge share),
             // then every band from coarse to fine
-            if (bands) glProg.setDefine("EDGE_BANDS", 1);
-            glProg.setDefine("MODE", 3);
+            if (bands) shaderProg.setDefine("EDGE_BANDS", 1);
+            shaderProg.setDefine("MODE", 3);
             gammaDefine();
-            glProg.useAssetProgram("why/lpyr", false);
-            glProg.setTexture("LevelL", L[levels]);
-            glProg.setTexture("LevelW", W[levels]);
+            shaderProg.useAssetProgram("why/lpyr", false);
+            shaderProg.setTexture("LevelL", L[levels]);
+            shaderProg.setTexture("LevelW", W[levels]);
             if (bands) {
-                glProg.setTexture("LevelGF", GF[levels]);
-                glProg.setTexture("LevelA", A[levels]);
-                glProg.setVar("bandEdgeU", 0f, 0f, band[2], band[3]);
+                shaderProg.setTexture("LevelGF", GF[levels]);
+                shaderProg.setTexture("LevelA", A[levels]);
+                shaderProg.setVar("bandEdgeU", 0f, 0f, band[2], band[3]);
             }
-            glProg.drawBlocks(F[levels]);
+            shaderProg.drawBlocks(F[levels]);
             for (int l = levels - 1; l >= 1; l--) {
-                if (bands) glProg.setDefine("EDGE_BANDS", 1);
-                glProg.setDefine("MODE", 4);
+                if (bands) shaderProg.setDefine("EDGE_BANDS", 1);
+                shaderProg.setDefine("MODE", 4);
                 gammaDefine();
-                glProg.useAssetProgram("why/lpyr", false);
-                glProg.setTexture("LevelL", L[l]);
-                glProg.setTexture("LevelW", W[l]);
-                glProg.setTexture("CoarseL", L[l + 1]);
-                glProg.setTexture("CoarseF", F[l + 1]);
+                shaderProg.useAssetProgram("why/lpyr", false);
+                shaderProg.setTexture("LevelL", L[l]);
+                shaderProg.setTexture("LevelW", W[l]);
+                shaderProg.setTexture("CoarseL", L[l + 1]);
+                shaderProg.setTexture("CoarseF", F[l + 1]);
                 if (bands) {
-                    glProg.setTexture("LevelGF", GF[l]);
-                    glProg.setTexture("CoarseGF", GF[l + 1]);
-                    glProg.setTexture("LevelA", A[l]);
+                    shaderProg.setTexture("LevelGF", GF[l]);
+                    shaderProg.setTexture("CoarseGF", GF[l + 1]);
+                    shaderProg.setTexture("LevelA", A[l]);
                     bandUniforms(band, noiseCap ? nz : null, noiseI, beta, l, l == levels - 1 ? 1f - lowBand : 0f);
                 }
-                glProg.drawBlocks(F[l]);
+                shaderProg.drawBlocks(F[l]);
             }
             // P349: the guided filter's fusion for the light above white (no Mertens halo round dark objects in a glow)
             final float[] gmix = WhyTone.guidedLights();
@@ -504,40 +504,40 @@ public final class WhyFusion extends Node {
             if (!aux) st.fused = out;
             // P378 (M1): the clear sky keeps the pyramid's fusion of its clouds (only with the guided share and a sky)
             final boolean sky = !aux && guidedF != null && st.sky != null;
-            if (sky) glProg.setDefine("SKY", 1);
-            if (bands) glProg.setDefine("EDGE_BANDS", 1);
-            if (winLevel > 0) glProg.setDefine("WINDOW", 1);
+            if (sky) shaderProg.setDefine("SKY", 1);
+            if (bands) shaderProg.setDefine("EDGE_BANDS", 1);
+            if (winLevel > 0) shaderProg.setDefine("WINDOW", 1);
             fusionProgram("why/lpyr", 5, st.lowDn, em, lw, ae, center, satLight);
             if (winLevel > 0) {
-                glProg.setTexture("WinMean", GF[winLevel]);
-                glProg.setTexture("Fused31", fused31);
-                glProg.setVar("winU", win[0], win[1], win[2], 0f);
-                glProg.setVar("winScaleU", (float) (1 << winLevel));
+                shaderProg.setTexture("WinMean", GF[winLevel]);
+                shaderProg.setTexture("Fused31", fused31);
+                shaderProg.setVar("winU", win[0], win[1], win[2], 0f);
+                shaderProg.setVar("winScaleU", (float) (1 << winLevel));
             }
-            glProg.setTexture("CoarseL", L[1]);
-            glProg.setTexture("CoarseF", F[1]);
+            shaderProg.setTexture("CoarseL", L[1]);
+            shaderProg.setTexture("CoarseF", F[1]);
             if (bands) {
-                glProg.setTexture("CoarseGF", GF[1]);
-                glProg.setTexture("LevelA", D0);
+                shaderProg.setTexture("CoarseGF", GF[1]);
+                shaderProg.setTexture("LevelA", D0);
                 bandUniforms(band, noiseCap ? nz : null, noiseI, beta, 0, levels == 1 ? 1f - lowBand : 0f);
             }
             if (guidedF != null) {
-                glProg.setTexture("GuidedF", guidedF);
-                glProg.setVar("guidedMixU", gmix[0], gmix[1]);
+                shaderProg.setTexture("GuidedF", guidedF);
+                shaderProg.setVar("guidedMixU", gmix[0], gmix[1]);
             } else {
                 // P391: no guided filter (its share and the edge share off with the bands): a linked program keeps its uniforms, so
                 // a share set by an earlier shot must not read an unbound GuidedF
-                glProg.setVar("guidedMixU", 0f, 0f);
+                shaderProg.setVar("guidedMixU", 0f, 0f);
             }
             if (sky) {
-                glProg.setTexture("WhySky", st.sky);
-                glProg.setVar("skyGuidedU", WhyTone.sky());
+                shaderProg.setTexture("WhySky", st.sky);
+                shaderProg.setVar("skyGuidedU", WhyTone.sky());
             }
             // set on every shot (a linked program keeps its uniforms): zeros = the share off
-            if (edgeOn) glProg.setTexture("GuideC", G[levels]);
-            glProg.setVar("edgeMixU", edgeOn ? edge[0] : 0f, edgeOn ? edge[1] : 0f, edgeOn ? edge[2] : 0f, edgeScale);
-            glProg.drawBlocks(out);
-            glProg.closed = true;
+            if (edgeOn) shaderProg.setTexture("GuideC", G[levels]);
+            shaderProg.setVar("edgeMixU", edgeOn ? edge[0] : 0f, edgeOn ? edge[1] : 0f, edgeOn ? edge[2] : 0f, edgeScale);
+            shaderProg.drawBlocks(out);
+            shaderProg.closed = true;
         } catch (RuntimeException e) {
             if (aux && out != null) out.close();
             throw e;
@@ -619,18 +619,18 @@ public final class WhyFusion extends Node {
      */
     private void bandUniforms(float[] band, float[] nz, float[] noiseI, float[] beta, int level, float lowCut) {
         final float[] ramp = WhyTone.edgeRamp(band, level);
-        glProg.setVar("bandEdgeU", ramp[0], ramp[1], band[2], band[3]);
-        glProg.setVar("bandReachU", (int) band[4], 0);
-        glProg.setVar("coneU", ramp[2], 0f, 0f, 0f);
+        shaderProg.setVar("bandEdgeU", ramp[0], ramp[1], band[2], band[3]);
+        shaderProg.setVar("bandReachU", (int) band[4], 0);
+        shaderProg.setVar("coneU", ramp[2], 0f, 0f, 0f);
         if (nz != null) {
-            glProg.setVar("noiseBandU", nz[0], nz[1], noiseI[0], noiseI[1]);
-            glProg.setVar("noiseBetaU", beta[0], beta[1], beta[2], beta[3]);
+            shaderProg.setVar("noiseBandU", nz[0], nz[1], noiseI[0], noiseI[1]);
+            shaderProg.setVar("noiseBetaU", beta[0], beta[1], beta[2], beta[3]);
         } else {
-            glProg.setVar("noiseBandU", 0f, 0f, 0f, 0f);
-            glProg.setVar("noiseBetaU", 0f, 0f, 0f, 0f);
+            shaderProg.setVar("noiseBandU", 0f, 0f, 0f, 0f);
+            shaderProg.setVar("noiseBetaU", 0f, 0f, 0f, 0f);
         }
-        glProg.setVar("levelU", level);
-        glProg.setVar("lowCutU", lowCut);
+        shaderProg.setVar("levelU", level);
+        shaderProg.setVar("lowCutU", lowCut);
     }
 
     /**
@@ -638,11 +638,11 @@ public final class WhyFusion extends Node {
      * spacing and the noise taken out of D in quadrature - WhyTone.bandsNoise() sigmas of it (zeros without a noise model).
      */
     private void measureUniforms(float[] band, float[] noiseI, int level) {
-        glProg.setVar("bandEdgeU", 0f, 0f, band[2], band[3]);
-        glProg.setVar("refScaleU", (float) (1 << REF_DOWN));
+        shaderProg.setVar("bandEdgeU", 0f, 0f, band[2], band[3]);
+        shaderProg.setVar("refScaleU", (float) (1 << REF_DOWN));
         final float k = WhyTone.bandsNoise();
-        if (noiseI != null && k > 0f) glProg.setVar("bandNoiseU", k * WhyTone.edgeBeta(level), noiseI[0], noiseI[1]);
-        else glProg.setVar("bandNoiseU", 0f, 0f, 0f);
+        if (noiseI != null && k > 0f) shaderProg.setVar("bandNoiseU", k * WhyTone.edgeBeta(level), noiseI[0], noiseI[1]);
+        else shaderProg.setVar("bandNoiseU", 0f, 0f, 0f);
     }
 
     /**
@@ -652,9 +652,9 @@ public final class WhyFusion extends Node {
      */
     private void shareUniforms(float[] band, int level, boolean coarsest) {
         final float[] ramp = WhyTone.edgeRamp(band, level), ramp0 = WhyTone.edgeRamp(band, 0);
-        glProg.setVar("bandEdgeU", ramp[0], ramp[1], band[2], band[3]);
-        glProg.setVar("bandReachU", coarsest ? -1 : (int) band[4], level == 1 ? (int) band[4] : 1);
-        if (level == 1) glProg.setVar("coneU", ramp[2], ramp0[0], ramp0[1], ramp0[2]);
-        else glProg.setVar("coneU", ramp[2], 0f, 0f, 0f);
+        shaderProg.setVar("bandEdgeU", ramp[0], ramp[1], band[2], band[3]);
+        shaderProg.setVar("bandReachU", coarsest ? -1 : (int) band[4], level == 1 ? (int) band[4] : 1);
+        if (level == 1) shaderProg.setVar("coneU", ramp[2], ramp0[0], ramp0[1], ramp0[2]);
+        else shaderProg.setVar("coneU", ramp[2], 0f, 0f, 0f);
     }
 }

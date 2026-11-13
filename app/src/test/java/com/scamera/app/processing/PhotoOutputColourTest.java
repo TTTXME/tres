@@ -147,13 +147,13 @@ public class PhotoOutputColourTest {
 
     private static ParseExif.ExifData exif() {
         ParseExif.ExifData d = new ParseExif.ExifData();
-        d.SENSITIVITY_TYPE = String.valueOf(ExifInterface.SENSITIVITY_TYPE_ISO_SPEED);
-        d.PHOTOGRAPHIC_SENSITIVITY = "400";
-        d.F_NUMBER = "1.8";
-        d.EXPOSURE_TIME = "0.01";
-        d.DATETIME = "2026:10:08 10:10:10";
-        d.COMPRESSION = ParseExif.COMPRESSION_JPEG;
-        d.COLOR_SPACE = "sRGB";
+        d.sensitivityType = String.valueOf(ExifInterface.SENSITIVITY_TYPE_ISO_SPEED);
+        d.isoValue = "400";
+        d.fNumber = "1.8";
+        d.exposureTime = "0.01";
+        d.dateTime = "2026:10:08 10:10:10";
+        d.compression = ParseExif.COMPRESSION_JPEG;
+        d.colorSpace = "sRGB";
         return d;
     }
 

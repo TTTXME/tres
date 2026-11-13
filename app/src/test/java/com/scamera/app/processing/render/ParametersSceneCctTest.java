@@ -57,7 +57,7 @@ public class ParametersSceneCctTest {
     @Before public void setUp() {
         whiteSpec = true;
         settings = new com.scamera.app.api.Settings();
-        settings.colorMethod = 1; // the default (default_prefs.xml)
+        settings.colourMethod = 1; // the default (default_prefs.xml)
         app = mockStatic(com.scamera.app.app.ScameraApp.class);
         app.when(com.scamera.app.app.ScameraApp::getSettings).thenReturn(settings);
         prefsKeys = mockStatic(PreferenceKeys.class, invocation -> {
@@ -123,7 +123,7 @@ public class ParametersSceneCctTest {
         final Parameters p = new Parameters();
         p.physicalID = 2;
         p.cameraID = "2";
-        p.ReCalcColor(false, result(transform, n));
+        p.resolveColour(false, result(transform, n));
         return p;
     }
 
@@ -149,14 +149,14 @@ public class ParametersSceneCctTest {
         final Parameters p = shot(IDENTITY, n);
         final float[] cm1 = new float[9], cm2 = new float[9], cc1 = new float[9], cc2 = new float[9];
         for (int i = 0; i < 9; i++) {
-            cm1[i] = p.ColorMatrix1[i];
-            cm2[i] = p.ColorMatrix2[i];
-            cc1[i] = p.calibrationTransform1[i];
-            cc2[i] = p.calibrationTransform2[i];
+            cm1[i] = p.colorMatrix1[i];
+            cm2[i] = p.colorMatrix2[i];
+            cc1[i] = p.cameraCalibration1[i];
+            cc2[i] = p.cameraCalibration2[i];
         }
         Converter.normalizeFM(cm1);
         Converter.normalizeFM(cm2);
-        final double f = Converter.findDngInterpolationFactor(21, 17, cc1, cc2, cm1, cm2, p.whitePoint);
+        final double f = Converter.findDngInterpolationFactor(21, 17, cc1, cc2, cm1, cm2, p.asShotNeutral);
         final float mired1 = 1e6f / OppoTunedColor.cct(21), mired2 = 1e6f / OppoTunedColor.cct(17);
         assertEquals(1e6f / (mired1 + (float) f * (mired2 - mired1)), p.sceneCct, 0f);
         assertTrue(p.sceneCctSource, p.sceneCctSource.contains("dng_white_spec 0"));
@@ -170,8 +170,8 @@ public class ParametersSceneCctTest {
         final float[] cct = {1.5625f, -0.484375f, -0.078125f, -0.1328125f, 1.34375f, -0.2109375f, 0.062015504f, -0.5426357f, 1.4806201f};
         final float[] s2p = {1.8253119f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 2.3925233f};
         for (int i = 0; i < 9; i++) {
-            assertEquals("CCT " + i, cct[i], p.CCT.matrix[i], 0f);
-            assertEquals("s2p " + i, s2p[i], p.sensorToProPhoto[i], 0f);
+            assertEquals("CCT " + i, cct[i], p.colorTransform.matrix[i], 0f);
+            assertEquals("s2p " + i, s2p[i], p.cameraToProPhoto[i], 0f);
         }
         // the row-normalised matrices of the old log (x8u(): not the phone's raw ones, P370 C1) put the neutral off the locus:
         // the light is unknown, not the former 5373 K
@@ -182,8 +182,8 @@ public class ParametersSceneCctTest {
         whiteSpec = false;
         final Parameters before = shot(X8U_CST, new float[]{0.54785156f, 1f, 0.41796875f});
         for (int i = 0; i < 9; i++) {
-            assertEquals("CCT " + i, cct[i], before.CCT.matrix[i], 0f);
-            assertEquals("s2p " + i, s2p[i], before.sensorToProPhoto[i], 0f);
+            assertEquals("CCT " + i, cct[i], before.colorTransform.matrix[i], 0f);
+            assertEquals("s2p " + i, s2p[i], before.cameraToProPhoto[i], 0f);
         }
     }
 
@@ -198,21 +198,21 @@ public class ParametersSceneCctTest {
         final Parameters p = new Parameters();
         p.physicalID = 2;
         p.cameraID = "2";
-        p.ReCalcColor(false, res);
+        p.resolveColour(false, res);
         assertEquals("ISP_CST", p.colourSource);
         assertEquals(4870f, p.sceneCct, 0f);
         assertTrue(p.sceneCctSource, p.sceneCctSource.startsWith("the AWB label") && p.sceneCctSource.contains("unknown"));
         assertTrue(p.colourSummary(), p.colourSummary().contains("AWB label 4870 K"));
         final Parameters without = shot(X8U_CST, new float[]{0.54785156f, 1f, 0.41796875f});
         for (int i = 0; i < 9; i++) {
-            assertEquals(without.CCT.matrix[i], p.CCT.matrix[i], 0f);
-            assertEquals(without.sensorToProPhoto[i], p.sensorToProPhoto[i], 0f);
+            assertEquals(without.colorTransform.matrix[i], p.colorTransform.matrix[i], 0f);
+            assertEquals(without.cameraToProPhoto[i], p.cameraToProPhoto[i], 0f);
         }
         for (int bad : new int[]{3745, 1200, 20000}) {
             when(res.get(Parameters.AWB_CCT_LABEL)).thenReturn(new int[]{bad});
             final Parameters q = new Parameters();
             q.physicalID = 2;
-            q.ReCalcColor(false, res);
+            q.resolveColour(false, res);
             assertEquals("label " + bad, 0f, q.sceneCct, 0f);
         }
         // a light the estimate reads keeps the estimate, the label is only logged
@@ -221,14 +221,14 @@ public class ParametersSceneCctTest {
         when(dng.get(Parameters.AWB_CCT_LABEL)).thenReturn(new int[]{6000});
         final Parameters e = new Parameters();
         e.physicalID = 2;
-        e.ReCalcColor(false, dng);
+        e.resolveColour(false, dng);
         assertEquals(2856f, e.sceneCct, 150f);
         assertEquals("the DNG estimate", e.sceneCctSource);
         assertTrue(e.colourSummary(), e.colourSummary().contains("AWB label 6000 K"));
     }
 
     /**
-     * P370 (A1, review): the whole chain - a tungsten / daylight neutral through ReCalcColor to the DNG's profile (DngColour,
+     * P370 (A1, review): the whole chain - a tungsten / daylight neutral through resolveColour to the DNG's profile (DngColour,
      * P243) read back the DNG SDK's way (DngColor, as Lightroom): the As-Shot temperature is the light, not the former row-normalised
      * estimate's (5068 K under tungsten).
      */
@@ -236,11 +236,11 @@ public class ParametersSceneCctTest {
         for (double t : new double[]{2856, 4000, 6504}) {
             final Parameters p = shot(IDENTITY, neutralAt(t));
             final com.scamera.app.processing.color.DngColour.Profile profile =
-                    com.scamera.app.processing.color.DngColour.jpegProfile(p.sensorToProPhoto, p.CCT.matrix, p.whitePoint, p.sceneCct);
+                    com.scamera.app.processing.color.DngColour.jpegProfile(p.cameraToProPhoto, p.colorTransform.matrix, p.asShotNeutral, p.sceneCct);
             org.junit.Assert.assertNotNull(profile);
             final double[] cm = new double[9];
             for (int i = 0; i < 9; i++) cm[i] = profile.colorMatrix1[i];
-            final double[] n = {p.whitePoint[0], p.whitePoint[1], p.whitePoint[2]};
+            final double[] n = {p.asShotNeutral[0], p.asShotNeutral[1], p.asShotNeutral[2]};
             final double asShot = com.scamera.app.gallery.dng.DngColor.cctDuv(
                     com.scamera.app.gallery.dng.DngColor.fromCamera(cm, n).xyForNeutral(n))[0];
             assertEquals("light " + t + " K", t, asShot, 150);
@@ -260,7 +260,7 @@ public class ParametersSceneCctTest {
         p.mosaicShot = true;
         p.ownNeutral = true;
         p.customNeutral = new float[]{0.54785156f, 1f, 0.41796875f};
-        p.ReCalcColor(true, res);
+        p.resolveColour(true, res);
         org.junit.Assert.assertNotEquals(4870f, p.sceneCct, 0f);
         assertTrue(p.colourSummary(), p.colourSummary().contains("AWB label 4870 K"));
     }
@@ -308,7 +308,7 @@ public class ParametersSceneCctTest {
         when(res.get(CaptureResult.COLOR_CORRECTION_GAINS)).thenReturn(g);
         final Parameters p = new Parameters();
         p.physicalID = 2;
-        p.ReCalcColor(false, res);
+        p.resolveColour(false, res);
         assertEquals(3000f, p.sceneCct, 150f);
     }
 

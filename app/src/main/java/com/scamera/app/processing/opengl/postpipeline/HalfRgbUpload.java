@@ -103,7 +103,7 @@ final class HalfRgbUpload {
             }
             prog.setLayout(16, 16, 1);
             prog.useAssetProgram("scamhdr/halfrgba", true);
-            GLES31.glBindImageTexture(0, tex.mTextureID, 0, false, 0, GLES31.GL_WRITE_ONLY, GLES31.GL_RGBA16F);
+            GLES31.glBindImageTexture(0, tex.id, 0, false, 0, GLES31.GL_WRITE_ONLY, GLES31.GL_RGBA16F);
             final ByteBuffer src = rgb.duplicate().order(ByteOrder.nativeOrder());
             boolean mapped = mappedCopy();
             for (int y0 = 0, k = 0; y0 < h; y0 += band, k++) {
@@ -252,7 +252,7 @@ final class HalfRgbUpload {
         try {
             prog.setLayout(16, 16, 1);
             prog.useAssetProgram("scamhdr/halfrgba", true);
-            GLES31.glBindImageTexture(0, tex.mTextureID, 0, false, 0, GLES31.GL_WRITE_ONLY, GLES31.GL_RGBA16F);
+            GLES31.glBindImageTexture(0, tex.id, 0, false, 0, GLES31.GL_WRITE_ONLY, GLES31.GL_RGBA16F);
             for (int y0 = 0; y0 < h; y0 += band) {
                 final int rows = Math.min(band, h - y0);
                 GLES31.glBindBufferRange(GLES31.GL_SHADER_STORAGE_BUFFER, 1, buffer, y0 * rowBytes, rows * rowBytes);
@@ -327,7 +327,7 @@ final class HalfRgbUpload {
             GLES31.glGetIntegerv(GLES31.GL_READ_FRAMEBUFFER_BINDING, oldRead, 0);
             GLES31.glGenFramebuffers(1, framebuffer, 0);
             GLES31.glBindFramebuffer(GLES31.GL_READ_FRAMEBUFFER, framebuffer[0]);
-            GLES31.glFramebufferTexture2D(GLES31.GL_READ_FRAMEBUFFER, GLES31.GL_COLOR_ATTACHMENT0, GLES31.GL_TEXTURE_2D, tex.mTextureID, 0);
+            GLES31.glFramebufferTexture2D(GLES31.GL_READ_FRAMEBUFFER, GLES31.GL_COLOR_ATTACHMENT0, GLES31.GL_TEXTURE_2D, tex.id, 0);
             final int halfType = WhyStats.halfReadType();
             final ByteBuffer back = ByteBuffer.allocateDirect(w * h * (halfType != 0 ? 8 : 16)).order(ByteOrder.nativeOrder());
             GLES31.glReadPixels(0, 0, w, h, GLES31.GL_RGBA, halfType != 0 ? halfType : GLES31.GL_FLOAT, back);

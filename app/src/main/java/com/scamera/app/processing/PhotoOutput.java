@@ -215,7 +215,7 @@ public final class PhotoOutput {
         final GainMapComputer.Result gain = jpegGain;
         final boolean p3 = space == OutputColour.Space.DISPLAY_P3;
         // EXIF ColorSpace of a P3 photo: 0xFFFF "Uncalibrated" (as cameras writing Display P3 do), the ICC profile names the space.
-        if (p3 && exif != null) exif.COLOR_SPACE = String.valueOf(0xFFFF);
+        if (p3 && exif != null) exif.colorSpace = String.valueOf(0xFFFF);
         final PhotoFormat format = PreferenceKeys.getPhotoFormat();
         final boolean alsoJpeg = PreferenceKeys.isAlsoSaveJpeg();
         final int width = img.getWidth(), height = img.getHeight();
@@ -380,7 +380,7 @@ public final class PhotoOutput {
             final int width = img.getWidth(), height = img.getHeight();
             byte[] exifBlock = null;
             if (exif != null) {
-                exif.COMPRESSION = null;
+                exif.compression = null;
                 exifBlock = ExifBlock.exifDataBlock(ExifBlock.app1Segment(exif, width, height, img)); // P620: with its thumbnail
             }
             final long start = System.nanoTime();
@@ -420,7 +420,7 @@ public final class PhotoOutput {
         final boolean tenBitRoute = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && Heic10Support.wanted();
         byte[] exifBlock = null;
         if (exif != null) {
-            exif.COMPRESSION = null;
+            exif.compression = null;
             exifBlock = ExifBlock.exifDataBlock(ExifBlock.app1Segment(exif, width, height, img)); // P620: with its thumbnail
         }
         if (hdrGain != null && tenBitRoute) {
@@ -516,7 +516,7 @@ public final class PhotoOutput {
     private static boolean saveJpeg(Path file, Bitmap img, ParseExif.ExifData exif, GainMapComputer.Result gain, boolean recycle,
                                     byte[] icc) {
         if (exif == null) exif = new ParseExif.ExifData();
-        exif.COMPRESSION = ParseExif.COMPRESSION_JPEG; // a HEIC / WebP written before cleared it
+        exif.compression = ParseExif.COMPRESSION_JPEG; // a HEIC / WebP written before cleared it
         final int quality = PreferenceKeys.getJpegQuality();
         if (gain != null) {
             try {
@@ -532,7 +532,7 @@ public final class PhotoOutput {
 
     private static boolean saveJpeg(Path file, Bitmap img, ParseExif.ExifData exif, GainMapComputer.Result gain, boolean recycle) {
         if (exif == null) exif = new ParseExif.ExifData();
-        exif.COMPRESSION = ParseExif.COMPRESSION_JPEG; // a HEIC / WebP written before cleared it
+        exif.compression = ParseExif.COMPRESSION_JPEG; // a HEIC / WebP written before cleared it
         final int quality = PreferenceKeys.getJpegQuality();
         if (gain != null) {
             try {
@@ -570,7 +570,7 @@ public final class PhotoOutput {
     /** EXIF of a WebP file through ExifInterface; a failure costs the EXIF, never the photo. */
     private static void writeExif(Path file, ParseExif.ExifData exif, int width, int height) {
         if (exif == null) return;
-        exif.COMPRESSION = null; // Compression 6 (JPEG) describes JPEG data only
+        exif.compression = null; // Compression 6 (JPEG) describes JPEG data only
         try {
             ExifInterface inter = ParseExif.setAllAttributes(file.toFile(), exif);
             if (inter == null) return;
@@ -602,7 +602,7 @@ public final class PhotoOutput {
         }
         byte[] exifBlock = null;
         if (exif != null) {
-            exif.COMPRESSION = null;
+            exif.compression = null;
             exifBlock = ExifBlock.exifDataBlock(ExifBlock.app1Segment(exif, width, height, img)); // P620: with its thumbnail
         }
         androidx.heifwriter.HeifWriter writer = null;
@@ -735,7 +735,7 @@ public final class PhotoOutput {
         }
         byte[] exifBlock = null;
         if (exif != null) {
-            exif.COMPRESSION = null; // Compression 6 (JPEG) describes JPEG data only
+            exif.compression = null; // Compression 6 (JPEG) describes JPEG data only
             exifBlock = ExifBlock.exifDataBlock(ExifBlock.app1Segment(exif, width, height, img)); // P620: with its thumbnail
         }
         try {

@@ -1,22 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- the camera screen's background colour of the theme -->
-    <attr name="cameraFragmentBackground" format="reference"/>
+    <attr name="cameraFragmentBackground" format="reference" />
 
-    <!-- a settings row with a slider on a step grid (UniversalSeekBarPreference): its range, the grid (steps per unit), a
-         decimal or a whole value, and whether the value pill shows -->
+    <!-- a settings row with a slider on a step grid (UniversalSeekBarPreference): its range, the grid (steps per unit) and
+         whether the value is a decimal or a whole number -->
+    <attr name="minValue" format="float" />
+    <attr name="maxValue" format="float" />
+    <attr name="stepPerUnit" format="float" />
+    <attr name="isFloat" format="boolean" />
     <declare-styleable name="UniversalSeekBarPreference">
-        <attr name="minValue" format="float"/>
-        <attr name="maxValue" format="float"/>
-        <attr name="stepPerUnit" format="float"/>
-        <attr name="isFloat" format="boolean"/>
-        <attr name="showSeekBarValue" format="boolean"/>
+        <attr name="minValue" />
+        <attr name="maxValue" />
+        <attr name="stepPerUnit" />
+        <attr name="isFloat" />
     </declare-styleable>
 
     <!-- the tap-focus brackets: their colour by state (focus_failed: the focus did not lock) and line width -->
+    <attr name="focus_failed" format="boolean" />
     <declare-styleable name="FocusCircleView">
-        <attr name="focus_failed" format="boolean"/>
-        <attr name="android:color" format="reference|color"/>
-        <attr name="android:thickness" format="dimension"/>
+        <attr name="focus_failed" />
+        <attr name="android:color" />
+        <attr name="android:thickness" />
     </declare-styleable>
 </resources>

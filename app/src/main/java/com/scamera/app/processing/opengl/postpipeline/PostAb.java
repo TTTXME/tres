@@ -52,7 +52,7 @@ public final class PostAb {
         final ByteBuffer copy = Allocator.allocateAndCopy(rgb.capacity(), rgb, 0);
         if (copy == null) {
             Log.w("SCAM_PIPELINE", "POST AB skipped: no memory for the copy of the worker RGB");
-            return pipeline.Run(input, p);
+            return pipeline.develop(input, p);
         }
         copy.order(rgb.order());
         String oldMd5 = "failed";
@@ -80,7 +80,7 @@ public final class PostAb {
         else PostGlMode.setLegacy(true);
         try {
             final long t0 = System.nanoTime();
-            final Bitmap a = old.Run(input, p);
+            final Bitmap a = old.develop(input, p);
             final long t1 = System.nanoTime();
             old.close();
             oldTeardown = (System.nanoTime() - t1) / 1_000_000;
@@ -102,7 +102,7 @@ public final class PostAb {
             ScamRgb.lastClipFlags = clipFlags;
         }
         final long t2 = System.nanoTime();
-        final Bitmap b = pipeline.Run(input, p);
+        final Bitmap b = pipeline.develop(input, p);
         final long newMs = (System.nanoTime() - t2) / 1_000_000;
         final String newMd5 = md5(b);
         dump(b, "post_ab_new.png");

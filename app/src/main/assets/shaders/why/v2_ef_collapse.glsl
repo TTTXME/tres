@@ -1,5 +1,4 @@
-precision highp float;
-precision highp sampler2D;
+precision highp float; precision highp sampler2D;
 // P614 «Why тон» V2 (WhyV2Fusion): the reference tone's ef_pyr_collapse, one to one - a finer level's fused luma: the coarser
 // fused luma (bilinear) plus the band of the lumas (the level minus its coarser level, bilinear) weighted by the level's weights;
 // u_clarity 0..1 moves the weights towards the band's own size (boost_local_contrast), beyond that a gain on the band.

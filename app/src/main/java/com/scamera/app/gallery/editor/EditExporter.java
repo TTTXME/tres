@@ -526,6 +526,9 @@ public final class EditExporter {
 
     /** A pbuffer-backed OpenGL ES 3 context for the export thread. */
     static final class Egl {
+        private static final android.opengl.EGLSurface NO_SURFACE = EGL14.EGL_NO_SURFACE;
+        private static final android.opengl.EGLContext NO_CONTEXT = EGL14.EGL_NO_CONTEXT;
+        private static final android.opengl.EGLDisplay NO_DISPLAY = EGL14.EGL_NO_DISPLAY;
         EGLDisplay display = EGL14.EGL_NO_DISPLAY;
         EGLContext context = EGL14.EGL_NO_CONTEXT;
         EGLSurface surface = EGL14.EGL_NO_SURFACE;
@@ -552,9 +555,10 @@ public final class EditExporter {
                 if (context != EGL14.EGL_NO_CONTEXT) EGL14.eglDestroyContext(display, context);
                 EGL14.eglReleaseThread();
             }
-            display = EGL14.EGL_NO_DISPLAY;
-            context = EGL14.EGL_NO_CONTEXT;
-            surface = EGL14.EGL_NO_SURFACE;
+            // nothing current or held any more
+            surface = NO_SURFACE;
+            context = NO_CONTEXT;
+            display = NO_DISPLAY;
         }
     }
 }

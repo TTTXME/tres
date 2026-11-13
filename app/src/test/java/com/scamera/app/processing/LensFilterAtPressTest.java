@@ -69,11 +69,11 @@ public class LensFilterAtPressTest {
         paths.when(() -> ImagePath.dngFile(anyString())).thenReturn(Paths.get("filter-test.dng"));
         paths.when(() -> ImagePath.imageFile(anyString())).thenReturn(Paths.get("filter-test.jpg"));
         exif = mockStatic(ParseExif.class);
-        SaverImplementation.IMAGE_BUFFER.clear();
+        SaverImplementation.FRAME_QUEUE.clear();
     }
 
     @After public void cleanup() {
-        SaverImplementation.IMAGE_BUFFER.clear();
+        SaverImplementation.FRAME_QUEUE.clear();
         exif.close();
         paths.close();
         processors.close();
@@ -88,9 +88,9 @@ public class LensFilterAtPressTest {
 
     /** The shot pressed with {@code press}, queued, the tray changed meanwhile, then processed: the processor's filter. */
     private LensFilter.Choice queued(LensFilter.Choice press, String trayDuringTheMerge) {
-        ImageSaver saver = new ImageSaver(mock(ProcessingEventsListener.class));
+        ImageSaver saver = new ImageSaver(mock(ProcessingEvents.class));
         saver.lensFilterAtPress = press;
-        DefaultSaver implementation = (DefaultSaver) saver.implementation;
+        DefaultSaver implementation = (DefaultSaver) saver.saverImpl;
         saver.detachForQueue(true);
         tray(trayDuringTheMerge);
         saver.runRaw(null, null, null, new ArrayList<>(), 0, new HashMap<>());
@@ -129,12 +129,12 @@ public class LensFilterAtPressTest {
         // RAW16Saver); the shot is still processed by the saver its frames went to
         tray("");
         final LensFilter.Choice press = LensFilter.Choice.now();
-        ImageSaver saver = new ImageSaver(mock(ProcessingEventsListener.class));
+        ImageSaver saver = new ImageSaver(mock(ProcessingEvents.class));
         saver.lensFilterAtPress = press;
-        DefaultSaver detached = (DefaultSaver) saver.implementation;
+        DefaultSaver detached = (DefaultSaver) saver.saverImpl;
         saver.detachForQueue(true);
-        saver.implementation = ImageSaverSelector.getImageSaver(android.graphics.ImageFormat.RAW10, saver.implementation);
-        assertNotSame(detached, saver.implementation);
+        saver.saverImpl = ImageSaverSelector.getImageSaver(android.graphics.ImageFormat.RAW10, saver.saverImpl);
+        assertNotSame(detached, saver.saverImpl);
         saver.runRaw(null, null, null, new ArrayList<>(), 0, new HashMap<>());
         assertSame("the detached saver processed the shot", press, detached.scamProcessor.ownedLensFilter);
     }

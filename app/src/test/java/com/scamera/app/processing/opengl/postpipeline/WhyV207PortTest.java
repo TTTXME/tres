@@ -76,9 +76,9 @@ public class WhyV207PortTest {
         final String shader = read("src/main/assets/shaders/why/combine.glsl");
         assertTrue(shader.contains("#define WHY_BASE 0\n") && shader.contains("#define AGX_INSET 0\n"));
         final String why = read(src + "WhyCombine.java"), live = read(src + "LiveWhyTone.java");
-        assertTrue(why.contains("if (WhyTone.whyLayout()) glProg.setDefine(\"WHY_BASE\", 1);"));
-        assertTrue(why.contains("if (WhyTone.insetStrength() < 0.999f) glProg.setDefine(\"AGX_INSET\", 1);"));
-        assertTrue(why.contains("glProg.setVar(\"hrEaseU\", 1f - WhyTone.shoulderStrength());"));
+        assertTrue(why.contains("if (WhyTone.whyLayout()) shaderProg.setDefine(\"WHY_BASE\", 1);"));
+        assertTrue(why.contains("if (WhyTone.insetStrength() < 0.999f) shaderProg.setDefine(\"AGX_INSET\", 1);"));
+        assertTrue(why.contains("shaderProg.setVar(\"hrEaseU\", 1f - WhyTone.shoulderStrength());"));
         assertTrue(live.contains("if (whyBase) defs.add(new String[]{\"WHY_BASE\", \"1\"});"));
         assertTrue(live.contains("if (inset < 0.999f) defs.add(new String[]{\"AGX_INSET\", \"1\"});"));
         assertTrue(live.contains("WhyFusion.liveExposures(r)"));

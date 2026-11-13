@@ -123,10 +123,10 @@ public final class NubiaRemosaicProbe {
 
         Key(String name, Class<?> type, Object value, boolean session, boolean still) {
             this.name = name;
-            this.type = type;
-            this.value = value;
             this.session = session && !still;
+            this.type = type;
             this.still = still;
+            this.value = value;
         }
 
         @Override public String toString() {

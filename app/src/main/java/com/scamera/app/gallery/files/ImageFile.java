@@ -25,17 +25,17 @@ public final class ImageFile extends MediaFile {
         this.path = path;
     }
 
-    @Override public long getId() { return rowId; }
+    @Override public long rowId() { return rowId; }
 
-    @Override public Uri getFileUri() { return uri; }
+    @Override public Uri contentUri() { return uri; }
 
-    @Override public String getDisplayName() { return name; }
+    @Override public String displayName() { return name; }
 
-    @Override public long getLastModified() { return modifiedMs; }
+    @Override public long modifiedMs() { return modifiedMs; }
 
-    @Override public long getSize() { return bytes; }
+    @Override public long sizeBytes() { return bytes; }
 
-    @Override public String getAbsolutePath() { return path; }
+    @Override public String filePath() { return path; }
 
     @Override
     public boolean equals(Object other) {

@@ -42,9 +42,9 @@ public class VivoQcomIszTest {
 
     @Test public void modulesCarryTheModeAsASessionKey() {
         VendorTagUtils.TunableKey k = VivoQcomIsz.sessionKey(VivoQcomIsz.TELE_4X);
-        assertEquals(VendorTagUtils.TunableKey.TYPE_SESSION, k.type);
-        assertEquals("vivo.control.forceSensorMode", k.name);
-        assertEquals("7", k.value);
+        assertEquals(VendorTagUtils.TunableKey.TYPE_SESSION, k.kind);
+        assertEquals("vivo.control.forceSensorMode", k.tag);
+        assertEquals("7", k.text);
         assertEquals("7.4×", VivoQcomIsz.label(3.7f * 2));
         assertEquals("15×", VivoQcomIsz.label(3.7f * 4));
         assertEquals("2×", VivoQcomIsz.label(2f));

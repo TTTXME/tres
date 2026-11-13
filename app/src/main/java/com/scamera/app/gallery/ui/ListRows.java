@@ -200,14 +200,14 @@ public final class ListRows implements RowStyle {
             index = row.item;
             place = row.count;
             Context c = itemView.getContext();
-            MediaFile f = it.getFile();
+            MediaFile f = it.mediaFile();
             boolean video = GalleryVideo.isVideo(f);
             String dur = video ? RowText.duration(GalleryVideo.durationMs(f)) : null;
             length.setText(dur != null ? dur : "");
             length.setVisibility(dur != null ? View.VISIBLE : View.GONE);
             heart.setVisibility(adapter.host().isFavourite(it) ? View.VISIBLE : View.GONE);
-            name.setText(f.getDisplayName());
-            more.setContentDescription(Lang.t("Действия: ", "Actions: ") + f.getDisplayName());
+            name.setText(f.displayName());
+            more.setContentDescription(Lang.t("Действия: ", "Actions: ") + f.displayName());
             ItemMeta.Info info = ItemMeta.get(c, f, done -> {
                 if (item == it) facts(adapter, done);
             });
@@ -223,13 +223,13 @@ public final class ListRows implements RowStyle {
         void facts(LibraryAdapter adapter, ItemMeta.Info info) {
             if (item == null) return;
             Context c = itemView.getContext();
-            MediaFile f = item.getFile();
+            MediaFile f = item.mediaFile();
             boolean video = GalleryVideo.isVideo(f);
             int[] size = info != null ? info.size : null;
-            String second = RowText.secondary(f.getLastModified(), adapter.now, size, f.getSize(), video);
+            String second = RowText.secondary(f.modifiedMs(), adapter.now, size, f.sizeBytes(), video);
             line.setText(second);
             GalleryFormat format = GalleryFormat.of(item, adapter.rawBases());
-            List<RowText.Tag> list = RowText.tags(format, f.getDisplayName(), size, info != null ? info.route : null, info != null && info.ultraHdr);
+            List<RowText.Tag> list = RowText.tags(format, f.displayName(), size, info != null ? info.route : null, info != null && info.ultraHdr);
             // the row's tag views are kept and given the new labels (no views made per bind while scrolling)
             for (int i = 0; i < list.size(); i++) {
                 RowText.Tag t = list.get(i);
@@ -242,12 +242,12 @@ public final class ListRows implements RowStyle {
             for (int i = list.size(); i < tags.getChildCount(); i++) tags.getChildAt(i).setVisibility(View.GONE);
             tags.setVisibility(list.isEmpty() ? View.GONE : View.VISIBLE);
             String dur = video ? RowText.duration(GalleryVideo.durationMs(f)) : null;
-            itemView.setContentDescription(RowText.describe(f.getDisplayName(), second, list, dur, adapter.host().isFavourite(item), isLast()));
+            itemView.setContentDescription(RowText.describe(f.displayName(), second, list, dur, adapter.host().isFavourite(item), isLast()));
         }
 
         boolean isLast() {
             String last = menu.lastOpened();
-            return item != null && !last.isEmpty() && last.equals(GalleryView.key(item.getFile()));
+            return item != null && !last.isEmpty() && last.equals(GalleryView.key(item.mediaFile()));
         }
 
         /** The card piece, the selection and the last-opened tint. */

@@ -63,8 +63,8 @@ public class GalleryViewModel extends AndroidViewModel {
             allFolders = new ArrayList<>();
             for (GalleryFileOperations.ImagesFolder source : GalleryFileOperations._fetchSelectedFolders(getApplication().getContentResolver())) {
                 GalleryItem folder = new GalleryItem(source.getTopImage()); // its cover: the newest file
-                folder.setDisplayName(source.getFolderName());
-                for (ImageFile f : source.getAllImageFiles()) folder.getFiles().add(new GalleryItem(f));
+                folder.setShownName(source.getFolderName());
+                for (ImageFile f : source.getAllImageFiles()) folder.groupedItems().add(new GalleryItem(f));
                 allFolders.add(folder);
             }
             all = (ArrayList<ImageFile>) GalleryFileOperations.extractAllSelectedImages();
@@ -72,30 +72,30 @@ public class GalleryViewModel extends AndroidViewModel {
         GalleryItem allFolder;
         if (!all.isEmpty()) {
             allFolder = new GalleryItem(all.get(0));
-            allFolder.setDisplayName("ALL");
-            for (ImageFile f : all) allFolder.getFiles().add(new GalleryItem(f));
+            allFolder.setShownName("ALL");
+            for (ImageFile f : all) allFolder.groupedItems().add(new GalleryItem(f));
             allFolders.add(0, allFolder);
             // P498: «Избранное» after «Все» when there are favourites
             java.util.Set<String> fav = com.scamera.app.gallery.model.GalleryView.favourites(getApplication());
             List<GalleryItem> favs = new ArrayList<>();
-            for (GalleryItem i : allFolder.getFiles()) if (fav.contains(com.scamera.app.gallery.model.GalleryView.key(i.getFile()))) favs.add(i);
+            for (GalleryItem i : allFolder.groupedItems()) if (fav.contains(com.scamera.app.gallery.model.GalleryView.key(i.mediaFile()))) favs.add(i);
             if (!favs.isEmpty()) {
-                GalleryItem favourites = new GalleryItem(favs.get(0).getFile());
-                favourites.setDisplayName(com.scamera.app.gallery.model.GalleryView.FAVOURITES);
-                favourites.getFiles().addAll(favs);
+                GalleryItem favourites = new GalleryItem(favs.get(0).mediaFile());
+                favourites.setShownName(com.scamera.app.gallery.model.GalleryView.FAVOURITES);
+                favourites.groupedItems().addAll(favs);
                 allFolders.add(1, favourites);
             }
         } else {
             // every selected folder is empty: no stale «ALL» (its deleted photos came back in the grid and the viewer)
             allFolder = GalleryItem.createEmpty();
-            allFolder.setDisplayName("ALL");
+            allFolder.setShownName("ALL");
         }
         return new Media(allFolders, allFolder);
     }
 
     private static Media empty() {
         GalleryItem none = GalleryItem.createEmpty();
-        none.setDisplayName("ALL");
+        none.setShownName("ALL");
         return new Media(new ArrayList<>(), none);
     }
 
@@ -128,7 +128,7 @@ public class GalleryViewModel extends AndroidViewModel {
             main.post(() -> {
                 if (seq == loadSeq) publish(read != null ? read : empty()); // a failed read: the gallery's empty state, not a crash
                 // P637: where the time went - waiting for the loader thread, the read, waiting for the main thread
-                com.scamera.app.gallery.ui.GalleryOpenTrace.listed(read != null ? read.all.getFiles().size() : -1, readMs,
+                com.scamera.app.gallery.ui.GalleryOpenTrace.listed(read != null ? read.all.groupedItems().size() : -1, readMs,
                         t0 - asked, android.os.SystemClock.uptimeMillis() - done);
                 if (then != null) then.run();
                 if (read != null) checkOtherRaw(); // P645: after the list is out, never ahead of it
@@ -229,10 +229,10 @@ public class GalleryViewModel extends AndroidViewModel {
     private String showKeeping(@androidx.annotation.Nullable String keep) {
         List<GalleryItem> folders = selectedDisplayFolders.getValue();
         GalleryItem shown = null;
-        if (folders != null && keep != null) for (GalleryItem f : folders) if (keep.equals(f.getDisplayName())) shown = f;
+        if (folders != null && keep != null) for (GalleryItem f : folders) if (keep.equals(f.shownName())) shown = f;
         if (shown == null) {
             shown = allPhotos.getValue();
-            keep = folders == null || folders.isEmpty() ? null : folders.get(0).getDisplayName();
+            keep = folders == null || folders.isEmpty() ? null : folders.get(0).shownName();
         }
         setCurrentFolderImages(shown);
         return keep;
@@ -247,15 +247,15 @@ public class GalleryViewModel extends AndroidViewModel {
     }
 
     public void setCurrentFolderImages(GalleryItem currentFolder) {
-        currentFolderName = currentFolder != null ? currentFolder.getDisplayName() : null;
+        currentFolderName = currentFolder != null ? currentFolder.shownName() : null;
         currentFolder_ = currentFolder;
         // P498: the view's filter / order and the photos pending deletion (GalleryView), the same list for the grid and the viewer
         final boolean fav = com.scamera.app.gallery.model.GalleryView.FAVOURITES.equals(currentFolderName);
         // P637: the viewer showed the camera's last photo alone so far: it stays on that photo in the list read now
         if (shownBase == null && front != null) frontSelect = true;
         shownBase = com.scamera.app.gallery.model.GalleryView.active(getApplication(), fav)
-                ? com.scamera.app.gallery.model.GalleryView.apply(getApplication(), currentFolder.getFiles(), fav)
-                : currentFolder.getFiles();
+                ? com.scamera.app.gallery.model.GalleryView.apply(getApplication(), currentFolder.groupedItems(), fav)
+                : currentFolder.groupedItems();
         shownPhotos.setValue(withFront(shownBase));
     }
 
@@ -317,15 +317,15 @@ public class GalleryViewModel extends AndroidViewModel {
      * is the same file - and share / edit / delete have a row to work on). False when {@code path} is not the front photo.
      */
     public boolean frontScanned(String path, android.net.Uri row) {
-        if (front == null || path == null || !path.equals(front.getFile().getAbsolutePath())) return false;
-        com.scamera.app.gallery.files.MediaFile f = front.getFile();
+        if (front == null || path == null || !path.equals(front.mediaFile().filePath())) return false;
+        com.scamera.app.gallery.files.MediaFile f = front.mediaFile();
         long id;
         try {
             id = android.content.ContentUris.parseId(row);
         } catch (RuntimeException e) {
             return false;
         }
-        front.setFile(new ImageFile(id, row, f.getDisplayName(), f.getLastModified(), f.getSize(), f.getAbsolutePath()));
+        front.replaceFile(new ImageFile(id, row, f.displayName(), f.modifiedMs(), f.sizeBytes(), f.filePath()));
         setUpdatePending(true); // MediaStore has the row now: the library reads it when it is next shown
         return true;
     }
@@ -334,11 +334,11 @@ public class GalleryViewModel extends AndroidViewModel {
     private List<GalleryItem> withFront(List<GalleryItem> list) {
         if (front == null) return list;
         if (currentFolderName != null && !"ALL".equals(currentFolderName)) return list;
-        final com.scamera.app.gallery.files.MediaFile f = front.getFile();
+        final com.scamera.app.gallery.files.MediaFile f = front.mediaFile();
         for (GalleryItem i : list) {
-            if (!sameFile(f, i.getFile())) continue;
+            if (!sameFile(f, i.mediaFile())) continue;
             // the lists have it now: their item from here on
-            if (frontSelect || (pendingSelect != null && pendingSelect.equals(f.getFileUri()))) pendingSelect = i.getFile().getFileUri();
+            if (frontSelect || (pendingSelect != null && pendingSelect.equals(f.contentUri()))) pendingSelect = i.mediaFile().contentUri();
             front = null;
             frontSelect = false;
             return list;
@@ -346,7 +346,7 @@ public class GalleryViewModel extends AndroidViewModel {
         List<GalleryItem> out = new ArrayList<>(list.size() + 1);
         out.add(front);
         out.addAll(list);
-        if (frontSelect) pendingSelect = f.getFileUri();
+        if (frontSelect) pendingSelect = f.contentUri();
         frontSelect = false;
         return out;
     }
@@ -354,7 +354,7 @@ public class GalleryViewModel extends AndroidViewModel {
     /** The same file: equal paths, else the same MediaStore row. */
     public static boolean sameFile(com.scamera.app.gallery.files.MediaFile a, @androidx.annotation.Nullable com.scamera.app.gallery.files.MediaFile b) {
         if (b == null) return false;
-        if (a.getAbsolutePath() != null && a.getAbsolutePath().startsWith("/") && a.getAbsolutePath().equals(b.getAbsolutePath())) return true;
+        if (a.filePath() != null && a.filePath().startsWith("/") && a.filePath().equals(b.filePath())) return true;
         return a instanceof ImageFile && sameMedia((ImageFile) a, b);
     }
 
@@ -399,7 +399,7 @@ public class GalleryViewModel extends AndroidViewModel {
         List<GalleryItem> folders = selectedDisplayFolders.getValue();
         if (folders != null) {
             for (GalleryItem f : folders)
-                if (currentFolderName != null && currentFolderName.equals(f.getDisplayName())) folder = f;
+                if (currentFolderName != null && currentFolderName.equals(f.shownName())) folder = f;
             if (folder == null) folder = allPhotos.getValue();
         }
         List<GalleryItem> list;
@@ -410,12 +410,12 @@ public class GalleryViewModel extends AndroidViewModel {
             list = new ArrayList<>(shownPhotos.getValue() != null ? shownPhotos.getValue() : new ArrayList<>());
         }
         boolean found = false;
-        android.net.Uri select = copy.getFileUri();
+        android.net.Uri select = copy.contentUri();
         if (list != null)
             for (GalleryItem i : list)
-                if (sameMedia(copy, i.getFile())) {
+                if (sameMedia(copy, i.mediaFile())) {
                     found = true;
-                    select = i.getFile().getFileUri(); // the list's own form of the row's URI (the viewer matches it)
+                    select = i.mediaFile().contentUri(); // the list's own form of the row's URI (the viewer matches it)
                 }
         if (!found && list != null) {
             list = new ArrayList<>(list);
@@ -432,8 +432,8 @@ public class GalleryViewModel extends AndroidViewModel {
      */
     static boolean sameMedia(ImageFile a, @androidx.annotation.Nullable com.scamera.app.gallery.files.MediaFile b) {
         if (b == null) return false;
-        if (a.getFileUri() != null && a.getFileUri().equals(b.getFileUri())) return true;
-        return a.getId() >= 0 && b instanceof ImageFile && a.getId() == b.getId();
+        if (a.contentUri() != null && a.contentUri().equals(b.contentUri())) return true;
+        return a.rowId() >= 0 && b instanceof ImageFile && a.rowId() == b.rowId();
     }
 
     public MutableLiveData<List<GalleryItem>> getSelectedDisplayFolders() {

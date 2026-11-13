@@ -7,7 +7,7 @@ import com.scamera.app.api.CameraMode;
 interface CameraUIEventsListener {
     void onClick(View v);
 
-    void onCameraModeChanged(CameraMode cameraMode);
+    void modeChosen(CameraMode mode);
 
     void onPause();
 }

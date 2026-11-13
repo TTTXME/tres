@@ -1,6 +1,4 @@
-precision highp float;
-precision highp sampler2D;
-precision highp usampler2D;
+precision highp float; precision highp sampler2D; precision highp usampler2D;
 // Post-network denoise, last pxStep. The colour of the full-resolution pixel is replaced by the
 // filtered half-resolution colour (joint bilateral upsampling: the four nearest half-resolution
 // samples are weighted by how close their luminance is to the pixel's own, so colour edges stay

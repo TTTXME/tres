@@ -1,5 +1,4 @@
-precision highp float;
-precision highp sampler2D;
+precision highp float; precision highp sampler2D;
 // Noise level of u: per block (8x8 sensor px), the mean absolute difference between each pixel and
 // the mean of its eight neighbours (about 0.85 * sigma * sqrt(1.125) for white noise). On the Sabre
 // 2x grid adjacent output pixels are kernel averages of the same donor samples, so the neighbours

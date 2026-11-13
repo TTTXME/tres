@@ -219,7 +219,7 @@ public class GLProg implements AutoCloseable {
                     // its binary is there (the shot loads it); P662: into the shared context now
                     if (shared && (idle == null || idle.getAsBoolean())) {
                         final long l0 = android.os.SystemClock.elapsedRealtime();
-                        if (context.mProgram.linkFromBinary(key)) linkedShared++;
+                        if (context.program.linkFromBinary(key)) linkedShared++;
                         linkMs += android.os.SystemClock.elapsedRealtime() - l0;
                     }
                     continue;
@@ -230,7 +230,7 @@ public class GLProg implements AutoCloseable {
                 final java.util.concurrent.CountDownLatch compiling = new java.util.concurrent.CountDownLatch(1);
                 if (COMPILING.putIfAbsent(key, compiling) != null) continue;
                 try {
-                    if (context.mProgram.precompile(key, shared)) {
+                    if (context.program.precompile(key, shared)) {
                         done++;
                         built++;
                         if (shared) linkedShared++; // P662: and kept linked in the shared context
@@ -245,7 +245,7 @@ public class GLProg implements AutoCloseable {
             // P662: the post pipeline's one-time checks of this driver (HalfRgbUpload.exact, WhyStats.halfReadbackExact)
             if (shared && (idle == null || idle.getAsBoolean())) {
                 final long c0 = android.os.SystemClock.elapsedRealtime();
-                checks = com.scamera.app.processing.opengl.postpipeline.PostChecks.warmUp(context.mProgram);
+                checks = com.scamera.app.processing.opengl.postpipeline.PostChecks.warmUp(context.program);
                 checksMs = android.os.SystemClock.elapsedRealtime() - c0;
             }
         } catch (RuntimeException | LinkageError e) {
@@ -620,12 +620,7 @@ public class GLProg implements AutoCloseable {
 
     public final static String glVersion = "#version 310 es\n";
     /** The vertex stage of every fragment pass (part of the cache key of each program: never change its text lightly). */
-    static final String VERTEX_SOURCE = glVersion +
-            "precision mediump float;\n" +
-            "in vec4 vPosition;\n" +
-            "void main() {\n" +
-            "gl_Position = vPosition;\n" +
-            "}\n";
+    static final String VERTEX_SOURCE = glVersion + "precision mediump float;\nin vec4 vPosition;\nvoid main() {\ngl_Position = vPosition;\n}\n";
     final String vertexShaderSource = VERTEX_SOURCE;
     private final int vertexShader;
     private final GLSquareModel quad = new GLSquareModel();
@@ -641,13 +636,15 @@ public class GLProg implements AutoCloseable {
     private final Map<String, Integer> textureUnits = new HashMap<>();
     private Map<String, GLComputeLayout> mComputeLayouts = null;
     private int nextUnit;
-    public int mCurrentProgramActive;
+    /** The program in use (its GL name), whether it is a compute one, and the shader name of a compute program. */
+    public int activeProgram;
+    public boolean computeBound = false;
+    public int computeShader;
+    /** The pass is done with the program (its textures may be reused); a new program in use clears it. */
     public boolean closed = true;
-    public boolean isCompute = false;
-    public int currentShader;
-    /** #define overrides for the next program (cleared once it is in use). */
-    ArrayList<String[]> Defines = new ArrayList<>();
-    boolean changedDef = false;
+    /** #define overrides for the next program (cleared once it is in use), and whether there are new ones. */
+    ArrayList<String[]> pendingDefines = new ArrayList<>();
+    boolean definesChanged = false;
 
     public GLProg() {
         vertexShader = compileShader(GL_VERTEX_SHADER, vertexShaderSource);
@@ -656,8 +653,8 @@ public class GLProg implements AutoCloseable {
 
     // -- defines: "NAME value" overrides of the next program's #define lines (GLInterface.readProgram) --
     public void setDefine(String name, String value) {
-        Defines.add(new String[]{name, value});
-        changedDef = true;
+        pendingDefines.add(new String[]{name, value});
+        definesChanged = true;
     }
     public void setDefine(String name, Point value) {
         setDefine(name, value.x, value.y);
@@ -700,12 +697,12 @@ public class GLProg implements AutoCloseable {
         Prepared prepared = PREPARED.get(key);
         if (prepared == null) {
             final String source = ScameraApp.getAssetLoader().getString("shaders/" + name + ".glsl");
-            final String shader = changedDef ? GLInterface.loadShader(source, Defines) : GLInterface.loadShader(source);
+            final String shader = definesChanged ? GLInterface.loadShader(source, pendingDefines) : GLInterface.loadShader(source);
             prepared = new Prepared(shader, GLInterface.getLayouts(shader));
             if (PREPARED.size() >= PREPARED_LIMIT) PREPARED.clear();
             PREPARED.put(key, prepared);
         }
-        isCompute = compute;
+        computeBound = compute;
         closed = false;
         useShader(prepared.shader, prepared.layouts, compute, 'A', name);
     }
@@ -721,9 +718,9 @@ public class GLProg implements AutoCloseable {
 
     /** Asset name plus the pending defines, in the order readProgram applies them. */
     private String assetKey(String name) {
-        if (!changedDef || Defines.isEmpty()) return name;
+        if (!definesChanged || pendingDefines.isEmpty()) return name;
         final StringBuilder key = new StringBuilder(name);
-        for (String[] d : Defines) key.append('|').append(d[0]).append('=').append(d[1]);
+        for (String[] d : pendingDefines) key.append('|').append(d[0]).append('=').append(d[1]);
         return key.toString();
     }
 
@@ -737,15 +734,15 @@ public class GLProg implements AutoCloseable {
 
     /** P371: {@code recipeKind} / {@code recipeId}: how the source was made (see {@link #recipe}; 0: not recorded). */
     private void useProgramSource(String source, boolean compute, char recipeKind, String recipeId) {
-        isCompute = compute;
+        computeBound = compute;
         closed = false;
-        final String shader = changedDef ? GLInterface.loadShader(source, Defines) : GLInterface.loadShader(source);
+        final String shader = definesChanged ? GLInterface.loadShader(source, pendingDefines) : GLInterface.loadShader(source);
         useShader(shader, GLInterface.getLayouts(shader), compute, recipeKind, recipeId);
     }
 
     private void forgetDefines() {
-        Defines.clear();
-        changedDef = false;
+        pendingDefines.clear();
+        definesChanged = false;
     }
 
     /**
@@ -757,13 +754,13 @@ public class GLProg implements AutoCloseable {
         if (programsBySource.containsKey(shader)) {
             // P662: a program the idle warm-up linked keeps its recipe at its first use (the defines as they are now)
             if (prelinked.remove(shader) && recipeKind != 0 && recipeId != null && recipesOn())
-                keepRecipe(recipe(recipeKind, recipeId, compute, changedDef ? Defines : null));
+                keepRecipe(recipe(recipeKind, recipeId, compute, definesChanged ? pendingDefines : null));
             forgetDefines();
             final Integer linked = programsBySource.get(shader);
             if (linked == null) return;
             glUseProgram(linked);
             checkEglError("glUseProgram");
-            mCurrentProgramActive = linked;
+            activeProgram = linked;
         } else {
             final String key = programKey(shader, compute);
             final long t0 = android.os.SystemClock.elapsedRealtime();
@@ -781,17 +778,17 @@ public class GLProg implements AutoCloseable {
                 if (status[0] != 0) keepBinary(key, program);
                 final long ms = android.os.SystemClock.elapsedRealtime() - t0;
                 synchronized (GLProg.class) { compiled++; compileMs += ms; }
-                noteCompiled(recipeId, changedDef ? Defines : null, ms); // P602
+                noteCompiled(recipeId, definesChanged ? pendingDefines : null, ms); // P602
             }
-            currentShader = stage;
+            computeShader = stage;
             locations.remove(program); // a name the driver handed out again
             glGetError();
             glUseProgram(program);
             checkEglError("glUseProgram");
             // P371: how this source was made, for the next install's idle warm-up (the defines as they are now)
-            if (recipeKind != 0 && recipeId != null && recipesOn()) keepRecipe(recipe(recipeKind, recipeId, compute, changedDef ? Defines : null));
+            if (recipeKind != 0 && recipeId != null && recipesOn()) keepRecipe(recipe(recipeKind, recipeId, compute, definesChanged ? pendingDefines : null));
             forgetDefines();
-            mCurrentProgramActive = program;
+            activeProgram = program;
             programsBySource.put(shader, program);
         }
         textureUnits.clear();
@@ -848,15 +845,15 @@ public class GLProg implements AutoCloseable {
 
     /** The location of {@code name} in the program in use (P659: asked once per program). */
     private int location(String name, boolean attribute) {
-        Map<String, Integer> known = locations.get(mCurrentProgramActive);
+        Map<String, Integer> known = locations.get(activeProgram);
         if (known == null) {
             known = new HashMap<>();
-            locations.put(mCurrentProgramActive, known);
+            locations.put(activeProgram, known);
         }
         final String key = attribute ? "\u0000" + name : name;
         Integer at = known.get(key);
         if (at == null) {
-            at = attribute ? glGetAttribLocation(mCurrentProgramActive, name) : glGetUniformLocation(mCurrentProgramActive, name);
+            at = attribute ? glGetAttribLocation(activeProgram, name) : glGetUniformLocation(activeProgram, name);
             known.put(key, at);
         }
         return at;
@@ -864,13 +861,13 @@ public class GLProg implements AutoCloseable {
 
     // -- compute dispatch --
     private boolean requireCompute() {
-        if (isCompute) return true;
+        if (computeBound) return true;
         Log.e(TAG, "dispatch of a program that is not compute", new IllegalStateException("Program must be compute!"));
         return false;
     }
 
+    /** Every write of the dispatch visible to whatever reads next (GL_ALL_SHADER_BITS: every barrier bit). */
     private static void computeBarriers() {
-        glMemoryBarrier(GL_TEXTURE_UPDATE_BARRIER_BIT);
         glMemoryBarrier(GL_ALL_SHADER_BITS);
     }
 
@@ -882,7 +879,7 @@ public class GLProg implements AutoCloseable {
             Log.e(TAG, "no work group layout", new IllegalStateException("glComputeLayout is null"));
             return;
         }
-        glDispatchCompute(groups(size.x, group.xy.x), groups(size.y, group.xy.y), groups(z, group.z));
+        glDispatchCompute(groups(size.x, group.groupXY.x), groups(size.y, group.groupXY.y), groups(z, group.groupZ));
         computeBarriers();
         GpuPace.finish(); // P616: a polled fence on the paced post thread (glFinish elsewhere)
     }
@@ -920,26 +917,26 @@ public class GLProg implements AutoCloseable {
     private static final int[] COLOUR0 = {GL_COLOR_ATTACHMENT0};
 
     public void drawBlocks(GLTexture target, Point size) {
-        target.BufferLoad();
+        target.renderInto();
         drawBlocks(size.x, size.y);
     }
 
     public void drawBlocks(GLTexture target) {
-        target.BufferLoad();
+        target.renderInto();
         // P479: every pixel of the target is drawn below (no post shader discards): its old contents need not be loaded
         if (PostGlMode.invalidate()) glInvalidateFramebuffer(GL_FRAMEBUFFER, 1, COLOUR0, 0);
-        drawBlocks(target.mSize.x, target.mSize.y);
+        drawBlocks(target.size.x, target.size.y);
         // W1.1: no glFinish after every pass: read-backs are the sync points (post_sync 1: a glFinish at each node end)
         if (PostGlMode.legacy()) glFinish();
     }
 
     /**
-     * The program over w x h in bands of TileSize rows. P497 (owner, 2026-11-04: «видоискатель тормозит ... на всех
+     * The program over w x h in bands of TILE_ROWS rows. P497 (owner, 2026-11-04: «видоискатель тормозит ... на всех
      * смартфонах»): a submission per band - the GPU lets the viewfinder's context in between submissions only (Xiaomi 12X:
      * viewfinder draws of 274 - 771 ms while one pass was one submission); P616: at most a few bands queued (GpuPace).
      */
     public void drawBlocks(int w, int h) {
-        final GLBlockDivider bands = new GLBlockDivider(h, GLDrawParams.TileSize);
+        final GLBlockDivider bands = new GLBlockDivider(h, GLDrawParams.TILE_ROWS);
         final int[] band = new int[2];
         while (bands.nextBlock(band)) {
             glViewport(0, band[0], w, band[1]);
@@ -960,13 +957,13 @@ public class GLProg implements AutoCloseable {
             drawBlocks(target);
             return;
         }
-        target.BufferLoad();
-        drawBlocks(target.mSize.x, target.mSize.y, GLDrawParams.TileSize, -1, target.mFormat.getGLType());
+        target.renderInto();
+        drawBlocks(target.size.x, target.size.y, GLDrawParams.TILE_ROWS, -1, target.format.getGLType());
     }
 
     public void drawBlocks(GLTexture target, int bandRows, boolean forceFlush) {
-        target.BufferLoad();
-        drawBlocks(target.mSize.x, target.mSize.y, bandRows, -1, forceFlush ? target.mFormat.mFormat.ordinal() : -1);
+        target.renderInto();
+        drawBlocks(target.size.x, target.size.y, bandRows, -1, forceFlush ? target.format.mFormat.ordinal() : -1);
     }
 
     /**
@@ -1034,7 +1031,7 @@ public class GLProg implements AutoCloseable {
 
     private int binding(String what, String name) {
         final GLComputeLayout layout = mComputeLayouts == null ? null : mComputeLayouts.get(name);
-        if (layout != null) return layout.binding;
+        if (layout != null) return layout.bindingIndex;
         final String message = "no " + what + " " + name + " in the program's layouts " + (mComputeLayouts == null ? "(none)" : mComputeLayouts.keySet());
         Log.e(TAG, message);
         throw new IllegalStateException(message);
@@ -1046,8 +1043,8 @@ public class GLProg implements AutoCloseable {
 
     /** Binds level 0 of {@code texture} as the program's image {@code image} (P317: an undeclared one throws). */
     public void setTextureCompute(String image, GLTexture texture, int access) {
-        glBindImageTexture(binding("image", image), texture.mTextureID, 0, false, 0, access, texture.mFormat.getGLFormatInternal());
-        checkEglError("glBindImageTexture tex.mTextureID:" + texture.mTextureID);
+        glBindImageTexture(binding("image", image), texture.id, 0, false, 0, access, texture.format.getGLFormatInternal());
+        checkEglError("glBindImageTexture tex.mTextureID:" + texture.id);
     }
 
     // -- uniforms --

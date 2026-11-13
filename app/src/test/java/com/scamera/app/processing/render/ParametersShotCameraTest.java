@@ -35,14 +35,14 @@ import java.nio.file.Files;
 /**
  * Bug capture-processing-reads-live-camera: a shot queued behind a merge was developed with the camera open when its processing
  * started (CaptureController.mCameraCharacteristics, Settings.mCameraID): after a lens switch the other sensor's levels, colour
- * matrices and module settings. Its own characteristics (FillConstParameters') and camera at the press are used now.
+ * matrices and module settings. Its own characteristics (fillFromCamera') and camera at the press are used now.
  */
 @RunWith(RobolectricTestRunner.class)
 @Config(sdk = 35, application = Application.class, shadows = ParametersShotCameraTest.NoNativeAllocator.class,
         instrumentedPackages = "com.scamera.app.util")
 public class ParametersShotCameraTest {
     /**
-     * P370 (A5): ReCalcColor no longer throws on a camera without colour matrices, so FillDynamicParameters goes on to the
+     * P370 (A5): resolveColour no longer throws on a camera without colour matrices, so fillFromFrame goes on to the
      * binning check (Allocator.binning): the native library is not loaded on the JVM (RawCropTest's pattern).
      */
     @Implements(com.scamera.app.util.Allocator.class)
@@ -64,7 +64,7 @@ public class ParametersShotCameraTest {
         appStatic.when(com.scamera.app.app.ScameraApp::getResourcesStatic).thenReturn(context.getResources());
         appStatic.when(com.scamera.app.app.ScameraApp::getSettingsManagerStatic).thenReturn(manager);
         settings = new com.scamera.app.api.Settings();
-        settings.mCameraID = "0";
+        settings.cameraId = "0";
         appStatic.when(com.scamera.app.app.ScameraApp::getSettings).thenReturn(settings);
         prefs = mockStatic(PreferenceKeys.class);
         previous = CaptureController.mCameraCharacteristics;
@@ -92,16 +92,16 @@ public class ParametersShotCameraTest {
         final CameraCharacteristics shot = camera(1023, 64), other = camera(4095, 256);
         final Parameters p = new Parameters();
         p.cameraIdAtPress = "2";
-        p.FillConstParameters(shot, new Point(64, 64));
+        p.fillFromCamera(shot, new Point(64, 64));
         assertEquals("the camera of the press, not the one open now", 2, p.physicalID);
         CaptureController.mCameraCharacteristics = other; // the user switched lenses while the shot waited
         assertSame(shot, p.camera());
         assertSame(shot, p.shotCharacteristics());
-        p.hotPixels = new android.graphics.Point[0]; // FillDynamicParameters' (a copy needs them)
-        assertSame("the post pipeline's copy keeps it", shot, p.Build().camera());
+        p.hotSites = new android.graphics.Point[0]; // fillFromFrame' (a copy needs them)
+        assertSame("the post pipeline's copy keeps it", shot, p.postCopy().camera());
         // without a press-time id: the open camera's, as before
         final Parameters open = new Parameters();
-        open.FillConstParameters(shot, new Point(64, 64));
+        open.fillFromCamera(shot, new Point(64, 64));
         assertEquals(0, open.physicalID);
         // nothing given at all: the open camera's (the lab's parameters, old callers)
         assertSame(other, new Parameters().camera());
@@ -112,15 +112,15 @@ public class ParametersShotCameraTest {
         final CameraCharacteristics shot = camera(1023, 64), other = camera(4095, 256);
         final Parameters p = new Parameters();
         p.cameraIdAtPress = "2";
-        p.FillConstParameters(shot, new Point(64, 64));
+        p.fillFromCamera(shot, new Point(64, 64));
         CaptureController.mCameraCharacteristics = other;
         final CaptureResult result = mock(CaptureResult.class);
         when(result.get(CaptureResult.SENSOR_SENSITIVITY)).thenReturn(100);
         when(result.get(CaptureResult.SENSOR_EXPOSURE_TIME)).thenReturn(10_000_000L);
         try {
-            p.FillDynamicParameters(result, mock(CaptureRequest.class), 100);
+            p.fillFromFrame(result, mock(CaptureRequest.class), 100);
         } catch (RuntimeException colour) {
-            // the colour pass (ReCalcColor) needs a full camera; the levels below are read before it (P370 (A5): it falls back
+            // the colour pass (resolveColour) needs a full camera; the levels below are read before it (P370 (A5): it falls back
             // without throwing, the development then runs to the end)
         }
         assertEquals(1023, p.declaredWhite);
@@ -134,7 +134,7 @@ public class ParametersShotCameraTest {
         when(shot.get(CameraCharacteristics.SENSOR_INFO_PRE_CORRECTION_ACTIVE_ARRAY_SIZE)).thenReturn(new android.graphics.Rect(0, 0, 400, 300));
         when(shot.get(CameraCharacteristics.SENSOR_INFO_PIXEL_ARRAY_SIZE)).thenReturn(new android.util.Size(400, 300));
         final Parameters p = new Parameters();
-        p.FillConstParameters(shot, new Point(200, 150));
+        p.fillFromCamera(shot, new Point(200, 150));
         p.rawCropFull = new Point(400, 300);
         p.rawCrop = new com.scamera.app.processing.RawCrop.Area(40, 30, 200, 150);
         final CaptureResult result = mock(CaptureResult.class);
@@ -145,13 +145,13 @@ public class ParametersShotCameraTest {
         when(face.getBounds()).thenReturn(new android.graphics.Rect(100, 75, 200, 150));
         when(face.getScore()).thenReturn(90);
         when(result.get(CaptureResult.STATISTICS_FACES)).thenReturn(new android.hardware.camera2.params.Face[]{face});
-        try { p.FillDynamicParameters(result, mock(CaptureRequest.class), 100); } catch (RuntimeException unusedColour) { }
+        try { p.fillFromFrame(result, mock(CaptureRequest.class), 100); } catch (RuntimeException unusedColour) { }
         org.junit.Assert.assertArrayEquals(new float[]{.3f, .3f, .8f, .8f}, p.portraitFaces, 1e-6f);
         assertTrue(p.portraitFaceDetected);
         assertTrue(p.portraitEnabled);
         assertTrue(p.portraitSkinWarmth);
-        p.hotPixels = new android.graphics.Point[0];
-        final Parameters copy = p.Build();
+        p.hotSites = new android.graphics.Point[0];
+        final Parameters copy = p.postCopy();
         p.portraitFaces[0] = 0f;
         assertEquals(.3f, copy.portraitFaces[0], 1e-6f);
         final Parameters replay = com.scamera.app.processing.opengl.postpipeline.ScamLabParams.fromJson(
@@ -159,7 +159,7 @@ public class ParametersShotCameraTest {
         org.junit.Assert.assertArrayEquals(copy.portraitFaces, replay.portraitFaces, 0f);
         assertTrue(replay.portraitFaceDetected && replay.portraitEnabled && replay.portraitSkinWarmth);
         when(result.get(CaptureResult.STATISTICS_FACES)).thenReturn(new android.hardware.camera2.params.Face[0]);
-        try { p.FillDynamicParameters(result, mock(CaptureRequest.class), 100); } catch (RuntimeException unusedColour) { }
+        try { p.fillFromFrame(result, mock(CaptureRequest.class), 100); } catch (RuntimeException unusedColour) { }
         assertFalse(p.portraitFaceDetected);
         assertEquals(0, p.portraitFaces.length);
     }
@@ -181,7 +181,7 @@ public class ParametersShotCameraTest {
         assertTrue(Parameters.shotCameraDiff(shot, black).contains("android.sensor.blackLevelPattern"));
         final String source = new String(Files.readAllBytes(new File(
                 "src/main/java/com/scamera/app/processing/processor/ScamProcessor.java").toPath()), StandardCharsets.UTF_8);
-        final int fill = source.indexOf("processingParameters.FillConstParameters(characteristics, new Point(width, height));");
+        final int fill = source.indexOf("processingParameters.fillFromCamera(shotCamera, new Point(width, height));");
         assertTrue("logged right after the shot's characteristics are taken",
                 fill > 0 && source.indexOf("logShotCamera(processingParameters, width, height);", fill) > fill);
     }
@@ -193,6 +193,6 @@ public class ParametersShotCameraTest {
         final String without = s.replace("return shotCharacteristics != null ? shotCharacteristics : CaptureController.mCameraCharacteristics;", "")
                 .replace("replaced the open camera (CaptureController.mCameraCharacteristics)", "");
         assertFalse(without.contains("CaptureController.mCameraCharacteristics"));
-        assertTrue(s.contains("cameraID = cameraIdAtPress != null ? cameraIdAtPress : ScameraApp.getSettings().mCameraID;"));
+        assertTrue(s.contains("cameraID = cameraIdAtPress != null ? cameraIdAtPress : ScameraApp.getSettings().cameraId;"));
     }
 }

@@ -1,5 +1,4 @@
-precision highp float;
-precision highp sampler2D;
+precision highp float; precision highp sampler2D;
 // Colour noise removal, step 1: factor x factor average of the white-balanced linear RGB
 // (factor = 2 * outputScale: the colour stage runs at half the SENSOR resolution on any grid).
 // The mean of the signed values (SCAM Hybrid: scamrgb signedU): a clamp per pixel lifted the mean of a channel near zero;

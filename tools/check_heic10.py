@@ -391,10 +391,10 @@ def guard_8bit_path():
     gl = (ROOT / 'app/src/main/java/com/scamera/app/processing/opengl/GLCoreBlockProcessing.java').read_text(encoding='utf-8')
     eight = gl[gl.index('public Bitmap drawBlocksToBitmap() {'):]
     eight = eight[:eight.index('static final class TileBlitter')]
-    for line in ('final Bitmap dst = Bitmap.createBitmap(mOutWidth, mOutHeight, Bitmap.Config.ARGB_8888);',
-                 'glReadPixels(0, 0, mOutWidth, tile[1], mglFormat.getGLFormatExternal(), mglFormat.getGLType(), mBlockBuffer);'):
+    for line in ('final Bitmap dst = Bitmap.createBitmap(outW, outH, Bitmap.Config.ARGB_8888);',
+                 'glReadPixels(0, 0, outW, tile[1], outFormat.getGLFormatExternal(), outFormat.getGLType(), tileBuffer);'):
         need(line in eight, 'the 8-bit readback changed: %r missing' % line)
-    need('glRenderbufferStorage(GL_RENDERBUFFER, internalFormat, mOutWidth, tileRows());' in gl,
+    need('glRenderbufferStorage(GL_RENDERBUFFER, internalFormat, outW, tileRows());' in gl,
          'the 8-bit tile target changed')
 
 

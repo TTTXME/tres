@@ -102,7 +102,7 @@ public class GalleryActivity extends BaseActivity {
                 viewModel.setOpening(handed);
                 if (handed.latest != null) {
                     viewModel.showFront(handed.latest, true);
-                    GalleryOpenTrace.front(handed.latest.getDisplayName(), !CameraHandoff.unfiled(handed.latest));
+                    GalleryOpenTrace.front(handed.latest.displayName(), !CameraHandoff.unfiled(handed.latest));
                 }
             }
             boostDecodes();
@@ -139,7 +139,7 @@ public class GalleryActivity extends BaseActivity {
 
     static boolean isViewIntent(Intent intent) {
         String action = intent.getAction();
-        return (Intent.ACTION_VIEW.equals(action) || Constants.ACTION_REVIEW.equals(action) || ACTION_REVIEW_Q.equals(action)
+        return (Intent.ACTION_VIEW.equals(action) || Constants.REVIEW_INTENT_ACTION.equals(action) || ACTION_REVIEW_Q.equals(action)
                 || ACTION_REVIEW_SECURE.equals(action)) && intent.getData() != null;
     }
 
@@ -183,7 +183,7 @@ public class GalleryActivity extends BaseActivity {
 
     /** P621: whether a picked item fits the pick's kind. */
     static boolean pickable(String kind, @Nullable com.scamera.app.gallery.files.MediaFile f) {
-        if (f == null || f.getFileUri() == null) return false;
+        if (f == null || f.contentUri() == null) return false;
         boolean video = com.scamera.app.gallery.files.GalleryVideo.isVideo(f);
         return "any".equals(kind) || ("video".equals(kind) == video);
     }
@@ -210,8 +210,8 @@ public class GalleryActivity extends BaseActivity {
 
     /** P621: a tapped item while picking: returned when it is of the kind asked for, else false (the caller says so). */
     public boolean pick(@Nullable GalleryItem item) {
-        if (item == null || !pickable(pickKind, item.getFile())) return false;
-        setResult(RESULT_OK, pickResult(item.getFile().getFileUri()));
+        if (item == null || !pickable(pickKind, item.mediaFile())) return false;
+        setResult(RESULT_OK, pickResult(item.mediaFile().contentUri()));
         finish();
         return true;
     }
@@ -261,18 +261,18 @@ public class GalleryActivity extends BaseActivity {
     /** The position of another app's photo in the gallery's list: by URI, absolute path, or display name and size; -1 for none. */
     static int positionOf(List<GalleryItem> items, Uri uri, ImageFile external) {
         String externalPath = uri.getPath();
-        String externalDisplayName = external.getDisplayName();
+        String externalDisplayName = external.displayName();
         for (int i = 0; i < items.size(); i++) {
             GalleryItem item = items.get(i);
-            if (item.getFile() == null) continue;
+            if (item.mediaFile() == null) continue;
             // Try to match by URI (most reliable for content:// URIs)
-            if (uri.equals(item.getFile().getFileUri())) return i;
+            if (uri.equals(item.mediaFile().contentUri())) return i;
             // Try to match by absolute path (for file:// URIs)
-            if (externalPath != null && item.getFile().getAbsolutePath() != null && externalPath.equals(item.getFile().getAbsolutePath()))
+            if (externalPath != null && item.mediaFile().filePath() != null && externalPath.equals(item.mediaFile().filePath()))
                 return i;
             // Try to match by display name and size as last resort
-            if (externalDisplayName != null && externalDisplayName.equals(item.getFile().getDisplayName())
-                    && external.getSize() == item.getFile().getSize()) return i;
+            if (externalDisplayName != null && externalDisplayName.equals(item.mediaFile().displayName())
+                    && external.sizeBytes() == item.mediaFile().sizeBytes()) return i;
         }
         return -1;
     }
@@ -287,7 +287,7 @@ public class GalleryActivity extends BaseActivity {
             items.add(0, new GalleryItem(asked));
             at = 0;
         }
-        return items.get(at).getFile().getFileUri();
+        return items.get(at).mediaFile().contentUri();
     }
 
     /** P637: the open's decodes at the default priority for its first seconds (ahead of a shot still processed). */
@@ -325,8 +325,8 @@ public class GalleryActivity extends BaseActivity {
             viewModel.getCurrentFolderImages().setValue(single);
             viewModel.loadAsync(() -> {
                 GalleryItem all = viewModel.getAllSelectedImageFolder().getValue();
-                if (all == null || all.getFiles().isEmpty()) return; // no library: the photo alone, as it is shown
-                viewModel.selectNext(amongNeighbours(all.getFiles(), uri, asked));
+                if (all == null || all.groupedItems().isEmpty()) return; // no library: the photo alone, as it is shown
+                viewModel.selectNext(amongNeighbours(all.groupedItems(), uri, asked));
                 viewModel.setCurrentFolderImages(all);
             });
             return;
@@ -337,13 +337,13 @@ public class GalleryActivity extends BaseActivity {
             viewModel.fetchAllMedia();
             ImageFile asked = createImageFileFromUri(uri);
             GalleryItem all = viewModel.getAllSelectedImageFolder().getValue();
-            if (all == null || all.getFiles().isEmpty()) {
+            if (all == null || all.groupedItems().isEmpty()) {
                 List<GalleryItem> alone = new ArrayList<>();
                 alone.add(new GalleryItem(asked));
                 viewModel.getCurrentFolderImages().setValue(alone);
                 return;
             }
-            amongNeighbours(all.getFiles(), uri, asked);
+            amongNeighbours(all.groupedItems(), uri, asked);
             viewModel.setCurrentFolderImages(all);
         } catch (RuntimeException e) {
             Log.w("GalleryActivity", "the asked photo's folder: " + e);
@@ -364,7 +364,7 @@ public class GalleryActivity extends BaseActivity {
         viewModel.getCurrentFolderImages().setValue(single);
         // P367: the zoom test hook's extras (scam_edit_zoom / _cx / _cy) pass through; nothing when absent
         return com.scamera.app.gallery.editor.ExternalEdit.withZoomHook(
-                com.scamera.app.gallery.editor.ExternalEdit.args(uri, file.getDisplayName(), null, type, true), getIntent());
+                com.scamera.app.gallery.editor.ExternalEdit.args(uri, file.displayName(), null, type, true), getIntent());
     }
 
     /**

@@ -1,5 +1,4 @@
-precision highp float;
-precision highp sampler2D;
+precision highp float; precision highp sampler2D;
 // P317: highp ints (they default to mediump, fp16 on Mali): float(h & 0xFFFFu) / 65535.0 was mediump and 65535.0 is +inf
 // in fp16 (the B/W stocks' grain a constant, a flat brightening), and vec2(ixy) + 0.5 rounded the pixel position above
 // 2048 (as film/noise.glsl).

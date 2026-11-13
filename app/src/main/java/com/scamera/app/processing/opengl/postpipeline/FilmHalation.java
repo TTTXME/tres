@@ -75,14 +75,14 @@ public final class FilmHalation extends Node {
     }
 
     @Override
-    public void Compile() {}
+    public void bindShader() {}
 
     @Override
-    public void Run() {
-        final GLTexture in = previousNode.WorkingTexture;
-        WorkingTexture = in;
+    public void runPass() {
+        final GLTexture in = prevPass.passOut;
+        passOut = in;
         final long started = System.currentTimeMillis();
-        final float um = set.pixelUm(filmLongPx(Math.max(in.mSize.x, in.mSize.y), basePipeline.mParameters));
+        final float um = set.pixelUm(filmLongPx(Math.max(in.size.x, in.size.y), hostPipeline.shotParams));
         if (um <= 0f) return;
         final GLFormat rgba = new GLFormat(GLFormat.DataType.FLOAT_16, 4);
         final List<GLTexture> temp = new ArrayList<>();
@@ -93,31 +93,31 @@ public final class FilmHalation extends Node {
             if (set.stock.spectral != null && set.softness > 0f) {
                 // P286: the scatter (the reference's scatter_amount 1, spatial scale = the setting)
                 final float k = set.softnessApplied() / um; // x «Сила симуляции»
-                final GLTexture h = new GLTexture(in.mSize, rgba), h2 = halo ? new GLTexture(in.mSize, rgba) : basePipeline.getMain();
+                final GLTexture h = new GLTexture(in.size, rgba), h2 = halo ? new GLTexture(in.size, rgba) : hostPipeline.getMain();
                 temp.add(h);
                 if (halo) temp.add(h2);
                 for (int pass = 0; pass < 2; pass++) {
                     final GLTexture dst = pass == 0 ? h : h2;
-                    glProg.useAssetProgram("film/scatter", false);
-                    glProg.setTexture("InputBuffer", pass == 0 ? in : h);
-                    glProg.setVar("dir", pass == 0 ? 1f : 0f, pass == 0 ? 0f : 1f);
-                    glProg.setVar("core", SCATTER_CORE[0] * k, SCATTER_CORE[1] * k, SCATTER_CORE[2] * k);
-                    glProg.setVar("tail", SCATTER_TAIL[0] * k, SCATTER_TAIL[1] * k, SCATTER_TAIL[2] * k);
-                    glProg.setVar("tailWeight", SCATTER_W[0], SCATTER_W[1], SCATTER_W[2]);
-                    glProg.drawBlocks(dst);
+                    shaderProg.useAssetProgram("film/scatter", false);
+                    shaderProg.setTexture("InputBuffer", pass == 0 ? in : h);
+                    shaderProg.setVar("dir", pass == 0 ? 1f : 0f, pass == 0 ? 0f : 1f);
+                    shaderProg.setVar("core", SCATTER_CORE[0] * k, SCATTER_CORE[1] * k, SCATTER_CORE[2] * k);
+                    shaderProg.setVar("tail", SCATTER_TAIL[0] * k, SCATTER_TAIL[1] * k, SCATTER_TAIL[2] * k);
+                    shaderProg.setVar("tailWeight", SCATTER_W[0], SCATTER_W[1], SCATTER_W[2]);
+                    shaderProg.drawBlocks(dst);
                 }
-                glProg.closed = true;
+                shaderProg.closed = true;
                 e1 = h2;
-                if (!halo) WorkingTexture = e1;
+                if (!halo) passOut = e1;
             }
             if (!halo) return;
             final float sigma = set.halationUm() / um; // P487: x «Halation size»
             // the pyramid down to the level whose own blur (about 0.8 x 2^k) is under half the first bounce's width
             final List<GLTexture> v = new ArrayList<>();
             v.add(e1);
-            while (0.8f * (1 << v.size()) <= sigma * .5f && Math.max(v.get(v.size() - 1).mSize.x, v.get(v.size() - 1).mSize.y) > 8) {
+            while (0.8f * (1 << v.size()) <= sigma * .5f && Math.max(v.get(v.size() - 1).size.x, v.get(v.size() - 1).size.y) > 8) {
                 final GLTexture last = v.get(v.size() - 1);
-                final GLTexture next = glUtils.gaussianDownsample(last, new Point(Math.max(1, last.mSize.x / 2), Math.max(1, last.mSize.y / 2)));
+                final GLTexture next = glKit.gaussianDownsample(last, new Point(Math.max(1, last.size.x / 2), Math.max(1, last.size.y / 2)));
                 temp.add(next);
                 v.add(next);
             }
@@ -128,40 +128,40 @@ public final class FilmHalation extends Node {
             for (int k = 0; k < 3; k++) {
                 final float sk = sigma * (float) Math.sqrt(k + 1);
                 final float rest = (float) Math.sqrt(Math.max(sk * sk - own * own, 0.25f)) * scale;
-                final GLTexture hx = new GLTexture(base.mSize, rgba, null, GL_LINEAR, GL_CLAMP_TO_EDGE);
-                final GLTexture hy = new GLTexture(base.mSize, rgba, null, GL_LINEAR, GL_CLAMP_TO_EDGE);
+                final GLTexture hx = new GLTexture(base.size, rgba, null, GL_LINEAR, GL_CLAMP_TO_EDGE);
+                final GLTexture hy = new GLTexture(base.size, rgba, null, GL_LINEAR, GL_CLAMP_TO_EDGE);
                 temp.add(hx);
                 temp.add(hy);
-                glProg.useAssetProgram("film/blur", false);
-                glProg.setTexture("InputBuffer", base);
-                glProg.setVar("dir", 1f, 0f);
-                glProg.setVar("sigma", rest);
-                glProg.drawBlocks(hx);
-                glProg.useAssetProgram("film/blur", false);
-                glProg.setTexture("InputBuffer", hx);
-                glProg.setVar("dir", 0f, 1f);
-                glProg.setVar("sigma", rest);
-                glProg.drawBlocks(hy);
+                shaderProg.useAssetProgram("film/blur", false);
+                shaderProg.setTexture("InputBuffer", base);
+                shaderProg.setVar("dir", 1f, 0f);
+                shaderProg.setVar("sigma", rest);
+                shaderProg.drawBlocks(hx);
+                shaderProg.useAssetProgram("film/blur", false);
+                shaderProg.setTexture("InputBuffer", hx);
+                shaderProg.setVar("dir", 0f, 1f);
+                shaderProg.setVar("sigma", rest);
+                shaderProg.drawBlocks(hy);
                 bounce[k] = hy;
             }
-            final GLTexture haloTex = new GLTexture(base.mSize, rgba, null, GL_LINEAR, GL_CLAMP_TO_EDGE);
+            final GLTexture haloTex = new GLTexture(base.size, rgba, null, GL_LINEAR, GL_CLAMP_TO_EDGE);
             temp.add(haloTex);
-            glProg.useAssetProgram("film/halo_sum", false);
-            glProg.setTexture("B1", bounce[0]);
-            glProg.setTexture("B2", bounce[1]);
-            glProg.setTexture("B3", bounce[2]);
-            glProg.drawBlocks(haloTex);
+            shaderProg.useAssetProgram("film/halo_sum", false);
+            shaderProg.setTexture("B1", bounce[0]);
+            shaderProg.setTexture("B2", bounce[1]);
+            shaderProg.setTexture("B3", bounce[2]);
+            shaderProg.drawBlocks(haloTex);
             // The output (a main, made again on its next use above 100 MP or with early release) is taken before the samplers
             // are bound: a new texture binds itself on unit 1 + its name, which may be a sampler's unit (the pass then read its
             // own output as Halo).
-            final GLTexture out = basePipeline.getMain();
-            glProg.useAssetProgram("film/halation", false);
-            glProg.setTexture("InputBuffer", e1);
-            glProg.setTexture("Halo", haloTex);
-            glProg.setVar("amount", a[0], a[1], a[2]);
-            WorkingTexture = out;
-            glProg.drawBlocks(WorkingTexture);
-            glProg.closed = true;
+            final GLTexture out = hostPipeline.getMain();
+            shaderProg.useAssetProgram("film/halation", false);
+            shaderProg.setTexture("InputBuffer", e1);
+            shaderProg.setTexture("Halo", haloTex);
+            shaderProg.setVar("amount", a[0], a[1], a[2]);
+            passOut = out;
+            shaderProg.drawBlocks(passOut);
+            shaderProg.closed = true;
             Log.i("SCAM_PIPELINE", "film halation " + set.stock.id + " " + set.format.id + String.format(java.util.Locale.ROOT,
                     " pixel %.2f um sigma %.1f px level %d amount %.3f/%.3f/%.3f ms=%d", um, sigma, lv, a[0], a[1], a[2],
                     System.currentTimeMillis() - started));

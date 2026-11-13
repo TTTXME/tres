@@ -68,7 +68,7 @@ public class TunableKeyPreference extends Preference {
         if (position < 0 || position >= keys.size()) return;
         VendorTagUtils.TunableKey key = keys.get(position);
         enabled = key.enabled;
-        setTitle(key.name);
+        setTitle(key.tag);
         // P592: «Сессия · Integer 20 · принят камерой» is the key's state: it stays under the name
         com.scamera.app.ui.settings.SettingHelp.summaryIsState(this);
         com.scamera.app.ui.settings.SettingHelp.describe(this, Lang.t(getContext(),
@@ -80,11 +80,11 @@ public class TunableKeyPreference extends Preference {
 
     /** «Сессия · Integer 20 · принят камерой» / «Выкл. · Запрос · …». */
     static String summary(Context context, VendorTagUtils.TunableKey key) {
-        String kind = VendorTagUtils.TunableKey.TYPE_SESSION.equals(key.type) ? Lang.t(context, "Сессия", "Session")
+        String kind = VendorTagUtils.TunableKey.TYPE_SESSION.equals(key.kind) ? Lang.t(context, "Сессия", "Session")
                 : Lang.t(context, "Запрос", "Request");
-        String status = !key.tested ? Lang.t(context, "ещё не проверен", "not tried yet")
-                : key.supported ? Lang.t(context, "принят камерой", "taken by the camera") : Lang.t(context, "камера не знает", "unknown to the camera");
-        return (key.enabled ? "" : Lang.t(context, "Выкл. · ", "Off · ")) + kind + " · " + key.valueType + " " + key.value + " · " + status;
+        String status = !key.sent ? Lang.t(context, "ещё не проверен", "not tried yet")
+                : key.known ? Lang.t(context, "принят камерой", "taken by the camera") : Lang.t(context, "камера не знает", "unknown to the camera");
+        return (key.enabled ? "" : Lang.t(context, "Выкл. · ", "Off · ")) + kind + " · " + key.typeName + " " + key.text + " · " + status;
     }
 
     public boolean keyEnabled() { return enabled; }
@@ -119,8 +119,8 @@ public class TunableKeyPreference extends Preference {
     }
 
     private static int getStatusColor(VendorTagUtils.TunableKey key) {
-        if (!key.tested) return DOT_UNKNOWN;
-        return key.supported ? DOT_TAKEN : DOT_REFUSED;
+        if (!key.sent) return DOT_UNKNOWN;
+        return key.known ? DOT_TAKEN : DOT_REFUSED;
     }
 
     /** The key glyph with a 7 dp status dot at its bottom end (ringed in the tile colour, so it reads on the glyph). */

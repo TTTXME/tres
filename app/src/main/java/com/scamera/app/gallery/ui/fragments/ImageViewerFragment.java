@@ -117,16 +117,16 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
     static final long SLIDE_MS = 3000;
     private SSIVListener zoomListener = new SSIVListener() {
         @Override
-        public void onScaleChanged(float newScale, int origin) {
+        public void onScaleChanged(float scale, int source) {
             updateScaleText();
         }
 
         @Override
-        public void onCenterChanged(PointF newCenter, int origin) {
+        public void onCenterChanged(PointF centre, int source) {
         }
 
         @Override
-        public void onTouched(int id) {
+        public void onTouched(int pointer) {
         }
     };
     private int deletingAt = -1;
@@ -148,7 +148,7 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
     /** The position a new viewer instance starts at: its saved one, else the arguments' one, else the first photo. */
     static int startPosition(@Nullable Bundle saved, @Nullable Bundle args) {
         if (saved != null && saved.containsKey(KEY_SEEK)) return saved.getInt(KEY_SEEK, 0);
-        return args != null ? args.getInt(Constants.IMAGE_POSITION_KEY, 0) : 0;
+        return args != null ? args.getInt(Constants.ARG_POSITION, 0) : 0;
     }
 
     @Override
@@ -161,7 +161,7 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
     @Override
     public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container, @Nullable Bundle savedInstanceState) {
         Bundle bundle = getArguments();
-        if (bundle != null) screenMode = bundle.getString(Constants.MODE_KEY);
+        if (bundle != null) screenMode = bundle.getString(Constants.ARG_MODE);
         Context c = requireContext();
         library = new ViewModelProvider(requireActivity()).get(GalleryViewModel.class);
         factsModel = new ViewModelProvider(this).get(ExifDialogViewModel.class);
@@ -334,10 +334,10 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
             root.postDelayed(coverTimeout, COVER_MAX_MS);
         } else {
             GalleryItem shown = currentItem();
-            if (shown != null) library.selectNext(shown.getFile().getFileUri()); // the photo viewed stays
+            if (shown != null) library.selectNext(shown.mediaFile().contentUri()); // the photo viewed stays
             coverWithPage();
         }
-        GalleryOpenTrace.shotSaved(f.getDisplayName(), waited);
+        GalleryOpenTrace.shotSaved(f.displayName(), waited);
         boolean busy = false;
         try {
             busy = com.scamera.app.processing.ProcessingKeepAlive.busy.getAsBoolean();
@@ -397,7 +397,7 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
             com.scamera.app.gallery.ui.GalleryToast.show(getContext(), Lang.t("Снимок ещё обрабатывается", "The photo is still being processed"));
             return true;
         }
-        if (item != null && CameraHandoff.unfiled(item.getFile())) {
+        if (item != null && CameraHandoff.unfiled(item.mediaFile())) {
             com.scamera.app.gallery.ui.GalleryToast.show(getContext(), Lang.t("Снимок ещё сохраняется", "The photo is still being saved"));
             return true;
         }
@@ -469,23 +469,23 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
 
     private boolean currentIsVideo() {
         GalleryItem item = currentItem();
-        return item != null && GalleryVideo.isVideo(item.getFile());
+        return item != null && GalleryVideo.isVideo(item.mediaFile());
     }
 
     /** P499: the shown video in the gallery's own player; the other videos of the list are its previous / next. */
     private void openPlayer() {
         GalleryItem item = currentItem();
-        if (item == null || item.getFile().getFileUri() == null || getContext() == null) return;
+        if (item == null || item.mediaFile().contentUri() == null || getContext() == null) return;
         stopSlideshow();
         List<android.net.Uri> uris = new ArrayList<>();
         List<String> names = new ArrayList<>(), paths = new ArrayList<>();
         int at = 0;
         for (GalleryItem g : photos) {
-            if (!GalleryVideo.isVideo(g.getFile()) || g.getFile().getFileUri() == null) continue;
+            if (!GalleryVideo.isVideo(g.mediaFile()) || g.mediaFile().contentUri() == null) continue;
             if (g == item) at = uris.size();
-            uris.add(g.getFile().getFileUri());
-            names.add(g.getFile().getDisplayName() != null ? g.getFile().getDisplayName() : "");
-            paths.add(g.getFile().getAbsolutePath() != null ? g.getFile().getAbsolutePath() : "");
+            uris.add(g.mediaFile().contentUri());
+            names.add(g.mediaFile().displayName() != null ? g.mediaFile().displayName() : "");
+            paths.add(g.mediaFile().filePath() != null ? g.mediaFile().filePath() : "");
         }
         // a long gallery: the 400 videos around this one (the intent stays small)
         int from = Math.max(0, Math.min(at - 200, uris.size() - 400)), to = Math.min(uris.size(), from + 400);
@@ -503,8 +503,8 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
     private void onFavouriteClick() {
         GalleryItem item = currentItem();
         if (item == null || getContext() == null || chrome == null || notYet(item)) return;
-        boolean on = !GalleryView.isFavourite(requireContext(), item.getFile());
-        GalleryView.setFavourite(requireContext(), Collections.singletonList(item.getFile()), on);
+        boolean on = !GalleryView.isFavourite(requireContext(), item.mediaFile());
+        GalleryView.setFavourite(requireContext(), Collections.singletonList(item.mediaFile()), on);
         chrome.setFavourite(on, true);
         if (root != null) root.performHapticFeedback(android.view.HapticFeedbackConstants.CONTEXT_CLICK);
     }
@@ -514,16 +514,16 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
         GalleryItem item = currentItem();
         if (item == null || getContext() == null || notYet(item)) return;
         Context c = requireContext();
-        boolean video = GalleryVideo.isVideo(item.getFile());
+        boolean video = GalleryVideo.isVideo(item.mediaFile());
         List<GallerySheets.Action> actions = new ArrayList<>();
         if (photos.size() > 1)
             actions.add(new GallerySheets.Action(R.drawable.ui_ic_play, Lang.t("Слайд-шоу", "Slideshow"), this::startSlideshow));
         if (!video)
             actions.add(new GallerySheets.Action(R.drawable.ui_ic_wallpaper, Lang.t("Установить как…", "Set as…"), () -> sendTo(item, Intent.ACTION_ATTACH_DATA)));
         // P504: the text on the photo, to copy (OCR)
-        if (!video && com.scamera.app.gallery.ocr.OcrIndex.indexable(item.getFile().getDisplayName()))
+        if (!video && com.scamera.app.gallery.ocr.OcrIndex.indexable(item.mediaFile().displayName()))
             actions.add(new GallerySheets.Action(R.drawable.ui_ic_text, Lang.t("Текст на фото", "Text in the photo"),
-                    () -> com.scamera.app.gallery.ui.TextSheet.show(c, item.getFile())));
+                    () -> com.scamera.app.gallery.ui.TextSheet.show(c, item.mediaFile())));
         actions.add(new GallerySheets.Action(R.drawable.ui_ic_open, Lang.t("Открыть в другом приложении", "Open in another app"), () -> sendTo(item, Intent.ACTION_VIEW)));
         // P579 (owner, 2026-11-09: «… в ней надо стиль также обновить»): the pull-down menu at the «Ещё» button (the shared menu's look);
         // the sheet of rows when the button is not on screen
@@ -538,7 +538,7 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
     }
 
     private void sendTo(GalleryItem item, String action) {
-        Uri uri = item.getFile().getFileUri();
+        Uri uri = item.mediaFile().contentUri();
         if (uri == null || getContext() == null) return;
         Intent i = new Intent(action);
         i.setDataAndType(uri, mimeOf(item));
@@ -552,8 +552,8 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
     }
 
     private static String mimeOf(GalleryItem item) {
-        String name = item.getFile().getDisplayName();
-        return GalleryVideo.isVideo(item.getFile()) ? GalleryVideo.mime(name) : mediaTypeOf(name);
+        String name = item.mediaFile().displayName();
+        return GalleryVideo.isVideo(item.mediaFile()) ? GalleryVideo.mime(name) : mediaTypeOf(name);
     }
 
     private void startSlideshow() {
@@ -602,7 +602,7 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
         boolean fromGrid;
         if (enter) fromGrid = !openedOnce;
         else // the nav back stack is already popped when the transaction asks for the animation
-            fromGrid = pagerView != null && current() == args.getInt(Constants.IMAGE_POSITION_KEY, -1) && navigation != null
+            fromGrid = pagerView != null && current() == args.getInt(Constants.ARG_POSITION, -1) && navigation != null
                     && navigation.getCurrentDestination() != null && navigation.getCurrentDestination().getId() == R.id.gallery_library;
         if (enter) openedOnce = true;
         if (!fromGrid || !Motion.enabled(content)) return super.onCreateAnimation(transit, enter, nextAnim);
@@ -743,10 +743,10 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
         Uri select = library.takePendingSelect();
         if (select != null)
             for (int i = 0; i < photos.size(); i++)
-                if (select.equals(photos.get(i).getFile().getFileUri())) shownPage = i;
+                if (select.equals(photos.get(i).mediaFile().contentUri())) shownPage = i;
         if (select == null && keep != null)
             for (int i = 0; i < photos.size(); i++)
-                if (GalleryViewModel.sameFile(keep.getFile(), photos.get(i).getFile())) shownPage = i;
+                if (GalleryViewModel.sameFile(keep.mediaFile(), photos.get(i).mediaFile())) shownPage = i;
         int position = Math.max(0, Math.min(shownPage, photos.size() - 1));
         pagerView.setCurrentItem(position);
         final ViewPager pager = pagerView;
@@ -828,7 +828,7 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
 
     private void liveHistogramFor(int position) {
         if (!histogramOn || position < 0 || position >= photos.size()) return;
-        factsModel.updateHistogramView((ImageFile) photos.get(position).getFile());
+        factsModel.updateHistogramView((ImageFile) photos.get(position).mediaFile());
     }
 
     /** The current photo's meta, badges, filmstrip and zoom. */
@@ -839,8 +839,8 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
         if (chrome != null) chrome.centre(position);
         GalleryItem shown = position >= 0 && position < photos.size() ? photos.get(position) : null;
         if (chrome != null && shown != null && getContext() != null) {
-            chrome.setFavourite(GalleryView.isFavourite(requireContext(), shown.getFile()), false);
-            chrome.setVideo(GalleryVideo.isVideo(shown.getFile()));
+            chrome.setFavourite(GalleryView.isFavourite(requireContext(), shown.mediaFile()), false);
+            chrome.setVideo(GalleryVideo.isVideo(shown.mediaFile()));
         }
         bindPlayDisc();
         CustomSSIV page = pageView(position);
@@ -970,7 +970,7 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
         if (pagerView == null || getContext() == null) return 0f;
         int position = current();
         if (position < 0 || position >= photos.size()) return 0f;
-        Uri uri = photos.get(position).getFile().getFileUri();
+        Uri uri = photos.get(position).mediaFile().contentUri();
         if (uri == null) return 0f;
         if (!uri.equals(focal35Uri)) {
             focal35Uri = uri;
@@ -1007,8 +1007,8 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
                 image2pos = image1pos;
                 image1pos -= 1;
             }
-            b.putInt(Constants.IMAGE1_KEY, image1pos);
-            b.putInt(Constants.IMAGE2_KEY, image2pos);
+            b.putInt(Constants.ARG_FIRST_IMAGE, image1pos);
+            b.putInt(Constants.ARG_SECOND_IMAGE, image2pos);
             navigation.navigate(R.id.push_compare, b);
         } else if (getContext() != null) {
             com.scamera.app.gallery.ui.GalleryToast.show(getContext(), Lang.t("Нет снимка для сравнения", "No photo to compare with"));
@@ -1044,8 +1044,8 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
         if (pagerView == null || photos == null || getContext() == null || photos.isEmpty() || navigation == null) return;
         if (notYet(currentItem())) return; // P637
         GalleryItem galleryItem = photos.get(current());
-        String fileName = galleryItem.getFile().getDisplayName();
-        Uri uri = galleryItem.getFile().getFileUri();
+        String fileName = galleryItem.mediaFile().displayName();
+        Uri uri = galleryItem.mediaFile().contentUri();
         if (uri == null) return;
         String mime = mediaTypeOf(fileName);
         if (!com.scamera.app.gallery.editor.ExternalEdit.editable(fileName, mime)) {
@@ -1054,7 +1054,7 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
         }
         shownPage = current();
         navigation.navigate(R.id.push_editor,
-                com.scamera.app.gallery.editor.ExternalEdit.args(uri, fileName, galleryItem.getFile().getAbsolutePath(), mime, false));
+                com.scamera.app.gallery.editor.ExternalEdit.args(uri, fileName, galleryItem.mediaFile().filePath(), mime, false));
     }
 
     /** The old route: another app's editor (ACTION_EDIT chooser without this gallery). */
@@ -1062,15 +1062,15 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
         if (pagerView == null || photos == null || getContext() == null || photos.isEmpty()) return;
         if (notYet(currentItem())) return; // P637
         GalleryItem galleryItem = photos.get(current());
-        if (galleryItem.getFile().getFileUri() == null) return;
-        com.scamera.app.gallery.editor.ExternalEdit.openInOtherApp(this, galleryItem.getFile().getFileUri(),
-                galleryItem.getFile().getDisplayName());
+        if (galleryItem.mediaFile().contentUri() == null) return;
+        com.scamera.app.gallery.editor.ExternalEdit.openInOtherApp(this, galleryItem.mediaFile().contentUri(),
+                galleryItem.mediaFile().displayName());
     }
 
     @Override
     public void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode == Constants.REQUEST_EDIT_IMAGE && resultCode == Activity.RESULT_OK && data != null && data.getData() != null) {
+        if (requestCode == Constants.REQ_EXTERNAL_EDIT && resultCode == Activity.RESULT_OK && data != null && data.getData() != null) {
             com.scamera.app.gallery.ui.GalleryToast.show(getContext(), Lang.t("Сохранено: ", "Saved: ") + data.getData().getPath(), true);
             library.fetchAllMedia();
             bindPhotos(library.getCurrentFolderImages().getValue());
@@ -1085,14 +1085,14 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
         GalleryItem item = photos.get(position);
         Runnable delete = () -> {
             deletingAt = position;
-            GalleryFileOperations.deleteImageFiles(getActivity(), Collections.singletonList((ImageFile) item.getFile()), this::handleImagesDeletedCallback);
+            GalleryFileOperations.deleteImageFiles(getActivity(), Collections.singletonList((ImageFile) item.mediaFile()), this::handleImagesDeletedCallback);
         };
         // P345: one confirmation - the system's own dialog when it is needed; P498: this app's own file goes at once, with «Вернуть»
-        if (GalleryFileOperations.needsSystemDeleteRequest(requireContext(), Collections.singletonList((ImageFile) item.getFile()))) delete.run();
+        if (GalleryFileOperations.needsSystemDeleteRequest(requireContext(), Collections.singletonList((ImageFile) item.mediaFile()))) delete.run();
         else {
             shownPage = position; // the next photo takes its place
             int above = chrome != null && chromeVisible ? chrome.bottom.getHeight() + GalleryUi.dp(requireContext(), 10) : GalleryUi.dp(requireContext(), 24);
-            GalleryUndo.delete(requireContext(), root, above, Collections.singletonList((ImageFile) item.getFile()), library);
+            GalleryUndo.delete(requireContext(), root, above, Collections.singletonList((ImageFile) item.mediaFile()), library);
         }
     }
 
@@ -1106,7 +1106,7 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
         if (notYet(currentItem())) return; // P637
         GalleryItem galleryItem = photos.get(current());
         Intent intent = new Intent(Intent.ACTION_SEND);
-        intent.putExtra(Intent.EXTRA_STREAM, galleryItem.getFile().getFileUri());
+        intent.putExtra(Intent.EXTRA_STREAM, galleryItem.mediaFile().contentUri());
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
         intent.setType(mimeOf(galleryItem)); // P498: a video is not image/*
         startActivity(Intent.createChooser(intent, null));
@@ -1134,18 +1134,18 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
             }
         };
         model.addOnPropertyChangedCallback(histogramCallback);
-        factsModel.updateHistogramView((ImageFile) item.getFile());
+        factsModel.updateHistogramView((ImageFile) item.mediaFile());
         GallerySheets.show(c, GallerySheets.details(c, details(item, model, pageAdapter != null && pageAdapter.isHdrAvailable(position)), histogramView));
     }
 
     private GallerySheets.Details details(GalleryItem item, ExifDialogModel m, boolean ultraHdr) {
         GallerySheets.Details d = new GallerySheets.Details();
-        d.fileName = item.getFile().getDisplayName();
-        d.when = GalleryUi.dayTime(item.getFile().getLastModified(), System.currentTimeMillis());
-        d.folder = folderOf(item.getFile().getAbsolutePath());
+        d.fileName = item.mediaFile().displayName();
+        d.when = GalleryUi.dayTime(item.mediaFile().modifiedMs(), System.currentTimeMillis());
+        d.folder = folderOf(item.mediaFile().filePath());
         // P498: a video has no photo EXIF (the model still holds the last photo's); its length in the shutter's place
-        boolean video = GalleryVideo.isVideo(item.getFile());
-        long len = GalleryVideo.durationMs(item.getFile());
+        boolean video = GalleryVideo.isVideo(item.mediaFile());
+        long len = GalleryVideo.durationMs(item.mediaFile());
         d.iso = video ? null : m.getIsoValue();
         d.shutter = video ? (len > 0 ? GalleryVideo.clock(len) : null) : m.getShutterValue();
         d.fnum = video ? null : m.getFnumValue();
@@ -1159,15 +1159,15 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
         d.device = video ? null : m.getMakeModel();
         d.width = video ? 0 : m.getWidth();
         d.height = video ? 0 : m.getHeight();
-        d.bytes = item.getFile().getSize();
+        d.bytes = item.mediaFile().sizeBytes();
         // P492: the rest of the EXIF (the header only: a few ms on the main thread)
         androidx.exifinterface.media.ExifInterface exif = null;
-        if (getContext() != null && !video) try (java.io.InputStream in = requireContext().getContentResolver().openInputStream(item.getFile().getFileUri())) {
+        if (getContext() != null && !video) try (java.io.InputStream in = requireContext().getContentResolver().openInputStream(item.mediaFile().contentUri())) {
             if (in != null) exif = new androidx.exifinterface.media.ExifInterface(in);
         } catch (Exception | OutOfMemoryError ignored) {
             // no EXIF rows: the file's place only
         }
-        d.more = com.scamera.app.gallery.ui.PhotoMore.rows(exif, item.getFile().getAbsolutePath());
+        d.more = com.scamera.app.gallery.ui.PhotoMore.rows(exif, item.mediaFile().filePath());
         return d;
     }
 
@@ -1247,18 +1247,18 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
         }
         if (photos.isEmpty() || position < 0 || position >= photos.size()) return;
         GalleryItem item = photos.get(position);
-        if (GalleryVideo.isVideo(item.getFile())) { // P498: «Сегодня, 11:17» / «Видео · 0:42 · MP4»
-            long len = GalleryVideo.durationMs(item.getFile());
-            String when = GalleryUi.dayTime(item.getFile().getLastModified(), System.currentTimeMillis());
+        if (GalleryVideo.isVideo(item.mediaFile())) { // P498: «Сегодня, 11:17» / «Видео · 0:42 · MP4»
+            long len = GalleryVideo.durationMs(item.mediaFile());
+            String when = GalleryUi.dayTime(item.mediaFile().modifiedMs(), System.currentTimeMillis());
             String sub = joinDot(Lang.t("Видео", "Video"), len > 0 ? GalleryVideo.clock(len) : null,
-                    GalleryFormat.extension(item.getFile().getDisplayName()).toUpperCase(Locale.ROOT));
+                    GalleryFormat.extension(item.mediaFile().displayName()).toUpperCase(Locale.ROOT));
             if (chrome != null) chrome.bindMeta(when, sub, null, GalleryFormat.of(item, rawBases), false);
             if (miniExif != null) miniExif.setText(sub);
-            if (paneLabel != null) paneLabel.setText(paneText(joinDot(when, sub), item.getFile().getDisplayName()));
+            if (paneLabel != null) paneLabel.setText(paneText(joinDot(when, sub), item.mediaFile().displayName()));
             return;
         }
         // P551: the file read on the EXIF thread; the page's labels bound when it is done (if the page is still shown)
-        factsModel.updateModelAsync(requireContext().getContentResolver(), item.getFile(), () -> {
+        factsModel.updateModelAsync(requireContext().getContentResolver(), item.mediaFile(), () -> {
             if (pagerView == null || root == null || getContext() == null || current() != position
                     || position >= photos.size() || photos.get(position) != item || coverPending()) return;
             bindExif(position, item);
@@ -1270,7 +1270,7 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
         GalleryFormat format = GalleryFormat.of(item, rawBases);
         boolean uhdr = pageAdapter != null && pageAdapter.isHdrAvailable(position);
         String route = GalleryFormat.routeOf(m.getDescription());
-        String when = GalleryUi.dayTime(item.getFile().getLastModified(), System.currentTimeMillis());
+        String when = GalleryUi.dayTime(item.mediaFile().modifiedMs(), System.currentTimeMillis());
         String lens = m.getFocal35Value() != null ? m.getFocal35Value() : m.getFocalValue();
         // SIMPLE_UI §5: with what, not how («24 мм · 12 Мп · JPEG»); ISO and shutter are in «Сведения»
         String sub = joinDot(lens, megapixels(m.getWidth(), m.getHeight()), format.label.isEmpty() ? null : format.label);
@@ -1287,7 +1287,7 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
         // P196: the file's real resolution and the phone on their own line («8192×6144 · 50 Мп · vivo X200 Ultra»)
         String file = paneFullExif ? fileLine(m.getResolutionValue(), m.getMakeModel()) : null;
         // P65: the file name on a second, smaller and muted line (which two shots are compared)
-        String name = item.getFile().getDisplayName();
+        String name = item.mediaFile().displayName();
         paneLabel.setText(paneText(text, file, name));
         // P570: a colour icon in tonal mono of the accent, a plain glyph tinted
         int s = GalleryUi.dp(c, 15), accent = GalleryUi.accent(c);
@@ -1348,7 +1348,7 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
     }
 
     private boolean isCompareMode() {
-        return screenMode != null && screenMode.equalsIgnoreCase(Constants.COMPARE);
+        return screenMode != null && screenMode.equalsIgnoreCase(Constants.MODE_COMPARE);
     }
 
     public void handleImagesDeletedCallback(boolean isDeleted) {

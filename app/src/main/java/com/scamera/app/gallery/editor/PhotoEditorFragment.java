@@ -887,7 +887,7 @@ public class PhotoEditorFragment extends Fragment implements EditPanels.Host {
     @Override
     public void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode == Constants.REQUEST_EDIT_IMAGE && resultCode == Activity.RESULT_OK && data != null && data.getData() != null) {
+        if (requestCode == Constants.REQ_EXTERNAL_EDIT && resultCode == Activity.RESULT_OK && data != null && data.getData() != null) {
             com.scamera.app.gallery.ui.GalleryToast.show(getContext(), Lang.t("Сохранено: ", "Saved: ") + data.getData().getPath(), true);
             gallery.fetchAllMedia();
             gallery.setUpdatePending(true);

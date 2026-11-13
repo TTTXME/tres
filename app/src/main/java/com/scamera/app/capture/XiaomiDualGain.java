@@ -428,7 +428,7 @@ public final class XiaomiDualGain {
     @Nullable
     private static String currentCamera() {
         try {
-            return ScameraApp.getSettings().mCameraID;
+            return ScameraApp.getSettings().cameraId;
         } catch (RuntimeException e) {
             return null;
         }

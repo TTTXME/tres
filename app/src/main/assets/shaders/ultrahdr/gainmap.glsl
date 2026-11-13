@@ -1,5 +1,4 @@
-precision highp float;
-precision highp sampler2D;
+precision highp float; precision highp sampler2D;
 // The Ultra HDR gain map (the last stage of the scene-anchored pass): per uDown x uDown block, log2 of the anchored scene
 // luminance over the base's, both with the hdrgm offset added (the decoder applies (SDR + OffsetSDR) 2^gain - OffsetHDR),
 // faded out in deep blacks (no shadow noise boosted on HDR displays), over [0, uScale] in 8 bits (R = G = B, A = 1).
@@ -8,11 +7,9 @@ precision highp sampler2D;
 // uAnchor: linear median of the base / linear median of the scene plane: the midtones gain nothing, brighter scene content
 // more, anything below stays at identity (clamp).
 uniform sampler2D InputBuffer;
+uniform float uAnchor, uScale, uEps;
 uniform sampler2D LBuffer;
-uniform float uAnchor;
 uniform int uDown;
-uniform float uScale;
-uniform float uEps;
 // P370 (B3): 1 = the base is Display P3 (PhotoOutput): its luminance takes the P3 weights; 0 / unset: sRGB (Rec.709)
 uniform int uP3;
 out vec4 Output;

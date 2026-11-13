@@ -74,7 +74,7 @@ public class IszAspectCaptureTest {
         app.when(ScameraApp::getResourcesStatic).thenReturn(context.getResources());
         PreferenceKeys.initialise(manager);
         settings = new Settings();
-        settings.aspect169 = true;
+        settings.wide169 = true;
         settings.binning = false;
         app.when(ScameraApp::getSettings).thenReturn(settings);
         processors = mockConstruction(ScamProcessor.class);
@@ -89,12 +89,12 @@ public class IszAspectCaptureTest {
         CameraCharacteristics characteristics = mock(CameraCharacteristics.class);
         when(characteristics.get(CameraCharacteristics.SENSOR_INFO_WHITE_LEVEL)).thenReturn(1023);
         CaptureController.mCameraCharacteristics = characteristics;
-        SaverImplementation.IMAGE_BUFFER.clear();
+        SaverImplementation.FRAME_QUEUE.clear();
     }
 
     @After public void cleanup() {
-        for (ImageFrame frame : SaverImplementation.IMAGE_BUFFER) frame.close();
-        SaverImplementation.IMAGE_BUFFER.clear();
+        for (ImageFrame frame : SaverImplementation.FRAME_QUEUE) frame.close();
+        SaverImplementation.FRAME_QUEUE.clear();
         CaptureController.mCameraCharacteristics = previousCharacteristics;
         exif.close();
         paths.close();
@@ -121,7 +121,7 @@ public class IszAspectCaptureTest {
     }
 
     @Test public void iszKeepsEveryNativeRawSampleEvenWhenTheSavedPreferenceRequestsWide169() {
-        ImageSaver saver = new ImageSaver(mock(ProcessingEventsListener.class));
+        ImageSaver saver = new ImageSaver(mock(ProcessingEvents.class));
         saver.iszAspect4x3 = true;
         saver.setFrameCount(1);
         saver.initProcess(sensorImage());
@@ -134,7 +134,7 @@ public class IszAspectCaptureTest {
     }
 
     @Test public void ordinaryFramesRetainTheirExistingWide169Crop() {
-        ImageSaver saver = new ImageSaver(mock(ProcessingEventsListener.class));
+        ImageSaver saver = new ImageSaver(mock(ProcessingEvents.class));
         saver.setFrameCount(1);
         saver.initProcess(sensorImage());
         ImageFrame frame = saver.snapshotFrames().get(0);
@@ -144,17 +144,17 @@ public class IszAspectCaptureTest {
     }
 
     @Test public void queuedRawSaverForwardsTheOriginalAspectPolicyAfterAnotherShotStarts() {
-        ImageSaver first = new ImageSaver(mock(ProcessingEventsListener.class));
+        ImageSaver first = new ImageSaver(mock(ProcessingEvents.class));
         first.iszAspect4x3 = true;
         first.setFrameCount(1);
         first.initProcess(sensorImage());
-        DefaultSaver implementation = (DefaultSaver) first.implementation;
+        DefaultSaver implementation = (DefaultSaver) first.saverImpl;
         ArrayList<ImageFrame> owned = first.snapshotFrames();
         first.detachForQueue(true);
         first.iszAspect4x3 = false;
-        ImageSaver next = new ImageSaver(mock(ProcessingEventsListener.class));
+        ImageSaver next = new ImageSaver(mock(ProcessingEvents.class));
         next.iszAspect4x3 = false;
-        settings.aspect169 = false;
+        settings.wide169 = false;
         first.runRaw(CaptureController.mCameraCharacteristics, null, null, new ArrayList<>(), 0, new HashMap<>());
         assertTrue(implementation.scamProcessor.ownedIszAspect4x3);
         assertEquals(48, owned.get(0).height);

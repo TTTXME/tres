@@ -33,11 +33,12 @@ public class NoiseModeler {
         if (out != null) Log.w(TAG, "HAL noise offset in sensor units: divided by the white level " + white);
         return out != null ? out : profile;
     }
-    public Pair<Double,Double>[] baseModel;
-    public Pair<Double,Double>[] computeModel;
-    public int AnalogueISO;
-    public int SensivityISO;
-    double adaptiveMpy = 1.0;
+    /** Per channel (R, G, B) noise (S, O) of one frame, and the same for the merged stack ({@link #rescaleForStack}). */
+    public Pair<Double,Double>[] rawModel, stackModel;
+    /** The camera's maximum analogue ISO and the frame's reported ISO. */
+    public int analogIso, reportedIso;
+    /** A multiplier on the stack's variance scale (1: none). */
+    double varianceMpy = 1.0;
     /** ISO fed to the model (the capture sensitivity; P320: over {@link #isoScale} for a DCG frame). */
     private int modelIso1;
     /** P320: the HAL profile as reported (null: none) and the CFA, kept for {@link #withIsoScale}. */
@@ -57,15 +58,15 @@ public class NoiseModeler {
      * number) = the reported ISO and profile, as before.
      */
     public NoiseModeler(Pair<Double,Double>[] inModel, Integer analogISO, Integer ISO, int bayer, float isoScale) {
-        AnalogueISO = analogISO;
-        SensivityISO = ISO;
+        analogIso = analogISO;
+        reportedIso = ISO;
         reportedModel = inModel;
         this.bayer = bayer;
         this.isoScale = isoScale > 1f && Float.isFinite(isoScale) ? isoScale : 1f;
-        baseModel = new Pair[3];
-        computeModel = new Pair[3];
+        rawModel = new Pair[3];
+        stackModel = new Pair[3];
         // A selected profile replaces whatever the sensor reported, so it reaches every
-        // consumer of computeModel at once: the denoise nodes and the alignment
+        // consumer of stackModel at once: the denoise nodes and the alignment
         // significance gate in align.glsl.
         modelIso1 = modelIso(ISO, this.isoScale);
         if (this.isoScale > 1f) Log.i(TAG, "DCG ISO x" + this.isoScale + ": a chosen profile / the fallback at ISO " + modelIso1
@@ -82,7 +83,7 @@ public class NoiseModeler {
             Log.e(TAG, "Noise model profile unavailable, falling back to the sensor profile", t);
         }
         if (profile != null) {
-            inModel = profile.evaluate(modelIso1, AnalogueISO);
+            inModel = profile.evaluate(modelIso1, analogIso);
             Log.d(TAG, "Noise model profile: " + profile.name + " at ISO " + modelIso1
                     + " -> R(S,O)=" + inModel[0] + " Gr=" + inModel[1]
                     + " Gb=" + inModel[2] + " B=" + inModel[3]);
@@ -91,20 +92,21 @@ public class NoiseModeler {
             // no noise profile: the generic phone sensor - S linear in ISO, O quadratic in ISO plus the digital gain's share
             final Pair<Double, Double> generic = new Pair<>(GENERIC_S_PER_ISO * modelIso1 + GENERIC_S_BASE, genericOffset(modelIso1));
             if (generic.first < 0.0) Log.d(TAG, "negative generic noise slope at ISO " + modelIso1);
-            for (int c = 0; c < 3; c++) baseModel[c] = new Pair<>(generic.first, generic.second);
+            for (int c = 0; c < 3; c++) rawModel[c] = new Pair<>(generic.first, generic.second);
         } else if (inModel.length == 1) {
-            for (int c = 0; c < 3; c++) baseModel[c] = new Pair<>(inModel[0].first, inModel[0].second);
+            for (int c = 0; c < 3; c++) rawModel[c] = new Pair<>(inModel[0].first, inModel[0].second);
         } else if (inModel.length == 3) {
-            for (int c = 0; c < 3; c++) baseModel[c] = new Pair<>(inModel[c].first, inModel[c].second);
+            for (int c = 0; c < 3; c++) rawModel[c] = new Pair<>(inModel[c].first, inModel[c].second);
         } else if (inModel.length == 4) {
             // R, Gr, Gb, B: the greens averaged
-            baseModel[0] = new Pair<>(inModel[0].first, inModel[0].second);
-            baseModel[1] = new Pair<>((inModel[1].first + inModel[2].first) / 2.0, (inModel[1].second + inModel[2].second) / 2.0);
-            baseModel[2] = new Pair<>(inModel[3].first, inModel[3].second);
+            final Pair<Double, Double> r = inModel[0], gr = inModel[1], gb = inModel[2], b = inModel[3];
+            rawModel[0] = new Pair<>(r.first, r.second);
+            rawModel[1] = new Pair<>((gr.first + gb.first) / 2.0, (gr.second + gb.second) / 2.0);
+            rawModel[2] = new Pair<>(b.first, b.second);
         }
 
-        computeStackingNoiseModel();
-        Log.d(TAG, "noise model R/G/B " + java.util.Arrays.toString(baseModel) + " -> " + java.util.Arrays.toString(computeModel));
+        rescaleForStack();
+        Log.d(TAG, "noise model R/G/B " + java.util.Arrays.toString(rawModel) + " -> " + java.util.Arrays.toString(stackModel));
     }
 
 
@@ -124,7 +126,7 @@ public class NoiseModeler {
     /**
      * P320 (Parameters.applyDcgIsoScale): this model rebuilt from the same HAL profile, analogue and reported ISO with the ISO
      * scale {@code scale}; idempotent (it always starts from the reported ISO). The stacking multiplier carries over and
-     * computeModel is the one-frame stack again (ScamProcessor rescales it for the merge before the post).
+     * stackModel is the one-frame stack again (ScamProcessor rescales it for the merge before the post).
      */
     /**
      * P614 «Why тон» V2: the noise the reference tone's AE clamps with - its capture code's mean of the frame's SENSOR_NOISE_PROFILE
@@ -158,10 +160,10 @@ public class NoiseModeler {
     }
 
     public NoiseModeler withIsoScale(float scale) {
-        final NoiseModeler n = new NoiseModeler(reportedModel, AnalogueISO, SensivityISO, bayer, scale);
-        if (adaptiveMpy != 1.0) {
-            n.adaptiveMpy = adaptiveMpy;
-            n.computeStackingNoiseModel();
+        final NoiseModeler n = new NoiseModeler(reportedModel, analogIso, reportedIso, bayer, scale);
+        if (varianceMpy != 1.0) {
+            n.varianceMpy = varianceMpy;
+            n.rescaleForStack();
         }
         return n;
     }
@@ -198,17 +200,22 @@ public class NoiseModeler {
         return w <= 0f ? hcg : w >= 1f ? lcg : hcg + (lcg - hcg) * w;
     }
 
-    public void computeStackingNoiseModel(){
-        computeStackingNoiseModel(FrameNumberSelector.frameCount);
+    /** The stack model for the frame count FrameNumberSelector holds. */
+    public void rescaleForStack() {
+        rescaleForStack(FrameNumberSelector.frameCount);
     }
-    public void computeStackingNoiseModel(int FrameCnt){
-        computeStackingNoiseModel((double)Math.max(1,FrameCnt),1);
+
+    /** The stack model for {@code frames} equal frames (at least one). */
+    public void rescaleForStack(int frames) {
+        rescaleForStack((double) Math.max(1, frames), 1);
     }
-    public void computeStackingNoiseModel(double effectiveSamples,double spatialSamples) {
-        double scale=com.scamera.app.processing.parameters.FinishMath.varianceScale(
-                effectiveSamples,spatialSamples)*adaptiveMpy;
-        for(int i=0;i<3;i++)computeModel[i]=new Pair<>(baseModel[i].first*scale,baseModel[i].second*scale);
-        Log.d(TAG,"Noise rescale: effective="+effectiveSamples+" spatial="+spatialSamples+" scale="+scale);
+
+    /** The stack model: the frame's (S, O) times the variance scale of {@code effectiveSamples} x {@code spatialSamples}. */
+    public void rescaleForStack(double effectiveSamples, double spatialSamples) {
+        final double scale = com.scamera.app.processing.parameters.FinishMath.varianceScale(effectiveSamples, spatialSamples)
+                * varianceMpy;
+        for (int c = 0; c < 3; c++) stackModel[c] = new Pair<>(rawModel[c].first * scale, rawModel[c].second * scale);
+        Log.d(TAG, "noise rescale: effective " + effectiveSamples + ", spatial " + spatialSamples + " -> x" + scale);
     }
     // the generic sensor of a camera without a noise profile
     private static final double GENERIC_S_PER_ISO = 0.0000025720647, GENERIC_S_BASE = 0.000028855721;
@@ -216,7 +223,7 @@ public class NoiseModeler {
 
     /** The generic offset at {@code iso}: quadratic in the ISO, plus quadratic in the digital gain above the analogue ISO. */
     private double genericOffset(double iso) {
-        final double digitalGain = Math.max(iso / AnalogueISO, 1.0);
+        final double digitalGain = Math.max(iso / analogIso, 1.0);
         final double offset = (GENERIC_O_PER_ISO2 * iso * iso) + (GENERIC_O_PER_GAIN2 * digitalGain * digitalGain);
         if (offset < 0.0) Log.d(TAG, "negative generic noise offset at ISO " + iso + ", digital gain " + digitalGain);
         return offset;

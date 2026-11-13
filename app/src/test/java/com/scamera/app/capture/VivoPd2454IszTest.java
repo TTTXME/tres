@@ -135,7 +135,7 @@ public class VivoPd2454IszTest {
             }
         };
         app.when(ScameraApp::getAppContext).thenReturn(cts);
-        ScameraApp.getSettings().selectedMode = com.scamera.app.api.CameraMode.PHOTO;
+        ScameraApp.getSettings().mode = com.scamera.app.api.CameraMode.PHOTO;
         return cts;
     }
 
@@ -193,11 +193,11 @@ public class VivoPd2454IszTest {
             VivoPd2454NativeRaw.apply(request, "3");
             assertArrayEquals(new int[]{3}, request.get(new CaptureRequest.Key<>(VivoQcomIsz.KEY, int[].class)));
         }
-        ScameraApp.getSettings().selectedMode = com.scamera.app.api.CameraMode.MOTION;
+        ScameraApp.getSettings().mode = com.scamera.app.api.CameraMode.MOTION;
         assertTrue(VivoPd2454NativeRaw.active("3"));
-        ScameraApp.getSettings().selectedMode = com.scamera.app.api.CameraMode.NIGHT;
+        ScameraApp.getSettings().mode = com.scamera.app.api.CameraMode.NIGHT;
         assertTrue(VivoPd2454NativeRaw.active("3"));
-        ScameraApp.getSettings().selectedMode = com.scamera.app.api.CameraMode.VIDEO;
+        ScameraApp.getSettings().mode = com.scamera.app.api.CameraMode.VIDEO;
         assertFalse(VivoPd2454NativeRaw.active("3"));
         CaptureRequest.Builder request = builder();
         VivoPd2454NativeRaw.apply(request, "3");
@@ -237,11 +237,11 @@ public class VivoPd2454IszTest {
         assertEquals(original, prefs.getString("pref_sensorconfig_back0_tunablekeys", ""));
         List<VendorTagUtils.TunableKey> copied = TunableKeyManager.loadKeys(context, slot);
         assertEquals(2, copied.size());
-        assertEquals(owner.name, copied.get(0).name);
-        assertEquals("92", copied.get(0).value);
-        assertEquals(VendorTagUtils.TunableKey.TYPE_SESSION, copied.get(1).type);
-        assertEquals("Integer", copied.get(1).valueType);
-        assertEquals("6", copied.get(1).value);
+        assertEquals(owner.tag, copied.get(0).tag);
+        assertEquals("92", copied.get(0).text);
+        assertEquals(VendorTagUtils.TunableKey.TYPE_SESSION, copied.get(1).kind);
+        assertEquals("Integer", copied.get(1).typeName);
+        assertEquals("6", copied.get(1).text);
         assertTrue(copied.get(1).enabled);
         assertEquals(0, MosaicBlockStore.declaredBlock(ModuleRegistry.sensorMode(slot)));
         VivoPd2454Isz.ensureModules(context);

@@ -61,14 +61,14 @@ public class PhotoMakeModelTest {
 
     private static ParseExif.ExifData exif() {
         ParseExif.ExifData d = new ParseExif.ExifData();
-        d.SENSITIVITY_TYPE = String.valueOf(ExifInterface.SENSITIVITY_TYPE_ISO_SPEED);
-        d.PHOTOGRAPHIC_SENSITIVITY = "50";
-        d.F_NUMBER = "2.27";
-        d.FOCAL_LENGTH = "2250/100";
-        d.EXPOSURE_TIME = String.valueOf(1 / 852.0);
-        d.DATETIME = "2026:10:17 11:56:00";
-        d.COMPRESSION = ParseExif.COMPRESSION_JPEG;
-        d.COLOR_SPACE = "sRGB";
+        d.sensitivityType = String.valueOf(ExifInterface.SENSITIVITY_TYPE_ISO_SPEED);
+        d.isoValue = "50";
+        d.fNumber = "2.27";
+        d.focalLength = "2250/100";
+        d.exposureTime = String.valueOf(1 / 852.0);
+        d.dateTime = "2026:10:17 11:56:00";
+        d.compression = ParseExif.COMPRESSION_JPEG;
+        d.colorSpace = "sRGB";
         return d;
     }
 
@@ -84,17 +84,17 @@ public class PhotoMakeModelTest {
         ShadowSystemProperties.override("ro.vivo.market.name", "vivo X200 Ultra");
         DeviceName.forget();
         ParseExif.ExifData d = new ParseExif.ExifData();
-        assertEquals("vivo", d.MAKE);
-        assertEquals("vivo X200 Ultra", d.MODEL);
-        assertEquals("vivo X200 Ultra", PhotoInfo.device(d.MAKE, d.MODEL));
+        assertEquals("vivo", d.make);
+        assertEquals("vivo X200 Ultra", d.model);
+        assertEquals("vivo X200 Ultra", PhotoInfo.device(d.make, d.model));
     }
 
     @Test
     public void modelIsBuildModelWithoutAMarketName() {
         ParseExif.ExifData d = new ParseExif.ExifData();
-        assertEquals("vivo", d.MAKE);
-        assertEquals("V2446A", d.MODEL);
-        assertEquals("vivo V2446A", PhotoInfo.device(d.MAKE, d.MODEL));
+        assertEquals("vivo", d.make);
+        assertEquals("V2446A", d.model);
+        assertEquals("vivo V2446A", PhotoInfo.device(d.make, d.model));
     }
 
     @Test

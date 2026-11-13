@@ -188,7 +188,7 @@ public final class ScamHybridBurst implements ScamTransport {
      * {@code conservative}: the retry after a failed merge (sensor grid, at most 16 N frames, the round-5 extras off).
      */
     private ScamHybridBurst(List<ImageFrame> source, Parameters p, boolean conservative) throws IOException {
-        width = p.rawSize.x; height = p.rawSize.y; white = p.whiteLevel; black = p.blackLevel.clone();
+        width = p.rawSize.x; height = p.rawSize.y; white = p.whiteLevel; black = p.cfaBlack.clone();
         cfa = p.cfaPattern;
         dcg = p.dcgShot;
         dcgIsoScale = p.dcgShot && p.dcgIsoScale > 1f ? p.dcgIsoScale : 1f;
@@ -381,8 +381,8 @@ public final class ScamHybridBurst implements ScamTransport {
         if (v2 && best != normal.get(start) && !momentSwitch(anchorScore, bestScore)) best = normal.get(start);
         base = best;
         // P366: the scene brightness of the merge's base frame (the ISO a DCG frame's noise model takes: its analog gain)
-        sceneEv = sceneEv100(base.measuredExposure, Math.max(1, Math.round(base.measuredIso / dcgIsoScale)), p.aperture);
-        neutral = neutralOf(p.whitePoint);
+        sceneEv = sceneEv100(base.measuredExposure, Math.max(1, Math.round(base.measuredIso / dcgIsoScale)), p.fNumber);
+        neutral = neutralOf(p.asShotNeutral);
         if (moment) Log.i("SCAM_HDR", String.format(java.util.Locale.ROOT, "motion: base = frame %d, %.1f ms before the moment's frame (%d after it skipped)",
                 base.number, (anchor - base.timestamp) / 1e6, start));
         final double ref = product(base);
@@ -449,7 +449,7 @@ public final class ScamHybridBurst implements ScamTransport {
         Log.i("SCAM_HDR", "hybrid burst: frames=" + frames.size() + " base=" + base.number + " sharpness=" + base.sharpness
                 + " normals=" + normals + " bracketed=" + bracketedCount
                 + " ultrashort=" + ultrashort + " noise=" + noiseSource + " base slope=" + noise.get(0)[0] + " offset=" + noise.get(0)[1]
-                + " EV100=" + sceneEv + " (f/" + p.aperture + ")");
+                + " EV100=" + sceneEv + " (f/" + p.fNumber + ")");
     }
 
     /**

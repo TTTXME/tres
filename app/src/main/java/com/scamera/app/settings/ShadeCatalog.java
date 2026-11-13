@@ -537,7 +537,7 @@ public final class ShadeCatalog {
         PreferenceScreen tree = manager.inflateFromResource(themed, R.xml.preferences, null);
         manager.setPreferences(tree);
         TunableSettingsManager.ensureTunableClassesRegistered();
-        for (Class<?> c : TunableRegistry.TUNABLE_CLASSES) TunablePreferenceGenerator.registerTunableClass(c);
+        for (Class<?> c : TunableRegistry.OWNERS) TunablePreferenceGenerator.registerTunableClass(c);
         TunablePreferenceGenerator.generatePreferences(themed, tree);
         applyRuntimeRules(tree);
         walk(tree, new ArrayList<>(), null, true, entries, false);

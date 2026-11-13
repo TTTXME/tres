@@ -74,7 +74,7 @@ public final class SensorModeSwitches {
         if (chosen == null) return false;
         ModuleRegistry.select(chosen);
         PreferenceKeys.setCameraID(ModuleRegistry.camera(chosen));
-        ScameraApp.getSettings().mCameraID = ModuleRegistry.camera(chosen);
+        ScameraApp.getSettings().cameraId = ModuleRegistry.camera(chosen);
         ZoomController.onButton(chosen);
         return true;
     }

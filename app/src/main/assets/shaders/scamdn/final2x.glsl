@@ -1,6 +1,4 @@
-precision highp float;
-precision highp int;
-precision highp sampler2D;
+precision highp float; precision highp int; precision highp sampler2D;
 // SCAM noise reduction on the Sabre 2x grid, Laplacian re-assembly: out = RGB_2x + RGB(Up2(Den0 - X0)), where the
 // pyramids ran from the sensor-scale image X0 = Down(RGB_2x). Without noise reduction this is the identity; no
 // restoring pass works "through a pixel" on the 2x grid. The colour finer than the sensor scale (uv(RGB_2x) -

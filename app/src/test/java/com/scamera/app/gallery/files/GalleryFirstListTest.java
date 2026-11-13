@@ -159,10 +159,10 @@ public class GalleryFirstListTest {
         long last = Long.MAX_VALUE;
         StringBuilder names = new StringBuilder();
         for (GalleryItem i : all) {
-            assertTrue("no duplicates", ids.add(i.getFile().getId()));
-            assertTrue("newest first", i.getFile().getLastModified() <= last);
-            last = i.getFile().getLastModified();
-            names.append(i.getFile().getDisplayName()).append(' ');
+            assertTrue("no duplicates", ids.add(i.mediaFile().rowId()));
+            assertTrue("newest first", i.mediaFile().modifiedMs() <= last);
+            last = i.mediaFile().modifiedMs();
+            names.append(i.mediaFile().displayName()).append(' ');
         }
         assertEquals("IMG_1.jpg IMG_7.CR3 IMG_2.jpg IMG_3.jpg VID_9.mp4 ", names.toString());
     }

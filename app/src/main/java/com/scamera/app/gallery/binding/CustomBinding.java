@@ -14,11 +14,13 @@ import com.bumptech.glide.request.RequestOptions;
 import com.scamera.app.gallery.model.GalleryItem;
 import com.scamera.app.gallery.views.Histogram;
 
-public class CustomBinding {
-    @BindingAdapter("imageFromBitmap")
-    public static void setImageBitmap(ImageView view, Bitmap bitmap) {
-//        setBitmapWithAnimation(view, bitmap);
-        view.setImageBitmap(bitmap);
+/** The gallery layouts' binding adapters: app:imageFromBitmap shows a bitmap as it is (no animation). */
+public final class CustomBinding {
+    private CustomBinding() {
     }
 
+    @BindingAdapter("imageFromBitmap")
+    public static void bindBitmap(ImageView target, Bitmap shown) {
+        target.setImageBitmap(shown);
+    }
 }

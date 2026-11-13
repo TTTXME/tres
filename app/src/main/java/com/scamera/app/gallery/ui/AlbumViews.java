@@ -64,7 +64,7 @@ public final class AlbumViews {
         FrameLayout cover = cover(c, a, GalleryUi.dp(c, COVER), 14);
         FrameLayout.LayoutParams cp = new FrameLayout.LayoutParams(GalleryUi.dp(c, COVER), GalleryUi.dp(c, COVER), Gravity.BOTTOM | Gravity.START);
         holder.addView(cover, cp);
-        String badge = GalleryLayout.badge(GalleryLayout.newCount(c, a.title, a.folder.getFiles()));
+        String badge = GalleryLayout.badge(GalleryLayout.newCount(c, a.title, a.folder.groupedItems()));
         if (badge != null) {
             TextView b = badge(c, badge);
             FrameLayout.LayoutParams bp = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP | Gravity.END);
@@ -79,7 +79,7 @@ public final class AlbumViews {
         name.setMaxLines(2);
         name.setEllipsize(android.text.TextUtils.TruncateAt.END);
         text.addView(name);
-        String counts = RowText.counts(a.folder.getFiles());
+        String counts = RowText.counts(a.folder.groupedItems());
         TextView n = GalleryUi.text(c, counts, 13, GalleryUi.MUTED);
         n.setMaxLines(2);
         n.setEllipsize(android.text.TextUtils.TruncateAt.END);
@@ -141,7 +141,7 @@ public final class AlbumViews {
         FrameLayout square = new AlbumsPage.SquareBox(c);
         FrameLayout cover = cover(c, a, px, TimelineRows.CARD_RADIUS);
         square.addView(cover, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-        String badge = GalleryLayout.badge(GalleryLayout.newCount(c, a.title, a.folder.getFiles()));
+        String badge = GalleryLayout.badge(GalleryLayout.newCount(c, a.title, a.folder.groupedItems()));
         if (badge != null) {
             TextView b = badge(c, badge);
             FrameLayout.LayoutParams bp = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP | Gravity.END);
@@ -155,7 +155,7 @@ public final class AlbumViews {
         name.setEllipsize(android.text.TextUtils.TruncateAt.END);
         name.setPadding(GalleryUi.dp(c, 2), GalleryUi.dp(c, 8), GalleryUi.dp(c, 2), 0);
         box.addView(name);
-        String counts = RowText.counts(a.folder.getFiles());
+        String counts = RowText.counts(a.folder.groupedItems());
         TextView n = GalleryUi.text(c, counts, 13, GalleryUi.MUTED);
         n.setMaxLines(2);
         n.setEllipsize(android.text.TextUtils.TruncateAt.END);
@@ -175,13 +175,13 @@ public final class AlbumViews {
         cover.setBackground(GalleryUi.card(c, 0xFF3A3A3C, radiusDp));
         RowViews.round(cover, radiusDp);
         cover.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
-        List<GalleryItem> files = a.folder.getFiles();
-        if (!files.isEmpty() && files.get(0).getFile() != null) {
+        List<GalleryItem> files = a.folder.groupedItems();
+        if (!files.isEmpty() && files.get(0).mediaFile() != null) {
             ImageView image = new ImageView(c);
             image.setScaleType(ImageView.ScaleType.CENTER_CROP);
             image.setTag("thumb");
             cover.addView(image, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-            RowViews.thumb(image, files.get(0).getFile(), RowViews.step(px), null);
+            RowViews.thumb(image, files.get(0).mediaFile(), RowViews.step(px), null);
         } else {
             ImageView none = GalleryUi.icon(c, R.drawable.ui_ic_albums, GalleryUi.MUTED, 24);
             cover.addView(none, new FrameLayout.LayoutParams(GalleryUi.dp(c, 24), GalleryUi.dp(c, 24), Gravity.CENTER));

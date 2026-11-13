@@ -169,7 +169,7 @@ public final class TimelineRows implements RowStyle {
             final GalleryItem it = adapter.items().get(row.item);
             item = it;
             index = row.item;
-            MediaFile f = it.getFile();
+            MediaFile f = it.mediaFile();
             boolean video = GalleryVideo.isVideo(f);
             String dur = video ? RowText.duration(GalleryVideo.durationMs(f)) : null;
             length.setText(dur != null ? dur : "");
@@ -178,7 +178,7 @@ public final class TimelineRows implements RowStyle {
             raw.setVisibility(format == GalleryFormat.RAW ? View.VISIBLE : View.GONE);
             boolean fav = adapter.host().isFavourite(it);
             heart.setVisibility(fav ? View.VISIBLE : View.GONE);
-            StringBuilder d = new StringBuilder(GalleryUi.dayTime(f.getLastModified(), adapter.now));
+            StringBuilder d = new StringBuilder(GalleryUi.dayTime(f.modifiedMs(), adapter.now));
             if (video) d.append(", ").append(Lang.t("видео", "video")).append(dur != null ? " " + dur : "");
             if (!format.label.isEmpty()) d.append(", ").append(format.label);
             if (fav) d.append(", ").append(Lang.t("избранное", "favourite"));
@@ -341,7 +341,7 @@ public final class TimelineRows implements RowStyle {
                     continue;
                 }
                 int px = RowViews.step(year && i > 0 ? width / 3 : year ? width * 2 / 3 : width);
-                final MediaFile f = adapter.items().get(covers[i]).getFile();
+                final MediaFile f = adapter.items().get(covers[i]).mediaFile();
                 final ImageView view = images[i];
                 final LibraryAdapter.Row bound = r;
                 RowViews.thumb(view, f, px, () -> {

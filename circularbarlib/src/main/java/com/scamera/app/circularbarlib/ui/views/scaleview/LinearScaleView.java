@@ -169,7 +169,7 @@ public class LinearScaleView extends View {
      */
     public void setItems(List<KnobItemInfo> newItems, int selected) {
         KnobItemInfo chosen = newItems == null || newItems.isEmpty() ? null : newItems.get(Math.max(0, Math.min(selected, newItems.size() - 1)));
-        KnobItemInfo auto = newItems != null && newItems.size() > 1 && newItems.get(0).value <= 0 ? newItems.get(0) : null;
+        KnobItemInfo auto = newItems != null && newItems.size() > 1 && newItems.get(0).cameraValue <= 0 ? newItems.get(0) : null;
         setItems(newItems, chosen, auto);
     }
 
@@ -177,7 +177,7 @@ public class LinearScaleView extends View {
     public void setItems(List<KnobItemInfo> newItems, KnobItemInfo selected, KnobItemInfo auto) {
         stopMotion();
         items = newItems == null ? new ArrayList<>() : new ArrayList<>(newItems);
-        items.sort(java.util.Comparator.comparingDouble(item -> item.value));
+        items.sort(java.util.Comparator.comparingDouble(item -> item.cameraValue));
         autoIndex = auto == null ? -1 : items.indexOf(auto);
         stops.clear();
         for (int i = 0; i < items.size(); i++) if (i != autoIndex || autoIsStop()) stops.add(i);
@@ -230,7 +230,7 @@ public class LinearScaleView extends View {
         int best = 0;
         double bestD = Double.MAX_VALUE;
         for (int j = 0; j < stops.size(); j++) {
-            double v = items.get(stops.get(j)).value;
+            double v = items.get(stops.get(j)).cameraValue;
             double dist = ratio ? (v > 0 ? Math.abs(Math.log(v / metered)) : Double.MAX_VALUE) : Math.abs(v - metered);
             if (dist < bestD) { bestD = dist; best = j; }
         }
@@ -395,21 +395,21 @@ public class LinearScaleView extends View {
      */
     boolean isMajor(KnobItemInfo item, int stop) {
         switch (mode) {
-            case MODE_EV: return Math.abs(item.value - Math.rint(item.value)) < 1e-3;
+            case MODE_EV: return Math.abs(item.cameraValue - Math.rint(item.cameraValue)) < 1e-3;
             case MODE_FOCUS: return stop % 3 == 0;
-            case MODE_WB: return Math.round(item.value) % 1000 == 0;
+            case MODE_WB: return Math.round(item.cameraValue) % 1000 == 0;
             default: return item.majorTick;
         }
     }
 
     String label(KnobItemInfo item) {
         switch (mode) {
-            case MODE_ISO: return ManualFormat.iso(item.value);
-            case MODE_SHUTTER: return ManualFormat.shutterShort((long) item.value, units);
-            case MODE_EV: return ManualFormat.ev(item.value);
-            case MODE_FOCUS: return ManualFormat.focus(item.value, units);
-            case MODE_WB: return ManualFormat.wb((int) Math.round(item.value));
-            default: return item.text == null ? "" : item.text.replace(" s", "");
+            case MODE_ISO: return ManualFormat.iso(item.cameraValue);
+            case MODE_SHUTTER: return ManualFormat.shutterShort((long) item.cameraValue, units);
+            case MODE_EV: return ManualFormat.ev(item.cameraValue);
+            case MODE_FOCUS: return ManualFormat.focus(item.cameraValue, units);
+            case MODE_WB: return ManualFormat.wb((int) Math.round(item.cameraValue));
+            default: return item.label == null ? "" : item.label.replace(" s", "");
         }
     }
 

@@ -49,7 +49,7 @@ public final class RowViews {
      * the view crops); a file the camera is still writing loads when it is done (P89). Nothing in layout tests.
      */
     public static void thumb(ImageView image, MediaFile file, int px, @Nullable Runnable stillBound) {
-        if (!LibraryAdapter.loadPictures || file == null || file.getFileUri() == null) return;
+        if (!LibraryAdapter.loadPictures || file == null || file.contentUri() == null) return;
         if (GalleryKeys.waitForFile(image, file, () -> {
             if (stillBound != null) stillBound.run();
         })) {

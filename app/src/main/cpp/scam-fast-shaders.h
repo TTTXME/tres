@@ -590,8 +590,7 @@ void main() {
 )FM";
 // sh091: sabre_alignmentGradientProducts (+0x64)
 static const char* kFastGradProducts=R"FM(#version 310 es
-precision highp float;
-precision highp int;
+precision highp float; precision highp int;
 layout(local_size_x = 8, local_size_y = 8) in;
 layout(binding = 0, rgba32f) uniform highp writeonly image2D uOutProducts0;
 layout(binding = 1, r32f) uniform highp writeonly image2D uOutProducts1;
@@ -686,8 +685,7 @@ void main() {
 )FM";
 // sh020: homo_detect_corners (+0x74)
 static const char* kFastHomoCorners=R"FM(#version 310 es
-precision highp float;
-precision highp int;
+precision highp float; precision highp int;
 
 layout(local_size_x = 8, local_size_y = 8) in;
 
@@ -1545,8 +1543,7 @@ void main() {
 )FM";
 // sh040: sabre_upsampleAlignment (+0x68)
 static const char* kFastUpsampleAlign=R"FM(#version 310 es
-precision highp float;
-precision highp int;
+precision highp float; precision highp int;
 layout(local_size_x = 8, local_size_y = 8) in;
 layout(binding = 0, rgba32f) uniform highp writeonly image2D uOutAlignment;
 layout(binding = 1) uniform highp sampler2D uReference;
@@ -1642,8 +1639,7 @@ void main() {
 )FM";
 // sh112: sabre_block_lucas_kanade (+0x4c)
 static const char* kFastBlockLk=R"FM(#version 310 es
-precision highp float;
-precision highp int;
+precision highp float; precision highp int;
 
 layout(local_size_x = 8, local_size_y = 8) in;
 
@@ -4431,9 +4427,7 @@ void main() {
 )FM";
 // sh035: guide_image Quad / Quad-Quad (+0x94)
 static const char* kFastGuideQuad=R"FM(#version 310 es
-precision highp int;
-precision highp float;
-precision highp usampler2D;
+precision highp int; precision highp float; precision highp usampler2D;
 
 #define BAYER_RGGB
 #define COMPUTE_GUIDE_COLOR 1
@@ -5370,8 +5364,7 @@ void main() {
 )FM";
 // sh025: qpc_smooth (+0x20)
 static const char* kFastQpcSmooth=R"FM(#version 310 es
-precision highp float;
-precision highp int;
+precision highp float; precision highp int;
 
 layout(local_size_x = 8, local_size_y = 8) in;
 

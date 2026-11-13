@@ -1,7 +1,4 @@
-precision highp float;
-precision highp int;
-precision highp sampler2D;
-precision highp usampler2D;
+precision highp float; precision highp int; precision highp sampler2D; precision highp usampler2D;
 // Three full-output-grid a-trous passes; coordinates remain global on bounded-memory strips.
 uniform sampler2D InputBuffer;      // pass 0: linear RGB (signed allowed); passes 1, 2: the signed YUV of the pass before
 uniform usampler2D EffMap;          // the merge's effective-frame codes on this grid (useEffU 1; else a 1 x 1 placeholder)

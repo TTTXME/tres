@@ -72,13 +72,13 @@ public enum GalleryFormat {
         Set<String> out = new HashSet<>();
         if (items == null) return out;
         for (GalleryItem i : items)
-            if (i != null && i.getFile() != null && com.scamera.app.gallery.raw.RawFormats.isRawName(i.getFile().getDisplayName()))
-                out.add(baseName(i.getFile().getDisplayName()));
+            if (i != null && i.mediaFile() != null && com.scamera.app.gallery.raw.RawFormats.isRawName(i.mediaFile().displayName()))
+                out.add(baseName(i.mediaFile().displayName()));
         return out;
     }
 
     public static GalleryFormat of(GalleryItem item, Set<String> rawBases) {
-        String name = item.getFile().getDisplayName();
+        String name = item.mediaFile().displayName();
         return of(name, !com.scamera.app.gallery.raw.RawFormats.isRawName(name) && rawBases.contains(baseName(name)));
     }
 

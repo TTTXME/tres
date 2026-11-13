@@ -109,8 +109,8 @@ public final class GalleryView {
     /** A file's key: its MediaStore row id (the same row has two URI forms), else its URI. */
     public static String key(@Nullable MediaFile f) {
         if (f == null) return "";
-        if (f.getId() >= 0) return "id:" + f.getId();
-        return f.getFileUri() != null ? f.getFileUri().toString() : String.valueOf(f.getAbsolutePath());
+        if (f.rowId() >= 0) return "id:" + f.rowId();
+        return f.contentUri() != null ? f.contentUri().toString() : String.valueOf(f.filePath());
     }
 
     // ---------------------------------------------------------------- favourites
@@ -213,10 +213,10 @@ public final class GalleryView {
         Set<String> fav = (favouritesOnly || c != null && favouritesOnly(c)) && c != null ? favourites(c) : null;
         Set<Integer> years = c != null ? years(c) : Collections.emptySet();
         for (GalleryItem i : files) {
-            if (i == null || i.getFile() == null || hidden(i.getFile())) continue;
-            if (!matches(t, i.getFile().getDisplayName()) || !matches(m, i.getFile().getDisplayName())) continue;
-            if (fav != null && !fav.contains(key(i.getFile()))) continue;
-            if (!years.isEmpty() && !years.contains(yearOf(i.getFile().getLastModified()))) continue;
+            if (i == null || i.mediaFile() == null || hidden(i.mediaFile())) continue;
+            if (!matches(t, i.mediaFile().displayName()) || !matches(m, i.mediaFile().displayName())) continue;
+            if (fav != null && !fav.contains(key(i.mediaFile()))) continue;
+            if (!years.isEmpty() && !years.contains(yearOf(i.mediaFile().modifiedMs()))) continue;
             out.add(i);
         }
         if (c != null && oldestFirst(c)) Collections.reverse(out);

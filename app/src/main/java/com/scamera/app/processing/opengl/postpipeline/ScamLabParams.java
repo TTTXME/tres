@@ -22,7 +22,7 @@ import java.util.Set;
 
 /**
  * P277: the post pipeline's {@link Parameters} of a lab shot as JSON and back. The shot's metadata path
- * (FillDynamicParameters / ReCalcColor) needs the live CaptureResult, so the final values are kept: every instance field of a
+ * (fillFromFrame / resolveColour) needs the live CaptureResult, so the final values are kept: every instance field of a
  * plain type (numbers, text, arrays, Point, Rect, SizeF), the ProPhoto -&gt; sRGB matrix and the noise model. Buffers, the
  * hot pixels and the press-time objects (WB at the press, the DNG profile, the RAW crop area) are not: the post pipeline of
  * a hybrid shot does not read them.
@@ -31,8 +31,35 @@ public final class ScamLabParams {
     private ScamLabParams() {}
 
     /** Fields never written: the worker RGB and the per-shot objects above. */
-    static final Set<String> SKIPPED = new java.util.HashSet<>(java.util.Arrays.asList("scamRgb", "scamRgbOwned", "hotPixels",
+    static final Set<String> SKIPPED = new java.util.HashSet<>(java.util.Arrays.asList("scamRgb", "scamRgbOwned", "hotSites",
             "dngColour", "manualWbAtPress", "mosaicWbAtPress", "rawCrop", "sabreCrop", "dngNoiseProfile", "dngBaselineExposure"));
+
+    /**
+     * The JSON key of each field whose name changed since the format was made (P659): a lab shot keeps its keys whatever the
+     * fields are called now, so older shots and newer builds read each other. A field not listed is stored under its own name.
+     */
+    static final Map<String, String> STORED_KEYS = storedKeys(
+            "dynamicBlackUsed", "usedDynamic", "cfaBlack", "blackLevel", "asShotNeutral", "whitePoint",
+            "shadingMapUsed", "hasGainMap", "shadingGrid", "mapSize", "activeArea", "sensorPix", "shadingMap", "gainMap",
+            "proPhotoToSrgb", "proPhotoToSRGB", "cameraToProPhoto", "sensorToProPhoto", "hotSites", "hotPixels",
+            "focalMm", "focalLength", "fNumber", "aperture", "rotationDeg", "cameraRotation", "noiseModel", "noiseModeler",
+            "colorTransform", "CCT", "sensorSizeMm", "sensorSize", "toneCurves", "tonemapCurves",
+            "refIlluminant1", "calibrationIlluminant1", "refIlluminant2", "calibrationIlluminant2",
+            "cameraCalibration1", "calibrationTransform1", "cameraCalibration2", "calibrationTransform2",
+            "forwardMatrix1", "ForwardTransform1", "forwardMatrix2", "ForwardTransform2",
+            "colorMatrix1", "ColorMatrix1", "colorMatrix2", "ColorMatrix2", "mirrored", "mirror");
+
+    private static Map<String, String> storedKeys(String... pairs) {
+        final Map<String, String> out = new HashMap<>();
+        for (int i = 0; i < pairs.length; i += 2) out.put(pairs[i], pairs[i + 1]);
+        return java.util.Collections.unmodifiableMap(out);
+    }
+
+    /** The key {@code f} is stored under. */
+    static String key(Field f) {
+        final String stored = STORED_KEYS.get(f.getName());
+        return stored != null ? stored : f.getName();
+    }
 
     public static JSONObject toJson(Parameters p) throws JSONException {
         final JSONObject out = new JSONObject();
@@ -41,7 +68,7 @@ public final class ScamLabParams {
                 final Object v = f.get(p);
                 if (v == null) continue;
                 final Object j = encode(v);
-                if (j != null) out.put(f.getName(), j);
+                if (j != null) out.put(key(f), j);
             } catch (IllegalAccessException ignored) {
             }
         }
@@ -52,14 +79,15 @@ public final class ScamLabParams {
     public static Parameters fromJson(JSONObject in) throws JSONException {
         final Parameters p = new Parameters();
         for (Field f : fields()) {
-            if (!in.has(f.getName())) continue;
+            final String key = key(f);
+            if (!in.has(key)) continue;
             try {
-                final Object v = decode(f.getType(), in.get(f.getName()), f.get(p));
+                final Object v = decode(f.getType(), in.get(key), f.get(p));
                 if (v != null) f.set(p, v);
             } catch (IllegalAccessException | IllegalArgumentException ignored) {
             }
         }
-        p.hotPixels = new Point[0];
+        p.hotSites = new Point[0];
         return p;
     }
 
@@ -97,8 +125,8 @@ public final class ScamLabParams {
         if (v instanceof ColorCorrectionTransform) return new JSONObject().put("matrix", encode(((ColorCorrectionTransform) v).matrix));
         if (v instanceof NoiseModeler) {
             NoiseModeler n = (NoiseModeler) v;
-            return new JSONObject().put("base", pairs(n.baseModel)).put("compute", pairs(n.computeModel))
-                    .put("analog", n.AnalogueISO).put("iso", n.SensivityISO);
+            return new JSONObject().put("base", pairs(n.rawModel)).put("compute", pairs(n.stackModel))
+                    .put("analog", n.analogIso).put("iso", n.reportedIso);
         }
         return null;
     }
@@ -134,8 +162,8 @@ public final class ScamLabParams {
             JSONObject o = (JSONObject) j;
             Pair<Double, Double>[] base = pairs(o.getJSONArray("base")), compute = pairs(o.getJSONArray("compute"));
             NoiseModeler n = new NoiseModeler(base, o.getInt("analog"), o.getInt("iso"), 0);
-            n.baseModel = base;
-            n.computeModel = compute;
+            n.rawModel = base;
+            n.stackModel = compute;
             return n;
         }
         return null;

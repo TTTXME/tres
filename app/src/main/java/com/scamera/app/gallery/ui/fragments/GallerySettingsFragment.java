@@ -26,17 +26,18 @@ import java.util.Set;
  * changes with its newest photo); a stored folder that no longer exists is dropped and the library reloads.
  */
 public class GallerySettingsFragment extends PreferenceFragmentCompat {
-    private GalleryViewModel viewModel;
+    /** The gallery's shared model: told to reload when the folder choice changes. */
+    private GalleryViewModel library;
 
     @Override
-    public void onCreatePreferences(Bundle savedInstanceState, String rootKey) {
-        setPreferencesFromResource(R.xml.gallery_preferences, rootKey);
-        viewModel = new ViewModelProvider(requireActivity()).get(GalleryViewModel.class);
+    public void onCreatePreferences(Bundle saved, String root) {
+        library = new ViewModelProvider(requireActivity()).get(GalleryViewModel.class);
+        setPreferencesFromResource(R.xml.gallery_preferences, root);
     }
 
     @NonNull
     @Override
-    public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container, @Nullable Bundle savedInstanceState) {
+    public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup parent, @Nullable Bundle saved) {
         MultiSelectListPreference folders = findPreference(PreferenceKeys.Key.FOLDERS_LIST.mValue);
         if (folders != null) {
             Set<String> existing = new HashSet<>();
@@ -51,12 +52,12 @@ public class GallerySettingsFragment extends PreferenceFragmentCompat {
             folders.setOnPreferenceChangeListener((row, chosen) -> {
                 @SuppressWarnings("unchecked") Set<String> picked = (Set<String>) chosen;
                 folders.setSummary(keepExisting(folders, picked, existing));
-                viewModel.setUpdatePending(true);
+                library.setUpdatePending(true);
                 return true;
             });
             folders.setSummary(keepExisting(folders, folders.getValues(), existing));
         }
-        return super.onCreateView(inflater, container, savedInstanceState);
+        return super.onCreateView(inflater, parent, saved);
     }
 
     /** Stores the chosen folders that exist (a missing one asks for a reload) and returns them, sorted, as the row's line. */
@@ -64,7 +65,7 @@ public class GallerySettingsFragment extends PreferenceFragmentCompat {
         Set<String> kept = new HashSet<>();
         for (String name : chosen) {
             if (existing.contains(name)) kept.add(name);
-            else viewModel.setUpdatePending(true);
+            else library.setUpdatePending(true);
         }
         row.setValues(kept);
         List<String> shown = new ArrayList<>(kept);

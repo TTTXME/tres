@@ -101,30 +101,30 @@ public final class LensFilter extends Node {
     }
 
     @Override
-    public void Compile() {}
+    public void bindShader() {}
 
     @Override
-    public void Run() {
-        final PostPipeline pipeline = (PostPipeline) basePipeline;
-        final GLTexture in = previousNode.WorkingTexture;
-        WorkingTexture = in;
+    public void runPass() {
+        final PostPipeline pipeline = (PostPipeline) hostPipeline;
+        final GLTexture in = prevPass.passOut;
+        passOut = in;
         if (LensFilters.index(id) <= 0 || strength <= 0f) return;
         final long started = System.currentTimeMillis();
         final DiffusionGauss.Plan plan;
         if (film != null) {
             // P380: the film's diffusion on the film's frame (the photo's field: zoom / ISZ crop, a lab fragment's whole shot)
-            final int filmLong = FilmHalation.filmLongPx(Math.max(in.mSize.x, in.mSize.y), basePipeline.mParameters);
-            plan = DiffusionGauss.plan(id, film.diffusionP(), tune, in.mSize.x, in.mSize.y, filmLong, film.diffusionFrameUm());
+            final int filmLong = FilmHalation.filmLongPx(Math.max(in.size.x, in.size.y), hostPipeline.shotParams);
+            plan = DiffusionGauss.plan(id, film.diffusionP(), tune, in.size.x, in.size.y, filmLong, film.diffusionFrameUm());
         } else {
             // P277: a lab fragment takes the whole frame's size for the PSF, a lab shot records it
             final LabFrame frozen = pipeline.frozen;
             final boolean whole = frozen != null && frozen.width > 0 && frozen.height > 0;
             if (pipeline.record != null) {
-                pipeline.record.width = in.mSize.x;
-                pipeline.record.height = in.mSize.y;
+                pipeline.record.width = in.size.x;
+                pipeline.record.height = in.size.y;
             }
-            final int frameW = whole ? frozen.width : in.mSize.x, frameH = whole ? frozen.height : in.mSize.y;
-            plan = DiffusionGauss.plan(id, strength, tune, in.mSize.x, in.mSize.y, Math.max(frameW, frameH));
+            final int frameW = whole ? frozen.width : in.size.x, frameH = whole ? frozen.height : in.size.y;
+            plan = DiffusionGauss.plan(id, strength, tune, in.size.x, in.size.y, Math.max(frameW, frameH));
         }
         if (plan == null) return;
         final GLFormat rgba = new GLFormat(GLFormat.DataType.FLOAT_16, 4);
@@ -134,17 +134,17 @@ public final class LensFilter extends Node {
             final GLTexture[] level = new GLTexture[plan.top + 1];
             level[0] = in;
             for (int l = 1; l <= plan.top; l++) {
-                level[l] = new GLTexture(new Point(DiffusionGauss.levelSize(in.mSize.x, l), DiffusionGauss.levelSize(in.mSize.y, l)), rgba,
+                level[l] = new GLTexture(new Point(DiffusionGauss.levelSize(in.size.x, l), DiffusionGauss.levelSize(in.size.y, l)), rgba,
                         null, GL_LINEAR, GL_CLAMP_TO_EDGE);
                 temp.add(level[l]);
-                glProg.useAssetProgram("lensgauss/down", false);
-                glProg.setTexture("InputBuffer", level[l - 1]);
-                glProg.drawBlocks(level[l]);
+                shaderProg.useAssetProgram("lensgauss/down", false);
+                shaderProg.setTexture("InputBuffer", level[l - 1]);
+                shaderProg.drawBlocks(level[l]);
                 passes++;
             }
             GLTexture coarse = null;
             for (int l = plan.top; l >= 0; l--) {
-                final Point size = level[l].mSize;
+                final Point size = level[l].size;
                 GLTexture sum = null;
                 for (DiffusionGauss.Blur b : plan.blurs) {
                     if (b.level != l) continue;
@@ -152,24 +152,24 @@ public final class LensFilter extends Node {
                     final GLTexture next = new GLTexture(size, rgba, null, GL_LINEAR, GL_CLAMP_TO_EDGE);
                     temp.add(h);
                     temp.add(next);
-                    glProg.useAssetProgram("lensgauss/blur", false);
-                    glProg.setTexture("InputBuffer", level[l]);
-                    glProg.setTexture("Acc", level[l]);
-                    glProg.setVar("dir", 1f, 0f);
-                    glProg.setVar("sigma", b.sigma);
-                    glProg.setVar("weight", 1f, 1f, 1f);
-                    glProg.setVar("accU", 0);
-                    glProg.setVar("hasAccU", 0);
-                    glProg.drawBlocks(h);
-                    glProg.useAssetProgram("lensgauss/blur", false);
-                    glProg.setTexture("InputBuffer", h);
-                    glProg.setTexture("Acc", sum != null ? sum : level[l]);
-                    glProg.setVar("dir", 0f, 1f);
-                    glProg.setVar("sigma", b.sigma);
-                    glProg.setVar("weight", b.weight[0], b.weight[1], b.weight[2]);
-                    glProg.setVar("accU", 1);
-                    glProg.setVar("hasAccU", sum != null ? 1 : 0);
-                    glProg.drawBlocks(next);
+                    shaderProg.useAssetProgram("lensgauss/blur", false);
+                    shaderProg.setTexture("InputBuffer", level[l]);
+                    shaderProg.setTexture("Acc", level[l]);
+                    shaderProg.setVar("dir", 1f, 0f);
+                    shaderProg.setVar("sigma", b.sigma);
+                    shaderProg.setVar("weight", 1f, 1f, 1f);
+                    shaderProg.setVar("accU", 0);
+                    shaderProg.setVar("hasAccU", 0);
+                    shaderProg.drawBlocks(h);
+                    shaderProg.useAssetProgram("lensgauss/blur", false);
+                    shaderProg.setTexture("InputBuffer", h);
+                    shaderProg.setTexture("Acc", sum != null ? sum : level[l]);
+                    shaderProg.setVar("dir", 0f, 1f);
+                    shaderProg.setVar("sigma", b.sigma);
+                    shaderProg.setVar("weight", b.weight[0], b.weight[1], b.weight[2]);
+                    shaderProg.setVar("accU", 1);
+                    shaderProg.setVar("hasAccU", sum != null ? 1 : 0);
+                    shaderProg.drawBlocks(next);
                     passes += 2;
                     // P380 review: a texture goes as soon as no later pass reads it (GL keeps it for the passes queued on it) - the
                     // film's diffusion sized on a large format puts many Gaussians at full size: 15 - 23 live textures, 6 - 9 GB at 50 MP
@@ -178,20 +178,20 @@ public final class LensFilter extends Node {
                     sum = next;
                 }
                 final GLTexture target;
-                if (l == 0) target = new GLTexture(in.mSize, rgba, null, GL_LINEAR, GL_CLAMP_TO_EDGE);
+                if (l == 0) target = new GLTexture(in.size, rgba, null, GL_LINEAR, GL_CLAMP_TO_EDGE);
                 else {
                     target = new GLTexture(size, rgba, null, GL_LINEAR, GL_CLAMP_TO_EDGE);
                     temp.add(target);
                 }
-                glProg.useAssetProgram("lensgauss/up", false);
-                glProg.setTexture("Fine", sum != null ? sum : level[l]);
-                glProg.setTexture("Coarse", coarse != null ? coarse : level[l]);
-                glProg.setTexture("Image", level[l]);
-                glProg.setVar("hasFineU", sum != null ? 1 : 0);
-                glProg.setVar("hasCoarseU", coarse != null ? 1 : 0);
-                glProg.setVar("finalU", l == 0 ? 1 : 0);
-                glProg.setVar("pU", (float) plan.p);
-                glProg.drawBlocks(target);
+                shaderProg.useAssetProgram("lensgauss/up", false);
+                shaderProg.setTexture("Fine", sum != null ? sum : level[l]);
+                shaderProg.setTexture("Coarse", coarse != null ? coarse : level[l]);
+                shaderProg.setTexture("Image", level[l]);
+                shaderProg.setVar("hasFineU", sum != null ? 1 : 0);
+                shaderProg.setVar("hasCoarseU", coarse != null ? 1 : 0);
+                shaderProg.setVar("finalU", l == 0 ? 1 : 0);
+                shaderProg.setVar("pU", (float) plan.p);
+                shaderProg.drawBlocks(target);
                 passes++;
                 // this level's sum, the coarser level's result and this level's image are read by no later pass
                 if (sum != null) release(temp, sum);
@@ -199,8 +199,8 @@ public final class LensFilter extends Node {
                 if (l > 0) release(temp, level[l]);
                 coarse = target;
             }
-            glProg.closed = true;
-            WorkingTexture = coarse;
+            shaderProg.closed = true;
+            passOut = coarse;
             Log.i("SCAM_PIPELINE", (film != null ? "film diffusion " + film.format.id + String.format(java.util.Locale.ROOT, " grade %.2f ",
                     film.diffusionGrade) : "lens filter ") + id + String.format(java.util.Locale.ROOT, " p %.3f", plan.p) + " gaussians "
                     + plan.blurs.size() + " levels " + (plan.top + 1) + " passes " + passes + " ms=" + (System.currentTimeMillis() - started));

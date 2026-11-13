@@ -56,7 +56,7 @@ public class ScamProcessorBlackFloorTest {
 
     private static Parameters parameters() throws Exception {
         Parameters p = new Parameters();
-        p.whiteLevel = 1023; p.blackLevel = new float[]{64, 64, 64, 64};
+        p.whiteLevel = 1023; p.cfaBlack = new float[]{64, 64, 64, 64};
         Field override = Parameters.class.getDeclaredField("blackLevelOverride");
         override.setAccessible(true); override.setFloat(p, -1f);
         Field white = Parameters.class.getDeclaredField("whiteLevelOverride");
@@ -100,12 +100,12 @@ public class ScamProcessorBlackFloorTest {
         frames.add(frame(quad(true, 4), 1_000_000L));  // the shortest exposure: the darkest frame
         final Parameters p = parameters();
         ScamProcessor.refineBlackFromDarkestFrame(p, frames);
-        for (float v : p.blackLevel) assertTrue("the Quad's red / blue sites prove the lost pedestal: black " + v, v < 3f);
+        for (float v : p.cfaBlack) assertTrue("the Quad's red / blue sites prove the lost pedestal: black " + v, v < 3f);
         assertTrue(p.levelSources(), p.levelSources().contains("colour block 2"));
         // the same frame read as plain Bayer (what passing block 1 gives): only its green sites, ~45 DN
         final Parameters plain = parameters();
         plain.refineBlackLevel(frames.get(1).buffer, 1024, 768, 1);
-        assertTrue("read as plain Bayer: " + plain.blackLevel[0], plain.blackLevel[0] > 30f);
+        assertTrue("read as plain Bayer: " + plain.cfaBlack[0], plain.cfaBlack[0] > 30f);
     }
 
     @Test public void theShotsStreamKeepsItsFloorForAFrameWithoutShade() throws Exception {
@@ -119,11 +119,11 @@ public class ScamProcessorBlackFloorTest {
         next.add(frame(quad(false, 6), 1_000_000L));
         final Parameters p = parameters();
         ScamProcessor.refineBlackFromDarkestFrame(p, next);
-        for (float v : p.blackLevel) assertTrue("the stream's floor: black " + v, v < 3f);
+        for (float v : p.cfaBlack) assertTrue("the stream's floor: black " + v, v < 3f);
         // a shot of another stream proves nothing by it
         MosaicBlockStore.setShotKey("5|4096x3072|p386-other|5", 2);
         final Parameters other = parameters();
         ScamProcessor.refineBlackFromDarkestFrame(other, next);
-        assertTrue("another stream: its own floor " + other.blackLevel[0], other.blackLevel[0] > 15f);
+        assertTrue("another stream: its own floor " + other.cfaBlack[0], other.cfaBlack[0] > 15f);
     }
 }

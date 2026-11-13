@@ -112,10 +112,11 @@ public final class ImageHeaderSize {
                 return null;
             }
             String type = s.fourcc();
-            long header = 8;
-            if (size == 1) {
+            // a size of 1: the real one follows as 64 bits (a 16-byte box header); 0: the box runs to the end of the file
+            final boolean largeBox = size == 1;
+            final long header = largeBox ? 16 : 8;
+            if (largeBox) {
                 size = s.u64();
-                header = 16;
             } else if (size == 0) {
                 if (!"meta".equals(type)) return null; // the rest of the file, and no meta seen
                 size = Long.MAX_VALUE;

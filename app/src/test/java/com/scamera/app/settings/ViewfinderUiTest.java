@@ -69,7 +69,7 @@ public class ViewfinderUiTest {
         items.add(new KnobItemInfo("Auto",0,0));
         for(int k=2000;k<=10000;k+=100)items.add(new KnobItemInfo(k+"K",items.size(),k));
         scale.setTemperatureMode(true);scale.setItems(items,17);
-        scale.setSelectedItem(items.get(17));assertEquals("3600K",scale.getSelected().text);
+        scale.setSelectedItem(items.get(17));assertEquals("3600K",scale.getSelected().label);
         ((com.scamera.app.circularbarlib.ui.views.ManualChipView)manual.findViewById(R.id.wb_option_tv)).setChosen(true);
         // The strip's order (MANUAL_TASK.md §2): ISO, shutter, EV, focus, WB; the names are content descriptions only.
         int[] ids={R.id.iso_option_tv,R.id.exposure_option_tv,R.id.ev_option_tv,R.id.focus_option_tv,R.id.wb_option_tv};
@@ -139,11 +139,11 @@ public class ViewfinderUiTest {
         scale.onTouchEvent(MotionEvent.obtain(0,0,MotionEvent.ACTION_DOWN,20,30,0));
         scale.onTouchEvent(MotionEvent.obtain(0,1,MotionEvent.ACTION_MOVE,150,30,0));
         scale.onTouchEvent(MotionEvent.obtain(0,2,MotionEvent.ACTION_UP,150,30,0));
-        assertEquals(3600,scale.getSelected().value,0);assertFalse(scale.isDragging());
+        assertEquals(3600,scale.getSelected().cameraValue,0);assertFalse(scale.isDragging());
         scale.onTouchEvent(MotionEvent.obtain(0,3,MotionEvent.ACTION_DOWN,20,30,0));
         scale.onTouchEvent(MotionEvent.obtain(0,4,MotionEvent.ACTION_UP,20,30,0));
-        assertEquals(0,scale.getSelected().value,0);
-        panel.setExpanded(false,false);assertEquals(View.GONE,container.getVisibility());assertEquals(0,scale.getSelected().value,0);
+        assertEquals(0,scale.getSelected().cameraValue,0);
+        panel.setExpanded(false,false);assertEquals(View.GONE,container.getVisibility());assertEquals(0,scale.getSelected().cameraValue,0);
         // Collapsing closes the ruler (§2): expanding again shows the strip, not the ruler.
         panel.setExpanded(true,false);assertEquals(View.GONE,container.getVisibility());assertEquals(View.VISIBLE,manual.findViewById(R.id.buttons_container).getVisibility());
         // The front / back switch took the place of «Фото | Ночь»: a tap reaches it once, a disabled switch ignores taps.
@@ -194,6 +194,6 @@ public class ViewfinderUiTest {
             assertTrue(g.getRed()>=1 && g.getRed()<=8);assertTrue(g.getBlue()>=1 && g.getBlue()<=8);
         }
         com.scamera.app.circularbarlib.control.ManualParamModel m=new com.scamera.app.circularbarlib.control.ManualParamModel();
-        m.reset();assertFalse(m.isManualMode());m.setWhiteBalanceKelvin(3600);assertTrue(m.isManualMode());m.reset();assertEquals(0,m.getWhiteBalanceKelvin());
+        m.reset();assertFalse(m.offAuto());m.setKelvinSetting(3600);assertTrue(m.offAuto());m.reset();assertEquals(0,m.kelvinSetting());
     }
 }

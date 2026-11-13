@@ -1,5 +1,4 @@
-precision highp float;
-precision highp sampler2D;
+precision highp float; precision highp sampler2D;
 // P512 «Маска лица» of «Портрет» on the whyLow grid (WhyCombine; the combine reads it bilinearly as FaceMask).
 //  MODE 0: the raw mask - every found face's ellipse (its core always, see below) (its camera box widened 1.15 x faceMaskU.x; centred: the box is in sensor
 //          coordinates, the forehead may lie to any side) times how close the pixel's colour (OKLab a / L, b / L) is to that face's

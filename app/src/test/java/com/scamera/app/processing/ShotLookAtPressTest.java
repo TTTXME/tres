@@ -69,11 +69,11 @@ public class ShotLookAtPressTest {
         paths.when(() -> ImagePath.dngFile(anyString())).thenReturn(Paths.get("look-test.dng"));
         paths.when(() -> ImagePath.imageFile(anyString())).thenReturn(Paths.get("look-test.jpg"));
         exif = mockStatic(ParseExif.class);
-        SaverImplementation.IMAGE_BUFFER.clear();
+        SaverImplementation.FRAME_QUEUE.clear();
     }
 
     @After public void cleanup() {
-        SaverImplementation.IMAGE_BUFFER.clear();
+        SaverImplementation.FRAME_QUEUE.clear();
         exif.close();
         paths.close();
         processors.close();
@@ -90,9 +90,9 @@ public class ShotLookAtPressTest {
 
     /** The shot pressed with {@code press}, queued, the tray changed meanwhile, then processed: the processor's look. */
     private ShotLook queued(ShotLook press) {
-        ImageSaver saver = new ImageSaver(mock(ProcessingEventsListener.class));
+        ImageSaver saver = new ImageSaver(mock(ProcessingEvents.class));
         saver.lookAtPress = press;
-        DefaultSaver implementation = (DefaultSaver) saver.implementation;
+        DefaultSaver implementation = (DefaultSaver) saver.saverImpl;
         saver.detachForQueue(true);
         tray("", "", "0");
         saver.runRaw(null, null, null, new ArrayList<>(), 0, new HashMap<>());

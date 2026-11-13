@@ -1,6 +1,4 @@
-precision highp float;
-precision highp int;
-precision highp sampler2D;
+precision highp float; precision highp int; precision highp sampler2D;
 // SCAM noise reduction on the Sabre 2x grid: the pyramids start at the SENSOR scale. One sensor-scale pixel q
 // from the 2x RGB: luminance through the 8-tap kernel of the luma pyramid (kD8 = [-3,-7,17,57,57,17,-7,-3]/128,
 // taps 2q-3 .. 2q+4), colour differences through the chroma pyramid's {1,3,3,1}/8 (taps 2q-1 .. 2q+2); returned

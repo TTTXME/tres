@@ -58,8 +58,8 @@ public class WhyCctFilmTest {
     private static Parameters parameters(int iso) {
         Parameters p = Mockito.mock(Parameters.class);
         p.iso = iso;
-        p.CCT = new ColorCorrectionTransform();
-        p.CCT.matrix = new float[]{1.65f, -.45f, -.20f, -.15f, 1.35f, -.20f, .03f, -.48f, 1.45f};
+        p.colorTransform = new ColorCorrectionTransform();
+        p.colorTransform.matrix = new float[]{1.65f, -.45f, -.20f, -.15f, 1.35f, -.20f, .03f, -.48f, 1.45f};
         return p;
     }
 
@@ -85,7 +85,7 @@ public class WhyCctFilmTest {
                 Parameters p = parameters(iso);
                 for (float sat : new float[]{.5f, 1f, 1.1f, 1.8f}) {
                     look(sat, 1.2f, .8f, 1.1f);
-                    float[] old = ColourLook.mul(white, p.CCT.matrix);
+                    float[] old = ColourLook.mul(white, p.colorTransform.matrix);
                     if (dynamic) old = CcmPresets.dynamicCct(old, iso, .6f);
                     old = ColourLook.mul(WhyTone.cctGain(new float[]{1.2f, .8f, 1.1f}, WhyTone.cctSat(sat, null)), old);
                     sameBits(old, WhyTone.colourMatrixOf(p, white, null));
@@ -101,10 +101,10 @@ public class WhyCctFilmTest {
         float[] white = {1.07f, -.04f, -.03f, 0f, 1f, 0f, -.02f, -.03f, 1.05f};
         for (int iso : new int[]{100, 1600, 6400}) {
             Parameters p = parameters(iso);
-            float[] before = p.CCT.matrix.clone();
-            sameBits(ColourLook.mul(white, p.CCT.matrix), WhyTone.colourMatrixOf(p, white, film(1f)));
-            assertSame(p.CCT.matrix, WhyTone.colourMatrixOf(p, null, film(1f)));
-            sameBits(before, p.CCT.matrix);
+            float[] before = p.colorTransform.matrix.clone();
+            sameBits(ColourLook.mul(white, p.colorTransform.matrix), WhyTone.colourMatrixOf(p, white, film(1f)));
+            assertSame(p.colorTransform.matrix, WhyTone.colourMatrixOf(p, null, film(1f)));
+            sameBits(before, p.colorTransform.matrix);
         }
     }
 
@@ -115,7 +115,7 @@ public class WhyCctFilmTest {
         float[] white = {1.08f, -.04f, -.04f, -.01f, 1.02f, -.01f, -.02f, -.02f, 1.04f};
         assertSame(white, WhyTone.withCctSat(white, film(1f)));
         Parameters p = parameters(6400);
-        assertSame(p.CCT.matrix, WhyTone.colourMatrixOf(p, null, film(1f)));
+        assertSame(p.colorTransform.matrix, WhyTone.colourMatrixOf(p, null, film(1f)));
     }
 
     @Test public void halfFilmScalesCreativeAmountsTowardsTheirNeutralValues() {
@@ -123,7 +123,7 @@ public class WhyCctFilmTest {
         look(1.6f, 1.2f, .8f, 1.1f);
         FilmSim.Settings half = film(.5f);
         Parameters p = parameters(6400);
-        float[] expected = CcmPresets.dynamicCct(p.CCT.matrix, 6400, .3f);
+        float[] expected = CcmPresets.dynamicCct(p.colorTransform.matrix, 6400, .3f);
         expected = ColourLook.mul(WhyTone.cctGain(new float[]{1.1f, .9f, 1.05f}, WhyTone.cctSat(1.3f, null)), expected);
         assertArrayEquals(expected, WhyTone.colourMatrixOf(p, null, half), 1e-6f);
         assertEquals(1.05f, WhyTone.cctAmount(1.1f, 1f, half), 1e-6f);
@@ -142,13 +142,13 @@ public class WhyCctFilmTest {
         try (MockedStatic<FilmSim> films = mockStatic(FilmSim.class)) {
             films.when(FilmSim::current).thenReturn(null);
             PostPipeline pipeline = new PostPipeline();
-            pipeline.mParameters = p;
+            pipeline.shotParams = p;
             pipeline.film = full;
             pipeline.look = new ShotLook(full, "", 0f, colour);
             pipeline.why = new WhyTone.State();
-            sameBits(ColourLook.mul(white, p.CCT.matrix), WhyTone.colourMatrix(pipeline));
+            sameBits(ColourLook.mul(white, p.colorTransform.matrix), WhyTone.colourMatrix(pipeline));
             films.when(FilmSim::current).thenReturn(full);
-            sameBits(p.CCT.matrix, WhyTone.colourMatrixNow(p));
+            sameBits(p.colorTransform.matrix, WhyTone.colourMatrixNow(p));
             films.when(FilmSim::current).thenReturn(null);
             sameBits(WhyTone.colourMatrixOf(p, null), WhyTone.colourMatrixNow(p));
         }

@@ -51,7 +51,7 @@ public final class DngColor {
     }
 
     /**
-     * P370 (A1): the white estimate of a camera's characteristics (Parameters.ReCalcColor): ColorMatrix1 / 2 (XYZ -> camera,
+     * P370 (A1): the white estimate of a camera's characteristics (Parameters.resolveColour): ColorMatrix1 / 2 (XYZ -> camera,
      * row-major, null: absent), CameraCalibration1 / 2 (null: identity) and the two illuminant codes, no forward matrix (the
      * ColorMatrix route of {@link #cameraToXyzD50}) and no as-shot neutral. Each colour matrix is normalised the DNG SDK's way
      * ({@link #sdkNormalised}: one scale for the whole matrix), never row by row - the row normalisation moved every white

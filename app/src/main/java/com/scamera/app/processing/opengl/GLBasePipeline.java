@@ -35,13 +35,14 @@ public class GLBasePipeline implements AutoCloseable {
     /** P616: the post node running now ("" between runs): a slow draw ends inside it, after {@link #lastNode}. */
     public static volatile String runningNode = "";
 
-    public final ArrayList<Node> Nodes = new ArrayList<>();
-    public GLInterface glint = null;
-    public Settings mSettings;
-    public Parameters mParameters;
-    public Point workSize;
-    public float noiseS;
-    public float noiseO;
+    /** The passes in run order (add). */
+    public final ArrayList<Node> passList = new ArrayList<>();
+    public GLInterface glIface = null;
+    /** The shot being developed: its settings and parameters, the size the passes work at and its noise model (S, O). */
+    public Settings shotSettings;
+    public Parameters shotParams;
+    public Point frameSize;
+    public float noiseS, noiseO;
     /** The ping-pong textures; main3..5 belong to particular pipelines. */
     public GLTexture main1, main2, main3, main4, main5;
     /** Which main {@link #getMain} handed out last (1 or 2; 0: none yet). */
@@ -72,8 +73,8 @@ public class GLBasePipeline implements AutoCloseable {
      */
     public boolean releaseMain(GLTexture t) {
         if (t == null || (t != main1 && t != main2)) return false;
-        final Point size = new Point(t.mSize);
-        final GLFormat format = t.mFormat;
+        final Point size = new Point(t.size);
+        final GLFormat format = t.format;
         final Supplier<GLTexture> remake = () -> new GLTexture(size, format, null, GLES20.GL_LINEAR, GLES20.GL_CLAMP_TO_EDGE);
         t.close();
         if (t == main1) {
@@ -107,12 +108,12 @@ public class GLBasePipeline implements AutoCloseable {
     }
 
     public void add(Node node) {
-        if (!Nodes.isEmpty()) node.previousNode = Nodes.get(Nodes.size() - 1);
-        node.basePipeline = this;
-        node.glInt = glint;
-        node.glUtils = glint.glUtils;
-        node.glProg = glint.glProgram;
-        Nodes.add(node);
+        if (!passList.isEmpty()) node.prevPass = passList.get(passList.size() - 1);
+        node.hostPipeline = this;
+        node.glCtx = glIface;
+        node.glKit = glIface.kitUtils;
+        node.shaderProg = glIface.prog;
+        passList.add(node);
     }
 
     public void startTimeMeasure() {
@@ -206,7 +207,7 @@ public class GLBasePipeline implements AutoCloseable {
         GLProg.compileNode("final output"); // P602
         final Bitmap bitmap;
         try {
-            bitmap = glint.glProcessing.drawBlocksToBitmap();
+            bitmap = glIface.blockCtx.drawBlocksToBitmap();
         } finally {
             GLProg.compileNode(null);
         }
@@ -227,7 +228,7 @@ public class GLBasePipeline implements AutoCloseable {
             checkEglError("glGetIntegerv");
             final boolean sync = PostGlMode.syncNodes();
             GLGpuTimer.begin(); // P479: post_sync only (profiling)
-            for (int i = 0; i < Nodes.size(); i++) runNode(Nodes.get(i), i == Nodes.size() - 1, sync);
+            for (int i = 0; i < passList.size(); i++) runNode(passList.get(i), i == passList.size() - 1, sync);
             // the main the last node did not write goes now (the other one holds the result)
             final GLTexture spare = texnum == 1 ? main2 : main1;
             if (spare != null) spare.close();
@@ -241,22 +242,22 @@ public class GLBasePipeline implements AutoCloseable {
 
     /** Hands the previous node's texture on as this node's output (a skipped or failed optional node). */
     private void passThrough(Node node) {
-        node.WorkingTexture = node.previousNode.WorkingTexture;
-        glint.glProgram.closed = true;
+        node.passOut = node.prevPass.passOut;
+        glIface.prog.closed = true;
     }
 
     private void runNode(Node node, boolean last, boolean sync) {
         if (skipNode(node)) {
-            if (node.previousNode == null) throw new IllegalStateException("Cannot skip the first post node");
+            if (node.prevPass == null) throw new IllegalStateException("Cannot skip the first post node");
             passThrough(node);
             return;
         }
-        GLProg.compileNode(node.Name); // P602: the programs this node compiles are named with it
-        runningNode = node.Name; // P616: the node a stalled viewfinder draw fell into (VfDrawMeter)
+        GLProg.compileNode(node.passName); // P602: the programs this node compiles are named with it
+        runningNode = node.passName; // P616: the node a stalled viewfinder draw fell into (VfDrawMeter)
         try {
-            node.BeforeCompile();
-            node.Compile();
-            node.BeforeRun();
+            node.beforeShader();
+            node.bindShader();
+            node.refreshTunables();
             if (last) {
                 GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, savedFramebuffer[0]);
                 checkEglError("glBindFramebuffer");
@@ -265,32 +266,32 @@ public class GLBasePipeline implements AutoCloseable {
             throw failure(node, "prepare", error);
         }
         startTimeMeasure();
-        GLGpuTimer.node(node.Name);
-        GLTexturePool.node(node.Name); // P477: the inventory's node
+        GLGpuTimer.node(node.passName);
+        GLTexturePool.node(node.passName); // P477: the inventory's node
         try {
-            node.Run();
+            node.runPass();
         } catch (RuntimeException error) {
-            if (!OPTIONAL_NODE.equals(node.Name) || node.previousNode == null) throw failure(node, "run", error);
-            Log.e(TAG, "Bypassing optional node " + node.Name, error);
+            if (!OPTIONAL_NODE.equals(node.passName) || node.prevPass == null) throw failure(node, "run", error);
+            Log.e(TAG, "Bypassing optional node " + node.passName, error);
             passThrough(node);
         }
         // post_sync 1: the node's GPU work is finished inside its own time (W1.1 removed the glFinish per pass)
         if (sync) GLES30.glFinish();
-        endTimeMeasure(node.Name);
+        endTimeMeasure(node.passName);
         if (!last) {
-            if (!glint.glProgram.closed) {
-                glint.glProgram.drawBlocks(node.GetProgTex());
-                glint.glProgram.closed = true;
+            if (!glIface.prog.closed) {
+                glIface.prog.drawBlocks(node.drawTarget());
+                glIface.prog.closed = true;
             }
             // post_sync 1: this draw stays outside every node's time
             if (sync) GLES30.glFinish();
-            ScamDiagnostics.gpu(node.Name, node.WorkingTexture);
+            ScamDiagnostics.gpu(node.passName, node.passOut);
         }
         try {
-            node.AfterRun();
+            node.afterPass();
         } catch (RuntimeException error) {
             // AfterRun only releases temporary resources: its failure must not discard an otherwise valid image
-            Log.e(TAG, "Cleanup failed in node " + node.Name, error);
+            Log.e(TAG, "Cleanup failed in node " + node.passName, error);
         }
     }
 
@@ -304,14 +305,14 @@ public class GLBasePipeline implements AutoCloseable {
         if (main3 != null) main3.close();
         lazyMain2 = null;
         lazyMain1 = null;
-        glint.glProgram.close();
+        glIface.prog.close();
         dumpTimings("runAll");
-        Nodes.clear();
+        passList.clear();
         logTimeSummary(getClass().getSimpleName());
     }
 
     private static IllegalStateException failure(Node node, String phase, RuntimeException cause) {
-        return new IllegalStateException("post node " + node.Name + " (" + phase + ")", cause);
+        return new IllegalStateException("post node " + node.passName + " (" + phase + ")", cause);
     }
 
     private interface Release { void run() throws Exception; }
@@ -325,22 +326,22 @@ public class GLBasePipeline implements AutoCloseable {
 
     @Override
     public void close() {
-        final GLInterface gl = glint;
+        final GLInterface gl = glIface;
         if (gl != null) {
             // pending GPU work completes before the context goes (Adreno)
             quietly(GLES30::glFinish);
             // glProcessing owns the EGL context (it extends GLContext); a separate glContext is closed too
-            final GLCoreBlockProcessing processing = gl.glProcessing;
+            final GLCoreBlockProcessing processing = gl.blockCtx;
             if (processing != null) {
                 quietly(processing::close);
-                gl.glProcessing = null;
+                gl.blockCtx = null;
             }
-            if (gl.glContext != null && gl.glContext != processing) {
-                quietly(gl.glContext::close);
-                gl.glContext = null;
+            if (gl.plainCtx != null && gl.plainCtx != processing) {
+                quietly(gl.plainCtx::close);
+                gl.plainCtx = null;
             }
-            if (gl.glProgram != null) quietly(gl.glProgram::close);
-            glint = null;
+            if (gl.prog != null) quietly(gl.prog::close);
+            glIface = null;
         }
         quietly(GLTexture::notClosed);
     }

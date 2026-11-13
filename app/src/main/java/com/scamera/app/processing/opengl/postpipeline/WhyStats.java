@@ -32,7 +32,7 @@ import static android.opengl.GLES20.GL_NEAREST;
  */
 public final class WhyStats extends Node {
     public WhyStats() { super("", "WhyStats"); }
-    @Override public void Compile() {}
+    @Override public void bindShader() {}
 
     /**
      * W1.6: the WHY sharpening of this pipeline (null without it). In the G_CLEAN domain it needs nothing of the AE, so its
@@ -167,18 +167,18 @@ public final class WhyStats extends Node {
     static WhyAe.Settings aeSettings(PostPipeline pipeline, int width, int height, float inScale, String[] clampLine) {
         final boolean legacy = com.scamera.app.processing.opengl.PostGlMode.legacy();
         WhyAe.Settings settings = WhyTone.settings();
-        settings.portraitFace = pipeline.mParameters.portraitEnabled && pipeline.mParameters.portraitFaceDetected;
+        settings.portraitFace = pipeline.shotParams.portraitEnabled && pipeline.shotParams.portraitFaceDetected;
         if (settings.portraitFace) WhyTone.portraitOffsets(settings);   // P513
         settings.noiseS = pipeline.noiseS;
         settings.noiseO = pipeline.noiseO;
         // P501: the press's «Движение» ceiling or the camera's post-RAW gain of the shot (RawBoost), the larger
-        settings.motionGain = Math.max(com.scamera.app.settings.MotionMode.underGain(), pipeline.mParameters.postRawBoost);
+        settings.motionGain = Math.max(com.scamera.app.settings.MotionMode.underGain(), pipeline.shotParams.postRawBoost);
         // P442: the EV100 of base white for the night rule (NaN without the shot's exposure: the rule stays off)
-        settings.evWhite = WhySkyMask.evOffset(pipeline.mParameters.iso, pipeline.mParameters.exposureTime, pipeline.mParameters.aperture, inScale);
+        settings.evWhite = WhySkyMask.evOffset(pipeline.shotParams.iso, pipeline.shotParams.exposureTime, pipeline.shotParams.fNumber, inScale);
         // P320: a DCG frame keeps its captured exposure and its night factor reads ISO / dcgIsoScale (the clamp's model is
         // its measured zones: PostPipeline.computeNoise); the old run of post_ab keeps the plain rules
-        settings.dcg = pipeline.mParameters.dcgShot && !legacy;
-        settings.dcgIsoScale = settings.dcg && pipeline.mParameters.dcgIsoScale > 1f ? pipeline.mParameters.dcgIsoScale : 1f;
+        settings.dcg = pipeline.shotParams.dcgShot && !legacy;
+        settings.dcgIsoScale = settings.dcg && pipeline.shotParams.dcgIsoScale > 1f ? pipeline.shotParams.dcgIsoScale : 1f;
         // P212h (A5 = M5): the gain clamp sees the merged image's noise (N_eff of the merge's frame map), the denoisers keep theirs
         // P277: a lab fragment takes the whole frame's scale (LabFrame), a lab shot records it
         final LabFrame frozen = pipeline.frozen;
@@ -187,55 +187,55 @@ public final class WhyStats extends Node {
             settings.noiseO *= frozen.noiseScale;
             clampLine[0] = "AE noise clamp: the whole frame's scale x" + frozen.noiseScale + " (lab fragment)";
         } else {
-            clampLine[0] = WhyNoiseClamp.apply(settings, pipeline.mParameters.fullResRequested > 0, legacy,
+            clampLine[0] = WhyNoiseClamp.apply(settings, pipeline.shotParams.fullResRequested > 0, legacy,
                     ScamHybridBurst.lastEffectiveFrames, width, height, ScamHybridBurst.lastEffectiveMedian, ScamHybridBurst.lastNormals);
         }
         // applied by WhyAe.finish after an AgX look preset (which sets its own saturation)
-        settings.ccmSat = WhyTone.ccmSatComp(pipeline.mParameters);
+        settings.ccmSat = WhyTone.ccmSatComp(pipeline.shotParams);
         return settings;
     }
 
     @Override
-    public void Run() {
-        PostPipeline pipeline = (PostPipeline) basePipeline;
-        WorkingTexture = previousNode.WorkingTexture;
-        glProg.closed = true;
+    public void runPass() {
+        PostPipeline pipeline = (PostPipeline) hostPipeline;
+        passOut = prevPass.passOut;
+        shaderProg.closed = true;
         long started = System.currentTimeMillis();
         // A state left by a failed earlier shot is dropped, not closed: GLTexture.closeAll() already deleted its
         // textures and their ids may belong to live textures now.
         WhyTone.State st = new WhyTone.State();
         pipeline.why = st;
-        st.factor = WhyTone.lowFactor(pipeline.mParameters);
+        st.factor = WhyTone.lowFactor(pipeline.shotParams);
         st.inScale = (float) Math.pow(2.0, WhyTone.value("input_ev", 0f));
-        Point lowSize = WhyTone.reduced(WorkingTexture.mSize, st.factor);
+        Point lowSize = WhyTone.reduced(passOut.size, st.factor);
         GLTexture gainMap = pipeline.GainMap;
         GLTexture fallback = null;
         if (gainMap == null) {
             fallback = new GLTexture(new Point(1, 1), new GLFormat(GLFormat.DataType.FLOAT_16, 4),
-                    BufferUtils.getFrom(new float[]{1f, 1f, 1f, 1f}), GL_LINEAR, GL_CLAMP_TO_EDGE);
+                    BufferUtils.floatBuffer(new float[]{1f, 1f, 1f, 1f}), GL_LINEAR, GL_CLAMP_TO_EDGE);
             gainMap = fallback;
         }
         ByteBuffer pixels = null;
         earlyIssued = false;
         try {
             st.low = new GLTexture(lowSize, new GLFormat(GLFormat.DataType.FLOAT_16, 4), null, GL_NEAREST, GL_CLAMP_TO_EDGE);
-            glProg.useAssetProgram("why/low", false);
-            glProg.setTexture("InputBuffer", WorkingTexture);
-            WhyTone.setColour(glProg, pipeline, gainMap, st.inScale);
-            glProg.setVar("factorU", st.factor);
-            glProg.drawBlocks(st.low);
+            shaderProg.useAssetProgram("why/low", false);
+            shaderProg.setTexture("InputBuffer", passOut);
+            WhyTone.setColour(shaderProg, pipeline, gainMap, st.inScale);
+            shaderProg.setVar("factorU", st.factor);
+            shaderProg.drawBlocks(st.low);
             com.scamera.app.processing.opengl.PostGlMode.lap("why low");
-            glProg.closed = true;
-            st.low.BufferLoad();
+            shaderProg.closed = true;
+            st.low.renderInto();
             final boolean legacy = com.scamera.app.processing.opengl.PostGlMode.legacy();
-            int iso = pipeline.mParameters.iso, maxIso = maxAnalogIso(pipeline.mParameters);
+            int iso = pipeline.shotParams.iso, maxIso = maxAnalogIso(pipeline.shotParams);
             final String[] clampLine = new String[1];
-            WhyAe.Settings settings = aeSettings(pipeline, WorkingTexture.mSize.x, WorkingTexture.mSize.y, st.inScale, clampLine);
+            WhyAe.Settings settings = aeSettings(pipeline, passOut.size.x, passOut.size.y, st.inScale, clampLine);
             // P512: the faces' skin is measured whenever a face is found - its luminance leads «Приоритет лиц в AE», its colour Face AWB
             // and the face mask; the skin-tone correction itself stays with «Естественный цвет кожи»
             if (settings.portraitFace) {
-                st.portrait = PortraitGpu.measure(glProg, st.low, pipeline.mParameters.portraitFaces);
-                if (st.portrait != null && !pipeline.mParameters.portraitSkinWarmth) java.util.Arrays.fill(st.portrait.adjust, 0f);
+                st.portrait = PortraitGpu.measure(shaderProg, st.low, pipeline.shotParams.portraitFaces);
+                if (st.portrait != null && !pipeline.shotParams.portraitSkinWarmth) java.util.Arrays.fill(st.portrait.adjust, 0f);
                 Log.i("SCAM_PIPELINE", "Portrait: face protection, skin faces=" + (st.portrait == null ? 0 : st.portrait.count));
             }
             final String dcgLog = settings.dcg ? " dcg(isoScale=" + settings.dcgIsoScale + ")" : "";
@@ -252,10 +252,10 @@ public final class WhyStats extends Node {
             if (frozen != null) {
                 st.noiseMerged = Float.isFinite(frozen.fusionNoise) && frozen.fusionNoise > 0f ? frozen.fusionNoise : WhyTone.expectedMerged();
             } else if (!legacy) {
-                final float neff = WhyNoiseClamp.fusionFrames(ScamHybridBurst.lastEffectiveFrames, WorkingTexture.mSize.x,
-                        WorkingTexture.mSize.y, ScamHybridBurst.lastEffectiveMedian, ScamHybridBurst.lastNormals);
-                final boolean zones = pipeline.mParameters.dcgShot
-                        && com.scamera.app.processing.render.NoiseModeler.dcgZones(pipeline.mParameters.dcgNoise) != null;
+                final float neff = WhyNoiseClamp.fusionFrames(ScamHybridBurst.lastEffectiveFrames, passOut.size.x,
+                        passOut.size.y, ScamHybridBurst.lastEffectiveMedian, ScamHybridBurst.lastNormals);
+                final boolean zones = pipeline.shotParams.dcgShot
+                        && com.scamera.app.processing.render.NoiseModeler.dcgZones(pipeline.shotParams.dcgNoise) != null;
                 final float k = zones ? 1f : ScamHybridBurst.lastNoiseFactor;
                 st.noiseMerged = (float) (k * WhyNoiseClamp.modelScale(neff));
                 Log.i("SCAM_PIPELINE", String.format(java.util.Locale.ROOT, "WHY fusion noise: S=%.4g O=%.4g Neff=%.2f model x%.3g -> x%.4g",
@@ -278,19 +278,19 @@ public final class WhyStats extends Node {
             boolean sharpenIssued = false;
             WhyAe.Stats gpu = null;
             WhyAeGpu.Pending chained = fixed == null && record == null && !legacy && !ScamDiagnostics.active()
-                    && PreferenceKeys.scamDevSwitch("ae_gpu_chain", true) ? WhyAeGpu.begin(glProg, st.low, settings.metering) : null;
-            glProg.closed = true;
+                    && PreferenceKeys.scamDevSwitch("ae_gpu_chain", true) ? WhyAeGpu.begin(shaderProg, st.low, settings.metering) : null;
+            shaderProg.closed = true;
             if (chained != null) {
                 android.opengl.GLES30.glFlush();
                 sharpenIssued = true;
-                earlyIssued = earlySharpen != null && earlySharpen.runEarly(pipeline, WorkingTexture);
-                glProg.closed = true;
+                earlyIssued = earlySharpen != null && earlySharpen.runEarly(pipeline, passOut);
+                shaderProg.closed = true;
                 gpu = WhyAeGpu.end(chained);
             } else {
                 gpu = fixed != null ? LabFrame.scaled(fixed, rescale)
-                        : legacy || ScamDiagnostics.active() ? null : WhyAeGpu.stats(glProg, st.low, settings.metering);
+                        : legacy || ScamDiagnostics.active() ? null : WhyAeGpu.stats(shaderProg, st.low, settings.metering);
             }
-            glProg.closed = true;
+            shaderProg.closed = true;
             if (fixed != null) Log.i("SCAM_PIPELINE", "WHY stats: the whole frame's (lab fragment, metering " + settings.metering
                     + (rescale != 1f ? ", input scale x" + rescale : "") + ")");
             if (record != null && fixed == null && gpu != null && settings.metering >= 0 && settings.metering < LabFrame.MODES) {
@@ -298,12 +298,12 @@ public final class WhyStats extends Node {
                 record.stats[settings.metering] = gpu;
                 for (int m = 0; m < LabFrame.MODES; m++) {
                     if (m == settings.metering) continue;
-                    record.stats[m] = WhyAeGpu.stats(glProg, st.low, m);
-                    glProg.closed = true;
+                    record.stats[m] = WhyAeGpu.stats(shaderProg, st.low, m);
+                    shaderProg.closed = true;
                 }
             }
             if (gpu != null) {
-                final boolean early = sharpenIssued ? earlyIssued : earlySharpen != null && earlySharpen.runEarly(pipeline, WorkingTexture);
+                final boolean early = sharpenIssued ? earlyIssued : earlySharpen != null && earlySharpen.runEarly(pipeline, passOut);
                 WhyAe.Result r = WhyAe.finish(gpu, settings, iso, maxIso);
                 WhyTone.facePriority(r, st.portrait);   // P512
                 st.ae = r;
@@ -317,7 +317,7 @@ public final class WhyStats extends Node {
             // CPU, instead of the driver's conversion into a 50 MB float buffer. The diagnostics dump and the old model read
             // floats as before, and so does a driver whose native read type is not RGBA / HALF_FLOAT or whose float
             // conversion is not the exact widening (halfReadbackExact).
-            if (sharpenIssued) st.low.BufferLoad(); // P479b: the early passes bound their own targets; the read-back below reads whyLow
+            if (sharpenIssued) st.low.renderInto(); // P479b: the early passes bound their own targets; the read-back below reads whyLow
             final int halfType = legacy || ScamDiagnostics.active() ? 0 : halfReadType();
             boolean half = halfType != 0 && halfReadbackExact(halfType);
             if (half) {
@@ -343,7 +343,7 @@ public final class WhyStats extends Node {
             }
             pixels.rewind();
             if (!half) ScamDiagnostics.buffer("02-WhyLow", pixels, lowSize.x, lowSize.y, 4, true);
-            final boolean early = sharpenIssued ? earlyIssued : !legacy && earlySharpen != null && earlySharpen.runEarly(pipeline, WorkingTexture);
+            final boolean early = sharpenIssued ? earlyIssued : !legacy && earlySharpen != null && earlySharpen.runEarly(pipeline, passOut);
             WhyAe.Result r = half ? WhyAe.smartHdrHalf(pixels.asShortBuffer(), 4, lowSize.x, lowSize.y, settings, iso, maxIso)
                     : WhyAe.smartHdr(pixels.asFloatBuffer(), 4, lowSize.x, lowSize.y, settings, iso, maxIso);
             WhyTone.facePriority(r, st.portrait);   // P512
