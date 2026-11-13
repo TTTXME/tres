@@ -14,6 +14,13 @@ precision highp float; precision highp sampler2D;
 // weights are taken relative to the nearest texel's (the same normalised weights, no underflow); where all of them still vanish,
 // bilinear. 0: the shader before P673, token for token.
 #define JBU 0
+// P677 BANDS 1 (owner, 2026-11-13: «Да, перенеси в V2»): V1's P391 edge-aware bands (why/lpyr EDGE_BANDS 1, edgeBand) - the band is
+// the per-pixel fusion's band P = Fpp_l - expand(Fpp_l+1) (its Gaussian pyramid, why/v2_ef_prep MODE 2, read with the same weights
+// as the lumas: bilinear or JBU) plus the pyramid's excess E = M - P (M: the band blended by the weights, as before) times 1 - a,
+// a the level's edge share (why/v2_ef_bands MODE 1; level 0: the ramp of the cone max of level 0's D) x the strength. a = 0: M
+// itself; a = 1 at every level: the per-pixel fusion (the coarsest level moved to Fpp's Gaussian by its carried share, why/
+// v2_ef_coarsest BANDS 1). 0: the shader before P677, token for token.
+#define BANDS 0
 uniform sampler2D u_tex_G_fine;       // level l (RGBA16F)
 uniform sampler2D u_tex_G_coarse;     // level l+1 (RGBA16F, LINEAR)
 uniform sampler2D u_tex_W_fine;       // level l (RGBA16F)
@@ -25,7 +32,26 @@ uniform float u_clarity;
 uniform float u_jbu_sigma;            // sigma_r of the range weight (the guide's unit)
 uniform float u_jbu_log;              // > 0: the guide as log2(max(g, u_jbu_log)); 0: as it is
 #endif
+#if BANDS == 1
+uniform sampler2D u_tex_GF_fine;      // (G, Fpp) of level l (RG16F)
+uniform sampler2D u_tex_GF_coarse;    // (G, Fpp) of level l+1 (RG16F, LINEAR)
+uniform sampler2D u_tex_share;        // level l >= 1: its edge share (.r); level 0: its edge measure D
+uniform vec4 u_band_edge;             // level 0: x, y: the ramp (EV of D), z: its fall per px; w: the strength (every level)
+uniform int u_band_reach;             // level 0: the reach of the cone max of D (px); < 0: u_tex_share holds the share
+#endif
 out vec4 Output;
+
+#if BANDS == 1
+// the largest D(q) - fall x max(Chebyshev |q - c|, 0) of t's .r over |q - c| <= r (why/lpyr coneMax, slack 0)
+float bandCone(sampler2D t, ivec2 c, int r, float fall) {
+    ivec2 last = textureSize(t, 0) - ivec2(1);
+    float b = -1024.0;
+    for (int j = -r; j <= r; j++)
+        for (int i = -r; i <= r; i++)
+            b = max(b, texelFetch(t, clamp(c + ivec2(i, j), ivec2(0), last), 0).r - fall * float(max(abs(i), abs(j))));
+    return b;
+}
+#endif
 
 #if JBU != 0
 vec4 jbuGuide(vec4 g) {
@@ -107,6 +133,22 @@ void main() {
         detail *= max(1.0 + u_clarity, 0.0);
     }
 
+#endif
+
+#if BANDS == 1
+    {
+#if JBU != 0
+        float fpp_coarse = dot(jw, vec4(texelFetch(u_tex_GF_coarse, a, 0).g, texelFetch(u_tex_GF_coarse, t10, 0).g,
+                                        texelFetch(u_tex_GF_coarse, t01, 0).g, texelFetch(u_tex_GF_coarse, b, 0).g));
+#else
+        float fpp_coarse = texture(u_tex_GF_coarse, uv).g;
+#endif
+        float band_p = texelFetch(u_tex_GF_fine, coord, 0).g - fpp_coarse;
+        float share = u_band_reach >= 0 ? smoothstep(u_band_edge.x, u_band_edge.y, bandCone(u_tex_share, coord, u_band_reach, u_band_edge.z))
+                                        : texelFetch(u_tex_share, coord, 0).r;
+        share *= clamp(u_band_edge.w, 0.0, 1.0);
+        if (share > 0.0) detail = band_p + (1.0 - share) * (detail - band_p);
+    }
 #endif
 
     // the intermediate levels are not clamped (as there)

@@ -324,6 +324,22 @@ public final class WhyTone {
         return Math.max(1, Math.min(4, Math.round(value("v2_jbu_guide", 1f))));
     }
 
+    /**
+     * P677 (owner, 2026-11-13: «Да, перенеси в V2»): V1's P391 edge-aware bands on V2's pyramid (why/v2_ef_bands, why/v2_ef_collapse
+     * / v2_ef_coarsest BANDS 1) - {lo, hi (EV of a step), the guide's light floor, the strength, the reach, the fall}, as {@link
+     * #bands()} with V2's own strength and ramp; null: off, V2's passes before P677 bit for bit. Off by default: on the owner's
+     * bursts (final JPEG) the sky pocket between the pool's awning and its beam goes from +9 to +1 code (+19 to +1.3 at shadows /
+     * highlights 5), but V2's local contrast in busy scenes falls 4 - 16 % with V1's ramp and light surfaces beside dark objects
+     * darken more than with the JBU alone (sun -23 against -15 codes, park -12 against -6) - research/handoff/PLAN.md P677.
+     */
+    static float[] edgeBandsV2() {
+        final float strength = Math.max(0f, Math.min(1f, value("v2_edge_bands", 0f)));
+        if (!(strength > 0f)) return null;
+        final float lo = Math.max(0f, value("v2_edge_bands_lo", value("fusion_bands_lo", 1.2f)));
+        return new float[]{lo, Math.max(value("v2_edge_bands_hi", value("fusion_bands_hi", 1.8f)), lo + 0.01f), BAND_FLOOR, strength,
+                Math.max(0, Math.min(4, Math.round(value("fusion_bands_reach", 3f)))), Math.max(0f, value("fusion_bands_fall", 0.25f))};
+    }
+
     /** P673: the display luma floor of a log2 guide (3 / 4). */
     static final float JBU_LOG_FLOOR = 0.01f;
 

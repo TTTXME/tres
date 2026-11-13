@@ -49,8 +49,8 @@ def check(ok, msg):
 
 
 def ours(cond, name):
-    """A condition on P673's define JBU (false with it off: JBU 0)."""
-    return re.search(r'\bJBU\b', cond) is not None
+    """A condition on P673's define JBU (false with it off: JBU 0); P677's BANDS (V2's edge bands) is dropped the same way."""
+    return re.search(r'\b(JBU|BANDS)\b', cond) is not None
 
 
 def off_code(text, name):
@@ -61,7 +61,7 @@ def off_code(text, name):
         line = raw.split('//')[0].rstrip()
         s = line.strip()
         m = re.match(r'#\s*(if|ifdef|ifndef|elif|else|endif)\b(.*)', s)
-        if re.match(r'#\s*define\s+JBU\s', s):
+        if re.match(r'#\s*define\s+(JBU|BANDS)\s', s):
             continue
         if m:
             kw, cond = m.group(1), m.group(2)

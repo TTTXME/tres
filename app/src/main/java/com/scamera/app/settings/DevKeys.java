@@ -584,6 +584,12 @@ public final class DevKeys {
                 "Why tone V2: joint bilateral upsampling in the pyramid's collapse, the owner's formulation - 4 coarse texels weighted by exp(-(g_coarse - g_fine)^2 / 2 sigma^2) instead of the bilinear texture(); sigma in the guide's unit; 0.1 by default; 0: off, as the reference")));
         k.add(n(post, "hybrid_why_v2_jbu_guide", "1", Lang.t("Тон Why V2, билатеральный апсемплинг: ориентир g — 1 яркости четырёх экспозиций, 2 собираемое изображение (слитая яркость), 3 и 4 — то же в log2",
                 "Why tone V2, bilateral upsampling: the guide g - 1 the four exposures' lumas, 2 the collapsing image (the fused luma), 3 and 4 the same in log2")));
+        k.add(n(post, "hybrid_why_v2_edge_bands", "0", Lang.t("Тон Why V2: полосы V1 у сильных границ — рядом с контрастным краем полосы пирамиды берутся из попиксельного слияния (нет свечения в узких просветах неба, например между балкой и навесом); сила 0..1, 0 — выкл., как раньше",
+                "Why tone V2: V1's bands at strong edges - beside a contrasty edge the pyramid's bands come from the per-pixel fusion (no glow in narrow gaps of sky, e.g. between a beam and an awning); strength 0..1, 0: off, as before")));
+        k.add(n(post, "hybrid_why_v2_edge_bands_lo", "1.2", Lang.t("Тон Why V2, полосы у границ: перепад света (EV), с которого граница берёт полосы попиксельного слияния (выше — только самые резкие края, меньше потеря локального контраста)",
+                "Why tone V2, edge bands: the light step (EV) from which an edge takes the per-pixel fusion's bands (higher: only the sharpest edges, less local contrast lost)")));
+        k.add(n(post, "hybrid_why_v2_edge_bands_hi", "1.8", Lang.t("Тон Why V2, полосы у границ: перепад света (EV), с которого полосы попиксельного слияния берутся полностью",
+                "Why tone V2, edge bands: the light step (EV) from which the per-pixel fusion's bands are taken fully")));
         k.add(n(post, "hybrid_why_deep_noise", "0.008", Lang.t("Тон: глубокие тени поднимаются ярким слоем не дальше, чем позволяет шум кадра — предел шума в тенях (доля яркости слияния); 0 — выкл.",
                 "Tone: deep shadows lifted by the bright layer only as far as the frame's noise allows - the shadow noise limit (share of fused luma); 0: off")));
         k.add(n(post, "hybrid_why_noise_scale", "1.0", Lang.t("Тон: поправка модели шума к шуму whyLow (после шумодава) для пределов шума тона",

@@ -161,6 +161,12 @@ def units() -> list[tuple[str, str, str]]:
                         'frag', '#version 310 es\n#line 1\n' + expand_imports(src)))
         out.append(('why/v2_ef_collapse.glsl (JBU %d)' % jbu, 'frag', '#version 310 es\n#line 1\n'
                     + expand_imports(defined(read(SH / 'why/v2_ef_collapse.glsl'), {'JBU': jbu}))))
+    # P677: V1's edge-aware bands on V2's pyramid - the guide (v2_ef_prep MODE 2), the edge measure and shares (v2_ef_bands MODE 0 /
+    # 1), the collapse with and without the JBU and the coarsest level with BANDS 1
+    for name, defs in (('v2_ef_prep', {'MODE': 2}), ('v2_ef_bands', {'MODE': 0}), ('v2_ef_bands', {'MODE': 1}), ('v2_ef_coarsest', {'BANDS': 1}),
+                       ('v2_ef_collapse', {'BANDS': 1}), ('v2_ef_collapse', {'BANDS': 1, 'JBU': 1})):
+        out.append(('why/%s.glsl (%s)' % (name, ', '.join('%s %d' % kv for kv in defs.items())), 'frag', '#version 310 es\n#line 1\n'
+                    + expand_imports(defined(read(SH / ('why/%s.glsl' % name)), defs))))
     gf = read(SH / 'why/gf.glsl')
     for mode in (1, 2, 3):
         out.append(('why/gf.glsl (MODE %d)' % mode, 'frag', '#version 310 es\n#line 1\n' + expand_imports(defined(gf, {'MODE': mode}))))
