@@ -529,3 +529,27 @@ change: `scam-crash.h` keeps only the stage marks on Apple.
   `let residual = shdr && !video ? 1 : max(1, target / pick.zoom)`, `zoomRange`, setShdr's reset): with the residual kept for SHDR
   the burst carries it (CaptureService.captureBayerBurst sets BayerBurst.zoom) and `BurstProcessor.process(burst, metadata:
   metadata, zoom: burst.zoom)` crops as Android.
+
+## Re-sync with main P647-P663 (2026-11-13)
+- Android moved to `com.scamera.app` and rewrote most Java as its own code (same output); the port keeps its names (the Java ones
+  before P659: `mParameters`, `WorkingTexture`, `whitePoint`, `sensorToProPhoto`, `CCT`, ...) - they are the lab JSON's keys
+  (ScamLabParams.STORED_KEYS), which gen_parameters.py now reads (field = stored key; `hotSites` skipped, the removed dead fields
+  gone, `finishNoiseS` / `finishNoiseO` added). Comments name the new methods (resolveColour, fillFromFrame, develop, buildNodes).
+- Output changes ported: P648c «Подстройка под свет (SNR)» (PostSnr in nodes/ScamHdrDenoise.hpp: DenoiseStats.finishSnr sets
+  finishNoiseS / O, why_resolve gets flatNightU / flatBoostU / flatGrainU / flatNoiseU, the PostSnr log line); P652 (rlHaloMargin,
+  floor 1e-4); P647 `kernelSnr` and P662 `gpuPace` in HybridTuning.text; RotateWatermark without the WATERMARK define. Renamed
+  shader interfaces: GLHistogram `binScale` (was `exposure`: the Ultra HDR medians), utils/gaussdown (`srcLevel`, `srcSize`,
+  `srcPerOut`) and utils/pyramiddiff (`fineLevel`, `coarseLevel`, `fineTexel`). P647 / P658 / P661 / P663 are in the shared
+  merge C++ (no port). Swift: SettingsAvailability (RAW-merge-only `kernel_snr`, «Кадры ZSL» open, the «Сила резкости» reason).
+  Film assets and spektrafilm resources unchanged (only the APK compresses film/*.bin); 8 dead shaders gone (111 post shaders link).
+- Host harness: android-host Java under com/scamera/app (PostPipeline.develop, GLTexture id / size / format, GLProg's source
+  loader by reflection in the smoke test), watermark_host stubs moved.
+- Checks (Mesa, references re-rendered by the new Android code, hybrid_replay from the new shared C++), post_node_check full,
+  each 0 differing values: lenta, texture, v2, os2, uhdr (gain map 0 of 50331648, max 3.312), f_v2 (old film route), p_awb,
+  resize_lanczos (0 of 23970816), night (dn_snr 8: flat 0.916) and night_off (post_snr / kernel_snr off, halo margin 0; differs
+  from night in 14.3M values). shot_params_check: tuning 116 lines identical (night_off: kernelSnr 0), colour identical, DNG round
+  trip identical. shot_run_check: Lenta PSNR 43.4 dB (the shot's own tuning lines); with the app's burst lines and the lab's values
+  (base0, SCAM_SHOT_LAB_PARAMS=1) 0 of 37748736 (merge with kernelSnr included). edit_check vs HostEditRender: 132 + 44 frames 0
+  differ, the watermark records 21 checks 0 differ; watermark_host --check matches; HostGlSmokeTest passes. Not re-run here: the
+  reference film engine on lavapipe (its library builds; ReferenceFilm unchanged), the shot_run_check --select tables
+  (ScamHybridBurst's frame rules unchanged), Metal (CI).
