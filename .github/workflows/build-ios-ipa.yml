@@ -16,6 +16,91 @@ permissions:
   contents: read
 
 jobs:
+  # The SHDR merge («Качество») of real bursts (branch replay/p335, research/replay-bursts) through the same C++:
+  # merge-reference on Mesa (llvmpipe, as tools/replay_hybrid_ab.py), merge-metal on Metal through ScamGL; then compared.
+  merge-reference:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Bursts
+        run: |
+          git fetch -q --depth 1 origin replay/p335
+          mkdir -p "$RUNNER_TEMP/bursts"
+          for f in $(git ls-tree --name-only FETCH_HEAD research/replay-bursts/ | grep '\.nch\.xz$'); do
+            git show "FETCH_HEAD:$f" > "$RUNNER_TEMP/bursts/$(basename "$f")"
+          done
+          ls -la "$RUNNER_TEMP/bursts"
+      - name: Build the replay on Mesa
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libegl-dev libgles-dev libegl1 libegl-mesa0 libgles2 libgl1-mesa-dri python3-numpy
+          g++ -pthread -std=c++17 -O2 -Iapp/src/main/cpp ios/tools/hybrid_replay.cpp -ldl -lEGL -lGLESv2 -o "$RUNNER_TEMP/hybrid_replay"
+      - name: Merge
+        env:
+          EGL_PLATFORM: surfaceless
+          LIBGL_ALWAYS_SOFTWARE: '1'
+          GALLIUM_DRIVER: llvmpipe
+        run: python3 ios/tools/replay_bursts.py run "$RUNNER_TEMP/hybrid_replay" "$RUNNER_TEMP/bursts" "$RUNNER_TEMP/reference"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: merge-reference
+          path: |
+            ${{ runner.temp }}/reference/*.f32
+            ${{ runner.temp }}/reference/*.log
+          retention-days: 3
+
+  merge-metal:
+    needs: merge-reference
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Bursts
+        run: |
+          git fetch -q --depth 1 origin replay/p335
+          mkdir -p "$RUNNER_TEMP/bursts"
+          for f in $(git ls-tree --name-only FETCH_HEAD research/replay-bursts/ | grep '\.nch\.xz$'); do
+            git show "FETCH_HEAD:$f" > "$RUNNER_TEMP/bursts/$(basename "$f")"
+          done
+      - uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/deps/macos
+          key: shader-deps-macos-${{ hashFiles('ios/tools/build_shader_deps.sh') }}
+      - name: Shader translators (glslang, SPIRV-Cross)
+        run: |
+          [ -f "$RUNNER_TEMP/deps/macos/lib/libglslang.a" ] || ios/tools/build_shader_deps.sh macos "$RUNNER_TEMP/deps"
+      - name: Build the replay on Metal (ScamGL)
+        run: |
+          D="$RUNNER_TEMP/deps/macos"
+          clang++ -std=c++17 -O2 -fobjc-arc -Iios/ScamGL/include -Iios/ScamGL -Iapp/src/main/cpp -I"$D/include" -I"$D/include/spirv_cross" \
+            ios/tools/hybrid_replay.cpp ios/ScamGL/ScamGL.mm ios/ScamGL/ScamGLCompiler.cpp -L"$D/lib" \
+            -lglslang -lMachineIndependent -lGenericCodeGen -lOSDependent -lSPIRV -lglslang-default-resource-limits \
+            -lspirv-cross-msl -lspirv-cross-glsl -lspirv-cross-core -framework Metal -framework Foundation \
+            -o "$RUNNER_TEMP/hybrid_replay" 2>&1 | grep -E "error|warning: .*ScamGL" || true
+          test -x "$RUNNER_TEMP/hybrid_replay"
+      - name: Merge
+        run: |
+          python3 -m pip install -q --break-system-packages numpy==2.3.5 || python3 -m pip install -q numpy==2.3.5
+          python3 ios/tools/replay_bursts.py run "$RUNNER_TEMP/hybrid_replay" "$RUNNER_TEMP/bursts" "$RUNNER_TEMP/metal"
+      - uses: actions/download-artifact@v4
+        with:
+          name: merge-reference
+          path: ${{ runner.temp }}/reference
+      - name: Compare with Mesa
+        run: |
+          set -o pipefail
+          python3 ios/tools/replay_bursts.py compare "$RUNNER_TEMP/reference" "$RUNNER_TEMP/metal" | tee "$RUNNER_TEMP/compare.txt"
+          { echo '### Merge on Metal vs Mesa'; echo '```'; cat "$RUNNER_TEMP/compare.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: merge-metal
+          path: |
+            ${{ runner.temp }}/metal/*.log
+            ${{ runner.temp }}/compare.txt
+          retention-days: 3
+
   ipa:
     runs-on: macos-15
     timeout-minutes: 45

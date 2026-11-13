@@ -6,3 +6,4 @@ DerivedData/
 *.p12
 *.mobileprovision
 *.cer
+__pycache__/
