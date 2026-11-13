@@ -421,6 +421,9 @@ public final class DevKeys {
                 "The sun bloom block sums as a compute pass (the same result); off: the fragment pass as before")));
         k.add(s(post, "clipband_mask", true, Lang.t("Маска полосы пересветов двумя разделёнными проходами (тот же результат); выкл — как раньше",
                 "The clip band flag mask in two separable passes (the same result); off: as before")));
+        // P671: the clip band only in the tiles near a clipped pixel, skipped without one (bit for bit, tools/check_band_tiles.py)
+        k.add(s(post, "scamrgb_band_tiles", true, Lang.t("Полоса пересветов считается только в плитках рядом с клипнутыми пикселями, без них проход пропускается (тот же результат); выкл — по всему кадру как раньше",
+                "The clip band computed only in the tiles near clipped pixels, skipped without any (the same result); off: over the whole frame as before")));
         k.add(s(post, "post_invalidate", true, Lang.t("Сброс содержимого кадровых буферов перед перезаписью (тот же результат)",
                 "Framebuffer contents invalidated before an overwrite (the same result)")));
         k.add(s(post, "scamrgb_tail", true, Lang.t("Хвост загрузки пересветов на вспомогательном потоке (тот же результат); выкл — на основном",
@@ -891,8 +894,8 @@ public final class DevKeys {
         k.add(s(diag, "film_reference_dump", false, Lang.t("Сохранять вход и выход спектральной плёнки для сравнения", "Export spectral film input and output for comparison")));
         k.add(n(diag, "hybrid_film_reference_budget_mb", "0", Lang.t("Лимит памяти спектральной плёнки, МБ (0 — автоматически)", "Spectral film memory budget, MB (0: automatic)")));
         k.add(s(diag, "post_sync", false, Lang.t("Синхронные узлы обработки (замер времени)", "Synchronous processing nodes (timing)")));
-        k.add(s(diag, "post_gpu_timer", false, Lang.t("Замер времени GPU по программам обработки без синхронизации (P479b, в лог)",
-                "GPU time per processing program without the syncs (P479b, to the log)")));
+        k.add(sAuto(diag, "post_gpu_timer", Lang.t("Замер времени GPU по узлам и программам обработки без синхронизации, строки PERF в логе (P479b, P671; Авто — на Adreno)",
+                "GPU time per processing node and program without the syncs, PERF lines in the log (P479b, P671; Auto: on Adreno)")));
         k.add(s(diag, "diag_sync", false, Lang.t("Диагностика: превью этапов считаются и пишутся на потоке обработки, как до P371 (выкл — в фоне, снимок не ждёт)",
                 "Diagnostics: the stage previews are computed and written on the processing thread, as before P371 (off: in the background, the shot does not wait)")));
         k.add(s(diag, "diag_gpu_async", true, Lang.t("Диагностика: превью этапов на GPU копируются отдельным проходом и читаются позже, обработка не ждёт GPU (P602; выкл — чтение сразу после этапа, как раньше)",
