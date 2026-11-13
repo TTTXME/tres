@@ -9,6 +9,11 @@ uniform int radiusU;                // clipband's window radius (<= 0 -> 3)
 uniform int zoneU;                  // clipband's band reach (<= 0 -> 2)
 uniform int clipHiUnflaggedU;       // as clipband
 uniform int glowRadiusU;            // P537: clipband's glow reach (0 = off)
+#define BAND_TILES 0
+#if BAND_TILES == 1
+uniform sampler2D BandTiles;        // P671: as scamhdr/clipband - a tile at 0 has no flagged pixel within the windows: no bit set
+uniform int bandTileU;
+#endif
 out vec4 Output;
 
 uint flagAt(ivec2 p) {
@@ -19,6 +24,9 @@ uint flagAt(ivec2 p) {
 
 void main() {
     ivec2 xy = ivec2(gl_FragCoord.xy);
+#if BAND_TILES == 1
+    if (texelFetch(BandTiles, xy / bandTileU, 0).r < 0.5) { Output = vec4(0.0, 0.0, 0.0, 1.0); return; }
+#endif
     int last = textureSize(ClipFlags, 0).y - 1;
     int r = radiusU > 0 ? radiusU : 3;
     int z = zoneU > 0 ? zoneU : 2;

@@ -22,6 +22,12 @@ python3 -m venv /tmp/tetra-gpu-check
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_post_pbo.py
 # P668: every post fragment program drawn in bands of 16 / 48 / 112 rows equals one draw bit for bit (the paced post's band sizing)
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_post_bands.py
+# P671: the clip band in the flagged tiles only equals the band over every pixel, bit for bit (and no tile without a flag)
+LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_band_tiles.py
+# P671: the photo's combine with its one-channel windows read as textureGather blocks equals the single reads, bit for bit
+LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_combine_gather.py
+# P671: the denoise's optics with its per-strip Oklab cache equals the inline conversions, bit for bit
+LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_ms_oklab_cache.py
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_noise_quantile.py
 python3 tools/check_gpu_readback.py
 python3 tools/check_film_tiling.py

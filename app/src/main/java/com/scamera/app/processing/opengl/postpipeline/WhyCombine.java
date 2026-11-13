@@ -416,13 +416,16 @@ public final class WhyCombine extends Node {
             passOut = pipeline.getMain();
             if (rimTiles != null) shaderProg.setDefine("RIM_SUPPORT", 1);
             if (sceneY != null) shaderProg.setDefine("EDGE_LUMA_CACHE", 1);
+            // P671 (speed): the one-channel windows as textureGather blocks (the same texels and sums; why/combine.glsl GATHER_TAPS)
+            final boolean gather = gatherTaps();
+            if (gather) shaderProg.setDefine("GATHER_TAPS", 1);
             // P497: scam_dev why_combine_stop 1..4 cuts the pass after a stage (timing on old GPUs only: the photo is wrong)
             final int stop = Math.round(PreferenceKeys.scamDevNumber("why_combine_stop", 0f));
             if (stop > 0) shaderProg.setDefine("WHY_STOP", stop);
             try {
                 shaderProg.useAssetProgram("why/combine", false);
             } catch (RuntimeException error) {
-                if (rimTiles == null && sceneY == null) throw error;
+                if (rimTiles == null && sceneY == null && !gather) throw error;
                 if (rimTiles != null) rimTiles.close();
                 rimTiles = null;
                 if (sceneY != null) sceneY.close();
@@ -431,6 +434,7 @@ public final class WhyCombine extends Node {
                 // A failed compile leaves the tone defines pending; override only the support gate.
                 shaderProg.setDefine("RIM_SUPPORT", 0);
                 shaderProg.setDefine("EDGE_LUMA_CACHE", 0);
+                shaderProg.setDefine("GATHER_TAPS", 0);
                 shaderProg.useAssetProgram("why/combine", false);
             }
             if (rimTiles != null) {
@@ -762,5 +766,14 @@ public final class WhyCombine extends Node {
         } finally {
             ratio.close();
         }
+    }
+
+    /**
+     * P671: scam_dev why_gather_taps (default on): the photo's combine reads its one-channel windows as 2 x 2 textureGather blocks
+     * (why/combine.glsl GATHER_TAPS: the same texels, the same sums in the same order; tools/check_combine_gather.py); off or the
+     * old GL model of post_ab: the single reads as before.
+     */
+    static boolean gatherTaps() {
+        return !com.scamera.app.processing.opengl.PostGlMode.legacy() && PreferenceKeys.scamDevSwitch("why_gather_taps", true);
     }
 }

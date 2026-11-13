@@ -424,6 +424,9 @@ public final class DevKeys {
                 "The sun bloom block sums as a compute pass (the same result); off: the fragment pass as before")));
         k.add(s(post, "clipband_mask", true, Lang.t("Маска полосы пересветов двумя разделёнными проходами (тот же результат); выкл — как раньше",
                 "The clip band flag mask in two separable passes (the same result); off: as before")));
+        // P671: the clip band only in the tiles near a clipped pixel, skipped without one (bit for bit, tools/check_band_tiles.py)
+        k.add(s(post, "scamrgb_band_tiles", true, Lang.t("Полоса пересветов считается только в плитках рядом с клипнутыми пикселями, без них проход пропускается (тот же результат); выкл — по всему кадру как раньше",
+                "The clip band computed only in the tiles near clipped pixels, skipped without any (the same result); off: over the whole frame as before")));
         k.add(s(post, "post_invalidate", true, Lang.t("Сброс содержимого кадровых буферов перед перезаписью (тот же результат)",
                 "Framebuffer contents invalidated before an overwrite (the same result)")));
         k.add(s(post, "scamrgb_tail", true, Lang.t("Хвост загрузки пересветов на вспомогательном потоке (тот же результат); выкл — на основном",
@@ -468,6 +471,12 @@ public final class DevKeys {
                 "GPU time of one processing band, ms (slow GPUs split a pass into narrower bands, the viewfinder waits less): empty: 10; 0: 256-row bands as before")));
         k.add(s(post, "hybrid_why_rim_support", true, Lang.t("Пропуск пустых областей защиты граней перед тонмапингом", "Skip empty light-rim support before tone mapping")));
         k.add(s(post, "hybrid_why_edge_luma_cache", true, Lang.t("Кэш исходной яркости для защиты резких границ", "Cache scene luminance for sharp-edge protection")));
+        // P671: the photo's combine reads its one-channel windows as textureGather blocks (bit for bit, tools/check_combine_gather.py)
+        // P671: WhyMsDenoise's corner filter reads its neighbours' Oklab from a per-strip cache (bit for bit, tools/check_ms_oklab_cache.py)
+        k.add(s(post, "ms_oklab_cache", true, Lang.t("Шумодав: цвет соседей в Oklab для фильтра углов кадра считается один раз на пиксель, а не 25 (тот же результат); выкл — как раньше",
+                "Denoise: the neighbours' Oklab colour of the frame-corner filter computed once a pixel instead of 25 times (the same result); off: as before")));
+        k.add(s(post, "why_gather_taps", true, Lang.t("Тон: одноканальные окна (B-сплайн яркости, удержание краёв) читаются блоками 2×2 (тот же результат, меньше выборок); выкл — по одной, как раньше",
+                "Tone: the one-channel windows (the luma B-spline, the edge hold) read in 2 x 2 blocks (the same result, fewer reads); off: one by one as before")));
         k.add(s(post, "post_shared_context", true, Lang.t("Один GPU-контекст обработки на всё время работы: программы шейдеров не загружаются заново на каждый снимок (выкл — новый контекст на каждый снимок)",
                 "One processing GPU context for the whole run: the shader programs are not loaded again for every shot (off: a new context every shot)")));
         k.add(s(post, "effmap_real", true, Lang.t("Карта числа кадров для шумоподавления — реальная (выкл — старая)", "Frame-count map for the denoise: the real one (off: the old one)")));
@@ -897,8 +906,8 @@ public final class DevKeys {
         k.add(s(diag, "film_reference_dump", false, Lang.t("Сохранять вход и выход спектральной плёнки для сравнения", "Export spectral film input and output for comparison")));
         k.add(n(diag, "hybrid_film_reference_budget_mb", "0", Lang.t("Лимит памяти спектральной плёнки, МБ (0 — автоматически)", "Spectral film memory budget, MB (0: automatic)")));
         k.add(s(diag, "post_sync", false, Lang.t("Синхронные узлы обработки (замер времени)", "Synchronous processing nodes (timing)")));
-        k.add(s(diag, "post_gpu_timer", false, Lang.t("Замер времени GPU по программам обработки без синхронизации (P479b, в лог)",
-                "GPU time per processing program without the syncs (P479b, to the log)")));
+        k.add(sAuto(diag, "post_gpu_timer", Lang.t("Замер времени GPU по узлам и программам обработки без синхронизации, строки PERF в логе (P479b, P671; Авто — на Adreno)",
+                "GPU time per processing node and program without the syncs, PERF lines in the log (P479b, P671; Auto: on Adreno)")));
         k.add(s(diag, "diag_sync", false, Lang.t("Диагностика: превью этапов считаются и пишутся на потоке обработки, как до P371 (выкл — в фоне, снимок не ждёт)",
                 "Diagnostics: the stage previews are computed and written on the processing thread, as before P371 (off: in the background, the shot does not wait)")));
         k.add(s(diag, "diag_gpu_async", true, Lang.t("Диагностика: превью этапов на GPU копируются отдельным проходом и читаются позже, обработка не ждёт GPU (P602; выкл — чтение сразу после этапа, как раньше)",

@@ -47,6 +47,13 @@ uniform int glowRadiusU;            // output pixels (6 at 1x, 12 on the Sabre 2
 #if BAND_MASK == 1
 uniform sampler2D BandMask;         // P479: scamhdr/clipmask (the windows' columns), the ClipFlags size
 #endif
+#define BAND_TILES 0
+#if BAND_TILES == 1
+// P671 (speed): per bandTileU x bandTileU tile 1 where a flagged pixel may lie within the windows' reach (ClipBandTiles), else 0:
+// there no window below finds one and the pixel is written as read - returned at once with that value
+uniform sampler2D BandTiles;
+uniform int bandTileU;
+#endif
 out vec4 Output;
 
 uint flagAt(ivec2 p) {
@@ -60,6 +67,9 @@ uint flagAt(ivec2 p) {
 void main() {
     ivec2 xy = ivec2(gl_FragCoord.xy);
     vec4 c = texelFetch(InputBuffer, xy, 0);
+#if BAND_TILES == 1
+    if (texelFetch(BandTiles, xy / bandTileU, 0).r < 0.5) { Output = c; return; }
+#endif
     float glowS = glowRadiusU > 0 ? clamp(glowU, 0.0, 1.0) : 0.0;
     if (strengthU <= 0.0 && glowS <= 0.0) { Output = c; return; }
     ivec2 last = textureSize(InputBuffer, 0) - ivec2(1);

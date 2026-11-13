@@ -222,6 +222,27 @@ uniform sampler2D WhyColour;        // colour source (whyLow after bracket_dn, o
 uniform sampler2D WhyFused;         // fused display luma (.r), whyLow size
 uniform sampler2D WhyDetailRef;     // detailRefU 1: box mean of min(m * Y709, 1) (.r), whyLow size (why/low.glsl DETAIL_REF)
 uniform sampler2D WhyLumaS;         // sharpU 1: S(Ya) of WhyLumaSharpen (.r), output grid
+// P671 (speed, Adreno 650: the photo's combine ~70 ns a pixel): the one-channel windows of the photo (the 4 x 4 B-spline taps of
+// WhyFused and WhyDetailRef, the edge hold's 3 x 3 scene luma and 5 x 5 WhyLumaS range) read as 2 x 2 textureGather blocks - the
+// same texels (CLAMP_TO_EDGE textures of the clamped grid's size), the same sums in the same order: 61 reads become 21. The
+// photo only (WhyCombine; scam_dev why_gather_taps 0: the single reads as before; the viewfinder never sets it).
+#define GATHER_TAPS 0
+#if GATHER_TAPS == 1
+// the 2 x 2 block whose top-left texel is p: .w (p), .z (p + (1, 0)), .x (p + (0, 1)), .y (p + (1, 1)) - out-of-range texels are
+// the edge's (CLAMP_TO_EDGE), as texelFetch at the clamped position
+vec4 gather2(sampler2D t, ivec2 p) {
+    return textureGather(t, (vec2(p) + 1.0) / vec2(textureSize(t, 0)));
+}
+// the 4 x 4 window from p - 1: v[row * 4 + col]
+void gather4x4(sampler2D t, ivec2 p, out float v[16]) {
+    for (int j = 0; j < 2; j++)
+        for (int i = 0; i < 2; i++) {
+            vec4 g = gather2(t, p + ivec2(2 * i - 1, 2 * j - 1));
+            int k = 8 * j + 2 * i;
+            v[k] = g.w; v[k + 1] = g.z; v[k + 4] = g.x; v[k + 5] = g.y;
+        }
+}
+#endif
 uniform mat3 sensorToIntermediate;
 uniform mat3 intermediateToSRGB;
 uniform vec3 neutralPointU;         // unset -> 1
@@ -725,12 +746,32 @@ float trenchAt(ivec2 xy, ivec2 size) {
 float edgeHold(float yD, ivec2 xy, ivec2 size, float m) {
     if (fullInputU != 1 || edgeHoldU <= 0.0) return yD;
     float lo = 2.0, hi = 0.0;   // (min(m * Y, 1): never above 1)
+#if GATHER_TAPS == 1
+#if EDGE_LUMA_CACHE == 1
+    float sy[16];               // the 3 x 3 scene luma at sy[(dy + 1) * 4 + dx + 1] (the cache is the merge's size)
+    gather4x4(WhySceneY, xy, sy);
+    for (int dy = -1; dy <= 1; dy++)
+        for (int dx = -1; dx <= 1; dx++) {
+            float v = min(sy[(dy + 1) * 4 + dx + 1] * m, 1.0);
+            lo = min(lo, v);
+            hi = max(hi, v);
+        }
+#else
     for (int dy = -1; dy <= 1; dy++)
         for (int dx = -1; dx <= 1; dx++) {
             float v = min(sceneY(xy + ivec2(dx, dy), size) * m, 1.0);
             lo = min(lo, v);
             hi = max(hi, v);
         }
+#endif
+#else
+    for (int dy = -1; dy <= 1; dy++)
+        for (int dx = -1; dx <= 1; dx++) {
+            float v = min(sceneY(xy + ivec2(dx, dy), size) * m, 1.0);
+            lo = min(lo, v);
+            hi = max(hi, v);
+        }
+#endif
     float w = edgeHoldU * smoothstep(0.10, 0.25, cbrtp(hi) - cbrtp(lo));
     // P623 round 7 (owner, 2026-11-11, 140521: the rear-window sticker «1941-1945» still mushy - strokes merging, the digits' holes
     // filled): the average along the tangent ran over every strong edge, and on small text (2 px strokes, a 1 - 2 px hole in a 9) the
@@ -745,8 +786,18 @@ float edgeHold(float yD, ivec2 xy, ivec2 size, float m) {
     float gx = 0.0, gy = 0.0;
     for (int k = -1; k <= 1; k++) {
         float c = k == 0 ? 2.0 : 1.0;
+#if GATHER_TAPS == 1
+#if EDGE_LUMA_CACHE == 1
+        gx += c * (sy[(k + 1) * 4 + 2] - sy[(k + 1) * 4]);
+        gy += c * (sy[8 + k + 1] - sy[k + 1]);
+#else
         gx += c * (sceneY(xy + ivec2(1, k), size) - sceneY(xy + ivec2(-1, k), size));
         gy += c * (sceneY(xy + ivec2(k, 1), size) - sceneY(xy + ivec2(k, -1), size));
+#endif
+#else
+        gx += c * (sceneY(xy + ivec2(1, k), size) - sceneY(xy + ivec2(-1, k), size));
+        gy += c * (sceneY(xy + ivec2(k, 1), size) - sceneY(xy + ivec2(k, -1), size));
+#endif
     }
     float gl = length(vec2(gx, gy));
     float ys = yD;
@@ -773,12 +824,25 @@ float edgeHold(float yD, ivec2 xy, ivec2 size, float m) {
 vec2 lumaSRange(ivec2 xy) {
     ivec2 last = textureSize(WhyLumaS, 0) - ivec2(1);
     float lo = 2.0, hi = 0.0;
+#if GATHER_TAPS == 1
+    for (int j = 0; j < 3; j++)
+        for (int i = 0; i < 3; i++) {
+            vec4 g = gather2(WhyLumaS, xy + ivec2(2 * i - 2, 2 * j - 2));
+            // the 2 x 2 block at (2i - 2, 2j - 2): its right column and bottom row lie outside the 5 x 5 window for i or j = 2
+            float a = max(g.w, 0.0), b = max(g.z, 0.0), c = max(g.x, 0.0), d = max(g.y, 0.0);
+            lo = min(lo, a); hi = max(hi, a);
+            if (i < 2) { lo = min(lo, b); hi = max(hi, b); }
+            if (j < 2) { lo = min(lo, c); hi = max(hi, c); }
+            if (i < 2 && j < 2) { lo = min(lo, d); hi = max(hi, d); }
+        }
+#else
     for (int dy = -2; dy <= 2; dy++)
         for (int dx = -2; dx <= 2; dx++) {
             float v = max(texelFetch(WhyLumaS, clamp(xy + ivec2(dx, dy), ivec2(0), last), 0).r, 0.0);
             lo = min(lo, v);
             hi = max(hi, v);
         }
+#endif
     return vec2(lo, hi);
 }
 #endif
@@ -1279,6 +1343,26 @@ void main() {
         vec4 wx = bsplineWeights(fx), wy = bsplineWeights(fy);
         ivec2 lastLow = textureSize(WhyLow, 0) - ivec2(1);
         ivec2 lastFused = textureSize(WhyFused, 0) - ivec2(1);
+#if GATHER_TAPS == 1
+        // P671: the same loop, WhyFused and WhyDetailRef from four textureGather blocks each
+        float fusedT[16], refT[16];
+        gather4x4(WhyFused, ivec2(bx, by), fusedT);
+        if (bounded) gather4x4(WhyDetailRef, ivec2(bx, by), refT);
+        for (int dy = -1; dy <= 2; dy++) {
+            for (int dx = -1; dx <= 2; dx++) {
+                float w = wx[dx + 1] * wy[dy + 1];
+                ivec2 p = ivec2(bx + dx, by + dy);
+                fused += max(fusedT[(dy + 1) * 4 + dx + 1], 0.0) * w;
+                vec3 lowTap = texelFetch(WhyLow, clamp(p, ivec2(0), lastLow), 0).rgb;
+                yLow += max(dot(lowTap, LUMA), 0.000001) * w;
+                if (bounded) {
+                    yRef += max(refT[(dy + 1) * 4 + dx + 1], 0.000001) * w;
+                    lightW += lightShare(lowTap, refDomain) * w;
+                }
+                if (bounded) brightMax = max(brightMax, dot(max(lowTap, vec3(0.0)), LUMA) * ae);   // (as below)
+            }
+        }
+#else
         for (int dy = -1; dy <= 2; dy++) {
             for (int dx = -1; dx <= 2; dx++) {
                 float w = wx[dx + 1] * wy[dy + 1];
@@ -1293,6 +1377,7 @@ void main() {
                 if (bounded) brightMax = max(brightMax, dot(max(lowTap, vec3(0.0)), LUMA) * ae);
             }
         }
+#endif
         gridPos(xy.x, fc, bx, fx);
         gridPos(xy.y, fc, by, fy);
         wx = bsplineWeights(fx);
