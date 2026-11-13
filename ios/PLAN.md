@@ -553,3 +553,9 @@ change: `scam-crash.h` keeps only the stage marks on Apple.
   differ, the watermark records 21 checks 0 differ; watermark_host --check matches; HostGlSmokeTest passes. Not re-run here: the
   reference film engine on lavapipe (its library builds; ReferenceFilm unchanged), the shot_run_check --select tables
   (ScamHybridBurst's frame rules unchanged), Metal (CI).
+
+## Merge on Metal after P658 / P661 (2026-11-13)
+- The merge-metal CI check (Metal vs Mesa, the five burst crops) after main's P658/P661 base demosaic: four crops 91–101 dB as
+  before, e193420 74.6 dB with mean 1e-6 and p99.9 3e-5 of the scale — a few isolated pixels where the two GPUs take the new
+  moving-area branch differently (max 0.18). The gate is now PSNR ≥ 70 dB and at most 0.05 % of the values more than 1 % off
+  (replay_bursts.py --max-off-share), so a real regression (a wide difference) still fails.

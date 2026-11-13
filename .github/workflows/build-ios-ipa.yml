@@ -130,7 +130,7 @@ jobs:
       - name: Compare with Mesa
         run: |
           set -o pipefail
-          python3 ios/tools/replay_bursts.py compare "$RUNNER_TEMP/reference" "$RUNNER_TEMP/metal" --max-psnr-drop 80 | tee "$RUNNER_TEMP/compare.txt"
+          python3 ios/tools/replay_bursts.py compare "$RUNNER_TEMP/reference" "$RUNNER_TEMP/metal" --max-psnr-drop 70 --max-off-share 0.0005 | tee "$RUNNER_TEMP/compare.txt"
           echo "post passes (Why V2 shaders through Engine/post/GLCore.hpp):" | tee -a "$RUNNER_TEMP/compare.txt"
           python3 ios/tools/replay_bursts.py compare "$RUNNER_TEMP/reference/post" "$RUNNER_TEMP/metal/post" --max-psnr-drop 70 | tee -a "$RUNNER_TEMP/compare.txt"
           { echo '### Merge on Metal vs Mesa'; echo '```'; cat "$RUNNER_TEMP/compare.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"

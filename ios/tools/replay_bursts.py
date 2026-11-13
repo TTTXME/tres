@@ -2,7 +2,7 @@
 """Merge replay of NCH bursts with tools/hybrid_replay (ios/tools/hybrid_replay.cpp) and the comparison of two runs.
 
   replay_bursts.py run <hybrid_replay binary> <bursts dir (*.nch, *.nch.xz)> <out dir> [extra tuning lines file]
-  replay_bursts.py compare <reference dir> <candidate dir> [--max-psnr-drop dB]
+  replay_bursts.py compare <reference dir> <candidate dir> [--max-psnr-drop dB] [--max-off-share fraction]
 
 run: the base tuning is tools/replay_tuning.txt (as tools/replay_hybrid_ab.py); writes <out>/<burst>.f32 and .log.
 compare: per burst max / mean absolute difference and PSNR of the candidate against the reference, both normalised by the
@@ -69,7 +69,7 @@ def run(binary, bursts, out, extra):
     return 1 if failed else 0
 
 
-def compare(ref_dir, cand_dir, limit):
+def compare(ref_dir, cand_dir, limit, off_share=1.0):
     worst = 0
     lines = []
     for ref_path in sorted(ref_dir.glob('*.f32')):
@@ -88,10 +88,11 @@ def compare(ref_dir, cand_dir, limit):
         diff = np.abs(cand.astype(np.float64) - ref) / scale
         mse = float(np.mean(diff ** 2))
         psnr = 99.0 if mse == 0 else 10 * math.log10(1.0 / mse)
-        bad = not finite or psnr < limit
+        off = float(np.mean(diff > 0.01))  # values more than 1 % of the scale away (a branch the GPUs take differently)
+        bad = not finite or psnr < limit or off > off_share
         worst |= bad
         lines.append(f'{ref_path.stem}: {ref.shape[1]}x{ref.shape[0]} PSNR {psnr:.2f} dB max {diff.max():.5f} mean {diff.mean():.6f}'
-                     f' p99.9 {np.percentile(diff, 99.9):.5f} finite={finite}' + ('  <-- BELOW LIMIT' if bad else ''))
+                     f' p99.9 {np.percentile(diff, 99.9):.5f} off>1% {off:.6f} finite={finite}' + ('  <-- BELOW LIMIT' if bad else ''))
     print('\n'.join(lines) or 'no reference results')
     return 1 if worst or not lines else 0
 
@@ -101,6 +102,7 @@ if __name__ == '__main__':
         sys.exit(run(Path(sys.argv[2]), Path(sys.argv[3]), Path(sys.argv[4]), sys.argv[5] if len(sys.argv) > 5 else None))
     if len(sys.argv) >= 4 and sys.argv[1] == 'compare':
         limit = float(sys.argv[sys.argv.index('--max-psnr-drop') + 1]) if '--max-psnr-drop' in sys.argv else 40.0
-        sys.exit(compare(Path(sys.argv[2]), Path(sys.argv[3]), limit))
+        share = float(sys.argv[sys.argv.index('--max-off-share') + 1]) if '--max-off-share' in sys.argv else 1.0
+        sys.exit(compare(Path(sys.argv[2]), Path(sys.argv[3]), limit, share))
     print(__doc__)
     sys.exit(2)
