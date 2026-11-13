@@ -131,7 +131,12 @@ change: `scam-crash.h` keeps only the stage marks on Apple.
     hl-mask), merge, worker output read as ScamNeuralClient, Parameters, PostPipeline.Run. BurstProcessor uses it; the
     shaders are bundled from app/src/main/assets/shaders.
   - CI: .github/workflows/ios-post-check.yml (Android host reference on Mesa, the port on Mesa bit for bit, the port on
-    Metal within PSNR 40 dB).
+    Metal within PSNR 40 dB, the app's whole shot on Mesa). Metal (ScamGL, the iPhone path) on Lenta: PSNR 53.9 dB against
+    the Android photo, mean 0.24 / 255, 16130 of 37.7M values off by more than 2, max 15; AE 1.2247 vs 1.2261, sky 35.4 %.
+    The app's whole shot on Mesa (tools/shot_run_check, Lenta + its tags as a DNG): merge 35 s + post 13 s (CPU Mesa),
+    PSNR 42.8 dB to the lab photo - the shot's own tuning lines (usSceneEv, wbR / wbB) change the merge as on a live Android
+    shot. ScamGL fixes found by it: fragment outputs padded to the target, glReadPixels missing components 0 / alpha 1,
+    glClearBufferuiv / iv.
   - Not ported yet (they throw): «Why тон» V2 route, Oldstyle, «Текстура» (ScamLocalContrast), HybridFinalResize
     («Уменьшить до» / 1.5x / 2x output), DCG noise zones, film, lens filters, Ultra HDR, Portrait. Transport: the base frame
     is NCH frame 0 (Android: the sharpest of the newest within the window), per-frame noise from the DNG profile scaled by ISO.
