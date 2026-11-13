@@ -38,11 +38,21 @@ extension PhotoCapture {
             let n = min(perRequest, count - burst.frames.count)
             let bracket = (0..<n).map { _ in AVCaptureAutoExposureBracketedStillImageSettings.autoExposureSettings(exposureTargetBias: 0) }
             let first = burst.frames.isEmpty
-            let processed: [String: Any]? = first ? [AVVideoCodecKey: AVVideoCodecType.hevc] : nil
-            let settings = AVCapturePhotoBracketSettings(rawPixelFormatType: bayer, processedFormat: processed, bracketedSettings: bracket)
-            settings.maxPhotoDimensions = output.maxPhotoDimensions
+            func request(withProcessed: Bool) -> AVCapturePhotoBracketSettings {
+                let processed: [String: Any]? = withProcessed ? [AVVideoCodecKey: AVVideoCodecType.hevc] : nil
+                let settings = AVCapturePhotoBracketSettings(rawPixelFormatType: bayer, processedFormat: processed, bracketedSettings: bracket)
+                settings.maxPhotoDimensions = output.maxPhotoDimensions
+                return settings
+            }
             let requestStarted = Date()
-            let photos = try await capturePhotos(settings)
+            var photos: [AVCapturePhoto]
+            do {
+                photos = try await capturePhotos(request(withProcessed: first))
+            } catch CameraError.captureException(let reason) where first {
+                // a RAW + HEIC bracket refused: RAW only (the EXIF then comes from the DNG)
+                burst.report.append("burst request with HEIC refused (\(reason)), RAW only")
+                photos = try await capturePhotos(request(withProcessed: false))
+            }
             burst.report.append("burst request \(n) frames in \(ms(since: requestStarted)) ms")
             for photo in photos {
                 if !photo.isRawPhoto {
