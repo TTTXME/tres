@@ -232,7 +232,7 @@ jobs:
       # against the Android pipeline's photo with the engine on lavapipe (a GPU other than the reference's: a PSNR bound)
       - name: The reference film route on MoltenVK vs the Android pipeline
         env:
-          SCAM_POST_MIN_PSNR: '35'
+          SCAM_POST_MIN_PSNR: '50' # first runs: Portra 63.1 dB, Velvia 58.3 dB (the old film route: 24.9 dB)
         run: |
           D="$RUNNER_TEMP/deps/macos"; M="$RUNNER_TEMP/deps/moltenvk-macos"; F=app/src/main/cpp/third_party/spektrafilm
           res="$RUNNER_TEMP/spektrafilm"
