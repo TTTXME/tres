@@ -6,7 +6,7 @@
 "raw.title" = "RAW";
 "raw.off" = "Off";
 "raw.short_off" = "RAW off";
-"fullres.title" = "Full resolution";
+"fullres.title" = "Max MP";
 "log.share" = "Share the session log";
 "info.title" = "About this session";
 "info.build" = "Build";
@@ -19,3 +19,5 @@
 "error.capture" = "The camera refused the shot settings.";
 "error.photos_denied" = "SCAMERA has no permission to add photos to your library.";
 "error.save" = "The photo could not be saved:";
+"why.title" = "Why";
+"why.hint" = "«Why» tone on the GPU from the RAW";

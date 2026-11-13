@@ -61,6 +61,14 @@ struct CameraView: View {
             } label: {
                 pill(camera.raw == .off ? L("raw.short_off") : camera.raw.title, active: camera.raw != .off)
             }
+            if camera.raw != .off {
+                Button {
+                    camera.setWhyTone(!camera.whyTone)
+                } label: {
+                    pill(L("why.title"), active: camera.whyTone)
+                }
+                .accessibilityLabel(L("why.hint"))
+            }
             if camera.supportsFullResolution || camera.fullResolution {
                 Button {
                     Task { await camera.setFullResolution(!camera.fullResolution) }

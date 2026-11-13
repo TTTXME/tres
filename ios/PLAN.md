@@ -61,6 +61,18 @@ reference the Metal passes are compared against on identical inputs. Exceptions 
 them there too: AE histograms of `WhyV2Ae` / `WhyV2Curve` (small readback) and ScamMaster `tone_port` (owner's
 C++ code, bit-exact hashes required).
 
+## «Why» V2 on Metal (2026-11-13)
+- `Engine/WhyV2.metal`: `why_v2_clean`, `why_v2_stride`, `why_v2_luma` (sharp_in REF_LUMA), `why_v2_ef_prep` (o_G and o_W
+  in one pass), `why_v2_pyr_down`, `why_v2_ef_coarsest`, `why_v2_ef_collapse`, `why_v2_tonemap` — the GLSL one to one;
+  `MTL_FAST_MATH = NO`. `Engine/WhyV2Ae.swift` = WhyV2Ae + WhyV2Curve (XCTest = Android WhyV2ToneTest cases).
+- Input until the RAW merge is on Metal: the DNG through `CIRAWFilter` (GPU) with `boostAmount 0`, gamut mapping off,
+  local tone map 0 → linear extended sRGB, white balanced (as v2_clean expects; matrices identity, lsc 1) in an
+  IOSurface 64RGBAHalf buffer viewed by Metal without a copy. AE noise: the reference's fallback S 0.00015 / O 1e-5
+  (no camera noise profile read yet). Clip ceiling 1 (no short frames).
+- Not yet: WhyLumaSharpen (the detail transfer reads the unsharpened reference luma, `sharpen=off` in the log),
+  film LUT, P3 output. Output 8-bit (QUANT8), HEIC q 0.92 with the camera's EXIF, orientation 1.
+- Log: `Engine` lines `decode …`, `WHY V2 stats …`, `WHY V2 fusion …`, `WHY V2 tone …`, `encode HEIC … total ms= memory`.
+
 ## Stages (estimates are working sessions)
 1. ✅ 0.1 skeleton, modules/ISZ/48 MP, RAW (Bayer/ProRAW) next to HEIC, probe log, IPA workflow.
    Next in stage 1 (2–3): Metal engine (MTLDevice, compute pipelines from `Engine/*.metal`, RGBA16F textures);

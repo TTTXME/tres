@@ -1,5 +1,7 @@
 import AVFoundation
+import ImageIO
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// Observable state of the camera screen (AVCam CameraModel). Every AVFoundation call goes through CaptureService.
 @MainActor
@@ -14,6 +16,8 @@ final class CameraModel {
     private(set) var message: String?
     private(set) var raw: RawChoice
     private(set) var fullResolution: Bool
+    /// «Тон Why» V2 on the GPU for shots with RAW (the HEIC is rendered from the DNG).
+    private(set) var whyTone: Bool
 
     private let captureService = CaptureService()
     private let mediaLibrary = MediaLibrary()
@@ -24,6 +28,7 @@ final class CameraModel {
     init() {
         raw = RawChoice(rawValue: UserDefaults.standard.string(forKey: "raw_choice") ?? "") ?? .off
         fullResolution = UserDefaults.standard.object(forKey: "full_resolution") as? Bool ?? true
+        whyTone = UserDefaults.standard.object(forKey: "why_tone") as? Bool ?? true
     }
 
     func start() async {
@@ -67,15 +72,24 @@ final class CameraModel {
         apply(await captureService.setFullResolution(enabled))
     }
 
+    func setWhyTone(_ enabled: Bool) {
+        whyTone = enabled
+        defaults.set(enabled, forKey: "why_tone")
+        SessionLog.i("App", "Why tone \(enabled)")
+    }
+
     func capture() async {
         guard activity == .idle, status == .running else { return }
         activity = .capturing
         defer { activity = .idle }
         let started = Date()
         do {
-            let photo = try await captureService.capturePhoto(PhotoRequest(raw: raw, fullResolution: fullResolution))
+            var photo = try await captureService.capturePhoto(PhotoRequest(raw: raw, fullResolution: fullResolution))
             photo.report.forEach { SessionLog.i("Shot", $0) }
             activity = .saving
+            if whyTone, let dng = photo.rawFile {
+                photo = await Self.render(photo, dng: dng)
+            }
             if let data = photo.processed { thumbnail = MediaLibrary.thumbnail(of: data) }
             try await mediaLibrary.save(photo)
             SessionLog.i("Shot", "saved in \(Int(Date().timeIntervalSince(started) * 1000)) ms, \(memoryFootprint())")
@@ -83,6 +97,25 @@ final class CameraModel {
             SessionLog.e("Shot", "failed: \(error.localizedDescription)")
             show(error.localizedDescription)
         }
+    }
+
+    /// GPU processing off the main actor; on failure the camera's own HEIC is kept.
+    nonisolated private static func render(_ photo: CapturedPhoto, dng: URL) async -> CapturedPhoto {
+        await Task.detached(priority: .userInitiated) {
+            var result = photo
+            let source = photo.processed.flatMap { CGImageSourceCreateWithData($0 as CFData, nil) }
+                ?? CGImageSourceCreateWithURL(dng as CFURL, nil)
+            let metadata = source.flatMap { CGImageSourceCopyPropertiesAtIndex($0, 0, nil) as? [String: Any] } ?? [:]
+            do {
+                let processed = try ShotProcessor.process(dng: dng, metadata: metadata)
+                processed.log.forEach { SessionLog.i("Engine", $0) }
+                result.processed = processed.heic
+                result.processedUTI = UTType.heic.identifier
+            } catch {
+                SessionLog.e("Engine", "GPU processing failed, the camera's HEIC is kept: \(error.localizedDescription)")
+            }
+            return result
+        }.value
     }
 
     func focus(at point: CGPoint) async {

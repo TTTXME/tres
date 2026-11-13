@@ -6,7 +6,7 @@
 "raw.title" = "RAW";
 "raw.off" = "Выкл.";
 "raw.short_off" = "RAW выкл.";
-"fullres.title" = "Полное разрешение";
+"fullres.title" = "Макс. Мп";
 "log.share" = "Отправить лог сессии";
 "info.title" = "О сессии";
 "info.build" = "Сборка";
@@ -19,3 +19,5 @@
 "error.capture" = "Камера отклонила настройки снимка.";
 "error.photos_denied" = "У SCAMERA нет разрешения добавлять фото в медиатеку.";
 "error.save" = "Не удалось сохранить фото:";
+"why.title" = "Why";
+"why.hint" = "Тон «Why» на GPU из RAW";
