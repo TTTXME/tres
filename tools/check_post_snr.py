@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 """P648 «Подстройка под свет (SNR)»: the Resolve's night smoothing of the flat areas (scamdn/why_resolve flatNightU / flatBoostU /
-flatGrainU, flatNoiseU the merged image's measured luma noise; PostSnr).
+flatGrainU, flatNoiseU the merged image's measured luma noise; PostSnr; P666 flatShadowU the shadows' coarse texture test).
 - unset / 0: bit for bit the pass of before (the switch off and every daylight shot), whatever the other flat uniforms hold;
 - a frame of one merged frame per pixel (a rejected, moving subject; a «Спорт» shot whose donors all fell out): bit for bit too;
 - a flat noisy patch smoother, monotonically in the share and continuously from 0; its mean kept;
 - a 1 - 2 px texture above the noise kept (its band's transfer >= 0.97), an edge without a halo beside it, a colour ramp's slope and a
   hue boundary's step kept (owner, 2026-11-13: detail, colour transitions; «не выглядело пластиковым»: the grain given back raises
-  the flat fine noise), every intermediate finite."""
+  the flat fine noise), every intermediate finite;
+- P666 (owner, 2026-11-13: «он сильно мылит тени»): a shadow's texture under the pixel noise keeps its band (P648c's test alone
+  smoothed it), a flat shadow is still smoothed, everything above the shadows bit for bit P648c's, flatShadowU without flatNightU
+  bit for bit the pass of before."""
 import numpy as np
 
 import check_resolve_denoise as R
@@ -20,7 +23,7 @@ def resolve(g, image, codes, total, extra):
     p0, p1, out = g.target(w, h, 'f4'), g.target(w, h, 'f4'), g.target(w, h, 'f4')
     values = dict(useEffU=1, effScaleU=total / 64, framesU=float(total), totalU=float(total), fullSizeU=(w, h), noiseModelU=NOISE,
                   factorU=.4, outlierU=.125, rejectRevertU=.5, globalRevertU=.85, grainU=0., vignetteBoostU=0., vignetteScaleU=1.,
-                  flatNightU=0., flatBoostU=0., flatGrainU=0., flatNoiseU=(0., 0.))
+                  flatNightU=0., flatBoostU=0., flatGrainU=0., flatNoiseU=(0., 0.), flatShadowU=(0., 0., 0.))
     # a program keeps a uniform between draws: 0 stands for unset (the very first draw below is unset)
     values.update(extra)
     source = inp
@@ -50,7 +53,8 @@ def main():
     noise = (0., 2. * .006 ** 2 * (.2126390 ** 2 + .7151688 ** 2 + .0721923 ** 2))
     full = dict(flatNightU=1., flatBoostU=3., flatGrainU=0., flatNoiseU=noise)
     off = resolve(g, image, merged, total, {})
-    for z in (dict(flatNightU=0.), dict(flatNightU=0., flatBoostU=3., flatGrainU=1., flatNoiseU=noise), dict(flatNightU=-1., flatBoostU=3.)):
+    for z in (dict(flatNightU=0.), dict(flatNightU=0., flatBoostU=3., flatGrainU=1., flatNoiseU=noise), dict(flatNightU=-1., flatBoostU=3.),
+              dict(flatNightU=0., flatShadowU=SHADOW, flatNoiseU=noise)):
         assert np.array_equal(off, resolve(g, image, merged, total, z)), ('flat smoothing at 0 changed the resolve', z)
         checks += 1
     assert np.array_equal(resolve(g, image, single, total, {}), resolve(g, image, single, total, full)), \
@@ -91,8 +95,39 @@ def main():
     assert abs(res[1][0] / res[0][0] - 1) < .02, ('the colour ramp lost its slope', res)
     assert res[1][1] >= .98 * res[0][1], ('the hue boundary softened', res)
     checks += 2
+    checks += shadows(g, np.random.default_rng(666), merged, total, noise, full)
     print('P648 flat night smoothing PASS:', checks, 'cases (0 / one frame bit for bit, monotone and continuous, mean, 1 - 2 px texture, '
-          'no halo, grain given back, colour ramp and hue boundary kept)')
+          'no halo, grain given back, colour ramp and hue boundary kept; P666 shadow texture kept, flat shadow smoothed, the rest P648c)')
+
+
+SHADOW = (2., 5., .2)   # PostSnr.shadowBand of a night shot of SNR 10, PostSnr.SHADOW_COARSE
+
+
+def shadows(g, rng, merged, total, noise, full):
+    """P666: a dark half (luma ~ .008: local SNR ~ 1.3 against the measured noise) holding a 12 x 14 px texture of .005 - under the
+    pixel noise (its luma sigma ~ .0045) - beside a flat dark patch, and a lit half (.05) as the main check's."""
+    h, w = merged.shape
+    yy, xx = np.mgrid[0:h, 0:w]
+    img = np.full((h, w, 4), .05, np.float32); img[..., 3] = 1
+    img[:, :48, :3] = .008
+    tex = .005 * np.sin(xx * 2 * np.pi / 12) * np.sin(yy * 2 * np.pi / 14)
+    img[:40, :40, :3] += tex[:40, :40, None].astype(np.float32)
+    img[..., :3] += rng.normal(0, .006, (h, w, 3)).astype(np.float32)
+    y = lambda rgb: rgb.astype(np.float64) @ np.array([.2126390, .7151688, .0721923])
+    base = resolve(g, img, merged, total, {})
+    old = resolve(g, img, merged, total, full)
+    new = resolve(g, img, merged, total, dict(full, flatShadowU=SHADOW))
+    assert np.isfinite(new).all()
+    t = tex[6:34, 6:34]
+    tr = lambda o: float(((y(o)[6:34, 6:34] - y(o)[6:34, 6:34].mean()) * t).sum() / (t * t).sum())
+    assert tr(old) < .95 * tr(base), ('P648c alone kept the shadow texture - the case does not test P666', tr(old), tr(base))
+    assert tr(new) >= .97 * tr(base), ('the shadow texture was smoothed', tr(new), tr(old), tr(base))
+    sd = lambda o: y(o)[56:88, 8:40].std()
+    assert sd(new) < .93 * sd(base) and sd(new) <= 1.02 * sd(old), ('the flat shadow was not smoothed', sd(new), sd(old), sd(base))
+    assert np.array_equal(new[:, 64:], old[:, 64:]), 'the lit half changed from P648c'
+    print('  P666 shadows: texture kept %.3f (P648c %.3f) of the plain resolve, flat shadow sd %.5f (P648c %.5f, plain %.5f)'
+          % (tr(new) / tr(base), tr(old) / tr(base), sd(new), sd(old), sd(base)))
+    return 4
 
 
 if __name__ == '__main__':

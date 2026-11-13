@@ -843,6 +843,9 @@ public class PreferenceKeys {
         // in every mode: «Спорт» reads the photo's switch and footprint rows (MotionMode.DEFAULTS replaces none of them), its merge
         // (either route, fastMergeSport) applies the same curve. scam_dev.txt "hybrid_kernel_snr 0" = off.
         out.append("kernelSnr ").append(hybridSwitch("kernel_snr", true) ? 1 : 0).append('\n');
+        // P666: by day the shadows keep the kernel's transition / bokeh of before P647 (worker kernelSnrShadow, on by default: no
+        // line); scam_dev.txt "hybrid_kernel_snr_shadow 0" = P647b's day factors in the shadows too
+        if (!hybridSwitch("kernel_snr_shadow", true)) out.append("kernelSnrShadow 0\n");
         final float dezipper = hybridValue("dezipper", 4.5f);
         if (dezipper > 0f) out.append("dezipper ").append(Math.max(0.5f, Math.min(15f, dezipper))).append('\n');
         // P335 (owner, 2026-10-25: Why's rejections and anti-zipper «улучшить и добавить нам»): the rejection's soft motion prior

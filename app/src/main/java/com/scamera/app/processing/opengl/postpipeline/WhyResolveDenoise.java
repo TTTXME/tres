@@ -104,6 +104,9 @@ public final class WhyResolveDenoise {
             }
             // P648c: the night's flat-area smoothing (only where the merged luma is flat against its measured noise; 0: none)
             final float flatNight = PostSnr.flatNight(shotSnr, adapt, par.finishNoiseS, par.finishNoiseO);
+            // P666: the shadows' texture is not called flat (their coarse variance over the noise; off: P648c's test alone)
+            final float[] band = flatNight > 0f && PostSnr.shadowTexture() ? PostSnr.shadowBand(shotSnr) : new float[]{0f, 0f};
+            final boolean shadow = band[1] > band[0];
 
             // ---- the uniforms of the reference app's resolve
             final float[] so = shotNoise(par);
@@ -156,6 +159,7 @@ public final class WhyResolveDenoise {
                     glProg.setVar("flatBoostU", PostSnr.FLAT_BOOST);
                     glProg.setVar("flatGrainU", PostSnr.FLAT_GRAIN);
                     glProg.setVar("flatNoiseU", flatNight > 0f ? par.finishNoiseS : 0f, flatNight > 0f ? par.finishNoiseO : 0f);
+                    glProg.setVar("flatShadowU", shadow ? band[0] : 0f, shadow ? band[1] : 0f, shadow ? PostSnr.SHADOW_COARSE : 0f);
                     glProg.setVar("outlierU", OUTLIER);
                     glProg.setVar("rejectRevertU", motionRevert);
                     glProg.setVar("globalRevertU", lumaRevert);
@@ -169,7 +173,7 @@ public final class WhyResolveDenoise {
             }
             com.scamera.app.processing.opengl.PostGlMode.lap("resolve passes");
             if (snr != null) DenoiseStats.finishSnrEnd(snr, log);
-            log.append(" factor=").append(factor).append(" flat=").append(flatNight).append(" revert=").append(lumaRevert).append('/').append(motionRevert)
+            log.append(" factor=").append(factor).append(" flat=").append(flatNight).append(shadow ? " shadow " + band[0] + ".." + band[1] : "").append(" revert=").append(lumaRevert).append('/').append(motionRevert)
                .append(" grain=").append(grain).append(" S=").append(so[0]).append(" O=").append(so[1]).append(" vignette=").append(boost)
                .append(" rows=").append(rows).append(" N=").append(effMap != null ? "map(x" + effScale + ")" : "flat").append(" default=").append(frames)
                .append(" total=").append(normals)

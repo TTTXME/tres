@@ -186,6 +186,8 @@ uniform float green_clipping_point;
 uniform vec4 frame_border_padded;
 uniform vec4 covariance_parameters1;
 uniform vec4 covariance_parameters2;
+uniform vec4 u_day_shade; // P666: the day transition (x) / blurred (y) factors the shadows undo over the guide's luma z .. w (x 0: off)
+float g_shade = 0.0;      // P666: this pixel's share of that undo (0 lit .. 1 deep shade)
 uniform vec4 force_reference_color_rgb;
 uniform vec4 debug_options;
 uniform vec4 noise_texture_scale_bias;
@@ -286,6 +288,7 @@ void AnalyzeStructureTensor(in vec3 cov_m,
 float ComputeGradientBlurring(in float strength, in float green_differences) {
   float gradient_clip = covariance_parameters1.z;
   float gradient_transition = covariance_parameters2.y;
+  if (g_shade > 0.0) { float t = mix(1.0, u_day_shade.x, g_shade); gradient_clip /= t; gradient_transition *= t; }
   float dominant_feature = max(strength, green_differences);
   dominant_feature -= gradient_clip;
   float lerp_to_radial = clamp(1.0 - dominant_feature * gradient_transition, 0.0, 1.0);
@@ -301,6 +304,7 @@ vec3 ConstructGaussianCovariance(in vec2 eigenvector1, in vec2 eigenvector2,
   float shrinked_sigma = covariance_parameters1.x;
   float stretched_sigma = covariance_parameters1.y;
   float blurred_sigma = covariance_parameters2.x;
+  if (g_shade > 0.0) blurred_sigma *= mix(1.0, u_day_shade.y, g_shade);
 
   float anisotropic_shrinking = mix(base_sigma, shrinked_sigma, min(coherence, strength * 5.0));
   float singular_value1 = mix(anisotropic_shrinking, blurred_sigma, gradient_blurring);
@@ -419,6 +423,7 @@ void main() {
 
   vec2 eigenvector1, eigenvector2;
   float strength, coherence;
+  if (u_day_shade.x > 0.0) g_shade = 1.0 - smoothstep(u_day_shade.z, u_day_shade.w, mean.x); // P666
   AnalyzeStructureTensor(covariance, noise_params.y, eigenvector1, eigenvector2, strength, coherence);
 
   vec3 gauss_covariance = ConstructGaussianCovariance(eigenvector1, eigenvector2, strength, coherence, green_differences);
@@ -4444,6 +4449,8 @@ uniform float green_clipping_point;
 uniform vec4 frame_border_padded;
 uniform vec4 covariance_parameters1;
 uniform vec4 covariance_parameters2;
+uniform vec4 u_day_shade; // P666: the day transition (x) / blurred (y) factors the shadows undo over the guide's luma z .. w (x 0: off)
+float g_shade = 0.0;      // P666: this pixel's share of that undo (0 lit .. 1 deep shade)
 uniform vec4 force_reference_color_rgb;
 uniform vec4 debug_options;
 uniform vec4 noise_texture_scale_bias;
@@ -4539,6 +4546,7 @@ void AnalyzeStructureTensor(in vec3 cov_m,
 float ComputeGradientBlurring(in float strength, in float green_differences) {
   float gradient_clip = covariance_parameters1.z;
   float gradient_transition = covariance_parameters2.y;
+  if (g_shade > 0.0) { float t = mix(1.0, u_day_shade.x, g_shade); gradient_clip /= t; gradient_transition *= t; }
   float dominant_feature = max(strength, green_differences);
   dominant_feature -= gradient_clip;
   float lerp_to_radial = clamp(1.0 - dominant_feature * gradient_transition, 0.0, 1.0);
@@ -4554,6 +4562,7 @@ vec3 ConstructGaussianCovariance(in vec2 eigenvector1, in vec2 eigenvector2,
   float shrinked_sigma = covariance_parameters1.x;
   float stretched_sigma = covariance_parameters1.y;
   float blurred_sigma = covariance_parameters2.x;
+  if (g_shade > 0.0) blurred_sigma *= mix(1.0, u_day_shade.y, g_shade);
 
   float anisotropic_shrinking = mix(base_sigma, shrinked_sigma, min(coherence, strength * 5.0));
   float singular_value1 = mix(anisotropic_shrinking, blurred_sigma, gradient_blurring);
@@ -4774,6 +4783,7 @@ void main() {
 
   vec2 eigenvector1, eigenvector2;
   float strength, coherence;
+  if (u_day_shade.x > 0.0) g_shade = 1.0 - smoothstep(u_day_shade.z, u_day_shade.w, mean.x); // P666
   AnalyzeStructureTensor(covariance, noise_params.y, eigenvector1, eigenvector2, strength, coherence);
 
   vec3 gauss_covariance = ConstructGaussianCovariance(eigenvector1, eigenvector2, strength, coherence, green_differences);
