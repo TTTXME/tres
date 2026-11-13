@@ -43,7 +43,7 @@ static void makePostContext() {
 @implementation SCAMShot
 
 + (SCAMPhoto *)processBurstAtPath:(NSString *)burst dng:(NSData *)dng settings:(NSString *)settings
-                            faces:(NSArray<NSNumber *> *)faces facesDetected:(BOOL)facesDetected
+                            faces:(NSArray<NSNumber *> *)faces facesDetected:(BOOL)facesDetected front:(BOOL)front
                           shaders:(NSString *)shaders error:(NSError **)error {
     static std::mutex lock; // the merge's process-wide hooks and the pipeline's statics: one shot at a time
     std::lock_guard<std::mutex> guard(lock);
@@ -63,6 +63,7 @@ static void makePostContext() {
         const std::vector<uint8_t> dngBytes(bytes, bytes + dng.length);
         scam_post::ShotFaces shotFaces;
         shotFaces.detected = facesDetected;
+        shotFaces.front = front;
         for (NSNumber *v in faces) shotFaces.boxes.push_back(v.floatValue);
         const scam_post::ShotOutput out = scam_post::runShot(burst.UTF8String, dngBytes, job.UTF8String, shaders.UTF8String, log, makePostContext,
                                                              16384, shotFaces);

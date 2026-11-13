@@ -28,7 +28,7 @@ NS_ASSUME_NONNULL_BEGIN
 /// (left, top, right, bottom, normalised, in the unrotated RAW buffer; four numbers a face, at most five faces), facesDetected:
 /// whether a face was found (also with no boxes: its place in the RAW unknown); shaders: the folder of the app's shader assets.
 + (nullable SCAMPhoto *)processBurstAtPath:(NSString *)burst dng:(NSData *)dng settings:(NSString *)settings
-                                     faces:(NSArray<NSNumber *> *)faces facesDetected:(BOOL)facesDetected
+                                     faces:(NSArray<NSNumber *> *)faces facesDetected:(BOOL)facesDetected front:(BOOL)front
                                    shaders:(NSString *)shaders error:(NSError **)error;
 @end
 

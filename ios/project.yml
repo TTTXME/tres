@@ -22,6 +22,7 @@ targets:
     sources:
       - path: App
       - path: Capture
+      - path: Viewfinder
       - path: Bridge
       - path: Engine
       - path: Editor
@@ -49,6 +50,11 @@ targets:
         compilerFlags: ["-ffp-contract=on"]
       - path: ../app/src/main/cpp/third_party/spektrafilm/SpektraGeneratedProfileCurves.cpp
         compilerFlags: ["-ffp-contract=on"]
+      # the Android app's shutter and self-timer sounds (CameraSounds), taken from its res/raw as they are
+      - path: ../app/src/main/res/raw/sound_shutter.mp3
+        buildPhase: resources
+      - path: ../app/src/main/res/raw/sound_timer.mp3
+        buildPhase: resources
       # the Android app's shaders: the post pipeline (Engine/post) loads them as the app's assets
       - path: ../app/src/main/assets/shaders
         type: folder

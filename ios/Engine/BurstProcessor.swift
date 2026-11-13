@@ -65,7 +65,7 @@ enum BurstProcessor {
         let photo: SCAMPhoto
         do {
             photo = try SCAMShot.processBurst(atPath: nch.path, dng: burst.dng, settings: PostSettings.json(),
-                                              faces: faces.boxes.map { NSNumber(value: $0) }, facesDetected: faces.detected,
+                                              faces: faces.boxes.map { NSNumber(value: $0) }, facesDetected: faces.detected, front: burst.front,
                                               shaders: shaders.path)
         } catch let error as NSError {
             log += (error.userInfo["log"] as? [String]) ?? []

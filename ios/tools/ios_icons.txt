@@ -54,3 +54,9 @@ kb_ui_ic_size_rest
 ui_ic_check
 ui_ic_clock
 cs_chevron
+cv_bolt_off
+cv_bolt_auto
+cv_bolt_fill
+cv_torch
+cv_sun
+ui_ic_lock

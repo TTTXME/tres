@@ -14,6 +14,15 @@ actor CaptureService {
     private var rotationObservation: NSKeyValueObservation?
     private var subjectAreaTask: Task<Void, Never>?
     private var isSetUp = false
+    /// pref_ae_mode_key as the top row stores it (applied to every lens it opens)
+    private var flashMode = FlashMode.off
+    /// SIMPLE_UI §1: a long press holds the focus and the exposure («Закреплено») until a tap elsewhere or a reset
+    private var aeAfLocked = false
+    /// ZoomController's residual: the digital crop over the module's own zoom
+    private var residual = 1.0
+    /// «Про»: the values applied last, and the exposure (ISO x seconds) the AE had when they took over (the software priority)
+    private var manual = ManualSettings.load()
+    private var autoExposureProduct: Double?
 
     private let sessionQueue = DispatchSerialQueue(label: "scamera.capture-session")
     nonisolated var unownedExecutor: UnownedSerialExecutor { sessionQueue.asUnownedSerialExecutor() }
@@ -34,6 +43,18 @@ actor CaptureService {
         var modules: [LensModule]
         var active: LensModule?
         var supportsFullResolution: Bool
+        /// The open lens: a flash unit, a torch, the user's side
+        var hasFlash = false
+        var hasTorch = false
+        var isFront = false
+        /// The lens's ranges for «Про» and the exposure sun
+        var evRange: ClosedRange<Float> = -2...2
+        var isoRange: ClosedRange<Float> = 25...3200
+        var durationRange: ClosedRange<Double> = 1.0 / 8000...1
+        /// The digital zoom the lens allows over its module's own (ZoomController's residual range)
+        var maxResidual = 1.0
+        /// The system's capture sound is suppressed (iOS 18, where allowed): the app's own shutter sound plays
+        var suppressesShutterSound = false
     }
 
     func start(preferredModule: String?, fullResolution: Bool) throws -> State {
@@ -48,6 +69,13 @@ actor CaptureService {
             session.sessionPreset = .photo
             do {
                 try addOutput(photoCapture.output)
+                // the live look's frames (Viewfinder/ViewfinderRenderer); without them the plain preview layer only
+                let frames = ViewfinderRenderer.shared.output
+                if session.canAddOutput(frames) {
+                    session.addOutput(frames)
+                } else {
+                    SessionLog.w("Capture", "viewfinder frames output refused: the plain preview only")
+                }
                 try apply(module)
             } catch {
                 session.commitConfiguration()
@@ -72,7 +100,23 @@ actor CaptureService {
     }
 
     var state: State {
-        State(modules: modules, active: activeModule, supportsFullResolution: photoCapture.supportsFullResolution)
+        var s = State(modules: modules, active: activeModule, supportsFullResolution: photoCapture.supportsFullResolution)
+        s.suppressesShutterSound = photoCapture.suppressesShutterSound
+        if let device = activeInput?.device {
+            s.hasFlash = device.hasFlash
+            s.hasTorch = device.hasTorch
+            s.isFront = device.position == .front
+            if device.maxExposureTargetBias > device.minExposureTargetBias {
+                s.evRange = device.minExposureTargetBias...device.maxExposureTargetBias
+            }
+            let f = device.activeFormat
+            if f.maxISO > f.minISO { s.isoRange = f.minISO...f.maxISO }
+            let d0 = f.minExposureDuration.seconds, d1 = f.maxExposureDuration.seconds
+            if d0 > 0, d1 > d0 { s.durationRange = d0...d1 }
+            let base = max(activeModule?.deviceZoom ?? 1, 1)
+            s.maxResidual = max(1, min(Double(device.maxAvailableVideoZoomFactor) / base, 10))
+        }
+        return s
     }
 
     func select(moduleID: String) throws -> State {
@@ -125,9 +169,27 @@ actor CaptureService {
         }
         let zoom = min(max(CGFloat(module.deviceZoom), device.minAvailableVideoZoomFactor), device.maxAvailableVideoZoomFactor)
         device.videoZoomFactor = zoom
-        if device.isFocusModeSupported(.continuousAutoFocus) { device.focusMode = .continuousAutoFocus }
+        residual = 1
+        aeAfLocked = false
+        let focus = Self.focusMode
+        if device.isFocusModeSupported(focus) { device.focusMode = focus }
+        else if device.isFocusModeSupported(.continuousAutoFocus) { device.focusMode = .continuousAutoFocus }
         if device.isExposureModeSupported(.continuousAutoExposure) { device.exposureMode = .continuousAutoExposure }
+        // «Распознавание лиц» (pref_face_detect_mode): off keeps the focus and the exposure off the faces
+        let faces = StoredPrefs.string("pref_face_detect_mode", "auto") != "off"
+        device.automaticallyAdjustsFaceDrivenAutoFocusEnabled = faces
+        device.automaticallyAdjustsFaceDrivenAutoExposureEnabled = faces
+        if !faces {
+            device.isFaceDrivenAutoFocusEnabled = false
+            device.isFaceDrivenAutoExposureEnabled = false
+        }
+        // «Ночной буст» (pref_low_light_boost, Android CONTROL_AE_MODE_ON_LOW_LIGHT_BOOST_BRIGHTNESS_PRIORITY): the lens's own boost
+        if device.isLowLightBoostSupported {
+            device.automaticallyEnablesLowLightBoostWhenAvailable = StoredPrefs.bool("pref_low_light_boost", false)
+        }
+        Self.applyMotionCeiling(device)
         device.unlockForConfiguration()
+        applyFlash(device)
         photoCapture.updateConfiguration(for: device, fullResolution: fullResolution)
         activeModule = module
         SessionLog.i("Capture", "module \(module.id) \(module.label) \(module.kind.rawValue) deviceZoom=\(zoom)")
@@ -150,18 +212,104 @@ actor CaptureService {
         return try await photoCapture.captureBayerBurst(count: count, device: device)
     }
 
-    // MARK: the top row's flash and «Про» (CameraUIController torch_button, the manual panel)
+    // MARK: the top row's flash, the zoom and «Про» (CameraUIController torch_button, ZoomController, the manual panel)
 
-    func setTorch(_ on: Bool) -> Bool {
-        guard let device = activeInput?.device, device.hasTorch, device.isTorchModeSupported(on ? .on : .off) else { return false }
+    /// «Режим фокуса» (pref_af_mode_key: 4 continuous picture, 3 continuous video, 1 auto - one scan, then held)
+    private static var focusMode: AVCaptureDevice.FocusMode {
+        StoredPrefs.string("pref_af_mode_key", "4") == "1" ? .autoFocus : .continuousAutoFocus
+    }
+
+    /// «Спорт» (MotionMode, P110): the camera's auto exposure keeps the shutter at or under pref_scam_hybrid_mm_shutter (1/250 s;
+    /// "0" no ceiling), the ISO raised instead; outside the mode the lens's own ceiling. Called with the device locked.
+    private static func applyMotionCeiling(_ device: AVCaptureDevice) {
+        guard device.exposureMode != .custom else { return }   // a manual shutter («Про») is its own
+        let denominator = StoredPrefs.bool("pref_motion_mode", false) ? Double(StoredPrefs.string("pref_scam_hybrid_mm_shutter", "250")) ?? 250 : 0
+        let f = device.activeFormat
+        if denominator > 0 {
+            let seconds = min(max(1 / denominator, f.minExposureDuration.seconds), f.maxExposureDuration.seconds)
+            device.activeMaxExposureDuration = CMTime(seconds: seconds, preferredTimescale: 1_000_000)
+        } else {
+            device.activeMaxExposureDuration = .invalid
+        }
+    }
+
+    /// The camera mode changed (Спорт / Фото / Oldstyle): its shutter ceiling on the open lens
+    func applyMode() {
+        guard let device = activeInput?.device else { return }
         do {
             try device.lockForConfiguration()
-            device.torchMode = on ? .on : .off
+            Self.applyMotionCeiling(device)
             device.unlockForConfiguration()
-            return on
+            SessionLog.i("Capture", "camera mode: sport \(StoredPrefs.bool("pref_motion_mode", false)), shutter ceiling \(device.activeMaxExposureDuration.seconds)")
         } catch {
-            return false
+            SessionLog.w("Capture", "camera mode: \(error.localizedDescription)")
         }
+    }
+
+    /// FlashMode: the torch while «Фонарик» is chosen (a lens with one), the scene metered for the flash in «Авто».
+    func setFlash(_ mode: FlashMode) -> State {
+        flashMode = mode
+        if let device = activeInput?.device { applyFlash(device) }
+        SessionLog.i("Capture", "flash mode \(mode.name)")
+        return state
+    }
+
+    private func applyFlash(_ device: AVCaptureDevice) {
+        let mode = FlashMode.effective(flashMode, flashUnit: device.hasFlash)
+        let torch: AVCaptureDevice.TorchMode = mode == .torch ? .on : .off
+        if device.hasTorch, device.isTorchModeSupported(torch), device.torchMode != torch {
+            do {
+                try device.lockForConfiguration()
+                device.torchMode = torch
+                device.unlockForConfiguration()
+            } catch {
+                SessionLog.w("Capture", "torch: \(error.localizedDescription)")
+            }
+        }
+        photoCapture.monitorFlashScene(mode == .auto)
+    }
+
+    /// FlashMode.flashShot at the press: On, or Auto when the scene asks for the flash
+    var flashShot: Bool {
+        guard let device = activeInput?.device else { return false }
+        return FlashMode.flashShot(FlashMode.effective(flashMode, flashUnit: device.hasFlash), flashScene: photoCapture.isFlashScene,
+                                   flashUnit: device.hasFlash)
+    }
+
+    /// ZoomController: the residual crop over the open module's own zoom (1: the module as it is)
+    func setZoom(residual r: Double) {
+        guard let device = activeInput?.device, let module = activeModule else { return }
+        let factor = min(max(CGFloat(module.deviceZoom * max(1, r)), device.minAvailableVideoZoomFactor), device.maxAvailableVideoZoomFactor)
+        guard abs(device.videoZoomFactor - factor) > 0.001 else { return }
+        do {
+            try device.lockForConfiguration()
+            device.videoZoomFactor = factor
+            device.unlockForConfiguration()
+            residual = Double(factor) / max(module.deviceZoom, 1)
+        } catch {
+            SessionLog.w("Capture", "zoom: \(error.localizedDescription)")
+        }
+    }
+
+    /// The lens facts the photo's EXIF needs where the camera's metadata lacks them (ShotExif): the f-number, the 35 mm equivalent of
+    /// the field the photo shows (the format's field of view over the zoom), the side, the module.
+    func exifFacts(time: Date) -> ShotExif {
+        var facts = ShotExif(time: time)
+        facts.cameraID = activeModule?.id
+        guard let device = activeInput?.device else { return facts }
+        facts.facing = device.position == .front ? "front" : "back"
+        facts.fNumber = Double(device.lensAperture)
+        let dims = photoCapture.output.maxPhotoDimensions
+        let aspect = dims.width > 0 && dims.height > 0 ? Double(max(dims.width, dims.height)) / Double(min(dims.width, dims.height)) : 4.0 / 3.0
+        facts.focal35 = ShotExif.focal35(horizontalFOV: Double(device.activeFormat.videoFieldOfView), aspect: aspect,
+                                         zoom: Double(device.videoZoomFactor))
+        return facts
+    }
+
+    /// The flash shot's one Bayer frame (nil: refused, the camera's own flash photo then)
+    func captureFlashFrame() async throws -> BayerBurst? {
+        guard let device = activeInput?.device else { throw CameraError.videoDeviceUnavailable }
+        return try await photoCapture.captureFlashFrame(device: device, flash: .on)
     }
 
     func applyManual(_ m: ManualSettings) {
@@ -169,19 +317,28 @@ actor CaptureService {
         do {
             try device.lockForConfiguration()
             defer { device.unlockForConfiguration() }
-            if m.exposureOn, device.isExposureModeSupported(.custom) {
-                let f = device.activeFormat
-                let iso = Float(min(max(m.iso, Double(f.minISO)), Double(f.maxISO)))
-                let seconds = min(max(pow(2, m.shutter), f.minExposureDuration.seconds), f.maxExposureDuration.seconds)
-                device.setExposureModeCustom(duration: CMTime(seconds: seconds, preferredTimescale: 1_000_000), iso: iso)
+            let f = device.activeFormat
+            if (m.isoOn || m.shutterOn), device.isExposureModeSupported(.custom) {
+                // ISO or shutter priority: the other one keeps the exposure the AE had (times the EV), as the panel's software
+                // priority (SceneLuma) holds the scene's brightness
+                if device.exposureMode != .custom || autoExposureProduct == nil {
+                    autoExposureProduct = Double(device.iso) * device.exposureDuration.seconds
+                }
+                let product = (autoExposureProduct ?? 0.01) * pow(2, m.isoOn && m.shutterOn ? 0 : m.bias)
+                var seconds = m.shutterOn ? pow(2, m.shutter) : product / max(m.iso, 1)
+                seconds = min(max(seconds, f.minExposureDuration.seconds), f.maxExposureDuration.seconds)
+                var iso = m.isoOn ? m.iso : product / max(seconds, 1e-6)
+                iso = min(max(iso, Double(f.minISO)), Double(f.maxISO))
+                device.setExposureModeCustom(duration: CMTime(seconds: seconds, preferredTimescale: 1_000_000), iso: Float(iso))
             } else {
-                if device.isExposureModeSupported(.continuousAutoExposure) { device.exposureMode = .continuousAutoExposure }
+                autoExposureProduct = nil
+                if !aeAfLocked, device.isExposureModeSupported(.continuousAutoExposure) { device.exposureMode = .continuousAutoExposure }
                 device.setExposureTargetBias(Float(min(max(m.bias, Double(device.minExposureTargetBias)), Double(device.maxExposureTargetBias))))
             }
-            if m.focusOn, device.isFocusModeSupported(.locked) {
+            if m.focusOn, device.isLockingFocusWithCustomLensPositionSupported {
                 device.setFocusModeLocked(lensPosition: Float(m.focus))
-            } else if device.isFocusModeSupported(.continuousAutoFocus) {
-                device.focusMode = .continuousAutoFocus
+            } else if manual.focusOn, device.isFocusModeSupported(Self.focusMode) {
+                device.focusMode = Self.focusMode
             }
             if m.wbOn, device.isWhiteBalanceModeSupported(.locked) {
                 var gains = device.deviceWhiteBalanceGains(for: AVCaptureDevice.WhiteBalanceTemperatureAndTintValues(temperature: Float(m.kelvin), tint: 0))
@@ -193,6 +350,7 @@ actor CaptureService {
             } else if device.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) {
                 device.whiteBalanceMode = .continuousAutoWhiteBalance
             }
+            manual = m
         } catch {
             SessionLog.e("Capture", "manual settings: \(error.localizedDescription)")
         }
@@ -204,24 +362,59 @@ actor CaptureService {
         session.connections.compactMap { $0.videoPreviewLayer }.first
     }
 
+    /// TouchFocus.processTouchToFocus: a tap focuses and meters there (a held lock goes); a manual exposure («Про») stays as it is.
     func focusAndExpose(atLayerPoint point: CGPoint) {
         guard let layer = previewLayer else { return }
+        aeAfLocked = false
         focusAndExpose(at: layer.captureDevicePointConverted(fromLayerPoint: point), userInitiated: true)
+    }
+
+    /// TouchFocus.lockAt (SIMPLE_UI §1): the long press focuses and meters there, then the exposure is locked once the metering
+    /// settled (LOCK_AE_SETTLE_MS 600) until a tap elsewhere, a reset or another lens.
+    func lockFocusAndExposure(atLayerPoint point: CGPoint) async {
+        guard let layer = previewLayer else { return }
+        focusAndExpose(at: layer.captureDevicePointConverted(fromLayerPoint: point), userInitiated: true)
+        aeAfLocked = true
+        if let device = activeInput?.device, (try? device.lockForConfiguration()) != nil {
+            device.isSubjectAreaChangeMonitoringEnabled = false
+            device.unlockForConfiguration()
+        }
+        SessionLog.i("Capture", "focus and exposure locked")
+        try? await Task.sleep(nanoseconds: 600_000_000)
+        guard aeAfLocked, let device = activeInput?.device, !(manual.isoOn || manual.shutterOn) else { return }
+        do {
+            try device.lockForConfiguration()
+            if device.isExposureModeSupported(.locked) { device.exposureMode = .locked }
+            device.unlockForConfiguration()
+        } catch {
+            SessionLog.w("Capture", "exposure lock: \(error.localizedDescription)")
+        }
+    }
+
+    /// A tap on the focus ring (TouchFocus.resetFocusCircle + setInitialAFAE): the lock goes, focus and exposure follow the scene.
+    func resetFocusAndExposure() {
+        aeAfLocked = false
+        focusAndExpose(at: CGPoint(x: 0.5, y: 0.5), userInitiated: false)
     }
 
     private func focusAndExpose(at devicePoint: CGPoint, userInitiated: Bool) {
         guard let device = activeInput?.device else { return }
         do {
             try device.lockForConfiguration()
-            let focus: AVCaptureDevice.FocusMode = userInitiated ? .autoFocus : .continuousAutoFocus
-            if device.isFocusPointOfInterestSupported, device.isFocusModeSupported(focus) {
-                device.focusPointOfInterest = devicePoint
-                device.focusMode = focus
+            if !manual.focusOn {
+                let focus: AVCaptureDevice.FocusMode = userInitiated ? .autoFocus : Self.focusMode
+                if device.isFocusPointOfInterestSupported, device.isFocusModeSupported(focus) {
+                    device.focusPointOfInterest = devicePoint
+                    device.focusMode = focus
+                }
             }
-            let exposure: AVCaptureDevice.ExposureMode = userInitiated ? .autoExpose : .continuousAutoExposure
-            if device.isExposurePointOfInterestSupported, device.isExposureModeSupported(exposure) {
-                device.exposurePointOfInterest = devicePoint
-                device.exposureMode = exposure
+            // P521: a manual exposure («Про»: ISO / shutter set) takes no metering; the tap focuses only
+            if !(manual.isoOn || manual.shutterOn) {
+                let exposure: AVCaptureDevice.ExposureMode = userInitiated ? .autoExpose : .continuousAutoExposure
+                if device.isExposurePointOfInterestSupported, device.isExposureModeSupported(exposure) {
+                    device.exposurePointOfInterest = devicePoint
+                    device.exposureMode = exposure
+                }
             }
             device.isSubjectAreaChangeMonitoringEnabled = userInitiated
             device.unlockForConfiguration()
@@ -234,7 +427,7 @@ actor CaptureService {
         subjectAreaTask?.cancel()
         subjectAreaTask = Task {
             for await _ in NotificationCenter.default.notifications(named: AVCaptureDevice.subjectAreaDidChangeNotification, object: device) {
-                focusAndExpose(at: CGPoint(x: 0.5, y: 0.5), userInitiated: false)
+                if !aeAfLocked { focusAndExpose(at: CGPoint(x: 0.5, y: 0.5), userInitiated: false) }
             }
         }
     }
@@ -250,6 +443,12 @@ actor CaptureService {
                 connection.videoRotationAngle = previewAngle
             }
         }
+        // the live look's frames upright as the preview, mirrored for the front lens; the front photo mirrored as Android's
+        // Parameters.mirror unless «Disable front mirror» (pref_tunable_parameters_disablemirror)
+        let front = device.position == .front
+        let disableMirror = ["1", "true", "1.0"].contains(StoredPrefs.string("pref_tunable_parameters_disablemirror", "0"))
+        ViewfinderRenderer.shared.configure(rotation: previewAngle, mirrored: front)
+        photoCapture.setMirrored(front && !disableMirror)
         rotationObservation = coordinator.observe(\.videoRotationAngleForHorizonLevelCapture, options: .new) { [weak self] _, change in
             guard let self, let angle = change.newValue else { return }
             Task { await self.updateCaptureRotation(angle) }

@@ -32,6 +32,7 @@ struct ShotOutput {
 struct ShotFaces {
     bool detected = false;
     std::vector<float> boxes;
+    bool front = false; // the front camera (Parameters.mirror unless «disable mirror»)
 };
 
 /// settings: the app's (Settings::current()); nchPath: the burst written by the app, its header flags set here; jobDir: an empty
@@ -110,6 +111,8 @@ inline ShotOutput runShot(const std::string& nchPath, const std::vector<uint8_t>
     p.mParameters.portraitSkinWarmth = p.mParameters.portraitEnabled && s.getBoolean("pref_portrait_skin_warmth", true);
     // Parameters.FillDynamicParameters: the faces only with «Портрет» on (the shot has no RAW crop: the boxes as found, kept to the
     // frame and to PortraitFaces.MAX_FACES as PortraitFaces.append keeps them)
+    // Parameters.FillConstParameters: a front camera mirrors, pref_tunable_parameters_disablemirror turns it off
+    p.mParameters.mirror = faces.front && !s.getBoolean("pref_tunable_parameters_disablemirror", false);
     p.mParameters.portraitFaceDetected = false;
     p.mParameters.portraitFaces = std::vector<float>();
     if (p.mParameters.portraitEnabled) {

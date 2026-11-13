@@ -10,6 +10,24 @@ struct CameraView: View {
     @State private var showingPro = false
     @State private var showingGallery = false
     @State private var chrome = CameraChrome()
+    @State private var focus = FocusMark()
+    @State private var sunEv = 0.0
+    @State private var sunDragging = false
+    @State private var rulerShown = false
+    @State private var rulerTask: Task<Void, Never>?
+    @State private var pinchStart = 1.0
+    @State private var savedBrightness: CGFloat?
+    @Environment(\.scenePhase) private var scenePhase
+
+    /// TouchFocus's ring: where it is, whether it shows, dimmed while a lock holds (AUTO_HIDE_DELAY_MS 3 s)
+    struct FocusMark {
+        var point: CGPoint?
+        var visible = false
+        var dimmed = false
+        var pulse = false
+        var hide: Task<Void, Never>?
+        static let radius: CGFloat = 35
+    }
 
     var body: some View {
         ZStack {
@@ -43,24 +61,54 @@ struct CameraView: View {
         .sheet(isPresented: $showingPro) {
             ProSheet(camera: camera).presentationDetents([.medium])
         }
+        // P507: the front lens's torch lights the face with the screen (full brightness while it is on)
+        .onChange(of: camera.screenLight) { setScreenLight(camera.screenLight) }
+        .onChange(of: scenePhase) {
+            if scenePhase != .active {
+                chrome.cancelTimer()   // CameraUIController.onPause: the countdown stops, no shot
+                setScreenLight(false)
+            } else {
+                setScreenLight(camera.screenLight)
+            }
+        }
+        .onDisappear { chrome.cancelTimer(); setScreenLight(false) }
     }
 
     private var content: some View {
         VStack(spacing: 12) {
             topBar
             GeometryReader { geometry in
-                CameraPreview(source: camera.previewSource)
-                    .onTapGesture(coordinateSpace: .local) { point in
-                        Task { await camera.focus(at: point) }
-                    }
+                CameraPreview(source: camera.previewSource,
+                              onTap: { tap(at: $0, in: geometry.size) },
+                              onLongPress: { longPress(at: $0) },
+                              onPinch: { scale, began in pinch(scale, began: began) },
+                              onHardwareShutter: { pressShutter() })
                     .frame(width: geometry.size.width, height: geometry.size.height)
-                    .overlay { ViewfinderOverlay(grid: chrome.grid, horizon: chrome.horizon) }
+                    .overlay { ViewfinderOverlay(grid: chrome.gridType, horizon: chrome.horizon) }
+                    .overlay { focusLayer(in: geometry.size) }
+                    .overlay(alignment: .top) { topPills }
                     .overlay(alignment: .bottom) { messageCard }
+                    .overlay(alignment: .bottom) {
+                        if rulerShown {
+                            ZoomRuler(zoom: camera.zoom, range: camera.zoomRange, marks: camera.sideModules.map { ($0.zoom, $0.label) },
+                                      onZoom: { z in pokeRuler(); Task { await camera.zoom(to: z) } })
+                                .frame(width: min(280, geometry.size.width - 32))
+                                .padding(.bottom, 12)
+                                .transition(.opacity)
+                        }
+                    }
+                    .overlay {
+                        if camera.screenLight {
+                            RoundedRectangle(cornerRadius: chrome.roundEdges ? 24 : 0).strokeBorder(Color.white, lineWidth: 36)
+                                .allowsHitTesting(false)
+                        }
+                    }
                     .overlay {
                         if camera.status == .interrupted {
                             Text(L("camera.interrupted")).padding().background(.ultraThinMaterial, in: Capsule())
                         }
                     }
+                    .clipShape(RoundedRectangle(cornerRadius: chrome.roundEdges ? 24 : 0))
             }
             .aspectRatio(3.0 / 4.0, contentMode: .fit)
             moduleRow
@@ -68,6 +116,139 @@ struct CameraView: View {
         }
         .padding(.horizontal, 16)
         .padding(.bottom, 8)
+    }
+
+    // MARK: the viewfinder's gestures (Swipe / TouchFocus)
+
+    /// A tap: on the ring it goes back to the camera's own focus and metering; elsewhere it focuses and meters there (a manual focus
+    /// takes no tap, as Android's FOCUS_AUTO check)
+    private func tap(at point: CGPoint, in size: CGSize) {
+        guard !ManualSettings.load().focusOn else { return }
+        if focus.visible, let p = focus.point, hypot(p.x - point.x, p.y - point.y) <= FocusMark.radius {
+            hideRing(now: true)
+            Task { await camera.resetFocus() }
+            return
+        }
+        showRing(at: point, locked: false)
+        Task { await camera.focus(at: point) }
+    }
+
+    /// A long press holds focus and exposure there («Закреплено»; Android's tracking autofocus has no counterpart here)
+    private func longPress(at point: CGPoint) {
+        guard !ManualSettings.load().focusOn else { return }
+        showRing(at: point, locked: true)
+        Task { await camera.lock(at: point) }
+    }
+
+    private func pinch(_ scale: CGFloat, began: Bool) {
+        if began { pinchStart = camera.zoom }
+        pokeRuler()
+        let target = pinchStart * Double(scale)
+        Task { await camera.zoom(to: target) }
+    }
+
+    private func pokeRuler() {
+        withAnimation(.easeOut(duration: 0.15)) { rulerShown = true }
+        rulerTask?.cancel()
+        rulerTask = Task {
+            try? await Task.sleep(nanoseconds: 1_600_000_000)
+            if !Task.isCancelled { withAnimation(.easeIn(duration: 0.22)) { rulerShown = false } }
+        }
+    }
+
+    private func showRing(at point: CGPoint, locked: Bool) {
+        focus.hide?.cancel()
+        focus.point = point
+        focus.dimmed = false
+        sunEv = ManualSettings.load().bias
+        withAnimation(.easeOut(duration: 0.25)) { focus.visible = true; focus.pulse = true }
+        Task {
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            withAnimation(.easeIn(duration: 0.25)) { focus.pulse = false }
+        }
+        focus.hide = Task {
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            guard !Task.isCancelled else { return }
+            if camera.locked && locked {
+                withAnimation(.easeOut(duration: 0.25)) { focus.dimmed = true }
+            } else if !sunDragging {
+                hideRing(now: false)
+            }
+        }
+    }
+
+    private func hideRing(now: Bool) {
+        focus.hide?.cancel()
+        withAnimation(.easeIn(duration: now ? 0.1 : 0.15)) { focus.visible = false }
+    }
+
+    /// The ring and the exposure sun beside it (CameraFragment.attachExposureSun: hidden while ISO and shutter are both manual)
+    @ViewBuilder private func focusLayer(in size: CGSize) -> some View {
+        if focus.visible, let p = focus.point {
+            let r = FocusMark.radius
+            let manual = ManualSettings.load()
+            ZStack(alignment: .topLeading) {
+                Circle().stroke(Color.white, lineWidth: 1.5)
+                    .frame(width: 2 * r, height: 2 * r)
+                    .scaleEffect(focus.pulse ? 1.2 : 1)
+                    .position(p)
+                    .opacity(focus.dimmed && !camera.locked ? 0 : focus.dimmed ? 0.55 : 1)
+                    .allowsHitTesting(false)
+                if !(manual.isoOn && manual.shutterOn), camera.lens.evRange.upperBound > camera.lens.evRange.lowerBound, !focus.dimmed {
+                    let total = ExposureSun.width + ExposureSun.label
+                    let right = p.x + r + ExposureSun.gap
+                    let x = right + total > size.width ? p.x - r - ExposureSun.gap - ExposureSun.width : right
+                    let y = min(max(0, p.y - ExposureSun.height / 2), size.height - ExposureSun.height)
+                    ExposureSun(range: max(-4, camera.lens.evRange.lowerBound)...min(4, camera.lens.evRange.upperBound), ev: sunEv,
+                                onEv: { ev in
+                                    sunEv = ev
+                                    Task { await camera.setEv(ev) }
+                                },
+                                onDrag: { dragging in
+                                    sunDragging = dragging
+                                    if dragging { focus.hide?.cancel() } else { showRing(at: p, locked: camera.locked) }
+                                })
+                        .offset(x: max(0, x), y: y)
+                }
+            }
+            .frame(width: size.width, height: size.height, alignment: .topLeading)
+        }
+    }
+
+    /// The «Закреплено» pill (accent, a 13 pt lock) and the short notes (Android's snackbar)
+    private var topPills: some View {
+        VStack(spacing: 8) {
+            if camera.locked {
+                HStack(spacing: 4) {
+                    Image("ui_ic_lock").renderingMode(.template).resizable().frame(width: 13, height: 13)
+                    Text(L("focus.locked")).font(.system(size: 13, weight: .semibold))
+                }
+                .foregroundStyle(.black)
+                .padding(.leading, 6).padding(.trailing, 8).frame(height: 24)
+                .background(CameraStyle.accent, in: RoundedRectangle(cornerRadius: 10))
+                .accessibilityLabel(L("focus.locked_description"))
+            }
+            if let toast = camera.toast {
+                Text(toast).font(.footnote.weight(.semibold)).foregroundStyle(.white)
+                    .padding(.horizontal, 12).padding(.vertical, 6)
+                    .background(.black.opacity(0.65), in: Capsule())
+                    .transition(.opacity)
+            }
+        }
+        .padding(.top, 12)
+        .allowsHitTesting(false)
+        .animation(.easeOut(duration: 0.2), value: camera.toast)
+    }
+
+    private func setScreenLight(_ on: Bool) {
+        guard let screen = (UIApplication.shared.connectedScenes.first as? UIWindowScene)?.screen else { return }
+        if on {
+            if savedBrightness == nil { savedBrightness = screen.brightness }
+            screen.brightness = 1
+        } else if let saved = savedBrightness {
+            screen.brightness = saved
+            savedBrightness = nil
+        }
     }
 
     // layout_main_topbar: format badge, flash, timer, grid, level, Ultra HDR (the Android top row)
@@ -83,19 +264,32 @@ struct CameraView: View {
             }
             .accessibilityLabel(L("top.format"))
             Spacer(minLength: 4)
-            topIcon("cv_bolt", active: camera.torch) { Task { await camera.toggleTorch() } }
-                .accessibilityLabel(L("top.flash"))
+            // P590: off a bolt with a slash, auto a bolt with «A», on the filled bolt, the torch a flashlight
+            topIcon(camera.flashShown.icon, active: camera.flashShown != .off) { Task { await camera.cycleFlash() } }
+                .accessibilityLabel(camera.flashShown.label)
             ZStack(alignment: .topTrailing) {
-                topIcon("cv_timer", active: chrome.timerSeconds > 0) { chrome.cycleTimer() }
+                topIcon("cv_timer", active: chrome.timerSeconds > 0) {
+                    let seconds = chrome.cycleTimer()
+                    camera.say(seconds > 0 ? String(format: L("timer.seconds"), seconds) : L("timer.off"))
+                }
                 if chrome.timerSeconds > 0 {
                     Text("\(chrome.timerSeconds)").font(.system(size: 9, weight: .bold)).padding(.horizontal, 3)
-                        .background(Color.yellow, in: Capsule()).foregroundStyle(.black)
+                        .background(CameraStyle.accent, in: Capsule()).foregroundStyle(.black)
                 }
             }
             .accessibilityLabel(L("top.timer"))
-            topIcon("cv_grid", active: chrome.grid) { chrome.grid.toggle() }.accessibilityLabel(L("top.grid"))
-            topIcon("cv_level", active: chrome.horizon) { chrome.horizon.toggle() }.accessibilityLabel(L("top.level"))
-            topIcon("cv_sparkle", active: chrome.ultraHdr) { chrome.ultraHdr.toggle() }.accessibilityLabel(L("top.uhdr"))
+            topIcon("cv_grid", active: chrome.grid) { camera.say(L(chrome.toggleGrid() ? "grid.on" : "grid.off")) }
+                .accessibilityLabel(L("top.grid"))
+            topIcon("cv_level", active: chrome.horizon) {
+                chrome.horizon.toggle()
+                camera.say(L(chrome.horizon ? "level.on" : "level.off"))
+            }
+            .accessibilityLabel(L("top.level"))
+            topIcon("cv_sparkle", active: chrome.ultraHdr) {
+                chrome.ultraHdr.toggle()
+                camera.say(L(chrome.ultraHdr ? "uhdr.on" : "uhdr.off"))
+            }
+            .accessibilityLabel(L("top.uhdr"))
             Menu {
                 Button(L("log.share")) { sharing = SessionLog.shared.flushedFiles() }
                 Button(L("info.title")) { showingInfo = true }
@@ -108,8 +302,9 @@ struct CameraView: View {
     private func topIcon(_ name: String, active: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(name).renderingMode(.template).resizable().frame(width: 22, height: 22)
-                .foregroundStyle(active ? Color.yellow : Color.white)
+                .foregroundStyle(active ? CameraStyle.accent : Color.white)
                 .frame(width: 40, height: 40)
+                .background(active ? CameraStyle.accent.opacity(0.16) : Color.clear, in: Circle())
         }
     }
 
@@ -117,21 +312,32 @@ struct CameraView: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 10) {
                 ForEach(camera.modules) { module in
+                    let active = module.id == camera.activeModuleID
                     Button {
+                        if !active { pokeRuler() }
                         Task { await camera.select(module) }
                     } label: {
-                        Text(module.label)
+                        // the active chip shows the zoom when a crop is over its module's ratio
+                        Text(active && abs(camera.zoom - module.zoom) > 0.05 ? CameraStyle.zoomText(camera.zoom) + "×" : module.label)
                             .font(.system(size: 14, weight: .semibold))
                             .frame(minWidth: 44, minHeight: 36)
                             .padding(.horizontal, 6)
-                            .background(module.id == camera.activeModuleID ? Color.yellow : Color.white.opacity(0.15), in: Capsule())
-                            .foregroundStyle(module.id == camera.activeModuleID ? Color.black : Color.white)
+                            .background(active ? CameraStyle.accent : Color.white.opacity(0.15), in: Capsule())
+                            .foregroundStyle(active ? Color.black : Color.white)
                     }
                     .accessibilityLabel(module.deviceName + " " + module.label)
                 }
             }
             .frame(maxWidth: .infinity)
         }
+    }
+
+    private var shutterEnabled: Bool { camera.activity == .idle && camera.status == .running }
+
+    /// The shutter button, and the volume buttons (CameraActivity.dispatchKeyEvent: a click of the shutter while it can be clicked)
+    private func pressShutter() {
+        guard shutterEnabled || chrome.counting else { return }
+        chrome.shoot { await camera.capture() }
     }
 
     // layout_bottombuttons: gallery, shutter, flip; then settings, the mode switch (Спорт / Фото / Oldstyle) and «Про»
@@ -155,7 +361,7 @@ struct CameraView: View {
                 .accessibilityAddTraits(.isButton)
                 Spacer()
                 Button {
-                    chrome.shoot { await camera.capture() }
+                    pressShutter()
                 } label: {
                     ZStack {
                         Circle().stroke(Color(red: 0.957, green: 0.953, blue: 0.969), lineWidth: 3).frame(width: 86, height: 86)
@@ -164,7 +370,8 @@ struct CameraView: View {
                         if chrome.countdown > 0 { Text("\(chrome.countdown)").font(.title.bold()).foregroundStyle(.black) }
                     }
                 }
-                .disabled(camera.activity != .idle || camera.status != .running || chrome.countdown > 0)
+                // a press while the timer counts stops it (CameraUIController: the hovered shutter resets the timer)
+                .disabled(!(shutterEnabled || chrome.counting))
                 .accessibilityLabel(L("capture.shutter"))
                 Spacer()
                 Button { Task { await camera.flip() } } label: {
@@ -197,11 +404,16 @@ struct CameraView: View {
     }
 
     private func modeButton(_ icon: String, _ mode: CameraChrome.Mode) -> some View {
-        Button { chrome.mode = mode } label: {
+        Button {
+            guard chrome.mode != mode else { return }   // a tap on the chosen mode does nothing
+            chrome.mode = mode
+            camera.say(mode.title)
+            Task { await camera.modeChanged() }
+        } label: {
             Image(icon).renderingMode(.template).resizable().frame(width: 24, height: 24)
                 .foregroundStyle(chrome.mode == mode ? Color.black : Color.white)
                 .frame(width: 44, height: 44)
-                .background(chrome.mode == mode ? Color.yellow : Color.clear, in: Circle())
+                .background(chrome.mode == mode ? CameraStyle.accent : Color.clear, in: Circle())
         }
         .accessibilityLabel(mode.title)
     }
@@ -216,15 +428,6 @@ struct CameraView: View {
                 .padding(8)
                 .onTapGesture { camera.clearMessage() }
         }
-    }
-
-    private func pill(_ text: String, active: Bool) -> some View {
-        Text(text)
-            .font(.system(size: 13, weight: .bold))
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(active ? Color.yellow : Color.white.opacity(0.15), in: Capsule())
-            .foregroundStyle(active ? Color.black : Color.white)
     }
 
     private func notice(_ text: String, action: String?, perform: @escaping () -> Void) -> some View {

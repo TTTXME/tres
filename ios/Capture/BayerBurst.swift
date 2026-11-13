@@ -8,6 +8,7 @@ struct BayerBurst {
     var dng = Data()          // the first frame's DNG: levels, noise profile, colour, orientation
     var processed: Data?      // the camera's own HEIC of the first request, for its EXIF
     var report: [String] = []
+    var front = false         // the front camera: the photo is mirrored as Android's Parameters.mirror
 }
 
 extension FourCharCode {
@@ -30,10 +31,10 @@ extension PhotoCapture {
             throw CameraError.captureException("Bayer RAW is not available on this lens / zoom")
         }
         var burst = BayerBurst()
+        burst.front = device.position == .front
         let started = Date()
         let perRequest = max(1, min(count, output.maxBracketedCapturePhotoCount))
-        var t0: Double?
-        var exposure0: Double = 0
+        var clock = BurstClock()
         while burst.frames.count < count {
             let n = min(perRequest, count - burst.frames.count)
             let bracket = (0..<n).map { _ in AVCaptureAutoExposureBracketedStillImageSettings.autoExposureSettings(exposureTargetBias: 0) }
@@ -42,6 +43,8 @@ extension PhotoCapture {
                 let processed: [String: Any]? = withProcessed ? [AVVideoCodecKey: AVVideoCodecType.hevc] : nil
                 let settings = AVCapturePhotoBracketSettings(rawPixelFormatType: bayer, processedFormat: processed, bracketedSettings: bracket)
                 settings.maxPhotoDimensions = output.maxPhotoDimensions
+                // one shutter sound for the whole series (CameraSounds), not the system's per request
+                silence(settings)
                 return settings
             }
             let requestStarted = Date()
@@ -54,49 +57,90 @@ extension PhotoCapture {
                 photos = try await capturePhotos(request(withProcessed: false))
             }
             burst.report.append("burst request \(n) frames in \(ms(since: requestStarted)) ms")
-            for photo in photos {
-                if !photo.isRawPhoto {
-                    burst.processed = photo.fileDataRepresentation()
-                    continue
-                }
-                guard let buffer = photo.pixelBuffer else { continue }
-                let format = CVPixelBufferGetPixelFormatType(buffer)
-                guard let cfa = format.bayerCFA else { throw CameraError.captureException("RAW format \(format.fourCC) is not 14-bit Bayer") }
-                CVPixelBufferLockBaseAddress(buffer, .readOnly)
-                defer { CVPixelBufferUnlockBaseAddress(buffer, .readOnly) }
-                let w = CVPixelBufferGetWidth(buffer), h = CVPixelBufferGetHeight(buffer), row = CVPixelBufferGetBytesPerRow(buffer)
-                guard let base = CVPixelBufferGetBaseAddress(buffer) else { continue }
-                if burst.frames.isEmpty {
-                    burst.width = w & ~1
-                    burst.height = h & ~1
-                    burst.cfa = cfa
-                    burst.dng = photo.fileDataRepresentation() ?? Data()
-                    burst.report.append("burst frame 0: \(w)x\(h) \(format.fourCC) row=\(row) dng=\(burst.dng.count) bytes")
-                }
-                guard w & ~1 == burst.width, h & ~1 == burst.height else { continue }
-                var raw = Data(count: burst.width * burst.height * 2)
-                raw.withUnsafeMutableBytes { dst in
-                    for y in 0..<burst.height {
-                        memcpy(dst.baseAddress! + y * burst.width * 2, base + y * row, burst.width * 2)
-                    }
-                }
-                let exif = photo.metadata[kCGImagePropertyExifDictionary as String] as? [String: Any]
-                let iso = (exif?[kCGImagePropertyExifISOSpeedRatings as String] as? [NSNumber])?.first?.doubleValue ?? 100
-                let time = (exif?[kCGImagePropertyExifExposureTime as String] as? NSNumber)?.doubleValue ?? 0.01
-                if exposure0 == 0 { exposure0 = iso * time }
-                let stamp = CMTimeGetSeconds(photo.timestamp) * 1000
-                if t0 == nil { t0 = stamp }
-                burst.frames.append(NchFrame(raw: raw, exposure: Float(exposure0 > 0 ? iso * time / exposure0 : 1), iso: UInt32(iso),
-                                             noiseSlope: 0, noiseOffset: 0, orderMs: Float(stamp - (t0 ?? stamp))))
-            }
+            for photo in photos { try append(photo, to: &burst, clock: &clock) }
             if photos.isEmpty { break }
         }
-        // the newest frame is 0 ms, earlier ones negative (as Android's orderMs)
+        finish(&burst)
+        burst.report.append("burst \(burst.frames.count) frames in \(ms(since: started)) ms, per request \(perRequest)")
+        return burst
+    }
+
+    /// FlashMode.Shot (P590): a flash shot is never a series of frames exposed before the press - one fresh Bayer frame with the
+    /// flash firing (the camera meters with its pre-flash), merged as a one-frame shot. Nil when this lens / zoom refuses a RAW
+    /// frame with the flash (the caller takes the camera's own flash photo then).
+    func captureFlashFrame(device: AVCaptureDevice, flash: AVCaptureDevice.FlashMode) async throws -> BayerBurst? {
+        guard let bayer = output.availableRawPhotoPixelFormatTypes.first(where: { AVCapturePhotoOutput.isBayerRAWPixelFormat($0) }),
+              output.supportedFlashModes.contains(flash) else { return nil }
+        let settings = AVCapturePhotoSettings(rawPixelFormatType: bayer, processedFormat: [AVVideoCodecKey: AVVideoCodecType.hevc])
+        settings.maxPhotoDimensions = output.maxPhotoDimensions
+        settings.flashMode = flash
+        silence(settings)
+        var burst = BayerBurst()
+        burst.front = device.position == .front
+        let started = Date()
+        let photos: [AVCapturePhoto]
+        do {
+            photos = try await capturePhotos(settings)
+        } catch CameraError.captureException(let reason) {
+            SessionLog.w("PhotoCapture", "flash RAW frame refused: \(reason)")
+            return nil
+        }
+        var clock = BurstClock()
+        for photo in photos { try append(photo, to: &burst, clock: &clock) }
+        guard !burst.frames.isEmpty else { return nil }
+        finish(&burst)
+        burst.report.append("flash shot: 1 frame (flash \(flash.rawValue)) in \(ms(since: started)) ms")
+        return burst
+    }
+
+    /// The first frame's exposure and time the others are relative to
+    struct BurstClock {
+        var t0: Double?
+        var exposure0: Double = 0
+    }
+
+    /// A delivered photo into the burst: the processed one's bytes kept for the EXIF, a Bayer frame copied from its 14-bit buffer.
+    private func append(_ photo: AVCapturePhoto, to burst: inout BayerBurst, clock: inout BurstClock) throws {
+        if !photo.isRawPhoto {
+            burst.processed = photo.fileDataRepresentation()
+            return
+        }
+        guard let buffer = photo.pixelBuffer else { return }
+        let format = CVPixelBufferGetPixelFormatType(buffer)
+        guard let cfa = format.bayerCFA else { throw CameraError.captureException("RAW format \(format.fourCC) is not 14-bit Bayer") }
+        CVPixelBufferLockBaseAddress(buffer, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(buffer, .readOnly) }
+        let w = CVPixelBufferGetWidth(buffer), h = CVPixelBufferGetHeight(buffer), row = CVPixelBufferGetBytesPerRow(buffer)
+        guard let base = CVPixelBufferGetBaseAddress(buffer) else { return }
+        if burst.frames.isEmpty {
+            burst.width = w & ~1
+            burst.height = h & ~1
+            burst.cfa = cfa
+            burst.dng = photo.fileDataRepresentation() ?? Data()
+            burst.report.append("burst frame 0: \(w)x\(h) \(format.fourCC) row=\(row) dng=\(burst.dng.count) bytes")
+        }
+        guard w & ~1 == burst.width, h & ~1 == burst.height else { return }
+        var raw = Data(count: burst.width * burst.height * 2)
+        raw.withUnsafeMutableBytes { dst in
+            for y in 0..<burst.height {
+                memcpy(dst.baseAddress! + y * burst.width * 2, base + y * row, burst.width * 2)
+            }
+        }
+        let exif = photo.metadata[kCGImagePropertyExifDictionary as String] as? [String: Any]
+        let iso = (exif?[kCGImagePropertyExifISOSpeedRatings as String] as? [NSNumber])?.first?.doubleValue ?? 100
+        let time = (exif?[kCGImagePropertyExifExposureTime as String] as? NSNumber)?.doubleValue ?? 0.01
+        if clock.exposure0 == 0 { clock.exposure0 = iso * time }
+        let stamp = CMTimeGetSeconds(photo.timestamp) * 1000
+        if clock.t0 == nil { clock.t0 = stamp }
+        burst.frames.append(NchFrame(raw: raw, exposure: Float(clock.exposure0 > 0 ? iso * time / clock.exposure0 : 1), iso: UInt32(iso),
+                                     noiseSlope: 0, noiseOffset: 0, orderMs: Float(stamp - (clock.t0 ?? stamp))))
+    }
+
+    /// The newest frame is 0 ms, earlier ones negative (as Android's orderMs)
+    private func finish(_ burst: inout BayerBurst) {
         if let newest = burst.frames.map(\.orderMs).max() {
             for i in burst.frames.indices { burst.frames[i].orderMs -= newest }
         }
-        burst.report.append("burst \(burst.frames.count) frames in \(ms(since: started)) ms, per request \(perRequest)")
-        return burst
     }
 }
 

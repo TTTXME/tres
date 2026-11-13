@@ -36,6 +36,31 @@ final class PhotoCapture {
         (output.maxPhotoDimensions.megapixels) > 12.7
     }
 
+    /// The system's capture sound can be kept silent (iOS 18; not where the region requires it): CameraSounds plays the app's
+    /// own shutter sound once per shot instead (Android: one sound at the press, not one per frame of the series).
+    var suppressesShutterSound: Bool {
+        if #available(iOS 18.0, *) { return output.isShutterSoundSuppressionSupported }
+        return false
+    }
+
+    /// Every request without the system's capture sound where that is allowed.
+    func silence(_ settings: AVCapturePhotoSettings) {
+        if #available(iOS 18.0, *), output.isShutterSoundSuppressionSupported { settings.isShutterSoundSuppressionEnabled = true }
+    }
+
+    /// FlashMode Auto: the scene is metered for the flash (isFlashScene) while it is chosen on a lens with a flash unit.
+    func monitorFlashScene(_ on: Bool) {
+        if on, output.supportedFlashModes.contains(.auto) {
+            let settings = AVCapturePhotoSettings()
+            settings.flashMode = .auto
+            output.photoSettingsForSceneMonitoring = settings
+        } else {
+            output.photoSettingsForSceneMonitoring = nil
+        }
+    }
+
+    var isFlashScene: Bool { output.isFlashScene }
+
     /// Settings in order of preference; the next one is tried when AVFoundation raises on the previous one.
     func candidateSettings(for request: PhotoRequest, device: AVCaptureDevice) -> [(AVCapturePhotoSettings, String)] {
         let codec: AVVideoCodecType = output.availablePhotoCodecTypes.contains(.hevc) ? .hevc : .jpeg
@@ -65,6 +90,8 @@ final class PhotoCapture {
 
     private func configure(_ settings: AVCapturePhotoSettings, request: PhotoRequest, priority: AVCapturePhotoOutput.QualityPrioritization) {
         settings.maxPhotoDimensions = output.maxPhotoDimensions
+        if request.flash != .off, output.supportedFlashModes.contains(request.flash) { settings.flashMode = request.flash }
+        silence(settings)
         let level = min(priority.rawValue, output.maxPhotoQualityPrioritization.rawValue)
         settings.photoQualityPrioritization = AVCapturePhotoOutput.QualityPrioritization(rawValue: level) ?? .balanced
         if let preview = settings.availablePreviewPhotoPixelFormatTypes.first {
@@ -78,8 +105,8 @@ final class PhotoCapture {
         for (settings, label) in candidateSettings(for: request, device: device) {
             let started = Date()
             do {
-                var photo = try await capture(settings)
-                photo.report.insert("capture \(label) zoom=\(device.videoZoomFactor) in \(Int(Date().timeIntervalSince(started) * 1000)) ms", at: 0)
+                var photo = try await capture(settings, exif: request.exif)
+                photo.report.insert("capture \(label) flash=\(settings.flashMode.rawValue) zoom=\(device.videoZoomFactor) in \(Int(Date().timeIntervalSince(started) * 1000)) ms", at: 0)
                 photo.report.insert(contentsOf: notes, at: 0)
                 return photo
             } catch CameraError.captureException(let reason) {
@@ -91,10 +118,10 @@ final class PhotoCapture {
         throw lastError
     }
 
-    private func capture(_ settings: AVCapturePhotoSettings) async throws -> CapturedPhoto {
+    private func capture(_ settings: AVCapturePhotoSettings, exif: ShotExif?) async throws -> CapturedPhoto {
         try await withCheckedThrowingContinuation { continuation in
             let id = settings.uniqueID
-            let delegate = PhotoCaptureDelegate { [weak self] result in
+            let delegate = PhotoCaptureDelegate(exif: exif) { [weak self] result in
                 self?.keep(id, nil)
                 continuation.resume(with: result)
             }
@@ -127,6 +154,14 @@ final class PhotoCapture {
             connection.videoRotationAngle = angle
         }
     }
+
+    /// The front lens's photo mirrored, as its viewfinder (Android Parameters.mirror: the front camera's photo is mirrored)
+    func setMirrored(_ mirrored: Bool) {
+        if let connection = output.connection(with: .video), connection.isVideoMirroringSupported {
+            connection.automaticallyAdjustsVideoMirroring = false
+            connection.isVideoMirrored = mirrored
+        }
+    }
 }
 
 /// AVCam PhotoCaptureDelegate: collects the processed photo and the RAW of one request.
@@ -138,8 +173,10 @@ private final class PhotoCaptureDelegate: NSObject, AVCapturePhotoCaptureDelegat
     private var report: [String] = []
     private var failure: Error?
     private let started = Date()
+    private let exif: ShotExif?
 
-    init(completion: @escaping (Result<CapturedPhoto, Error>) -> Void) {
+    init(exif: ShotExif?, completion: @escaping (Result<CapturedPhoto, Error>) -> Void) {
+        self.exif = exif
         self.completion = completion
     }
 
@@ -173,7 +210,12 @@ private final class PhotoCaptureDelegate: NSObject, AVCapturePhotoCaptureDelegat
             }
             report.append(line)
         } else {
-            processed = photo.fileDataRepresentation()
+            // the shot's facts in the camera's own photo (ShotExif: time, ISO, lens, Software, description)
+            if let facts = self.exif, let data = photo.fileDataRepresentation(with: ShotExifCustomizer(facts)) {
+                processed = data
+            } else {
+                processed = photo.fileDataRepresentation()
+            }
             report.append("processed at \(ms) ms \(photo.resolvedSettings.photoDimensions.text) \(processed?.count ?? 0) bytes"
                 + " iso=\(iso) exposure=\(String(format: "%.5f", exposure))")
             if let type = processed.flatMap(Self.uti) { processedUTI = type }

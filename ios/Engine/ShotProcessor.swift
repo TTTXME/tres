@@ -167,7 +167,9 @@ enum ShotProcessor {
         properties[kCGImagePropertyOrientation as String] = orientation
         var tiff = properties[kCGImagePropertyTIFFDictionary as String] as? [String: Any] ?? [:]
         tiff[kCGImagePropertyTIFFOrientation as String] = orientation
-        tiff[kCGImagePropertyTIFFSoftware as String] = "SCAMERA iOS \(BuildInfo.version)"
+        if tiff[kCGImagePropertyTIFFSoftware as String] == nil { // ShotExif writes Android's Software tag; else ours
+            tiff[kCGImagePropertyTIFFSoftware as String] = "SCAMERA iOS \(BuildInfo.version)"
+        }
         properties[kCGImagePropertyTIFFDictionary as String] = tiff
         properties[kCGImageDestinationLossyCompressionQuality as String] = format.quality
         CGImageDestinationAddImage(destination, image, properties as CFDictionary)

@@ -405,3 +405,39 @@ change: `scam-crash.h` keeps only the stage marks on Apple.
   cards switch it); ToneCurveCompare (AgX / ACES / Uchimura references and templates need WhyTone's uniforms in Swift); the
   «Для разработчика» page (DevKeys); config import runs no Android migrations (BrandMigration, SettingsMigration); clearing
   today's log needs a SessionLog API; many capture / viewfinder rows are stored but not read by the iOS capture yet.
+
+## Camera screen parity: live look, capture settings, EXIF (2026-11-13)
+- Live viewfinder (`Viewfinder/`): Android's default viewfinder is the ISP frame through `shaders/preview/main_fs.glsl` (the
+  developed-RAW one, pref_live_viewfinder_raw_key, is off by default and has no iPhone counterpart: no RAW stream). Ported to
+  Metal (`Viewfinder.metal`) on AVCaptureVideoDataOutput frames (preview-sized BGRA, rotated / mirrored by the connection, Display
+  P3 brought to sRGB): the film / LUT table FilmChain.current gives the photo (first-phase table: FilmPreviewLut's engine table is
+  not ported), mixed by its strength; the lens filter's or the film's diffusion from a half-size mip pyramid with
+  DiffusionModel's level weights (levelWeights / combine / mipSigmas / nnls ported in `ViewfinderLook.mm`, on Engine/post/color
+  read only); focus peaking (pref_peak_method_key: 1 on, 2 with manual focus). Settings read twice a second
+  (LiveLensFilter.REFRESH_MS). With nothing to add the output's connection is off and the plain AVCaptureVideoPreviewLayer shows
+  (Android draws the frame unchanged then; there is no Android switch for the ISP look). Swift reaches the ObjC++ class by name
+  (`ViewfinderNative`: NSClassFromString + perform), so the bridging header is unchanged. Not ported: the Oldstyle live style /
+  tone (uOsOn / uOtOn), the streak / prism / GND filters (not offered by Android either).
+- Capture settings now read: flash modes (pref_ae_mode_key, FlashMode cycle off → auto → on → torch; a flash shot is one Bayer
+  frame with the flash merged as a one-frame SHDR shot, else the camera's flash photo; Auto meters with isFlashScene; the front
+  lens's torch is the screen's light with full brightness), shutter / timer sounds (pref_camera_sounds_key / pref_timer_sound_key,
+  the Android res/raw mp3s bundled by project.yml, one shutter sound per shot; the system's capture sound suppressed on iOS 18 where allowed,
+  else it is the shutter sound), the self-timer (its sound; the shutter or a volume button stops the countdown), the volume
+  buttons as the shutter (AVCaptureEventInteraction, iOS 17.2), grid types 0-4 (the top row toggles off ↔ 3x3), tap focus /
+  metering with the ring, long press = focus + exposure lock («Закреплено», AE locked after 600 ms), a tap on the ring resets,
+  the exposure sun (EV in thirds, the Pro EV), pinch zoom + the zoom ruler (ZoomController: module = largest ratio ≤ zoom,
+  digital residual only off SHDR), pref_af_mode_key, pref_face_detect_mode off, pref_low_light_boost, «Спорт»'s shutter ceiling
+  (pref_scam_hybrid_mm_shutter → activeMaxExposureDuration), front photo mirrored (pref_tunable_parameters_disablemirror),
+  rounded viewfinder corners (pref_show_roundedge_key), «Про»: ISO / shutter / EV / focus / WB each auto on its own, the device's
+  ranges, software priority (the other value keeps the AE's exposure), EV locked with both, WB 2000-10000 K.
+- EXIF (`Capture/ShotExif.swift`, ShotExif / ParseExif): the press time with SubSecTime* / OffsetTime*, ISO as
+  PhotographicSensitivity + SensitivityType 3 + ISOSpeed, ApertureValue, focal length, FocalLenIn35mmFilm (from the format's field
+  of view when the camera gives none), LensMake / LensModel («Apple iPhone … back camera 6.77mm f/1.78») / LensSpecification,
+  Software, ImageDescription («SCAMERA», Frames=, Camera=, Film=<FilmSim.Settings.recipe>, Route=SHDR). Written into the camera's
+  own photo (AVCapturePhotoFileDataRepresentationCustomizer) and into the metadata CameraModel passes to BurstProcessor /
+  ShotProcessor.
+- Needs Engine changes (not made here): ShotProcessor.encode overwrites TIFF Software with "SCAMERA iOS <version>" (keep the
+  metadata's when present, ShotExif.software); the SHDR photo of the front lens is not mirrored (Parameters.mirror for a front
+  DNG); the digital zoom and 16:9 (pref_wide169_key) need the centre crop of the merged photo before the watermark.
+- Not done: the AF / AE HUD (pref_show_afdata_key), split AF / AE (pref_split_af_ae), tracking AF, antibanding (no iPhone API),
+  ES / L brackets (pref_hdr_frames, pref_ettr). Swift / Metal not compiled here (ViewfinderLook.mm syntax-checked with clang).
