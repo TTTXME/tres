@@ -33,6 +33,10 @@ targets:
       # the merge tuning of the replays (tools/replay_tuning.txt: the Android app's hybrid_tuning.txt of a shot)
       - path: ../tools/replay_tuning.txt
         buildPhase: resources
+      # the Android app's shaders: the post pipeline (Engine/post) loads them as the app's assets
+      - path: ../app/src/main/assets/shaders
+        type: folder
+        buildPhase: resources
     info:
       path: App/Info.plist
       properties:

@@ -5,7 +5,7 @@ name: Build SCAMERA iOS IPA
 on:
   push:
     branches: [ main, 'claude/ios-camera-app-port-idgljn' ]
-    paths: [ 'ios/**', 'app/src/main/cpp/**', '.github/workflows/build-ios-ipa.yml' ]
+    paths: [ 'ios/**', 'app/src/main/cpp/**', 'app/src/main/assets/shaders/**', '.github/workflows/build-ios-ipa.yml' ]
   workflow_dispatch:
 
 concurrency:

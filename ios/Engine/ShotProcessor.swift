@@ -52,11 +52,16 @@ enum ShotProcessor {
 
     static func encode(_ texture: MTLTexture, metadata: [String: Any], orientation: Int = 1) throws -> Data {
         let w = texture.width, h = texture.height
-        let rowBytes = w * 4
-        var bytes = Data(count: rowBytes * h)
+        var bytes = Data(count: w * 4 * h)
         bytes.withUnsafeMutableBytes { raw in
-            texture.getBytes(raw.baseAddress!, bytesPerRow: rowBytes, from: MTLRegionMake2D(0, 0, w, h), mipmapLevel: 0)
+            texture.getBytes(raw.baseAddress!, bytesPerRow: w * 4, from: MTLRegionMake2D(0, 0, w, h), mipmapLevel: 0)
         }
+        return try encode(rgba: bytes, width: w, height: h, metadata: metadata, orientation: orientation)
+    }
+
+    /// RGBA8 sRGB rows top-down (the pipeline's photo) → HEIC with the camera's EXIF.
+    static func encode(rgba bytes: Data, width w: Int, height h: Int, metadata: [String: Any], orientation: Int = 1) throws -> Data {
+        let rowBytes = w * 4
         guard let provider = CGDataProvider(data: bytes as CFData),
               let space = CGColorSpace(name: CGColorSpace.sRGB),
               let image = CGImage(width: w, height: h, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: rowBytes, space: space,

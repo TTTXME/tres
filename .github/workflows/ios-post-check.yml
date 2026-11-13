@@ -6,7 +6,7 @@ name: iOS post pipeline vs Android
 on:
   push:
     branches: [ 'claude/ios-camera-app-port-idgljn' ]
-    paths: [ 'ios/Engine/**', 'ios/ScamGL/**', 'ios/tools/android-host/**', 'ios/tools/post_node_check.cpp', 'ios/tools/shot_params_check.cpp', 'ios/tools/hybrid_replay.cpp',
+    paths: [ 'ios/Engine/**', 'ios/ScamGL/**', 'ios/tools/android-host/**', 'ios/tools/post_node_check.cpp', 'ios/tools/shot_params_check.cpp', 'ios/tools/make_test_dng.py', 'ios/tools/hybrid_replay.cpp',
              'app/src/main/assets/shaders/**', '.github/workflows/ios-post-check.yml' ]
   workflow_dispatch:
 
@@ -59,7 +59,8 @@ jobs:
       - name: The shot's parameters (colour chain, merge tuning) as the app builds them
         run: |
           g++ -std=c++17 -O1 -ffp-contract=off -Iios/ScamGL/include ios/tools/shot_params_check.cpp -lEGL -lGLESv2 -o "$RUNNER_TEMP/shot_params_check"
-          "$RUNNER_TEMP/shot_params_check" "$RUNNER_TEMP/shot/meta.json" "$RUNNER_TEMP/reference/tuning.txt"
+          python3 -I ios/tools/make_test_dng.py "$RUNNER_TEMP/shot/meta.json" "$RUNNER_TEMP/shot.dng"
+          "$RUNNER_TEMP/shot_params_check" "$RUNNER_TEMP/shot/meta.json" "$RUNNER_TEMP/reference/tuning.txt" --dng "$RUNNER_TEMP/shot.dng"
       - name: The C++ port on Mesa (bit for bit)
         env:
           EGL_PLATFORM: surfaceless

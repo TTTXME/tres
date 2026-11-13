@@ -1,10 +1,10 @@
 import Foundation
 import ImageIO
-import Metal
+
 import simd
 
-/// A Bayer burst through the Android pipeline as ported: NCH transport → the SHDR merge (Android C++, ScamGL on the GPU) →
-/// white balance and colour matrix (the camera's DNG) → «Why тон» V2 (Metal) → HEIC.
+/// A Bayer burst through the Android photo route as ported (Engine/post/ShotRun.hpp, ScamGL on the GPU): NCH transport → the SHDR
+/// merge → the post pipeline («Why тон», the Android nodes and shaders) with the shot's parameters from its DNG → HEIC.
 enum BurstProcessor {
     struct Result {
         let heic: Data
@@ -19,7 +19,7 @@ enum BurstProcessor {
     }
 
     static func process(_ burst: BayerBurst, metadata: [String: Any]) throws -> Result {
-        guard let engine = MetalEngine.shared else { throw EngineError.noDevice }
+        guard MetalEngine.shared != nil else { throw EngineError.noDevice }
         guard burst.frames.count >= 1, burst.width >= 64, burst.height >= 64 else { throw EngineError.decode("empty burst") }
         var log = burst.report
         let started = Date()
@@ -53,32 +53,19 @@ enum BurstProcessor {
         try NchWriter.write(to: nch, width: burst.width, height: burst.height, cfa: burst.cfa, white: info.white, black: info.black,
                             frames: frames)
         log.append("burst written to \(nch.lastPathComponent) in \(ms(since: writeStarted)) ms")
-        guard let tuningURL = Bundle.main.url(forResource: "replay_tuning", withExtension: "txt") else {
-            throw EngineError.decode("merge tuning missing from the app")
+        guard let shaders = Bundle.main.url(forResource: "shaders", withExtension: nil) else {
+            throw EngineError.decode("the pipeline's shaders are missing from the app")
         }
-        let tuning = try String(contentsOf: tuningURL, encoding: .utf8)
-        let merged = try SCAMMerge.mergeBurst(atPath: nch.path, tuning: tuning)
-        log += merged.log.map { "merge: " + $0 }
-        log.append("merge \(merged.width)x\(merged.height) in \(Int(merged.milliseconds)) ms, \(memoryFootprint())")
-
-        // camera RGB → white-balanced linear sRGB (rgba16Float)
-        let w = merged.width, h = merged.height
-        guard let rgb = merged.rgb.withUnsafeBytes({ engine.device.makeBuffer(bytes: $0.baseAddress!, length: $0.count, options: .storageModeShared) })
-        else { throw EngineError.texture("merged buffer") }
-        let linear = try engine.texture(w, h, .rgba16Float)
-        var params = CameraToLinearParams(cameraToSRGB: info.cameraToSRGB, neutralInverse: SIMD3<Float>(1, 1, 1) / info.neutral,
-                                          width: Int32(w), height: Int32(h))
-        try engine.run("camera-to-linear") { buffer in
-            guard let enc = buffer.makeComputeCommandEncoder() else { throw EngineError.noDevice }
-            enc.setBuffer(rgb, offset: 0, index: 0)
-            enc.setBytes(&params, length: MemoryLayout<CameraToLinearParams>.stride, index: 1)
-            enc.setTexture(linear, index: 0)
-            try engine.dispatch(enc, engine.pipeline("scam_camera_to_linear"), width: w, height: h)
-            enc.endEncoding()
+        let photo: SCAMPhoto
+        do {
+            photo = try SCAMShot.processBurst(atPath: nch.path, dng: burst.dng, settings: PostSettings.json(), shaders: shaders.path)
+        } catch let error as NSError {
+            log += (error.userInfo["log"] as? [String]) ?? []
+            throw error
         }
-        let toned = try WhyV2Renderer(engine: engine).render(linear, noise: (slope, offset))
-        log += toned.log
-        let heic = try ShotProcessor.encode(toned.texture, metadata: metadata, orientation: info.orientation)
+        log += photo.log
+        log.append("merge \(Int(photo.mergeMilliseconds)) ms, post \(Int(photo.postMilliseconds)) ms, photo \(photo.width)x\(photo.height), \(memoryFootprint())")
+        let heic = try ShotProcessor.encode(rgba: photo.rgba, width: photo.width, height: photo.height, metadata: metadata)
         log.append("burst processed in \(ms(since: started)) ms, HEIC \(heic.count) bytes, \(memoryFootprint())")
         return Result(heic: heic, log: log)
     }
