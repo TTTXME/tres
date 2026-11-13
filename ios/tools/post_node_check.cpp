@@ -185,22 +185,28 @@ int main(int argc, char** argv) {
                 std::printf("photo %dx%d, the reference %ux%u\n", photo.width, photo.height, hdr[1], hdr[2]);
                 return 3;
             }
-            double sum = 0;
+            double sum = 0, sq = 0;
+            size_t over2 = 0;
             for (size_t i = 0; i < n; i++) {
                 if (i % 4 == 3) continue;
                 const int d = std::abs(int(photo.rgba[i]) - int(ref[16 + i]));
                 if (d) diff++;
+                if (d > 2) over2++;
                 maxd = std::max(maxd, size_t(d));
                 sum += d;
+                sq += double(d) * d;
             }
-            std::printf("photo %dx%d in %.0f ms: %zu of %zu channel values differ, max %zu, mean %.4f\n", photo.width, photo.height, ms, diff,
-                        n / 4 * 3, maxd, sum / double(n / 4 * 3));
+            const double values = double(n / 4 * 3), mse = sq / values;
+            std::printf("photo %dx%d in %.0f ms: %zu of %zu channel values differ (%zu by more than 2), max %zu, mean %.4f, PSNR %.2f dB\n",
+                        photo.width, photo.height, ms, diff, n / 4 * 3, over2, maxd, sum / values, mse > 0 ? 10 * std::log10(255.0 * 255.0 / mse) : 999.0);
             if (!save.empty()) {
                 std::ofstream f(save + "/photo.rgba", std::ios::binary);
                 const uint32_t h2[4] = {0x38524353u, uint32_t(photo.width), uint32_t(photo.height), 4u};
                 f.write(reinterpret_cast<const char*>(h2), 16);
                 f.write(reinterpret_cast<const char*>(photo.rgba.data()), std::streamsize(photo.rgba.size()));
             }
+            const char* minPsnr = std::getenv("SCAM_POST_MIN_PSNR"); // a GPU other than the reference's: a bound, not identity
+            if (minPsnr) return mse > 0 && 10 * std::log10(255.0 * 255.0 / mse) < std::atof(minPsnr) ? 3 : 0;
             return diff == 0 ? 0 : 3;
         }
         // the «Why» state textures the reference dumps under their stage names (WhyCombine's ScamDiagnostics.gpu calls)

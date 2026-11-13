@@ -1,0 +1,126 @@
+name: iOS post pipeline vs Android
+
+# The C++ port of the photo pipeline (ios/Engine/post) against the Android pipeline itself: the reference is the app's own Java
+# nodes and shaders run on the host GPU (Mesa) under Robolectric (ios/tools/android-host) on a full phone shot of the owner's
+# Drive; the port must match it bit for bit on Mesa, and on Metal (ScamGL, the iPhone's path) within a PSNR bound.
+on:
+  push:
+    branches: [ 'claude/ios-camera-app-port-idgljn' ]
+    paths: [ 'ios/Engine/**', 'ios/ScamGL/**', 'ios/tools/android-host/**', 'ios/tools/post_node_check.cpp', 'ios/tools/hybrid_replay.cpp',
+             'app/src/main/assets/shaders/**', '.github/workflows/ios-post-check.yml' ]
+  workflow_dispatch:
+
+concurrency:
+  group: ios-post-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  SHOT_BURST: 1V4nQzqb-jK_R1J70w-FCMUS2hQogtwvG
+  SHOT_META: 10404cy6HFm28-ugZkf7kUNnqqhfYxLU7
+
+jobs:
+  android-reference:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: ''
+      - name: Android SDK
+        run: sdkmanager --install "ndk;27.2.12479018" "cmake;3.22.1" "platforms;android-36" "build-tools;36.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Mesa and the shot
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libegl-dev libgles-dev libegl1 libegl-mesa0 libgles2 libgl1-mesa-dri
+          mkdir -p "$RUNNER_TEMP/shot"
+          python3 ios/tools/drive_fetch.py "$SHOT_META" "$RUNNER_TEMP/shot/meta.json"
+          python3 ios/tools/drive_fetch.py "$SHOT_BURST" "$RUNNER_TEMP/shot/burst.nch"
+      - name: The merge on Mesa
+        run: g++ -pthread -std=c++17 -O2 -Iapp/src/main/cpp ios/tools/hybrid_replay.cpp -ldl -lEGL -lGLESv2 -o "$RUNNER_TEMP/hybrid_replay"
+      - name: The Android pipeline on the host (Robolectric + Mesa)
+        env:
+          SCAM_HOST_OUT: ${{ runner.temp }}/android-host
+          EGL_PLATFORM: surfaceless
+          LIBGL_ALWAYS_SOFTWARE: '1'
+        run: |
+          mkdir -p "$RUNNER_TEMP/reference"
+          ios/tools/android-host/run.sh HostPostRender SHOT="$RUNNER_TEMP/shot" REPLAY="$RUNNER_TEMP/hybrid_replay" RESULT="$RUNNER_TEMP/reference" \
+            > "$RUNNER_TEMP/reference/host.log" 2>&1 || { tail -60 "$RUNNER_TEMP/reference/host.log"; exit 1; }
+          ls -la "$RUNNER_TEMP/reference"
+      - name: The C++ port on Mesa (bit for bit)
+        env:
+          EGL_PLATFORM: surfaceless
+          LIBGL_ALWAYS_SOFTWARE: '1'
+        run: |
+          g++ -std=c++17 -O2 -ffp-contract=off -Iios/ScamGL/include ios/tools/post_node_check.cpp -lEGL -lGLESv2 -pthread -o "$RUNNER_TEMP/post_node_check"
+          "$RUNNER_TEMP/post_node_check" app/src/main/assets/shaders "$RUNNER_TEMP/shot" "$RUNNER_TEMP/reference" full | tee "$RUNNER_TEMP/reference/mesa.txt" | tail -3
+          { echo '### iOS post port vs the Android pipeline (Mesa)'; echo '```'; grep "^photo" "$RUNNER_TEMP/reference/mesa.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          head -c 128 "$RUNNER_TEMP/shot/burst.nch" > "$RUNNER_TEMP/reference/burst.nch"
+          cp "$RUNNER_TEMP/shot/meta.json" "$RUNNER_TEMP/reference/meta.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: post-reference
+          path: |
+            ${{ runner.temp }}/reference/meta.json
+            ${{ runner.temp }}/reference/burst.nch
+            ${{ runner.temp }}/reference/worker.out
+            ${{ runner.temp }}/reference/report.txt
+            ${{ runner.temp }}/reference/photo.rgba
+            ${{ runner.temp }}/reference/*.txt
+            ${{ runner.temp }}/reference/host.log
+          retention-days: 3
+
+  metal:
+    needs: android-reference
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache/restore@v4
+        id: deps
+        with:
+          path: ${{ runner.temp }}/deps/macos
+          key: shader-deps-macos-${{ hashFiles('ios/tools/build_shader_deps.sh') }}
+      - name: Shader translators (glslang, SPIRV-Cross)
+        if: steps.deps.outputs.cache-hit != 'true'
+        run: ios/tools/build_shader_deps.sh macos "$RUNNER_TEMP/deps"
+      - uses: actions/cache/save@v4
+        if: steps.deps.outputs.cache-hit != 'true'
+        with:
+          path: ${{ runner.temp }}/deps/macos
+          key: shader-deps-macos-${{ hashFiles('ios/tools/build_shader_deps.sh') }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: post-reference
+          path: ${{ runner.temp }}/reference
+      - name: The C++ port on Metal (ScamGL)
+        env:
+          SCAM_POST_MIN_PSNR: '40'
+        run: |
+          D="$RUNNER_TEMP/deps/macos"
+          clang++ -std=c++17 -O2 -ffp-contract=off -fobjc-arc -Iios/ScamGL/include -Iios/ScamGL -I"$D/include" -I"$D/include/spirv_cross" \
+            ios/tools/post_node_check.cpp ios/ScamGL/ScamGL.mm ios/ScamGL/ScamGLCompiler.cpp -L"$D/lib" \
+            -lglslang -lMachineIndependent -lGenericCodeGen -lOSDependent -lSPIRV -lglslang-default-resource-limits \
+            -lspirv-cross-msl -lspirv-cross-glsl -lspirv-cross-core -framework Metal -framework Foundation \
+            -o "$RUNNER_TEMP/post_node_check" > "$RUNNER_TEMP/build.log" 2>&1 || { grep -E "error|Undefined" "$RUNNER_TEMP/build.log" | head -40; exit 1; }
+          mkdir -p "$RUNNER_TEMP/metal"
+          set -o pipefail
+          "$RUNNER_TEMP/post_node_check" app/src/main/assets/shaders "$RUNNER_TEMP/reference" "$RUNNER_TEMP/reference" full --save "$RUNNER_TEMP/metal" \
+            2>&1 | tee "$RUNNER_TEMP/metal/metal.txt" | tail -5
+          { echo '### iOS post port on Metal vs the Android pipeline'; echo '```'; grep "^photo" "$RUNNER_TEMP/metal/metal.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: post-metal
+          path: |
+            ${{ runner.temp }}/metal/*
+          retention-days: 3
