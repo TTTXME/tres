@@ -99,6 +99,22 @@ change: `scam-crash.h` keeps only the stage marks on Apple.
   Not Android's colour chain yet (ScamRgb, CCT matrix, lens shading, highlight recovery): the next port.
 - To check on the phone: log tag `SHDR` (burst timing per request, levels, noise source, merge lines, total ms, memory).
 
+## Full pipeline parity with Android (owner, 2026-11-13: «итоговая обработка фул пайплайна совпадала с Android»)
+- Merge: identical (the Android C++ on ScamGL; 92–109 dB vs Mesa, 100 dB on the full «Лента» burst).
+- Post: the Android GLSL runs unchanged on ScamGL render programs (all 119 post shaders link on Mesa and on Metal,
+  tools/post_shader_check.cpp; preview/ and editor/ are assembled at run time and checked with their ports). The Java
+  orchestration (PostPipeline and its nodes, GLProg / GLTexture / GLFormat, Parameters, ShotLook, settings) is ported to
+  C++ one to one (Engine/post/), so the same port runs on Mesa (host reference, CI) and on the iPhone (ScamGL).
+  A Java → ObjC translation (J2ObjC) was checked and dropped: PostPipeline pulls 472 app files (UI, gallery) and ~40
+  Android packages.
+- Ground truth for the whole pipeline: the Drive bursts (.bin + .json with params / prefs) rendered on Android (Lab,
+  ScamLabBurst) → JPEG; the same burst through the iOS port in CI → compared.
+- Order: GLProg/GLTexture/GLFormat/Node/PostPipeline core → ScamRgb (+ hlrecovery, clipband) → ScamHdrDenoise /
+  WhyResolveDenoise → WhyMsDenoise → Why V1 (WhyStats, WhyFusion, WhyLumaSharpen, WhyCombine; the default) → Why V2 →
+  RotateWatermark → ShotExif + scamera-jpeg / HEIC → ScamMaster (tone_port) → film / lens filters → Ultra HDR.
+- Then the Android camera screen and settings in SwiftUI with the same layout, icons (tools/icons) and strings
+  (res/values, values-ru), the gallery and the editor.
+
 ## Stages (estimates are working sessions)
 1. ✅ 0.1 skeleton, modules/ISZ/48 MP, RAW (Bayer/ProRAW) next to HEIC, probe log, IPA workflow.
    Next in stage 1 (2–3): Metal engine (MTLDevice, compute pipelines from `Engine/*.metal`, RGBA16F textures);
