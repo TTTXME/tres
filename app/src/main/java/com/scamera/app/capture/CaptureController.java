@@ -3764,11 +3764,16 @@ public class CaptureController {
             // P223: «ISP-превью в FULLRES и ISZ» off - such a session shows the RAW viewfinder, the only stream it repeats
             // P223 / P266: the module's «Поток ISP» Off in FULLRES / ISZ (the old global «ISP-превью в FULLRES и ISZ» is this now)
             // P276 «Фиктивное откл.» (WhyCam's fake off): the ISP stream stays in the session, no request targets it
-            mIspPreviewOff = photoMode && (ispSurface == 2 && (mFullResSession || IszCapturePolicy.mosaicModule(
-                    com.scamera.app.settings.ModuleRegistry.active())) || ispSurface == 3);
             // P266: the ISP stream out of the session (the module's «Поток ISP»; Auto: a module that forces a sensor mode)
             final boolean forcedMode = vivoQcomIsz
                     || com.scamera.app.settings.ModuleRegistry.sensorMode(com.scamera.app.settings.ModuleRegistry.active()) > 0;
+            // owner, 2026-11-13: the X7 Ultra's 50 MP focuses only with the ISP stream as fake off - its Auto reads so there
+            final int ispSurface = SensorModePick.ispSurfaceFor(this.ispSurface, SensorModePick.session(), forcedMode,
+                    mFullResSession, com.scamera.app.settings.DeviceDefaults.findX7Ultra());
+            if (ispSurface != this.ispSurface)
+                Log.i("SCAM_CAPTURE", "camera " + physicalID + ": «Поток ISP» Auto -> fake off (the X7 Ultra's focus in 50 MP)");
+            mIspPreviewOff = photoMode && (ispSurface == 2 && (mFullResSession || IszCapturePolicy.mosaicModule(
+                    com.scamera.app.settings.ModuleRegistry.active())) || ispSurface == 3);
             // P575 (owner: «Фулрез на Нубии работает при ... отключении ISP превью»): a nubia row runs without it; P586 (owner:
             // «При съемке без ремозаика isp превью у него должно отключаться»): an OPPO-family ISZ row whatever «Поток ISP», while
             // its DCG / DAG row keeps the setting (SensorModePick.ispStreamOff)
