@@ -68,6 +68,8 @@ public:
 
 /// Shared state of the «Why» tone (WhyTone.State): the colour matrix once per shot, and what WhyStats hands on.
 struct WhyToneState;
+/// «Why тон» V2's state (WhyV2Stats.State, why/WhyV2Ae.hpp): PostPipeline.whyV2
+struct WhyV2State;
 
 class PostPipeline {
 public:
@@ -88,6 +90,7 @@ public:
     float scamNoiseSigma = 0.f;
     bool signedRgb = false;
     std::shared_ptr<WhyToneState> why;
+    std::shared_ptr<WhyV2State> whyV2;      // P614 «Why тон» V2: WhyV2Stats -> WhyV2Fusion / WhyV2Tone; null outside that route
     Texture sunBloom;
     std::optional<Point> sunBloomSize;
     int sunBloomBlock = 0;

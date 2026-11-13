@@ -147,7 +147,8 @@ int main(int argc, char** argv) {
             char prefix[8];
             std::snprintf(prefix, sizeof prefix, "%02d-", i);
             for (const char* name : {"ScamRgb", "ScamHdrDenoise", "WhyHlDezipper", "WhyMsDenoise", "WhyStats", "WhyFusion", "WhyLumaSharpen",
-                                     "WhyFused", "WhyLumaS", "WhyCombine", "ScamLocalContrast", "FinalResize"}) {
+                                     "WhyFused", "WhyLumaS", "WhyCombine", "WhyV2Stats", "WhyV2Highlights", "WhyV2Fusion",
+                                     "WhyV2Tone", "ScamLocalContrast", "FinalResize"}) {
                 const std::string path = refDir + "/dump/" + prefix + name + ".f32";
                 if (std::ifstream(path).good()) dumps.push_back(path);
             }
@@ -167,6 +168,10 @@ int main(int argc, char** argv) {
             else if (name == "WhyLumaSharpen") p.add(std::make_unique<WhyLumaSharpen>());
             else if (name == "WhyFusion") p.add(std::make_unique<WhyFusion>());
             else if (name == "WhyCombine") p.add(std::make_unique<WhyCombine>());
+            else if (name == "WhyV2Stats") p.add(std::make_unique<WhyV2Stats>());
+            else if (name == "WhyV2Highlights") p.add(std::make_unique<WhyV2Highlights>());
+            else if (name == "WhyV2Fusion") p.add(std::make_unique<WhyV2Fusion>());
+            else if (name == "WhyV2Tone") p.add(std::make_unique<WhyV2Tone>());
             else if (name == "ScamLocalContrast") p.add(std::make_unique<ScamLocalContrast>());
             else if (name == "FinalResize") {
                 if (!p.mParameters.hybridFinalSize) throw std::runtime_error("FinalResize: the shot has no hybridFinalSize");

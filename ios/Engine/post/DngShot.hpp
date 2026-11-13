@@ -235,6 +235,8 @@ inline NoiseModel noiseModel(const DngShot& s, int white) {
         if (white > 1 && o > 0.01 && !std::isinf(o)) o = o > 1.0 ? o / (double(white) * white) : o / white; // NoiseModeler.halOffset
         in.push_back({s.noiseProfile[i], o});
     }
+    // NoiseModeler.reportedModel: the profile as the camera gave it (the offsets sanitised), before the fallback and merging
+    if (!in.empty()) m.reportedModel = in;
     if (in.empty() || in[0].first == 0.0) {
         // NoiseModeler's built-in generators at the shot's ISO
         const double iso = s.iso, dGain = std::max(iso / std::max(1, s.iso), 1.0);

@@ -154,7 +154,17 @@ change: `scam-crash.h` keeps only the stage marks on Apple.
     ScamHybridBurst.outputWidth; ScamLabBurst takes width x grid, so the Android lab cannot replay a 1.5x burst), and
     ShadowTileBlitter takes the tile readback above 16 MP (Robolectric's legacy Canvas left those photos black). post_node_check
     takes words 15 / 16 too and the nodes ScamLocalContrast / FinalResize.
-  - Not ported yet (they throw): «Why тон» V2 route, Oldstyle, DCG noise zones, film, lens filters, Ultra HDR, Portrait.
+  - 2026-11-13: the «Why тон» V2 route (pref_scam_hybrid_tone_version "v2", grids up to 100 MP): why/WhyV2Ae.hpp (WhyV2Ae /
+    WhyV2Curve maths, Java float semantics incl. String.format "%.4f" half up, WhyV2State), nodes/WhyV2Stats.hpp (v2_clean,
+    v2_stride samples, settings incl. the merged V1 rows, NoiseModeler.reportedMean: Parameters NoiseModel.reportedModel),
+    WhyV2Highlights.hpp (bracket_denoise, hr_extract / box / hr_apply), WhyV2Fusion.hpp (ef_prep, pyr_down, coarsest,
+    collapse), WhyV2Tone.hpp (v2_tonemap, QUANT8; no P3_OUT / FILM_LUT, as WhyCombine's port), WhyLumaSharpen REF_LUMA guide;
+    PostPipelineRun builds WhyV2Stats / WhyLumaSharpen / WhyV2Highlights / WhyV2Fusion / WhyV2Tone + tail(). Lenta against the
+    Android reference on Mesa (post_node_check full): V2 0 of 37748736 values differ; V2 + «Текстура» 0; V2 with «Восст. цвета
+    светов» 0.8, clarity 0.5, the own curve + lift -10 / contrast 20 0; V2 Uchimura + vibrance 0.3, skin hue 50, sRGB gamma 0;
+    V2 + «Уменьшить до» 8 MP lanczos 0 of 23970816. Lenta / «Текстура» V1 still 0. Not exercised by Lenta: bracket_denoise (it
+    runs only with merged short frames, the ceiling 8; Lenta's shorts were all rejected).
+  - Not ported yet (they throw): Oldstyle, DCG noise zones, film, lens filters, Ultra HDR, Portrait.
     Transport: the base frame is NCH frame 0 (Android: the sharpest of the newest within the window), per-frame noise from the
     DNG profile scaled by ISO.
   - The iOS settings screen writes the Android keys (Engine/PostSettings.swift, UserDefaults "scam.prefs"); unset keys take

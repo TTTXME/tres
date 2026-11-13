@@ -4,6 +4,7 @@
 #pragma once
 
 #include "WhyStats.hpp"
+#include "../why/WhyV2Ae.hpp"
 
 namespace scam_post {
 
@@ -221,8 +222,12 @@ private:
             gainMap = fallback;
         }
         Texture ya = plane(size, DataType::FLOAT_16, 1);
+        // P614 «Why тон» V2: the guide is the reference's luma_extract of V2's clean RGB (unclamped), as its tone sharpens it
+        const Texture v2Clean = pipeline.whyV2 ? pipeline.whyV2->clean : nullptr;
+        if (v2Clean) prog.setDefine("REF_LUMA", 1);
         prog.useAssetProgram("why/sharp_in", false);
         prog.setTexture("InputBuffer", input);
+        if (v2Clean) prog.setTexture("CleanBuffer", v2Clean);
         WhyTone::setColour(prog, pipeline, *gainMap, st->inScale);
         prog.setVar("mulU", mul);
         prog.drawBlocks(ya);
