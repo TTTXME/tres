@@ -116,6 +116,8 @@ Compiled compile(const std::string& source, Stage stage, bool iosPlatform) {
         options.set_msl_version(2, 4);
         options.buffer_size_buffer_index = kBufferSizeIndex;
         options.enable_decoration_binding = false;
+        // GL writes a float / vec2 / vec3 output into any colour target; Metal needs the target's components: pad to four
+        options.pad_fragment_output_components = true;
         msl.set_msl_options(options);
         if (stage == Stage::Vertex) {
             // GL window rows = texture rows: y flipped into Metal's top-left space, z from [-w, w] to [0, w]
