@@ -89,6 +89,18 @@ def main():
     for pat in p658:
         check(len(re.findall(pat, stream, re.S)) == 1, 'P658: the red / blue from green block, once')
         stream = re.sub(pat, '', stream, flags=re.S)
+    # P666: by day the shadows undo the day transition / bokeh (k61dU, a no-op while k61dU.x is 0: kernelSnrShadow off, the night
+    # side, kernelSnr 0): its uniform and its block are put back to the ramp of before
+    p666 = (('uniform vec4 k61dU; // P666: the day transition (x) / bokeh (y) factors the shadows undo, fading in over the quad luma z .. w (x 0: off)\n', ''),
+            ('    float clip=k61aU.z,slope=k61bU.y,blurred=k61bU.x;\n    if(k61dU.x>0.0){ // P666: in the shade the day transition / bokeh back to 1 (a shadow\'s texture has a small sqrt-domain gradient)\n'
+             '        float d=1.0-smoothstep(k61dU.z,k61dU.w,lum),t=mix(1.0,k61dU.x,d);\n        clip/=t;slope*=t;blurred*=mix(1.0,k61dU.y,d);\n    }\n'
+             '    float blur=clamp(1.0-(max(strength,gd)-clip)*slope,0.0,1.0);\n    float an=mix(k61aU.w,k61aU.x,min(coh,strength*5.0));\n'
+             '    float s1=mix(an,blurred,blur),s2=mix(mix(k61aU.w,k61aU.y,coh),blurred,blur);\n',
+             '    float blur=clamp(1.0-(max(strength,gd)-k61aU.z)*k61bU.y,0.0,1.0);\n    float an=mix(k61aU.w,k61aU.x,min(coh,strength*5.0));\n'
+             '    float s1=mix(an,k61bU.x,blur),s2=mix(mix(k61aU.w,k61aU.y,coh),k61bU.x,blur);\n'))
+    for new, old in p666:
+        check(stream.count(new) == 1, 'P666: the shadows\' day transition / bokeh undo, once')
+        stream = stream.replace(new, old)
     got = hashlib.sha256(stream.encode()).hexdigest()
     check(got == MERGE_SOURCES, 'the merge program\'s sources unchanged without the dezipper (%s)' % got[:12])
     spec = re.search(r'inline std::string hybridPartialSpec\(.*?\n\}', SRC, re.S).group(0)

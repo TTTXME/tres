@@ -371,6 +371,9 @@ public final class DevKeys {
                 "Quad: remosaic detail - «Fast» keeps fine texture and stripes from the de-grid, a cone along the edge on moving subjects; «Quality» - the green-site structure tensor (fine stripes, facades), a narrower cone on moving subjects (1 on, 0 as before)")));
         k.add(n(merge, "hybrid_fast_flow_pick", "2", Lang.t("«Быстрый»: выравнивание кадра по блокам 4 px рядом с движущимся объектом (сдвиг соседних плиток, близкий к окружению) и кадры там, где блок совпадает с базовым в пределах шума - неподвижное лицо рядом с идущим человеком не размывается (2 вкл., 1 только выравнивание, 0 как раньше)",
                 "«Fast»: the frame's alignment per 4 px block next to a moving subject (a nearby tile's shift close to the surroundings') and its frames where the block matches the base within the noise - a static face beside a walking person stays sharp (2 on, 1 the alignment alone, 0 as before)")));
+        // P666: the shadows by day keep the merge kernel of before «Ядро по освещению» (worker kernelSnrShadow)
+        k.add(s(merge, "hybrid_kernel_snr_shadow", true, Lang.t("«Ядро по освещению» днём: в тенях ядро склейки не расширяется (кора, листва, кирпич в тени не размываются), в светлых зонах как раньше; выкл. — как раньше",
+                "«Kernel by the light» by day: the merge kernel does not widen in the shadows (bark, foliage, brick in the shade stay sharp), the lit areas as before; off: as before")));
         k.add(n(merge, "hybrid_fast_light_fill", "1", Lang.t("«Быстрый»: заполнение отвергнутых коротких кадров в светах только между двумя сторонами света и не темнее склейки - фонарь ночью без тёмных пятен и рваной звезды в ядре, края сохраняют спад яркости (1 вкл., 0 как раньше; 0..1)",
                 "«Fast»: the fill where the short frames were refused in highlights only between two sides of light and never darker than the merge - a street lamp at night without dark blotches and a ragged star in its core, its rim keeps the falloff (1 on, 0 as before; 0..1)")));
         k.add(n(merge, "hybrid_us_weak_hom", "1", Lang.t("«Качество», ночь: короткий кадр, у которого выравнивание нашло мало точек, начинает со своей гомографии, а не со сдвига всего кадра - фонари у края кадра на месте, без серого овала и призрачной дуги (1 вкл., 0 как раньше)",
@@ -488,6 +491,9 @@ public final class DevKeys {
         k.add(n(post, "hybrid_resolve_strip_rows", "0", Lang.t("Шумодав: строк в полосе (0 — авто, 1 — проверка по 128 строк)", "Denoise: rows per strip (0: auto, 1: 128-row validation)")));
         // P421: the finish denoise's diagnostics out of the menu
         k.add(n(post, "hybrid_dn_snr", "0", Lang.t("Шумодав: ручная чистота кадра (SNR), 0 — авто", "Denoise: manual shot cleanness (SNR), 0: auto")));
+        // P666: «Подстройка под свет» keeps the texture of the shadows at night (scamdn/why_resolve flatShadowU)
+        k.add(n(post, "hybrid_post_snr_shadow", "1", Lang.t("Шумодав ночью: текстура в тенях (кора, листва, кирпич в тени) не считается ровной зоной и не сглаживается, ровные тени сглаживаются как раньше; 1 вкл., 0 как раньше",
+                "Night denoise: texture in the shadows (bark, foliage, brick in the shade) is not taken for a flat area and is not smoothed, flat shadows are smoothed as before; 1 on, 0 as before")));
         // P443: the SCAM 9.6 engine's rows out of the menu (the Resolve engine is the default), the JPEG and night detail lines
         k.add(s(post, "jpeg_aq", false, Lang.t("JPEG: адаптивное квантование jpegli (вкл. — как раньше: в тёмных и ровных местах стирает мелкие детали и зерно)", "JPEG: jpegli's adaptive quantisation (on: as before - it erases fine detail and grain in dark and flat areas)")));
         k.add(s(post, "jpeg_fast_tables", true, Lang.t("JPEG: сохранить полные токены DCT (выкл. — прежний путь)", "JPEG: retain complete DCT tokens (off: original path)")));

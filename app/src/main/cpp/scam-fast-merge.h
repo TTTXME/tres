@@ -892,6 +892,7 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
         g.u4f(PG,"frame_border_padded",fb[0],fb[1],fb[2],fb[3]);
         g.u4f(PG,"covariance_parameters1",covShrink,covStretch,covClip,covBase);
         g.u4f(PG,"covariance_parameters2",covBlurred,covTrans,0.f,0.f);
+        {const auto sh=footprint.shade61();g.u4f(PG,"u_day_shade",sh[0],sh[1],sh[2],sh[3]);} // P666
         g.u4f(PG,"force_reference_color_rgb",0,0,0,0);g.u4f(PG,"debug_options",1,0,0,0);
         g.u4f(PG,"noise_texture_scale_bias",nsb[0],nsb[1],nsb[2],nsb[3]);
         g.u4f(PG,"cov_range_rg_factors",-covRangeRg[0]/covRangeRg[1],1.f/covRangeRg[1],-covRangeRg[2]/covRangeRg[3],1.f/covRangeRg[3]);

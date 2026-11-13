@@ -20,6 +20,8 @@ uniform vec2 flatNoiseU;            // P648c: the merged image's measured luma n
 uniform float flatBoostU;           // P648c: the factor's multiplier on a flat pixel at flatNightU 1 (<= 1: none; the camera model's
                                     // range under-reads the merged noise, so a flat pixel takes a wider one)
 uniform float flatGrainU;           // P648c: an even grain given back where the flat smoothing took it (x the pixel's noise sigma; 0: none)
+uniform vec3 flatShadowU;           // P666: the shadows' coarse texture test - x .. y: the local SNR (3 x 3 mean luma / its measured sigma)
+                                    // over which the shadows end, z: the noise share of the coarse variance (x >= y or z <= 0: none, as P648c)
 uniform float outlierU;             // outlier_sigma_multiplier (0.125)
 uniform float rejectRevertU;        // reject_luma_revert_factor (0.5)
 uniform float globalRevertU;        // global_luma_revert_factor (0.85)
@@ -53,6 +55,12 @@ vec3 SampleTexture(ivec2 p) {
     vec3 c = texelFetch(InputBuffer, clamp(p - ivec2(0, inputOriginU), ivec2(0), textureSize(InputBuffer, 0) - 1), 0).rgb;
     if (passU == 0) c = vec3(finite1(c.r), finite1(c.g), finite1(c.b));
     return c;
+}
+
+// P666: the luma of a pass-0 input texel (linear RGB)
+float SampleLuma(ivec2 p) {
+    vec3 c = texelFetch(InputBuffer, clamp(p - ivec2(0, inputOriginU), ivec2(0), textureSize(InputBuffer, 0) - 1), 0).rgb;
+    return dot(vec3(finite1(c.r), finite1(c.g), finite1(c.b)), vec3(0.2126390, 0.7151688, 0.0721923));
 }
 
 // P648c: the flatness pass 0 measured, carried to passes 1 and 2 in the intermediate's alpha
@@ -150,6 +158,28 @@ void main() {
             float var = max(m2 * (1.0 / 9.0) - m * m, 0.0) * (9.0 / 8.0);
             float nv = max(flatNoiseU.x * max(m, 0.0) + flatNoiseU.y, 1.0e-12);
             flat_px = min(var / nv, 64.0);   // r (pass 0 does not smooth more)
+            // P666: in the shadows a texture under the pixel noise (bark, foliage, brick, fabric in the shade) still stands out of it
+            // over a few pixels, where the noise averages down: the variance of the nine 3 x 3 means of a 9 x 9 window over the noise,
+            // / flatShadowU.z (that variance's share of pure noise), counts as r there - the shadow's texture is not called flat, its
+            // flat parts are smoothed as before; above the shadows (local SNR from flatShadowU.y) r as P648c
+            if (flatShadowU.y > flatShadowU.x && flatShadowU.z > 0.0) {
+                float shade = 1.0 - smoothstep(flatShadowU.x, flatShadowU.y, max(m, 0.0) * inversesqrt(nv));
+                if (shade > 0.0) {
+                    float cs = 0.0, cs2 = 0.0;
+                    for (int bj = -1; bj <= 1; ++bj)
+                        for (int bi = -1; bi <= 1; ++bi) {
+                            float bm = 0.0;
+                            for (int j = -1; j <= 1; ++j)
+                                for (int i = -1; i <= 1; ++i)
+                                    bm += SampleLuma(ivec2(mirror(xy.x + 3 * bi + i, size.x), mirror(xy.y + 3 * bj + j, size.y)));
+                            bm *= 1.0 / 9.0;
+                            cs += bm; cs2 += bm * bm;
+                        }
+                    cs *= 1.0 / 9.0;
+                    float rc = max(cs2 * (1.0 / 9.0) - cs * cs, 0.0) * (9.0 / 8.0) / nv;
+                    flat_px = max(flat_px, min(shade * rc / flatShadowU.z, 64.0));
+                }
+            }
         } else {
             float sum = 0.0;
             for (int j = -1; j <= 1; ++j)

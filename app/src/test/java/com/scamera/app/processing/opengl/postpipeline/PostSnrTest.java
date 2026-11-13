@@ -45,6 +45,28 @@ public class PostSnrTest {
         assertEquals(PostSnr.FLAT * PostSnr.night(11.8f), PostSnr.flatNight(11.8f, true, 1e-4f, 0f), 0f);
     }
 
+    /** P666: the shadows' coarse texture test - a band of local SNR inside the night range, a positive noise share (shader side:
+     *  tools/check_post_snr.py). */
+    @Test public void shadowTest() {
+        assertTrue(PostSnr.SHADOW_LO > 0f && PostSnr.SHADOW_LO < PostSnr.SHADOW_HI);
+        assertTrue("the coarse variance's noise share", PostSnr.SHADOW_COARSE > 0f && PostSnr.SHADOW_COARSE < 1f);
+        for (float snr : new float[]{Float.NaN, 0f, -2f, Float.POSITIVE_INFINITY}) {
+            final float[] b = PostSnr.shadowBand(snr);
+            assertTrue("no band for SNR " + snr, b[0] == 0f && b[1] == 0f);
+        }
+        assertEquals("a night shot of SNR 10: 2 .. 5", 2f, PostSnr.shadowBand(10f)[0], 1e-6f);
+        assertEquals(5f, PostSnr.shadowBand(10f)[1], 1e-6f);
+        assertEquals("a very dark shot: the band follows it", 1f, PostSnr.shadowBand(5f)[0], 1e-6f);
+        assertEquals(2.5f, PostSnr.shadowBand(5f)[1], 1e-6f);
+        assertEquals("capped", PostSnr.SHADOW_HI, PostSnr.shadowBand(29f)[1], 0f);
+        float lastLo = 0f, lastHi = 0f;
+        for (float snr = 0.5f; snr < 40f; snr += 0.25f) {
+            final float[] b = PostSnr.shadowBand(snr);
+            assertTrue(snr + "", b[0] < b[1] && b[0] >= lastLo && b[1] >= lastHi);
+            lastLo = b[0]; lastHi = b[1];
+        }
+    }
+
     @Test public void logLine() {
         assertEquals("post SNR (P648): off", PostSnr.describe(5f, false));
         assertTrue(PostSnr.describe(277f, true).contains("night=0.000 flat 0.000"));

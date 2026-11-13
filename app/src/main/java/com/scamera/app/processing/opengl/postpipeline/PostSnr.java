@@ -33,6 +33,27 @@ final class PostSnr {
     static final float DAY = 30f, NIGHT = 6f;
     /** The flat smoothing's night share, the factor on a flat pixel and the even grain given back there (why_resolve uniforms). */
     static final float FLAT = 1f, FLAT_BOOST = 3f, FLAT_GRAIN = 1f;
+    /**
+     * P666 (owner, 2026-11-13: «проверь работу нашего шумодава, он сильно мылит тени»): the shadows' texture is not called flat. In the
+     * shadows - the local SNR of the merged luma (its 3 x 3 mean over the measured sigma there, the frames merged included) under
+     * {@link #shadowBand}'s upper end, all of it under its lower end - the flat test also reads the coarse variance (nine 3 x 3 means
+     * of a 9 x 9 window) over the noise, / {@link #SHADOW_COARSE} (its share of pure noise): bark, foliage, brick or fabric under the
+     * pixel noise stands out of it there and keeps its texture, a flat shadow is smoothed as before. Above the shadows the test is
+     * P648c's. The band follows the shot: SHADOW_REL_LO / HI x its SNR, at most SHADOW_LO / HI (a very dark shot's lit parts sit at a
+     * local SNR of 2 - 3 and stay P648c's).
+     */
+    static final float SHADOW_LO = 2f, SHADOW_HI = 6f, SHADOW_REL_LO = 0.2f, SHADOW_REL_HI = 0.5f, SHADOW_COARSE = 0.2f;
+
+    /** P666: the shadows' local-SNR band {lo, hi} of a shot of SNR {@code snr} (0, 0 for an unknown SNR: no shadow test). */
+    static float[] shadowBand(float snr) {
+        if (!(snr > 0f) || Float.isInfinite(snr)) return new float[]{0f, 0f};
+        return new float[]{Math.min(SHADOW_LO, SHADOW_REL_LO * snr), Math.min(SHADOW_HI, SHADOW_REL_HI * snr)};
+    }
+
+    /** P666's shadow test (scam_dev.txt "hybrid_post_snr_shadow 0": P648c's test alone, as before). */
+    static boolean shadowTexture() {
+        return PreferenceKeys.hybridValue("post_snr_shadow", 1f) > 0f;
+    }
 
     /** The switch (pref_scam_hybrid_post_snr, on by default; scam_dev.txt "hybrid_post_snr 0" too). */
     static boolean on() {

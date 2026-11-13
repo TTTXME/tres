@@ -364,6 +364,27 @@ int main() {
             const HybridKernelFootprint o = hybridKernelFootprintSnr(off, key, 1, true, &line), uo = hybridKernelFootprint(off);
             assert(o.texture == uo.texture && o.bokeh == uo.bokeh && o.transition == uo.transition && line.find("off") != std::string::npos);
         }
+        // P666: the day side's transition / bokeh are undone in the shadows (the guide's quad luma under kernelSnrShadowHi): set only
+        // on the day side (a key above the pivot) with kernelSnrShadow, the values the footprint widens by; kernelSnrShadow 0 = none,
+        // every other factor the same
+        for (int block : {1, 2, 4})
+            for (int fast = 0; fast < 2; ++fast)
+                for (float key : {3.f, 8.f, 14.f, 20.f, 40.f, 120.f}) {
+                    const HybridKernelFootprint f = hybridSnrFactors(t, key, block, fast != 0);
+                    if (key <= t.kernelSnrPivot) assert(!f.shade() && f.shade61()[0] == 0.f);
+                    if (f.shade()) assert(f.shadeT == std::max(f.transition, 1.f) && f.shadeB == std::max(f.bokeh, 1.f) && f.shadeLo == t.kernelSnrShadowLo && f.shadeHi == t.kernelSnrShadowHi);
+                    HybridTuning s0 = t; s0.kernelSnrShadow = 0;
+                    const HybridKernelFootprint g = hybridSnrFactors(s0, key, block, fast != 0);
+                    assert(!g.shade() && g.texture == f.texture && g.bokeh == f.bokeh && g.transition == f.transition && g.edge == f.edge && g.lift == f.lift);
+                }
+        assert(hybridSnrFactors(t, 120.f, 1, false).shade() && hybridSnrFactors(t, 120.f, 2, true).shade());
+        {
+            HybridTuning o = t; o.kernelSnr = 0;
+            assert(!hybridKernelFootprintSnr(o, 120.f, 1, false).shade());
+            std::string line;
+            hybridKernelFootprintSnr(t, 120.f, 1, false, &line);
+            assert(line.find("the shadows undo transition") != std::string::npos);
+        }
         // the Quad texture factor (P596's mosaicQuadTexture) by day, up to max(it, mosaicQuadTextureNight) at night; never narrower at
         // night than by day; kernelSnr 0 / no key: P596's factor
         {
