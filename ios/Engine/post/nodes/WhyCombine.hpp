@@ -599,7 +599,7 @@ public:
         logI("SCAM_PIPELINE", "WHY combine ae=" + javaFloatString(r.ae) + " clip=" + javaFloatString(r.clip) + " headroom=" + (realClip ? "true" : "false")
              + " hlWhite=" + javaFloatString(WhyTone::value("hl_white", 0.15f)) + " hlSoft=" + javaFloatString(WhyTone::value("hl_soft", 0.7f))
              + (lightChroma > 0.f ? " lightChroma=" + javaFloatString(lightChroma) : "") + " grid=" + std::to_string(input->mSize.x) + "x" + std::to_string(input->mSize.y)
-             + " lowFactor=" + std::to_string(st.factor) + " detail=" + javaFloatString(detail) + (sharp ? " (WhyLumaS, mul " + javaFloatString(sharpMul) + ")" : "")
+             + " lowFactor=" + std::to_string(st.factor) + (st.factor > 2 ? " colour=whyMid" : " colour=whyLow") + " detail=" + javaFloatString(detail) + (sharp ? " (WhyLumaS, mul " + javaFloatString(sharpMul) + ")" : "")
              + (sunBloomOn ? " sunBloom=" + javaFloatString(WhyTone::sunBloom()[0]) + "@" + javaFloatString(WhyTone::sunBloom()[1]) : "")
              + (oppOn ? " opposedLanding" : "") + skyLog + (colourOn ? " colourLook" : "")
              + (lut ? " filmLut=" + lutName + " " + std::to_string(lut->size) + "^3 x" + javaFloatString(lutStrength)

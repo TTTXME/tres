@@ -174,8 +174,9 @@ inline Result finish(const Stats& st, const AeSettings& s, int iso, int maxIso) 
     if (p98 == clipv) p98 = clipv * 0.99975586;
     r.p10 = float(p10); r.p50 = float(p50); r.p98 = float(p98); r.p995 = float(p995);
     r.nightW = float(nightShare(s, p50));
-    const double aeTarget = double(s.aeTarget) + double(s.nightAeTarget - s.aeTarget) * double(r.nightW);
-    const double shadowStr = double(s.shadowStr) + double(s.nightShadowStr - s.shadowStr) * double(r.nightW);
+    // the Java's float fields and float nightW: the blend in float, widened after (a night shot's ae one ulp off in double)
+    const double aeTarget = double(s.aeTarget + (s.nightAeTarget - s.aeTarget) * r.nightW);
+    const double shadowStr = double(s.shadowStr + (s.nightShadowStr - s.shadowStr) * r.nightW);
     const double p98x = beyond(0.98, p98, clipv, tot, st.tail), p995x = beyond(0.995, p995, clipv, tot, st.tail);
     r.p98x = float(p98x); r.p995x = float(p995x);
     const double meter = r.geo;
