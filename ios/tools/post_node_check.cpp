@@ -10,6 +10,7 @@
 #include "../Engine/post/nodes/WhyHlDezipper.hpp"
 #include "../Engine/post/nodes/WhyMsDenoise.hpp"
 #include "../Engine/post/nodes/WhyLumaSharpen.hpp"
+#include "../Engine/post/nodes/WhyFusion.hpp"
 
 #include <EGL/egl.h>
 
@@ -160,6 +161,7 @@ int main(int argc, char** argv) {
             } else if (name == "WhyMsDenoise") p.add(std::make_unique<WhyMsDenoise>());
             else if (name == "WhyStats") p.add(std::make_unique<WhyStats>());
             else if (name == "WhyLumaSharpen") p.add(std::make_unique<WhyLumaSharpen>());
+            else if (name == "WhyFusion") p.add(std::make_unique<WhyFusion>());
             else throw std::runtime_error("node " + name + " is not ported yet");
         }
         // WhyStats issues WhyLumaSharpen's passes early (PostPipeline.BuildDefaultPipeline: whyStats.earlySharpen)
@@ -209,6 +211,7 @@ int main(int argc, char** argv) {
             }
         }
         if (p.why) checkState("WhyLumaS", p.why->lumaS, 1);
+        if (p.why) checkState("WhyFused", p.why->fused, 1);
         checkGl("end");
         prog.close();
         return failures == 0 ? 0 : 3;
