@@ -23,8 +23,9 @@ struct ShotOutput {
 
 /// settings: the app's (Settings::current()); nchPath: the burst written by the app, its header flags set here; jobDir: an empty
 /// directory for the worker's job; shaders: the app's shader assets.
+/// makeContext: makes the post pipeline's GL context current, after the merge (its GPU engines end their display: eglTerminate).
 inline ShotOutput runShot(const std::string& nchPath, const std::vector<uint8_t>& dngBytes, const std::string& jobDir, const std::string& shaders,
-                          const std::function<void(const std::string&)>& log) {
+                          const std::function<void(const std::string&)>& log, const std::function<void()>& makeContext) {
     Settings& s = Settings::current();
     const DngShot dng = readDng(dngBytes.data(), dngBytes.size());
     // the burst's header as ScamHybridBurst.header writes it: clip flags (4), no effective map above 100 MP (16), sensor grid
@@ -61,6 +62,7 @@ inline ShotOutput runShot(const std::string& nchPath, const std::vector<uint8_t>
     const bool effectiveMap = !merged.effMap.empty(), clipFlags = !merged.clipFlags.empty();
 
     const auto t0 = std::chrono::steady_clock::now();
+    makeContext();
     GLProg prog(shaders);
     PostPipeline p;
     p.glProg = &prog;

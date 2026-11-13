@@ -25,7 +25,7 @@ enum BurstProcessor {
         let started = Date()
         let info = DngInfo(dng: burst.dng)
         log += info.notes.map { "dng: " + $0 }
-        var frames = burst.frames
+        var frames = BurstOrder.arrange(burst.frames, width: burst.width, height: burst.height, log: &log)
         let blackMean = info.black.reduce(0, +) / 4
         var source = "DNG NoiseProfile"
         var noise = info.noise
@@ -42,9 +42,7 @@ enum BurstProcessor {
             let k = Float(frames[i].iso) / iso0
             frames[i].noiseSlope = slope * k
             frames[i].noiseOffset = offset * k * k
-            frames[i].exposure = min(max(frames[i].exposure, 1 / 512), 512)
         }
-        frames[0].exposure = 1
         log.append("burst \(burst.width)x\(burst.height) cfa=\(burst.cfa) frames=\(frames.count) black=\(info.black) white=\(info.white)"
                    + " noise \(source): S=\(slope) O=\(offset) neutral=\(info.neutral) orientation=\(info.orientation)")
 

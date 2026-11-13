@@ -54,8 +54,7 @@ static void makePostContext() {
         scam_post::postLog() = log;
         const uint8_t *bytes = static_cast<const uint8_t *>(dng.bytes);
         const std::vector<uint8_t> dngBytes(bytes, bytes + dng.length);
-        makePostContext();
-        const scam_post::ShotOutput out = scam_post::runShot(burst.UTF8String, dngBytes, job.UTF8String, shaders.UTF8String, log);
+        const scam_post::ShotOutput out = scam_post::runShot(burst.UTF8String, dngBytes, job.UTF8String, shaders.UTF8String, log, makePostContext);
         photo = [SCAMPhoto new];
         photo.rgba = [NSData dataWithBytes:out.photo.rgba.data() length:out.photo.rgba.size()];
         photo.width = out.photo.width;
