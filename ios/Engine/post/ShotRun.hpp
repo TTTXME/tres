@@ -1,7 +1,7 @@
 // One shot as the Android app processes it, from the NCH burst and the first frame's DNG to the photo: the transport decisions
 // (ScamHybridBurst: the frame table of the captured N / bracketed / ultrashort frames, header flags, job markers, the merge tuning),
 // the crop (SabreCrop's window before the merge, «16:9» frames, the photo's crop after the pipeline), the SHDR merge, the worker
-// output read as ScamNeuralClient reads it, the shot's Parameters and PostPipeline.Run. Shared by the app (Bridge/ScamShot.mm, ScamGL
+// output read as ScamNeuralClient reads it, the shot's Parameters and PostPipeline.develop. Shared by the app (Bridge/ScamShot.mm, ScamGL
 // on the iPhone's GPU) and the host check (tools/shot_run_check.cpp, Mesa).
 #pragma once
 
@@ -91,7 +91,7 @@ inline void applyTail(PostOutput& photo, std::optional<GainMapComputer::Result>&
     }
 }
 
-/// «Портрет»: the faces of the shot as Parameters.FillDynamicParameters takes them from PortraitFaces.fromResult - whether a face
+/// «Портрет»: the faces of the shot as Parameters.fillFromFrame takes them from PortraitFaces.fromResult - whether a face
 /// was found, and its boxes (normalised left, top, right, bottom in the unrotated RAW buffer, the merged RGB's sensor orientation;
 /// empty when a face was found but its place in the RAW is unknown). The iOS app finds them with Vision (BurstProcessor).
 /// ScamHybridBurst.memoryAvailable: the memory this process may still take (bytes), -1 when unknown (the host)
@@ -229,7 +229,7 @@ inline ShotOutput runShot(const std::string& nchPath, const std::vector<uint8_t>
     p.mParameters = shotParameters(dng, merged.width, merged.height, log);
     Parameters& par = p.mParameters;
     // P118 «16:9»: the frames are the capture's centred 16:9 rows (BayerBurst), the DNG's map covers the whole frame: its rows of
-    // the crop only (Parameters.FillDynamicParameters; the full frame's rows as the capture recorded them, else from the DNG's size
+    // the crop only (Parameters.fillFromFrame; the full frame's rows as the capture recorded them, else from the DNG's size
     // as Android takes them from the active array)
     const int fullRows = facts.fullHeight > 0 ? facts.fullHeight
                          : dng.width > 0 && dng.height > 0 ? int(HybridOutput::roundD(double(frameW) * dng.height / dng.width)) : 0;
@@ -255,9 +255,9 @@ inline ShotOutput runShot(const std::string& nchPath, const std::vector<uint8_t>
     par.filmFrameScale = filmFrameScale(window ? window->remaining() : zoom);
     par.portraitEnabled = s.getBoolean("pref_portrait_enabled", false);
     par.portraitSkinWarmth = par.portraitEnabled && s.getBoolean("pref_portrait_skin_warmth", true);
-    // Parameters.FillDynamicParameters: the faces only with «Портрет» on (kept to the frame and to PortraitFaces.MAX_FACES as
+    // Parameters.fillFromFrame: the faces only with «Портрет» on (kept to the frame and to PortraitFaces.MAX_FACES as
     // PortraitFaces.append keeps them; P576: in the window)
-    // Parameters.FillConstParameters: a front camera mirrors, pref_tunable_parameters_disablemirror turns it off
+    // Parameters.fillFromCamera: a front camera mirrors, pref_tunable_parameters_disablemirror turns it off
     par.mirror = faces.front && !s.getBoolean("pref_tunable_parameters_disablemirror", false);
     par.portraitFaceDetected = false;
     par.portraitFaces = std::vector<float>();

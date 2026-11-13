@@ -92,8 +92,14 @@ inline std::string text(const Settings& s) {
     if (s.hybridValue("us_weak_hom", 1.f) == 0.f) out += "usWeakHom 0\n";
     if (s.hybridValue("us_clip_vote", 1.f) == 0.f) out += "usClipVote 0\n";
     if (s.hybridValue("strip_guard", 1.f) == 0.f) out += "stripGuard 0\n";
+    // P662: the «Качество» merge's GPU dispatches paced (worker gpuPace 2, the same output); "hybrid_gpu_pace 0" = before, 1..8
+    const float gpuPace = s.hybridValue("gpu_pace", 2.f);
+    if (gpuPace != 2.f) out += "gpuPace " + std::to_string(round(std::max(0.f, std::min(8.f, gpuPace)))) + "\n";
     const float natTile = s.hybridValue("mosaic_nat_tile", 2.f);
     if (natTile != 2.f) out += "mosaicNatTile " + std::to_string(round(std::max(0.f, std::min(2.f, natTile)))) + "\n";
+    // P647 «Ядро по освещению» (pref_scam_hybrid_kernel_snr, on by default): the kernel's three footprints follow the shot's SNR
+    // key (worker kernelSnr; 0 = the footprints as before), written in every mode
+    out += std::string("kernelSnr ") + (s.hybridSwitch("kernel_snr", true) ? "1" : "0") + "\n";
     const float dezipper = s.hybridValue("dezipper", 4.5f);
     if (dezipper > 0.f) out += "dezipper " + f(std::max(0.5f, std::min(15.f, dezipper))) + "\n";
     if (s.hybridValue("rej_prior", 1.f) > 0.f) out += "rejPrior 1\n";

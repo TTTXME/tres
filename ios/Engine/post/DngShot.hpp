@@ -1,7 +1,7 @@
 // The facts of a shot the Android app takes from CameraCharacteristics / CaptureResult, read from the iPhone's own DNG of the
 // burst's first frame (TIFF/EP + DNG 1.4 tags): the colour tags, AsShotNeutral, NoiseProfile, the lens shading of OpcodeList2
 // (GainMap opcodes, as DngCreator writes Android's LENS_SHADING_MAP), levels, CFA, orientation and the EXIF exposure.
-// shotParameters fills Parameters from them as Parameters.FillConstParameters / FillDynamicParameters / ReCalcColor do.
+// shotParameters fills Parameters from them as Parameters.fillFromCamera / fillFromFrame / resolveColour do.
 #pragma once
 
 #include "Parameters.hpp"

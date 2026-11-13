@@ -1,4 +1,4 @@
-// PostPipeline.Run + BuildDefaultPipeline one to one (the photo route of an SHDR shot): the light nodes before the tone (the lens
+// PostPipeline.develop + buildNodes one to one (the photo route of an SHDR shot): the light nodes before the tone (the lens
 // filter, the film's camera diffusion and halation), «Why тон» V1 or V2 (a film of the old route keeps V1), the «Oldstyle» mode's
 // tone and style (not with a film: the Why tone is used), the reference film route (ReferenceFilm / ReferenceFilmMix, only when the
 // spectral film engine is available: never in this build) and the tail (PostPipeline.tail): «Текстура» (not with a film), the
@@ -157,7 +157,7 @@ inline void tail(PostPipeline& p, const std::shared_ptr<const FilmSettings>& fil
     p.add(std::make_unique<RotateWatermark>(p.getRotation()));
 }
 
-/// PostPipeline.Run: the shot's parameters and merge in, the photo out
+/// PostPipeline.develop: the shot's parameters and merge in, the photo out
 inline PostOutput runPostPipeline(PostPipeline& p) {
     PostGlMode::invalidateFlag() = Settings::current().scamDevSwitch("post_invalidate", true);
     if (filmAssetsRoot().empty() && p.glProg) filmAssetsRoot() = p.glProg->shadersRoot() + "/../film";

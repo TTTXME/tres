@@ -1,4 +1,4 @@
-// Parameters.ReCalcColor for a shot whose colour comes from its DNG tags alone (an iPhone's: no capture-result transform, no
+// Parameters.resolveColour for a shot whose colour comes from its DNG tags alone (an iPhone's: no capture-result transform, no
 // OPPO tuning, no plain-session table, no DCP profile): the neutral, the calibration fallbacks (P370 A5, P580), the DNG SDK white
 // estimate (DngColor), camera -> XYZ (D50) -> ProPhoto (Converter), the placeholder / missing forward matrix routes (P370 A3) and
 // «Профиль матрицы» / «Своя матрица 3x3» (P408). Java float / double arithmetic kept step by step (built with -ffp-contract=off).
@@ -368,7 +368,7 @@ inline std::string arrayString(const std::vector<float>& v) {
 
 constexpr float DUV_GUARD = 0.025f;
 
-/// Parameters.ReCalcColor (customNeutral off, no capture result): fills whitePoint, the calibration fields, sensorToProPhoto,
+/// Parameters.resolveColour (customNeutral off, no capture result): fills whitePoint, the calibration fields, sensorToProPhoto,
 /// proPhotoToSRGB / CCT, sceneCct / sceneCctSource / sceneDuv, colourSource / colourSourceWhy.
 inline void reCalcColor(Parameters& p, const ShotColourTags& t, const std::function<void(const std::string&)>& log) {
     std::vector<float> wp(3, 0.f);

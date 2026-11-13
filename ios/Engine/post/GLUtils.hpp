@@ -29,9 +29,9 @@ public:
         const double downscaleFactor = double(in->mSize.x) / outSize.x;
         Texture out = makeTexture(outSize, in->mFormat);
         glProg.useUtilProgram("gaussdown", false);
-        glProg.setTexture("InputBuffer", in);
-        glProg.setVar("inputSize", in->mSize);
-        glProg.setVar("downscaleFactor", float(downscaleFactor));
+        glProg.setTexture("srcLevel", in);
+        glProg.setVar("srcSize", in->mSize);
+        glProg.setVar("srcPerOut", float(downscaleFactor));
         glProg.drawBlocks(*out, outSize);
         glProg.closed = true;
         return out;
@@ -60,10 +60,9 @@ public:
         glProg.useUtilProgram("pyramiddiff", false);
         pyramid.laplace.resize(size_t(levels) - 1);
         for (size_t i = 0; i < pyramid.laplace.size(); i++) {
-            glProg.setTexture("target", pyramid.gauss[i]);
-            glProg.setTexture("base", pyramid.gauss[i + 1]);
-            glProg.setVar("size", 1.0f / float(pyramid.sizes[i].x), 1.0f / float(pyramid.sizes[i].y));
-            glProg.setVar("size2", pyramid.gauss[i + 1]->mSize);
+            glProg.setTexture("fineLevel", pyramid.gauss[i]);
+            glProg.setTexture("coarseLevel", pyramid.gauss[i + 1]);
+            glProg.setVar("fineTexel", 1.0f / float(pyramid.sizes[i].x), 1.0f / float(pyramid.sizes[i].y));
             pyramid.laplace[i] = makeTexture(pyramid.sizes[i], pyramid.gauss[i + 1]->mFormat);
             glProg.drawBlocks(*pyramid.laplace[i]);
         }

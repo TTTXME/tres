@@ -42,6 +42,10 @@ public:
         const bool quad = quadOnLattice(block, block == 2 && quadSwitch());
         return r1Fits(w, h) && latticeSource(quad ? 1 : block, (block <= 1 || quad) && Settings::current().scamDevSwitch("sharpen_lattice", true));
     }
+    /// P652: why/sharp_rl reads a halo margin at or below 0 as unset (0.15); the setting goes to the shader at least at this floor,
+    /// so 0 means no extra margin (every value from 0.0001 up, the default 0.15 included, is sent as before)
+    static constexpr float RL_MARGIN_FLOOR = 1e-4f;
+    static float rlHaloMargin(float stored) { return stored > RL_MARGIN_FLOOR ? stored : RL_MARGIN_FLOOR; }
     static float scaleComp(float s, float k) { return 1.f + (k - 1.f) * std::min(std::max(s - 1.f, 0.f), 1.f); }
     static int gfDown(int w, int h, int down) { return int64_t(w) * h > HUGE_GF_PIXELS ? std::max(down, 2) : down; }
 
@@ -209,7 +213,7 @@ private:
         const float sobelAmount = filmShare(WhyTone::value("sharp_sobel_amount", 0.f) * lowLight, film), sobelThresh = WhyTone::value("sharp_sobel_thresh", 0.f) / 255.f;
         const float thin = filmShare(WhyTone::value("sharp_edge_thinning", 0.f), film);
         const float rlHalo = clamp01(WhyTone::value("sharp_rl_halo_control", 100.f) / 100.f);
-        const float rlMargin = WhyTone::value("sharp_rl_halo_margin", 0.15f);
+        const float rlMargin = rlHaloMargin(WhyTone::value("sharp_rl_halo_margin", 0.15f)); // P652: 0 is not «unset» (0.15)
         const float rlMacro = WhyTone::value("sharp_rl_halo_macro", 0.4f);
         const float rlEdgeGuard = WhyTone::rlEdgeGuard();
         float rl[3][5] = {

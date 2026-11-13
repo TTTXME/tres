@@ -218,6 +218,9 @@ inline float finishSnr(GLProg& prog, PostPipeline& pipeline, GLTexture& clean, s
     const float snrMeasured = NoiseMath::snr(mu, gy00, sG, rG, rhoS, rhoR);
     const float snr = snrFixed > 0.f ? snrFixed : snrMeasured * snrScale;
     par.finishSnr = snr;
+    // P648c: the luma noise the statistics measured on this input (its model x the measured ratio), for the Resolve's flat test
+    par.finishNoiseS = gy00 * sY;
+    par.finishNoiseO = gy00 * rY;
     if (log) {
         auto r2 = [](float v) { return float(javaRound(v * 100.f)) / 100.f; };
         auto r3 = [](float v) { return float(javaRound(v * 1000.f)) / 1000.f; };

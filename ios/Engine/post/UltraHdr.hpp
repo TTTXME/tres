@@ -145,8 +145,8 @@ public:
         prog_.setLayout(tile, tile, 1);
         prog_.useAssetProgram("GLHistogram/histogram", true);
         prog_.setTexture("inTexture", input);
-        const float histMpy = float(histSize_ - 1);
-        prog_.setVar("exposure", 1.f * histMpy, 1.f * histMpy, 1.f * histMpy, 1.f * histMpy);
+        const float top = float(histSize_ - 1);
+        prog_.setVar("binScale", 1.f * top, 1.f * top, 1.f * top, 1.f * top); // the shader's per-channel bin scale (was "exposure")
         prog_.setVar("input1", 0.f);
         prog_.setVar("input2", 0.f);
         prog_.setBufferCompute("histogramRed", *buffers_[0]);

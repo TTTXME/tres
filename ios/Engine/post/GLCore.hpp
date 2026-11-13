@@ -49,7 +49,7 @@ struct GLDrawParams {
     static constexpr int WorkDim = 4;
 };
 
-/// PostGlMode: the new GL model (legacy false), and its scam_dev switches set per run by PostPipeline.Run.
+/// PostGlMode: the new GL model (legacy false), and its scam_dev switches set per run by PostPipeline.develop.
 struct PostGlMode {
     static bool& invalidateFlag() { static bool v = true; return v; }
     static bool invalidate() { return invalidateFlag(); }

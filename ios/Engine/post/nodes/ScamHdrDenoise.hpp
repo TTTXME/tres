@@ -1,10 +1,46 @@
-// ScamHdrDenoise.java + WhyResolveDenoise.java one to one: the reference's three 1/2/4-pixel YUV bilateral passes on the merged
-// linear RGB (strips of rows), the effective-frame map as N, the finish SNR measured on the input.
+// ScamHdrDenoise.java + WhyResolveDenoise.java + PostSnr.java one to one: the reference's three 1/2/4-pixel YUV bilateral passes on
+// the merged linear RGB (strips of rows), the effective-frame map as N, the finish SNR measured on the input; P648c «Подстройка под
+// свет (SNR)»: the night's flat-area smoothing by the shot's SNR.
 #pragma once
 
 #include "../DenoiseStats.hpp"
 
 namespace scam_post {
+
+/// PostSnr.java (P648 «Подстройка под свет (SNR)»): the Resolve's night smoothing of the flat areas by the shot's finish SNR
+namespace PostSnr {
+/// the SNR from which the shot is daylight (no change) and the one at and below which the night's full share applies
+constexpr float DAY = 30.f, NIGHT = 6.f;
+/// the flat smoothing's night share, the factor on a flat pixel and the even grain given back there (why_resolve uniforms)
+constexpr float FLAT = 1.f, FLAT_BOOST = 3.f, FLAT_GRAIN = 1.f;
+
+/// the switch (pref_scam_hybrid_post_snr, on by default; scam_dev.txt "hybrid_post_snr 0" too)
+inline bool on() { return Settings::current().hybridSwitch("post_snr", true); }
+
+/// 0 at DAY and above and for an unknown SNR, 1 at NIGHT and below, a smoothstep of log SNR between
+inline float night(float snr) {
+    if (!(snr > 0.f) || std::isinf(snr) || snr >= DAY) return 0.f;
+    if (snr <= NIGHT) return 1.f;
+    const double t = std::log(double(DAY / snr)) / std::log(double(DAY / NIGHT));
+    return float(t * t * (3.0 - 2.0 * t));
+}
+
+/// the flat-area smoothing's share for this shot: FLAT x night; 0 off, by day and without the measured noise
+inline float flatNight(float snr, bool on, float noiseS, float noiseO) {
+    if (!on || !(noiseS >= 0.f) || !(noiseO >= 0.f) || !(noiseS + noiseO > 0.f)) return 0.f;
+    return FLAT * night(snr);
+}
+
+/// the shot's line of the log (once per shot, ScamHdrDenoise)
+inline std::string describe(float snr, bool on) {
+    if (!on) return "post SNR (P648): off";
+    const float n = night(snr);
+    char b[160];
+    std::snprintf(b, sizeof b, "post SNR (P648): snr=%.2f night=%.3f flat %.3f (factor up to x%.1f, grain %.1f)", double(snr), double(n),
+                  double(FLAT * n), double(FLAT_BOOST), double(FLAT_GRAIN));
+    return b;
+}
+} // namespace PostSnr
 
 namespace WhyResolveDenoise {
 constexpr float FACTOR = 0.4f, LUMA_REVERT = 0.85f, MOTION_REVERT = 0.5f, GRAIN = 0.15f, OUTLIER = 0.125f;
@@ -55,10 +91,15 @@ inline Texture process(GLProg& prog, PostPipeline& pipeline, const Texture& inpu
     const int s = std::max(1, std::min(2, javaRound(par.outputScale)));
     const float factor = clampf(prefs.hybridValue("why_dn_factor", FACTOR), 0.f, 2.f);
     const float lumaRevert = clampf(prefs.hybridValue("why_dn_luma_revert", LUMA_REVERT), 0.f, 1.f);
+    // P648: with «Подстройка под свет» the night's flat-area smoothing follows the shot's SNR (PostSnr; none by day, nor off)
+    const bool adapt = PostSnr::on();
     const float motionRevert = clampf(prefs.hybridValue("why_dn_motion_revert", MOTION_REVERT), 0.f, 1.f);
     const float grain = clampf(prefs.hybridValue("why_dn_grain", GRAIN), 0.f, 2.f);
     std::string log = "why-resolve grid=" + std::to_string(s) + "x";
-    DenoiseStats::finishSnr(prog, pipeline, *input, &log);
+    // the SNR finished before the passes (Java with the switch on; off, it ends after them - the same values, the log's order)
+    const float shotSnr = DenoiseStats::finishSnr(prog, pipeline, *input, &log);
+    // P648c: the night's flat-area smoothing (only where the merged luma is flat against its measured noise; 0: none)
+    const float flatNight = PostSnr::flatNight(adapt ? shotSnr : NAN, adapt, par.finishNoiseS, par.finishNoiseO);
     const auto so = shotNoise(pipeline);
     const auto model = noiseModel(so[0], so[1]);
     const float boost = vignetteBoost(so[0], so[1]);
@@ -100,6 +141,10 @@ inline Texture process(GLProg& prog, PostPipeline& pipeline, const Texture& inpu
             prog.setVar("stepU", 1 << pass);
             prog.setVar("noiseModelU", model[0], model[1], model[2], model[3]);
             prog.setVar("factorU", factor);
+            prog.setVar("flatNightU", flatNight);
+            prog.setVar("flatBoostU", PostSnr::FLAT_BOOST);
+            prog.setVar("flatGrainU", PostSnr::FLAT_GRAIN);
+            prog.setVar("flatNoiseU", flatNight > 0.f ? par.finishNoiseS : 0.f, flatNight > 0.f ? par.finishNoiseO : 0.f);
             prog.setVar("outlierU", OUTLIER);
             prog.setVar("rejectRevertU", motionRevert);
             prog.setVar("globalRevertU", lumaRevert);
@@ -111,7 +156,7 @@ inline Texture process(GLProg& prog, PostPipeline& pipeline, const Texture& inpu
             source = target;
         }
     }
-    log += " factor=" + javaFloatString(factor) + " revert=" + javaFloatString(lumaRevert) + "/" + javaFloatString(motionRevert) + " grain="
+    log += " factor=" + javaFloatString(factor) + " flat=" + javaFloatString(flatNight) + " revert=" + javaFloatString(lumaRevert) + "/" + javaFloatString(motionRevert) + " grain="
            + javaFloatString(grain) + " S=" + javaFloatString(so[0]) + " O=" + javaFloatString(so[1]) + " vignette=" + javaFloatString(boost)
            + " rows=" + std::to_string(rows) + " N=" + (effMap ? "map(x" + javaFloatString(scale) + ")" : std::string("flat")) + " default="
            + javaFloatString(frames) + " total=" + std::to_string(normals);
@@ -134,11 +179,14 @@ public:
             DenoiseStats::finishSnr(*glProg, pipeline, *WorkingTexture, &log);
             glProg->closed = true;
             logI("SCAM_PIPELINE", log);
+            logI("SCAM_PIPELINE", PostSnr::describe(pipeline.mParameters.finishSnr, PostSnr::on()));
             return;
         }
         WorkingTexture = WhyResolveDenoise::process(*glProg, pipeline, WorkingTexture);
         pipeline.signedRgb = false;
         glProg->closed = true;
+        // P648: the shot's SNR and the factors the post pipeline takes from it, once per shot
+        logI("SCAM_PIPELINE", PostSnr::describe(pipeline.mParameters.finishSnr, PostSnr::on()));
     }
 };
 
