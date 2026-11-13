@@ -116,6 +116,9 @@ def render():
              '// NoiseModeler as the lab restores it: its base / compute (S, O) pairs per channel and the ISOs',
              'struct NoiseModel {',
              '    std::vector<std::pair<double, double>> baseModel, computeModel;',
+             '    /// the profile as the camera reported it (NoiseModeler.reportedModel: SENSOR_NOISE_PROFILE after sanitizedOffsets; the lab',
+             '    /// restores it as its base pairs); unset: none (reportedMean takes its fallback)',
+             '    std::optional<std::vector<std::pair<double, double>>> reportedModel;',
              '    int AnalogueISO = 0, SensivityISO = 0;',
              '    float isoScale = 1;',
              '};', '', 'struct Parameters {']
@@ -156,6 +159,7 @@ def render():
               '    static NoiseModel noiseModel(const Json& v) {',
               '        NoiseModel n;',
               '        n.baseModel = pairs(v["base"]);',
+              '        n.reportedModel = n.baseModel; // ScamLabParams: new NoiseModeler(base, ...)',
               '        n.computeModel = pairs(v["compute"]);',
               '        n.AnalogueISO = v["analog"].integer();',
               '        n.SensivityISO = v["iso"].integer();',
