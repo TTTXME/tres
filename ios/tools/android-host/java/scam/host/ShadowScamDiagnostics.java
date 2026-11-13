@@ -1,6 +1,5 @@
 package scam.host;
 
-import com.particlesdevs.photoncamera.processing.opengl.GLFormat;
 import com.particlesdevs.photoncamera.processing.opengl.GLTexture;
 
 import org.robolectric.annotation.Implementation;
@@ -25,8 +24,18 @@ public class ShadowScamDiagnostics {
         if (dir == null || dir.isEmpty() || source == null) return;
         final File out = new File(dir, String.format(java.util.Locale.ROOT, "%02d-%s.f32", index++, name));
         try {
-            final ByteBuffer px = source.textureBuffer(new GLFormat(GLFormat.DataType.FLOAT_32, 4));
-            px.order(ByteOrder.nativeOrder());
+            // the texture itself through a read framebuffer of its own (the bound one is whatever the node drew last)
+            final int[] oldRead = new int[1], fb = new int[1];
+            android.opengl.GLES30.glGetIntegerv(android.opengl.GLES30.GL_READ_FRAMEBUFFER_BINDING, oldRead, 0);
+            android.opengl.GLES30.glGenFramebuffers(1, fb, 0);
+            android.opengl.GLES30.glBindFramebuffer(android.opengl.GLES30.GL_READ_FRAMEBUFFER, fb[0]);
+            android.opengl.GLES30.glFramebufferTexture2D(android.opengl.GLES30.GL_READ_FRAMEBUFFER, android.opengl.GLES30.GL_COLOR_ATTACHMENT0,
+                    android.opengl.GLES30.GL_TEXTURE_2D, source.mTextureID, 0);
+            final ByteBuffer px = ByteBuffer.allocateDirect(source.mSize.x * source.mSize.y * 16).order(ByteOrder.nativeOrder());
+            android.opengl.GLES30.glPixelStorei(android.opengl.GLES30.GL_PACK_ALIGNMENT, 4);
+            android.opengl.GLES30.glReadPixels(0, 0, source.mSize.x, source.mSize.y, android.opengl.GLES30.GL_RGBA, android.opengl.GLES30.GL_FLOAT, px);
+            android.opengl.GLES30.glBindFramebuffer(android.opengl.GLES30.GL_READ_FRAMEBUFFER, oldRead[0]);
+            android.opengl.GLES30.glDeleteFramebuffers(1, fb, 0);
             try (FileOutputStream f = new FileOutputStream(out)) {
                 final ByteBuffer h = ByteBuffer.allocate(16).order(ByteOrder.LITTLE_ENDIAN);
                 h.putInt(0x47524353).putInt(source.mSize.x).putInt(source.mSize.y).putInt(4);

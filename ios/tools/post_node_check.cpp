@@ -9,6 +9,7 @@
 #include "../Engine/post/nodes/ScamHdrDenoise.hpp"
 #include "../Engine/post/nodes/WhyHlDezipper.hpp"
 #include "../Engine/post/nodes/WhyMsDenoise.hpp"
+#include "../Engine/post/nodes/WhyLumaSharpen.hpp"
 
 #include <EGL/egl.h>
 
@@ -157,9 +158,26 @@ int main(int argc, char** argv) {
                 if (!p.merge.lastHlMask) throw std::runtime_error("no highlight mask from the worker");
                 p.add(std::make_unique<WhyHlDezipper>(*p.merge.lastHlMask));
             } else if (name == "WhyMsDenoise") p.add(std::make_unique<WhyMsDenoise>());
+            else if (name == "WhyStats") p.add(std::make_unique<WhyStats>());
+            else if (name == "WhyLumaSharpen") p.add(std::make_unique<WhyLumaSharpen>());
             else throw std::runtime_error("node " + name + " is not ported yet");
         }
+        // WhyStats issues WhyLumaSharpen's passes early (PostPipeline.BuildDefaultPipeline: whyStats.earlySharpen)
+        for (auto& a : p.Nodes)
+            if (auto* stats = dynamic_cast<WhyStats*>(a.get()))
+                for (auto& b : p.Nodes)
+                    if (auto* sharpen = dynamic_cast<WhyLumaSharpen*>(b.get())) stats->earlySharpen = sharpen;
         int failures = 0;
+        // the «Why» state textures the reference dumps under their stage names (WhyCombine's ScamDiagnostics.gpu calls)
+        auto checkState = [&](const char* stage, const Texture& t, int channels) {
+            const std::string ref = dumpOf(stage);
+            if (ref.empty() || !t) return;
+            const F32 r = readF32(ref);
+            std::vector<float> ours = readTexture(*t);
+            const std::string line = compare(ours, r, channels);
+            std::printf("%s: %s\n", stage, line.c_str());
+            if (line.rfind("0 of", 0) != 0) failures++;
+        };
         for (size_t i = 0; i < p.Nodes.size(); i++) {
             Node& node = *p.Nodes[i];
             const auto t0 = std::chrono::steady_clock::now();
@@ -190,6 +208,7 @@ int main(int argc, char** argv) {
                 glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, r.w, r.h, GL_RGBA, GL_FLOAT, r.v.data());
             }
         }
+        if (p.why) checkState("WhyLumaS", p.why->lumaS, 1);
         checkGl("end");
         prog.close();
         return failures == 0 ? 0 : 3;
