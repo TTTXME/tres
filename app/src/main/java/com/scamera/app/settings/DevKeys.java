@@ -468,6 +468,9 @@ public final class DevKeys {
                 "GPU time of one processing band, ms (slow GPUs split a pass into narrower bands, the viewfinder waits less): empty: 10; 0: 256-row bands as before")));
         k.add(s(post, "hybrid_why_rim_support", true, Lang.t("Пропуск пустых областей защиты граней перед тонмапингом", "Skip empty light-rim support before tone mapping")));
         k.add(s(post, "hybrid_why_edge_luma_cache", true, Lang.t("Кэш исходной яркости для защиты резких границ", "Cache scene luminance for sharp-edge protection")));
+        // P671: the photo's combine reads its one-channel windows as textureGather blocks (bit for bit, tools/check_combine_gather.py)
+        k.add(s(post, "why_gather_taps", true, Lang.t("Тон: одноканальные окна (B-сплайн яркости, удержание краёв) читаются блоками 2×2 (тот же результат, меньше выборок); выкл — по одной, как раньше",
+                "Tone: the one-channel windows (the luma B-spline, the edge hold) read in 2 x 2 blocks (the same result, fewer reads); off: one by one as before")));
         k.add(s(post, "post_shared_context", true, Lang.t("Один GPU-контекст обработки на всё время работы: программы шейдеров не загружаются заново на каждый снимок (выкл — новый контекст на каждый снимок)",
                 "One processing GPU context for the whole run: the shader programs are not loaded again for every shot (off: a new context every shot)")));
         k.add(s(post, "effmap_real", true, Lang.t("Карта числа кадров для шумоподавления — реальная (выкл — старая)", "Frame-count map for the denoise: the real one (off: the old one)")));

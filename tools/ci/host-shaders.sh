@@ -24,6 +24,8 @@ LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_post_pbo.py
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_post_bands.py
 # P671: the clip band in the flagged tiles only equals the band over every pixel, bit for bit (and no tile without a flag)
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_band_tiles.py
+# P671: the photo's combine with its one-channel windows read as textureGather blocks equals the single reads, bit for bit
+LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_combine_gather.py
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_noise_quantile.py
 python3 tools/check_gpu_readback.py
 python3 tools/check_film_tiling.py
