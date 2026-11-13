@@ -97,8 +97,11 @@ jobs:
         run: |
           sudo apt-get install -y -qq mesa-vulkan-drivers libvulkan-dev
           F=app/src/main/cpp/third_party/spektrafilm
+          # the renderer compiled as run.sh compiles the reference's libscameraFilm, the port as the Mesa check above
+          g++ -std=c++17 -O2 -I$F -Iapp/src/main/cpp -c $F/SpektraVulkanRenderer.cpp -o "$RUNNER_TEMP/svr.o"
+          g++ -std=c++17 -O2 -I$F -c $F/SpektraGeneratedProfileCurves.cpp -o "$RUNNER_TEMP/sgpc.o"
           g++ -std=c++17 -O2 -ffp-contract=off -DSCAM_FILM_ENGINE=1 -Iios/ScamGL/include -Iapp/src/main/cpp -Iapp/src/main/cpp/third_party/tone_port/include \
-            ios/tools/post_node_check.cpp $F/SpektraVulkanRenderer.cpp $F/SpektraGeneratedProfileCurves.cpp -I$F -lEGL -lGLESv2 -lvulkan -ldl -pthread \
+            ios/tools/post_node_check.cpp "$RUNNER_TEMP/svr.o" "$RUNNER_TEMP/sgpc.o" -lEGL -lGLESv2 -lvulkan -ldl -pthread \
             -o "$RUNNER_TEMP/post_node_check_film"
           set -o pipefail
           for v in portra velvia; do
@@ -126,7 +129,8 @@ jobs:
             mkdir -p "$RUNNER_TEMP/film-res/shaders"
             cp "$SCAM_HOST_OUT"/film-gen/shaders/*.spv "$RUNNER_TEMP/film-res/shaders/"
             cp app/src/main/assets/film-reference/*.f32 "$RUNNER_TEMP/film-res/"
-            SCAM_FILM_RESOURCES="$RUNNER_TEMP/film-res" "$RUNNER_TEMP/post_node_check_film" app/src/main/assets/shaders "$S" "$R" full 2>&1 \
+            # bit for bit locally; lavapipe on the runner has left 2 values 1 apart: a 100 dB bound (the old film route is at 24.9 dB)
+            SCAM_POST_MIN_PSNR=100 SCAM_FILM_RESOURCES="$RUNNER_TEMP/film-res" "$RUNNER_TEMP/post_node_check_film" app/src/main/assets/shaders "$S" "$R" full 2>&1 \
               | grep "^photo\|spectral film" | cut -c1-240 | tee "$R/mesa.txt"
             grep -q "spectral film ms=" "$R/mesa.txt"
             { echo "### Reference film ($v) on lavapipe: the C++ port vs the Android pipeline"; echo '```'; grep "^photo" "$R/mesa.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
