@@ -18,7 +18,7 @@ OUT_ICONS = ROOT / 'ios/Resources/Icons.xcassets'
 EXTRA_ICONS = ROOT / 'ios/tools/ios_icons.txt'
 A = '{http://schemas.android.com/apk/res/android}'
 APP = '{http://schemas.android.com/apk/res-auto}'
-CUSTOM = 'com.particlesdevs.photoncamera.ui.settings.custompreferences.'
+CUSTOM = 'com.scamera.app.ui.settings.custompreferences.'
 
 
 def unescape(text):

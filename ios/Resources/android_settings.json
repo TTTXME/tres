@@ -1232,13 +1232,15 @@
    "prefs_scam_hybrid_hot_max_title": "Light level for hot pixels",
    "prefs_scam_hybrid_hot_sigma_summary": "How far a dot has to stand out from its neighbours to count as a hot pixel, a coloured speck on night shots. Lower: faint defects go too, but detail may suffer. Higher: only bright white dots. Zero turns it off.",
    "prefs_scam_hybrid_hot_sigma_title": "Hot pixel sensitivity",
-   "prefs_scam_hybrid_kernel_bokeh_summary": "The size of the blending spot in out-of-focus areas and bokeh: the sky, walls, a blurred background. Higher: the background blurs softer and cleaner, without grain. Lower: fine grain stays. 1 is as before.",
+   "prefs_scam_hybrid_kernel_bokeh_summary": "The size of the blending spot in out-of-focus areas and bokeh: the sky, walls, a blurred background. Higher: the background blurs softer and cleaner, without grain. Lower: fine grain stays. It scales the automatic value: with «Kernel by the light» on, the light of the shot picks that value and 1 keeps it; off, 1 is the kernel as before.",
    "prefs_scam_hybrid_kernel_bokeh_title": "Kernel size in bokeh (Blurred)",
+   "prefs_scam_hybrid_kernel_snr_summary": "The three kernel sizes below are picked for each shot from how much light it had (the noise of its frames). In good light the kernel on textures and across edges gets narrower for finer detail, and flat areas such as the sky are smoothed a little more; in the dark textures and flat areas are smoothed more, so there is clearly less noise while edges stay. In between the kernel is as before. Works in «Fast», «Quality» and «Sport», on Bayer, Quad and Tetra (Tetra only on its daylight side). The sliders below scale the automatic value. Off: the kernel as before.",
+   "prefs_scam_hybrid_kernel_snr_title": "Kernel by the light",
    "prefs_scam_hybrid_kernel_summary": "How wide the frame blending is. Higher: softer and cleaner. Lower: sharper but noisier.",
-   "prefs_scam_hybrid_kernel_texture_summary": "The size of the blending spot on ordinary textured surfaces such as sand, asphalt and leaves. Higher: smoother, cleaner surfaces. Lower: crisper micro-texture with more grain. 1 is as before.",
+   "prefs_scam_hybrid_kernel_texture_summary": "The size of the blending spot on ordinary textured surfaces such as sand, asphalt and leaves. Higher: smoother, cleaner surfaces. Lower: crisper micro-texture with more grain. It scales the automatic value: with «Kernel by the light» on, the light of the shot picks that value and 1 keeps it; off, 1 is the kernel as before.",
    "prefs_scam_hybrid_kernel_texture_title": "Kernel size on textures (Base)",
    "prefs_scam_hybrid_kernel_title": "Merge kernel scale",
-   "prefs_scam_hybrid_kernel_transition_summary": "From which level of detail an area counts as flat and gets the bokeh kernel. Higher: more of the frame counts as flat and the picture is smoother. Lower: more of it counts as texture. 1 is as before.",
+   "prefs_scam_hybrid_kernel_transition_summary": "From which level of detail an area counts as flat and gets the bokeh kernel. Higher: more of the frame counts as flat and the picture is smoother. Lower: more of it counts as texture. It scales the automatic value: with «Kernel by the light» on, the light of the shot picks that value and 1 keeps it; off, 1 is the kernel as before.",
    "prefs_scam_hybrid_kernel_transition_title": "Texture / bokeh transition threshold",
    "prefs_scam_hybrid_la_engine_summary": "Where the precise frame matching is computed. Auto: on the CPU alongside the merge when possible, otherwise on the GPU before the merge. GPU: always on the GPU, leaving the CPU free. The result is the same.",
    "prefs_scam_hybrid_la_engine_title": "Local alignment on",
@@ -1382,6 +1384,8 @@
    "prefs_scam_hybrid_oldstyle_vf_tone_title": "Tone in the viewfinder",
    "prefs_scam_hybrid_output_summary": "How many pixels the photo gets. 2× gives more detail but takes about four times longer to process.",
    "prefs_scam_hybrid_output_title": "Resolution",
+   "prefs_scam_hybrid_post_snr_summary": "At night the Resolve denoise smooths the grain of flat areas (sky, walls, skin) more and leaves texture and edges as they are; some fine grain stays. By day and off: as set.",
+   "prefs_scam_hybrid_post_snr_title": "Adapt to the light (SNR)",
    "prefs_scam_hybrid_processing_summary": "How the camera builds a photo from its burst. Fast: the photo is ready noticeably sooner. Quality: slower, but motion, water and fine detail come out cleaner. Every mode always makes the photo its own way and never hands it to another, on any sensor (Quad, Tetra, DCG) and through GPU failures.",
    "prefs_scam_hybrid_processing_title": "Processing mode",
    "prefs_scam_hybrid_profile_summary": "Writes how long each stage of a shot takes to a file, to find what slows it down. The merge runs slower; the photo itself does not change.",
@@ -1535,11 +1539,11 @@
    "prefs_scam_hybrid_why_dark_thresh_title": "Dynamic range threshold (shadows)",
    "prefs_scam_hybrid_why_delta_chroma_summary": "Removes the coloured line on the dark side of contrasty edges. Higher: stronger. Zero turns it off.",
    "prefs_scam_hybrid_why_delta_chroma_title": "Colour follows detail",
-   "prefs_scam_hybrid_why_dn_factor_summary": "The final clean-up of leftover noise after the merge. Higher: noise goes completely at the cost of slight smoothing. At zero the filter is off and the merge's own result stays.",
+   "prefs_scam_hybrid_why_dn_factor_summary": "The final clean-up of leftover noise after the merge. Higher: noise goes completely at the cost of slight smoothing. At zero the filter is off and the merge's own result stays. With “Adapt to the light” on this value scales the automatic one: at night flat areas get more.",
    "prefs_scam_hybrid_why_dn_factor_title": "Resolve noise reduction",
    "prefs_scam_hybrid_why_dn_grain_summary": "Brings back a fine natural texture where few frames were merged, so things do not look like plasticine. Higher: a more textured photo, as from a big camera. At zero the image is perfectly smooth.",
    "prefs_scam_hybrid_why_dn_grain_title": "Resolve grain",
-   "prefs_scam_hybrid_why_dn_luma_revert_summary": "The balance between the merge's raw sharpness and the denoiser's smoothness in still areas. Higher: fine detail stays crisp, as after the merge, with natural grain. Lower: a smooth, noiseless picture.",
+   "prefs_scam_hybrid_why_dn_luma_revert_summary": "The balance between the merge's raw sharpness and the denoiser's smoothness in still areas. Higher: fine detail stays crisp, as after the merge, with natural grain. Lower: a smooth, noiseless picture. With “Adapt to the light” on this value scales the automatic one: at night flat areas keep less of it.",
    "prefs_scam_hybrid_why_dn_luma_revert_title": "Raw detail sharpness kept",
    "prefs_scam_hybrid_why_dn_motion_revert_summary": "How much of its own sharpness is kept where motion left few frames to merge. Higher: a moving subject stays crisp, with its natural noise. Lower: the denoiser smooths it more.",
    "prefs_scam_hybrid_why_dn_motion_revert_title": "Moving subject sharpness",
@@ -1634,7 +1638,7 @@
    "prefs_scam_hybrid_why_sharp_edge_thinning_title": "Edge thinning",
    "prefs_scam_hybrid_why_sharp_film_grain_summary": "Adds fine film grain, strongest in the mid-tones. Higher: more visible grain that hides digital noise. At zero the picture is smooth.",
    "prefs_scam_hybrid_why_sharp_film_grain_title": "Film grain",
-   "prefs_scam_hybrid_why_sharp_gain_summary": "How much fine detail goes into the photo. Higher: sharper and crisper. Lower: softer. At zero no extra sharpening. The detailed settings are on the Sharpness page.",
+   "prefs_scam_hybrid_why_sharp_gain_summary": "How much fine detail goes into the photo. Higher: sharper and crisper. Lower: softer. At zero the photo's own fine detail goes too: softer than with no sharpening at all. The detailed settings are on the Sharpening page.",
    "prefs_scam_hybrid_why_sharp_gain_title": "Sharpening strength",
    "prefs_scam_hybrid_why_sharp_gf_eps_e3_summary": "How carefully the filter treats edges, in thousandths. Lower: it follows outlines closely without halos and boosts only faint texture. Higher: it acts like an ordinary soft blur and touches visible edges too.",
    "prefs_scam_hybrid_why_sharp_gf_eps_e3_title": "Guided filter edge sensitivity",
@@ -1644,7 +1648,7 @@
    "prefs_scam_hybrid_why_sharp_gf_radius_title": "Guided filter radius",
    "prefs_scam_hybrid_why_sharp_halo_control_summary": "Removes the light fringe along contrasty borders such as wires against the sky or branches. Higher: fewer halos, less visible sharpening. Lower: more contrasty outlines, with halos.",
    "prefs_scam_hybrid_why_sharp_halo_control_title": "USM white halo protection",
-   "prefs_scam_hybrid_why_sharp_note_summary": "This is the photo's only sharpening; it works on brightness before the tone processing. Its overall strength is «Sharpness» on the main page, and the rows here weaken or boost its separate parts.",
+   "prefs_scam_hybrid_why_sharp_note_summary": "This is the photo's only sharpening; it works on brightness before the tone processing. Its overall strength is «Sharpening strength» on the main page, and the rows here weaken or boost its separate parts.",
    "prefs_scam_hybrid_why_sharp_note_title": "About Why sharpening",
    "prefs_scam_hybrid_why_sharp_protect_highlights_summary": "Gently weakens sharpening in bright highlights. Higher: no harsh traces or spiky halos round lamps and glints. Lower: glints are sharpened like the rest of the frame.",
    "prefs_scam_hybrid_why_sharp_protect_highlights_title": "Highlight protection from sharpening",
@@ -3150,13 +3154,15 @@
    "prefs_scam_hybrid_hot_max_title": "Порог освещения для горячих пикселей",
    "prefs_scam_hybrid_hot_sigma_summary": "Насколько точка должна выделяться среди соседей, чтобы считаться горячим пикселем — цветной точкой на ночных снимках. Меньше — удаляются и слабые дефекты, но могут пострадать детали. Больше — только яркие белые точки. На нуле выключено.",
    "prefs_scam_hybrid_hot_sigma_title": "Чувствительность к горячим пикселям",
-   "prefs_scam_hybrid_kernel_bokeh_summary": "Размер пятна смешивания в нерезких зонах и боке — на небе, стенах, размытом фоне. Больше — фон размывается мягче и чище, без зерна. Меньше — сохраняется мелкое зерно. 1 — как раньше.",
+   "prefs_scam_hybrid_kernel_bokeh_summary": "Размер пятна смешивания в нерезких зонах и боке — на небе, стенах, размытом фоне. Больше — фон размывается мягче и чище, без зерна. Меньше — сохраняется мелкое зерно. Множитель автоматического значения: при включённом «Ядре по освещению» его выбирает свет снимка, а 1 оставляет его как есть; при выключенном 1 — ядро как раньше.",
    "prefs_scam_hybrid_kernel_bokeh_title": "Размер ядра в боке (Blurred)",
+   "prefs_scam_hybrid_kernel_snr_summary": "Три размера ядра ниже выбираются для каждого снимка по тому, сколько было света (по шуму его кадров). При хорошем свете ядро на текстурах и поперёк краёв уже — детали мельче, а ровные участки вроде неба сглаживаются чуть сильнее; в темноте текстуры и ровные участки сглаживаются сильнее — шума заметно меньше, края сохраняются. В середине ядро как раньше. Работает в «Быстром», «Качестве» и «Спорте», на Bayer, Quad и Tetra (Tetra — только дневная сторона). Ползунки ниже масштабируют автоматическое значение. Выключено — ядро как раньше.",
+   "prefs_scam_hybrid_kernel_snr_title": "Ядро по освещению",
    "prefs_scam_hybrid_kernel_summary": "Ширина смешивания кадров. Больше — мягче и чище, меньше — резче, но шумнее.",
-   "prefs_scam_hybrid_kernel_texture_summary": "Размер пятна смешивания кадров на обычных фактурных поверхностях — песке, асфальте, листве. Больше — поверхности глаже и чище. Меньше — микротекстура чётче, но зерна больше. 1 — как раньше.",
+   "prefs_scam_hybrid_kernel_texture_summary": "Размер пятна смешивания кадров на обычных фактурных поверхностях — песке, асфальте, листве. Больше — поверхности глаже и чище. Меньше — микротекстура чётче, но зерна больше. Множитель автоматического значения: при включённом «Ядре по освещению» его выбирает свет снимка, а 1 оставляет его как есть; при выключенном 1 — ядро как раньше.",
    "prefs_scam_hybrid_kernel_texture_title": "Размер ядра на текстурах (Base)",
    "prefs_scam_hybrid_kernel_title": "Масштаб ядра склейки",
-   "prefs_scam_hybrid_kernel_transition_summary": "С какого уровня деталей участок считается ровным и получает ядро боке. Больше — ровным считается больше кадра, картинка глаже. Меньше — больше кадра считается текстурой. 1 — как раньше.",
+   "prefs_scam_hybrid_kernel_transition_summary": "С какого уровня деталей участок считается ровным и получает ядро боке. Больше — ровным считается больше кадра, картинка глаже. Меньше — больше кадра считается текстурой. Множитель автоматического значения: при включённом «Ядре по освещению» его выбирает свет снимка, а 1 оставляет его как есть; при выключенном 1 — ядро как раньше.",
    "prefs_scam_hybrid_kernel_transition_title": "Порог перехода текстура / боке",
    "prefs_scam_hybrid_la_engine_summary": "Где считать точную подгонку кадров. «Авто» — на процессоре одновременно со склейкой, когда это возможно, иначе на видеокарте до склейки. «GPU» — всегда на видеокарте, процессор свободен. Результат одинаковый.",
    "prefs_scam_hybrid_la_engine_title": "Где считать F6",
@@ -3300,6 +3306,8 @@
    "prefs_scam_hybrid_oldstyle_vf_tone_title": "Тон в видоискателе",
    "prefs_scam_hybrid_output_summary": "Сколько пикселей получает фото. 2× даёт больше деталей, но обработка идёт примерно вчетверо дольше.",
    "prefs_scam_hybrid_output_title": "Разрешение",
+   "prefs_scam_hybrid_post_snr_summary": "Ночью шумоподавление Resolve сильнее сглаживает зерно ровных участков (небо, стены, кожа), не трогая фактуру и края; лёгкое зерно остаётся. Днём и выкл — как задано.",
+   "prefs_scam_hybrid_post_snr_title": "Подстройка под свет (SNR)",
    "prefs_scam_hybrid_processing_summary": "Как камера собирает снимок из серии кадров. «Быстрый» — фото готово заметно раньше. «Качество» — обработка дольше, зато чище выходят движение, вода и мелкие детали. Каждый режим всегда собирает снимок своим способом и не передаёт его другому — с любыми сенсорами (Quad, Tetra, DCG) и при сбоях GPU.",
    "prefs_scam_hybrid_processing_title": "Режим обработки",
    "prefs_scam_hybrid_profile_summary": "Записывает в файл, сколько длится каждый этап снимка, чтобы найти, что тормозит. Склейка идёт медленнее, само фото не меняется.",
@@ -3453,11 +3461,11 @@
    "prefs_scam_hybrid_why_dark_thresh_title": "Порог расширения ДД (Тени)",
    "prefs_scam_hybrid_why_delta_chroma_summary": "Убирает цветную линию на тёмной стороне контрастных краёв. Больше — сильнее, на нуле выключено.",
    "prefs_scam_hybrid_why_delta_chroma_title": "Цвет следует за деталью",
-   "prefs_scam_hybrid_why_dn_factor_summary": "Финальная чистка остаточного шума после склейки. Больше — шум уходит начисто ценой лёгкого сглаживания. На нуле фильтр выключен, остаётся чистый результат склейки.",
+   "prefs_scam_hybrid_why_dn_factor_summary": "Финальная чистка остаточного шума после склейки. Больше — шум уходит начисто ценой лёгкого сглаживания. На нуле фильтр выключен, остаётся чистый результат склейки. С «Подстройкой под свет» значение масштабирует автоматическое: ночью ровные участки сглаживаются сильнее.",
    "prefs_scam_hybrid_why_dn_factor_title": "Шумоподавление Resolve",
    "prefs_scam_hybrid_why_dn_grain_summary": "Возвращает мелкую естественную фактуру там, где склеилось мало кадров, чтобы не было эффекта пластилина. Больше — фото фактурнее, как с большой камеры. На нуле изображение идеально гладкое.",
    "prefs_scam_hybrid_why_dn_grain_title": "Зернистость Resolve",
-   "prefs_scam_hybrid_why_dn_luma_revert_summary": "Баланс между сырой резкостью склейки и гладкостью шумодава в неподвижных местах. Больше — мелкие детали чёткие, как после склейки, с естественным зерном. Меньше — гладкая картинка без шума.",
+   "prefs_scam_hybrid_why_dn_luma_revert_summary": "Баланс между сырой резкостью склейки и гладкостью шумодава в неподвижных местах. Больше — мелкие детали чёткие, как после склейки, с естественным зерном. Меньше — гладкая картинка без шума. С «Подстройкой под свет» значение масштабирует автоматическое: ночью на ровных участках его меньше.",
    "prefs_scam_hybrid_why_dn_luma_revert_title": "Сохранение сырой резкости деталей",
    "prefs_scam_hybrid_why_dn_motion_revert_summary": "Сколько своей резкости сохраняется там, где из-за движения склеилось мало кадров. Больше — движущийся объект чёткий, со своим естественным шумом. Меньше — шумодав сглаживает его сильнее.",
    "prefs_scam_hybrid_why_dn_motion_revert_title": "Резкость движущихся объектов",
@@ -3552,7 +3560,7 @@
    "prefs_scam_hybrid_why_sharp_edge_thinning_title": "Утончение контуров",
    "prefs_scam_hybrid_why_sharp_film_grain_summary": "Добавляет мелкое плёночное зерно, сильнее в средних тонах. Больше — зерно заметнее и маскирует цифровой шум. На нуле картинка гладкая.",
    "prefs_scam_hybrid_why_sharp_film_grain_title": "Плёночное зерно",
-   "prefs_scam_hybrid_why_sharp_gain_summary": "Сколько мелких деталей попадает в снимок. Больше — резче и чётче, меньше — мягче, на нуле без добавочной резкости. Подробные настройки — на странице «Резкость».",
+   "prefs_scam_hybrid_why_sharp_gain_summary": "Сколько мелкой детали попадает в снимок. Больше — резче и чётче, меньше — мягче. На нуле пропадает и своя мелкая деталь снимка: он мягче, чем вовсе без резкости. Подробные настройки — на странице «Резкость».",
    "prefs_scam_hybrid_why_sharp_gain_title": "Сила резкости",
    "prefs_scam_hybrid_why_sharp_gf_eps_e3_summary": "Насколько фильтр бережёт края, в тысячных. Меньше — фильтр точно огибает контуры без ореолов и усиливает только слабую фактуру. Больше — действует как обычное мягкое размытие и затрагивает заметные края.",
    "prefs_scam_hybrid_why_sharp_gf_eps_e3_title": "Чувствительность к краям GF",
@@ -3864,6 +3872,17 @@
         },
         "title": {
          "s": "prefs_scam_hybrid_denoise_title"
+        },
+        "type": "switch"
+       },
+       {
+        "default": true,
+        "key": "pref_scam_hybrid_post_snr",
+        "summary": {
+         "s": "prefs_scam_hybrid_post_snr_summary"
+        },
+        "title": {
+         "s": "prefs_scam_hybrid_post_snr_title"
         },
         "type": "switch"
        },
@@ -4933,6 +4952,17 @@
          "s": "prefs_scam_hybrid_kernel_title"
         },
         "type": "slider"
+       },
+       {
+        "default": true,
+        "key": "pref_scam_hybrid_kernel_snr",
+        "summary": {
+         "s": "prefs_scam_hybrid_kernel_snr_summary"
+        },
+        "title": {
+         "s": "prefs_scam_hybrid_kernel_snr_title"
+        },
+        "type": "switch"
        },
        {
         "default": "1",
@@ -7581,6 +7611,16 @@
        {
         "children": [
          {
+          "key": "expert_module_sensor",
+          "summary": {
+           "s": "prefs_lens_keys_category_summary"
+          },
+          "title": {
+           "s": "prefs_lens_keys_category_title"
+          },
+          "type": "category"
+         },
+         {
           "children": [
            {
             "default": false,
@@ -8171,16 +8211,6 @@
           "key": "lens_isp_category",
           "title": {
            "s": "prefs_lens_isp_category_title"
-          },
-          "type": "category"
-         },
-         {
-          "key": "expert_module_sensor",
-          "summary": {
-           "s": "prefs_lens_keys_category_summary"
-          },
-          "title": {
-           "s": "prefs_lens_keys_category_title"
           },
           "type": "category"
          }

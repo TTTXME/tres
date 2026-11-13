@@ -1,4 +1,4 @@
-// The shot's parameters as the iOS app builds them against the Android app's: the colour chain (Parameters.ReCalcColor from
+// The shot's parameters as the iOS app builds them against the Android app's: the colour chain (Parameters.resolveColour from
 // the DNG colour tags of the shot) and the worker tuning of its settings (PreferenceKeys.hybridTuningText), bit for bit.
 //   shot_params_check <meta.json of a lab burst> <tuning.txt of the Android host run> [--dng <the shot's tags as a DNG>]
 // --dng: the app's DNG reader and shotParameters (tools/make_test_dng.py writes the Parameters' tags as a DNG) against them.

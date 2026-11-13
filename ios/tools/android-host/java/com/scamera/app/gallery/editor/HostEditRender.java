@@ -1,11 +1,11 @@
-package com.particlesdevs.photoncamera.gallery.editor;
+package com.scamera.app.gallery.editor;
 
 import android.app.Application;
 import android.content.Context;
 import android.opengl.GLES30;
 
-import com.particlesdevs.photoncamera.gallery.dng.DngRaw;
-import com.particlesdevs.photoncamera.processing.opengl.GLContext;
+import com.scamera.app.gallery.dng.DngRaw;
+import com.scamera.app.processing.opengl.GLContext;
 
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -63,9 +63,9 @@ public class HostEditRender {
         final List<String> cases = Files.readAllLines(new File(in, "cases.txt").toPath(), StandardCharsets.UTF_8);
         final Context context = RuntimeEnvironment.getApplication();
         // P619: the film's arrays are the app's assets (FilmSpectral reads them through ScameraApp's context, as on the phone)
-        final org.mockito.MockedStatic<com.particlesdevs.photoncamera.app.ScameraApp> app =
-                org.mockito.Mockito.mockStatic(com.particlesdevs.photoncamera.app.ScameraApp.class);
-        app.when(com.particlesdevs.photoncamera.app.ScameraApp::getAppContext).thenReturn(context);
+        final org.mockito.MockedStatic<com.scamera.app.app.ScameraApp> app =
+                org.mockito.Mockito.mockStatic(com.scamera.app.app.ScameraApp.class);
+        app.when(com.scamera.app.app.ScameraApp::getAppContext).thenReturn(context);
         GLContext gl = new GLContext(1, 1);
         try {
             EditRenderer r = new EditRenderer();
@@ -290,8 +290,8 @@ public class HostEditRender {
         final String dirName = System.getenv("SCAM_HOST_WM_DIR");
         if (dirName == null || dirName.isEmpty()) return;
         final File dir = new File(dirName);
-        final Class<?> patch = Class.forName("com.particlesdevs.photoncamera.processing.watermark.WatermarkPatch");
-        final Class<?> piece = Class.forName("com.particlesdevs.photoncamera.processing.watermark.WatermarkPatch$Piece");
+        final Class<?> patch = Class.forName("com.scamera.app.processing.watermark.WatermarkPatch");
+        final Class<?> piece = Class.forName("com.scamera.app.processing.watermark.WatermarkPatch$Piece");
         final java.lang.reflect.Method split = patch.getDeclaredMethod("split", List.class);
         final java.lang.reflect.Method crc = patch.getDeclaredMethod("crc", int[].class);
         final java.lang.reflect.Method med = patch.getDeclaredMethod("med", int[].class, int.class, int.class, int.class);
@@ -351,7 +351,7 @@ public class HostEditRender {
         for (String kind : new String[]{"jpg", "webp", "heic"}) {
             File f = new File(dir, "java." + kind);
             Files.copy(new File(dir, "base." + kind).toPath(), f.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-            if (!com.particlesdevs.photoncamera.processing.watermark.WatermarkStore.append(f, javaRec))
+            if (!com.scamera.app.processing.watermark.WatermarkStore.append(f, javaRec))
                 throw new IOException("not appended to " + kind);
         }
         // the iPhone's records as Android reads them
@@ -359,7 +359,7 @@ public class HostEditRender {
             File f = new File(dir, name);
             Object p;
             if (name.endsWith(".rec")) p = patch.getMethod("fromBytes", byte[].class).invoke(null, (Object) Files.readAllBytes(f.toPath()));
-            else p = com.particlesdevs.photoncamera.processing.watermark.WatermarkStore.read(f);
+            else p = com.scamera.app.processing.watermark.WatermarkStore.read(f);
             if (p == null) throw new IOException(name + ": no record read");
             if (!(Boolean) patch.getMethod("verify").invoke(p)) throw new IOException(name + ": the record does not verify");
             if (!spec.equals(patch.getField("spec").get(p))) throw new IOException(name + ": another spec");

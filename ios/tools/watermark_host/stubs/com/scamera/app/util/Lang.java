@@ -1,4 +1,4 @@
-package com.particlesdevs.photoncamera.util;
+package com.scamera.app.util;
 /** Host stub (ios/tools/watermark_host): the interface language as a switch. */
 public final class Lang {
     public static boolean RU = false;

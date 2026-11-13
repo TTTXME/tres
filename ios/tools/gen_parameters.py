@@ -9,11 +9,21 @@ import re
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-SRC = ROOT / 'app/src/main/java/com/particlesdevs/photoncamera/processing/render/Parameters.java'
+SRC = ROOT / 'app/src/main/java/com/scamera/app/processing/render/Parameters.java'
 OUT = ROOT / 'ios/Engine/post/Parameters.hpp'
+LAB = ROOT / 'app/src/main/java/com/scamera/app/processing/opengl/postpipeline/ScamLabParams.java'
+
+
+def stored_keys():
+    """ScamLabParams.STORED_KEYS: the json key (and the C++ field name) of each field renamed since the format was made"""
+    src = LAB.read_text()
+    body = src[src.index('STORED_KEYS = storedKeys('):]
+    body = body[:body.index(');')]
+    names = re.findall(r'"(\w+)"', body)
+    return dict(zip(names[0::2], names[1::2]))
 
 # ScamLabParams.SKIPPED and the types fromJson does not decode
-SKIPPED = {'scamRgb', 'scamRgbOwned', 'hotPixels', 'dngColour', 'manualWbAtPress', 'mosaicWbAtPress', 'rawCrop', 'sabreCrop',
+SKIPPED = {'scamRgb', 'scamRgbOwned', 'hotSites', 'dngColour', 'manualWbAtPress', 'mosaicWbAtPress', 'rawCrop', 'sabreCrop',
            'dngNoiseProfile', 'dngBaselineExposure', 'blackFloorSource'}
 
 TYPES = {
@@ -62,23 +72,41 @@ def fields():
             else:
                 buf += ch
     out = []
+    keys = stored_keys()
     for s in stmts:
         if not s or '(' in s.split('=')[0]:
             continue
-        m = re.match(r'((?:public|private|protected|static|final|transient|volatile)\s+)*([\w.<>\[\], ?]+?)\s+(\w+(?:\s*,\s*\w+)*)\s*(=.*)?$', s)
+        m = re.match(r'((?:public|private|protected|static|final|transient|volatile)\s+)*([\w.<>\[\]?]+?)\s+(\w+\s*(?:[=,].*)?)$', s)
         if not m:
             raise SystemExit('unparsed field: ' + s)
         if any(x in s[:m.start(2)] for x in ('static', 'final', 'transient')):
             continue
-        for name in m.group(3).split(','):
+        for decl in declarators(m.group(3)):
+            name, _, init = decl.partition('=')
             name = name.strip()
             if name in SKIPPED:
                 continue
             t = m.group(2)
             if t not in TYPES:
                 raise SystemExit('field %s: type %s is not mapped' % (name, t))
-            out.append((TYPES[t], name, (m.group(4) or '')[1:].strip()))
+            out.append((TYPES[t], keys.get(name, name), init.strip()))
     return out
+
+
+def declarators(text):
+    """`a = x, b = new float[9]` -> ['a = x', 'b = new float[9]'] (commas inside brackets / parentheses kept)"""
+    out, depth, buf = [], 0, ''
+    for ch in text:
+        if ch in '([':
+            depth += 1
+        elif ch in ')]':
+            depth -= 1
+        if ch == ',' and depth == 0:
+            out.append(buf)
+            buf = ''
+        else:
+            buf += ch
+    return out + [buf]
 
 
 def default(ctype, init):

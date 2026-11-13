@@ -1,4 +1,4 @@
-package com.particlesdevs.photoncamera.processing.opengl.postpipeline;
+package com.scamera.app.processing.opengl.postpipeline;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -11,11 +11,11 @@ import android.app.Application;
 import android.content.Context;
 import android.graphics.Bitmap;
 
-import com.particlesdevs.photoncamera.app.ScameraApp;
-import com.particlesdevs.photoncamera.processing.render.Parameters;
-import com.particlesdevs.photoncamera.settings.PreferenceKeys;
-import com.particlesdevs.photoncamera.settings.PreferenceValue;
-import com.particlesdevs.photoncamera.settings.SettingsManager;
+import com.scamera.app.app.ScameraApp;
+import com.scamera.app.processing.render.Parameters;
+import com.scamera.app.settings.PreferenceKeys;
+import com.scamera.app.settings.PreferenceValue;
+import com.scamera.app.settings.SettingsManager;
 
 import org.json.JSONObject;
 import org.junit.After;
@@ -42,24 +42,24 @@ import java.util.Map;
  * The reference render of a lab shot for the iOS port: what ScamLabRun.side does with the shot's own settings («тогда»), on the
  * host. The merge is tools/hybrid_replay (the worker's C++ on Mesa, no CRE), its job made by the app's own code (the tuning
  * file and the markers ScamNeuralClient writes for a ScamLabBurst, without the lab's stage dump); its output is read as
- * ScamNeuralClient reads the worker's; then PostPipeline.Run on the host GPU. Inputs (environment): SCAM_HOST_SHOT = a lab
+ * ScamNeuralClient reads the worker's; then PostPipeline.develop on the host GPU. Inputs (environment): SCAM_HOST_SHOT = a lab
  * shot folder (meta.json, burst.nch), SCAM_HOST_REPLAY = the hybrid_replay binary, SCAM_HOST_RESULT = the output folder.
  * Output: tuning.txt, report.txt, merge.f32 (SCRG float RGB), photo.rgba (SCR8 header + RGBA8 rows); with SCAM_HOST_DUMP each
  * node's output (ShadowScamDiagnostics). Photos above 16 MP come through the tile readback (ShadowTileBlitter).
- * Ultra HDR (the shot's pref_ultrahdr_key with a JPEG, Settings.ultraHdr): ScamProcessor's RunHDRGainMap + GainMapComputer after
- * Run - gainmap.rgba (SCR8 header + the map's RGBA8 rows) and gainmap.txt (GainMapMin, GainMapMax, HDRCapacityMax as the floats'
+ * Ultra HDR (the shot's pref_ultrahdr_key with a JPEG, Settings.ultraHdr): ScamProcessor.s RunHDRGainMap + GainMapComputer after
+ * develop - gainmap.rgba (SCR8 header + the map's RGBA8 rows) and gainmap.txt (GainMapMin, GainMapMax, HDRCapacityMax as the floats'
  * raw bits in hex, then as Float.toString, then normalisedMax).
  */
 @RunWith(RobolectricTestRunner.class)
 @Config(sdk = 35, application = Application.class, shadows = {scam.host.ShadowGLES20.class, scam.host.ShadowGLES30.class,
         scam.host.ShadowGLES31.class, scam.host.ShadowGLES32.class, scam.host.ShadowEGL14.class, scam.host.ShadowScamDiagnostics.class,
         scam.host.ShadowTileBlitter.class},
-        instrumentedPackages = {"com.particlesdevs.photoncamera.processing.opengl.postpipeline.ScamDiagnostics",
-                "com.particlesdevs.photoncamera.processing.opengl.GLCoreBlockProcessing"})
+        instrumentedPackages = {"com.scamera.app.processing.opengl.postpipeline.ScamDiagnostics",
+                "com.scamera.app.processing.opengl.GLCoreBlockProcessing"})
 public class HostPostRender {
     private MockedStatic<ScameraApp> camera;
     private SettingsManager manager;
-    private com.particlesdevs.photoncamera.api.Settings settings;
+    private com.scamera.app.api.Settings settings;
 
     @Before public void setUp() {
         org.robolectric.shadows.ShadowLog.stream = System.out;
@@ -71,13 +71,13 @@ public class HostPostRender {
         camera.when(ScameraApp::getResourcesStatic).thenReturn(context.getResources());
         camera.when(() -> ScameraApp.getStringStatic(anyInt())).thenAnswer(inv -> context.getString(inv.getArgument(0)));
         camera.when(ScameraApp::getSettingsManagerStatic).thenReturn(manager);
-        final com.particlesdevs.photoncamera.util.AssetLoader assets = new com.particlesdevs.photoncamera.util.AssetLoader(context);
+        final com.scamera.app.util.AssetLoader assets = new com.scamera.app.util.AssetLoader(context);
         camera.when(ScameraApp::getAssetLoader).thenReturn(assets);
         final ScameraApp app = mock(ScameraApp.class, RETURNS_DEEP_STUBS);
         when(app.getSettingsManager()).thenReturn(manager);
         camera.when(() -> ScameraApp.getInstance(any(Context.class))).thenReturn(app);
         PreferenceKeys.initialise(manager);
-        settings = new com.particlesdevs.photoncamera.api.Settings();
+        settings = new com.scamera.app.api.Settings();
         camera.when(ScameraApp::getSettings).thenReturn(settings);
         // run.sh SCAM_HOST_FILM=1 (the spectral film engine built for the host): ReferenceFilm's memory headroom as a phone's (its
         // budget then 3 GB, as the C++ port's)
@@ -145,17 +145,17 @@ public class HostPostRender {
         final long t0 = System.nanoTime();
         final PostPipeline pipeline = new PostPipeline();
         Bitmap photo;
-        com.particlesdevs.photoncamera.processing.ultrahdr.GainMapComputer.Result gain = null;
+        com.scamera.app.processing.ultrahdr.GainMapComputer.Result gain = null;
         try {
-            photo = pipeline.Run(null, params);
+            photo = pipeline.develop(null, params);
             // ScamProcessor: the gain-map pass on the photo as the pipeline produced it, then GainMapComputer
             if (PostPipeline.gainMapWanted(ScameraApp.getSettings().gainMapPass(), pipeline.film)) {
                 final PostPipeline.GainMapRaw gm = pipeline.RunHDRGainMap(null, params, photo,
-                        com.particlesdevs.photoncamera.processing.ultrahdr.GainMapComputer.SCALE_DOWN,
-                        com.particlesdevs.photoncamera.processing.ultrahdr.GainMapComputer.SCALE);
+                        com.scamera.app.processing.ultrahdr.GainMapComputer.SCALE_DOWN,
+                        com.scamera.app.processing.ultrahdr.GainMapComputer.SCALE);
                 final boolean gpu = !Float.isNaN(gm.normalisedMax);
-                gain = gpu ? com.particlesdevs.photoncamera.processing.ultrahdr.GainMapComputer.normalised(gm.bitmap, gm.normalisedMax)
-                        : com.particlesdevs.photoncamera.processing.ultrahdr.GainMapComputer.compute(gm.bitmap, gm.down, gm.scale);
+                gain = gpu ? com.scamera.app.processing.ultrahdr.GainMapComputer.normalised(gm.bitmap, gm.normalisedMax)
+                        : com.scamera.app.processing.ultrahdr.GainMapComputer.compute(gm.bitmap, gm.down, gm.scale);
                 writeGainMap(gain, gm.normalisedMax, out);
                 System.out.println("HOST POST: gain map " + gain.gainW + "x" + gain.gainH + " min=" + gain.gainMapMin + " max=" + gain.gainMapMax
                         + " capacity=" + gain.hdrCapacityMax + (gpu ? " (GPU)" : " (CPU)"));
@@ -213,7 +213,7 @@ public class HostPostRender {
         ScamHybridBurst.lastReport = rep;
         ScamHybridBurst.lastBentoFactor = ScamNeuralClient.reportNumber(rep, "HYBRID BENTO: applied", "factor=", 1f);
         ScamHybridBurst.lastMergedDngHeadroom = Math.max(1f, ScamNeuralClient.reportNumber(rep, "HYBRID DNG:", "headroom=", 1f));
-        ScamHybridBurst.lastMergeFrames = com.particlesdevs.photoncamera.processing.DngMetadata.mergeFrames(rep);
+        ScamHybridBurst.lastMergeFrames = com.scamera.app.processing.DngMetadata.mergeFrames(rep);
         ScamHybridBurst.lastBentoUsClipped = ScamNeuralClient.reportNumber(rep, "HYBRID BENTO: applied", "usClippedRatio=", 0f);
         final float noiseK = ScamNeuralClient.reportNumber(rep, "HYBRID NOISE CHECK:", "-> model x", 1f);
         ScamHybridBurst.lastNoiseFactor = noiseK >= 1f / 16 && noiseK <= 4f ? noiseK : 1f;
@@ -221,11 +221,11 @@ public class HostPostRender {
         ScamHybridBurst.lastNoiseDarkRead = darkRead >= 1f && darkRead <= 16f ? darkRead : 1f;
         ScamHybridBurst.lastDcgNoise = ScamNeuralClient.dcgNoise(rep);
         ScamHybridBurst.lastRgbHalf = rgbHalf;
-        final ByteBuffer result = com.particlesdevs.photoncamera.util.Allocator.allocate((int) rgbBytes);
+        final ByteBuffer result = com.scamera.app.util.Allocator.allocate((int) rgbBytes);
         readInto(file, 0, result);
         result.order(ByteOrder.nativeOrder());
         if (clipBytes > 0) {
-            final ByteBuffer clip = com.particlesdevs.photoncamera.util.Allocator.allocate((int) clipBytes);
+            final ByteBuffer clip = com.scamera.app.util.Allocator.allocate((int) clipBytes);
             readInto(file, rgbBytes + dngBytes + effBytes, clip);
             ScamRgb.keepNativeClipFlags(clip);
         }
@@ -259,7 +259,7 @@ public class HostPostRender {
         into.flip();
     }
 
-    private static void writeGainMap(com.particlesdevs.photoncamera.processing.ultrahdr.GainMapComputer.Result gain, float normalisedMax,
+    private static void writeGainMap(com.scamera.app.processing.ultrahdr.GainMapComputer.Result gain, float normalisedMax,
                                      File out) throws IOException {
         final Bitmap map = gain.gainMap;
         final int w = map.getWidth(), h = map.getHeight();

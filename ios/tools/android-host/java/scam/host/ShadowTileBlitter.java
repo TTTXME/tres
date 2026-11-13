@@ -12,7 +12,7 @@ import java.nio.ByteBuffer;
  * Robolectric's legacy Canvas draws nothing, so the strips it blits left a black photo. The tiles' rows go into one buffer of
  * the bitmap's size instead, and into the bitmap with copyPixelsFromBuffer at close (the pixel-pack path's own call).
  */
-@Implements(className = "com.particlesdevs.photoncamera.processing.opengl.GLCoreBlockProcessing$TileBlitter", isInAndroidSdk = false)
+@Implements(className = "com.scamera.app.processing.opengl.GLCoreBlockProcessing$TileBlitter", isInAndroidSdk = false)
 public class ShadowTileBlitter {
     private Bitmap dst;
     private ByteBuffer whole;

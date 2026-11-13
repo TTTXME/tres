@@ -1,11 +1,11 @@
-package com.particlesdevs.photoncamera.processing.watermark;
+package com.scamera.app.processing.watermark;
 
 import android.content.SharedPreferences;
 import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.Typeface;
 
-import com.particlesdevs.photoncamera.util.Lang;
+import com.scamera.app.util.Lang;
 
 import java.util.ArrayList;
 import java.util.Calendar;

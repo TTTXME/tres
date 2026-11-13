@@ -9,7 +9,7 @@ import re
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-SETTINGS = ROOT / 'app/src/main/java/com/particlesdevs/photoncamera/settings'
+SETTINGS = ROOT / 'app/src/main/java/com/scamera/app/settings'
 OUT = ROOT / 'ios/Engine/post/SettingsTables.inc'
 
 
@@ -47,7 +47,7 @@ def list_bounds():
 
 
 def defaults():
-    text = (ROOT / 'app/src/main/java/com/particlesdevs/photoncamera/settings/PreferenceKeys.java').read_text()
+    text = (ROOT / 'app/src/main/java/com/scamera/app/settings/PreferenceKeys.java').read_text()
     return re.findall(r'HYBRID_DEFAULTS\.put\("([^"]+)",\s*([-0-9.eE]+)f?\)', text)
 
 
@@ -59,7 +59,7 @@ def motion_defaults():
 
 
 def tuning_keys():
-    text = (ROOT / 'app/src/main/java/com/particlesdevs/photoncamera/settings/PreferenceKeys.java').read_text()
+    text = (ROOT / 'app/src/main/java/com/scamera/app/settings/PreferenceKeys.java').read_text()
     start = text.index('private static final String[][] TUNING_KEYS = {')
     body = text[start:text.index('};', start)]
     body = re.sub(r'//[^\n]*', '', body)

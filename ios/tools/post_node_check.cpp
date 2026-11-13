@@ -228,14 +228,14 @@ int main(int argc, char** argv) {
             else if (name == "full") {}
             else throw std::runtime_error("node " + name + " is not ported yet");
         }
-        // WhyStats issues WhyLumaSharpen's passes early (PostPipeline.BuildDefaultPipeline: whyStats.earlySharpen)
+        // WhyStats issues WhyLumaSharpen's passes early (PostPipeline.buildNodes: whyStats.earlySharpen)
         for (auto& a : p.Nodes)
             if (auto* stats = dynamic_cast<WhyStats*>(a.get()))
                 for (auto& b : p.Nodes)
                     if (auto* sharpen = dynamic_cast<WhyLumaSharpen*>(b.get())) stats->earlySharpen = sharpen;
         int failures = 0;
         if (nodeNames.size() == 1 && nodeNames[0] == "full") {
-            // the whole pipeline (BuildDefaultPipeline + the final output) against the reference's photo.rgba
+            // the whole pipeline (buildNodes + the final output) against the reference's photo.rgba
             const auto t0 = std::chrono::steady_clock::now();
             const PostOutput photo = runPostPipeline(p);
             const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();

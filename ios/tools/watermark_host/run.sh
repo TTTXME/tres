@@ -7,7 +7,7 @@
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 root="$(cd "$here/../../.." && pwd)"
-java_src="$root/app/src/main/java/com/particlesdevs/photoncamera"
+java_src="$root/app/src/main/java/com/scamera/app"
 out="${SCAM_WATERMARK_HOST_OUT:-$(mktemp -d)}"
 mkdir -p "$out/classes"
 javac -nowarn -encoding UTF-8 -d "$out/classes" \
@@ -17,7 +17,7 @@ javac -nowarn -encoding UTF-8 -d "$out/classes" \
     "$java_src/processing/watermark/WatermarkPainter.java" "$java_src/processing/watermark/WatermarkArea.java" \
     "$here/Golden.java"
 golden="$root/ios/Tests/WatermarkGolden.swift"
-java -Duser.language=en -Duser.country=US -cp "$out/classes" com.particlesdevs.photoncamera.processing.watermark.Golden > "$out/WatermarkGolden.swift"
+java -Duser.language=en -Duser.country=US -cp "$out/classes" com.scamera.app.processing.watermark.Golden > "$out/WatermarkGolden.swift"
 if [ "${1:-}" = "--check" ]; then
     diff -u "$golden" "$out/WatermarkGolden.swift" && echo "WatermarkGolden.swift matches the Android Java"
 else

@@ -154,15 +154,7 @@ int main(int argc, char** argv) {
                 p.analogIso = lab.analogIso;
                 p.levelBits = lab.levelBits;
                 p.highlightSuppressionStrength = lab.highlightSuppressionStrength;
-                p.tilesX = lab.tilesX;
-                p.alignmentSize = lab.alignmentSize;
                 p.sensorPix = lab.sensorPix;
-                p.XPerMm = lab.XPerMm;
-                p.YPerMm = lab.YPerMm;
-                p.angleX = lab.angleX;
-                p.angleY = lab.angleY;
-                p.perXAngle = lab.perXAngle;
-                p.perYAngle = lab.perYAngle;
                 p.physicalID = lab.physicalID;
                 p.cameraID = lab.cameraID;
                 p.finishSnr = lab.finishSnr;

@@ -80,8 +80,7 @@ int main(int argc, char** argv) {
         if (linked) { ok++; glDeleteProgram(program); continue; }
         char log[600] = {};
         glGetProgramInfoLog(program, sizeof log, nullptr, log);
-        // utils/corners does not compile on Mesa either (an import it needs is gone): not used by the post pipeline
-        if (runtimeAssembled || name == "utils/corners") { skipped++; std::printf("SKIP %s (assembled at run time)\n", name.c_str()); }
+        if (runtimeAssembled) { skipped++; std::printf("SKIP %s (assembled at run time)\n", name.c_str()); }
         else { failed++; std::printf("FAIL %s (%s): %s\n", name.c_str(), compute ? "compute" : "fragment", log); }
         glDeleteProgram(program);
         while (glGetError() != GL_NO_ERROR) {}

@@ -5,7 +5,7 @@ import re
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-SRC = ROOT / 'app/src/main/java/com/particlesdevs/photoncamera/processing/color/CcmPresets.java'
+SRC = ROOT / 'app/src/main/java/com/scamera/app/processing/color/CcmPresets.java'
 OUT = ROOT / 'ios/Engine/post/color/CcmPresets.inc'
 
 

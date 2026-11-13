@@ -1,4 +1,4 @@
-package com.particlesdevs.photoncamera.processing.opengl.postpipeline;
+package com.scamera.app.processing.opengl.postpipeline;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
@@ -7,10 +7,10 @@ import android.app.Application;
 import android.graphics.Point;
 import android.opengl.GLES30;
 
-import com.particlesdevs.photoncamera.processing.opengl.GLContext;
-import com.particlesdevs.photoncamera.processing.opengl.GLFormat;
-import com.particlesdevs.photoncamera.processing.opengl.GLProg;
-import com.particlesdevs.photoncamera.processing.opengl.GLTexture;
+import com.scamera.app.processing.opengl.GLContext;
+import com.scamera.app.processing.opengl.GLFormat;
+import com.scamera.app.processing.opengl.GLProg;
+import com.scamera.app.processing.opengl.GLTexture;
 
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -25,7 +25,7 @@ import java.nio.ByteOrder;
 @Config(sdk = 35, application = Application.class, shadows = {scam.host.ShadowGLES20.class, scam.host.ShadowGLES30.class,
         scam.host.ShadowGLES31.class, scam.host.ShadowGLES32.class, scam.host.ShadowEGL14.class})
 public class HostGlSmokeTest {
-    @Test public void aProgramDrawsOnTheHostGpu() {
+    @Test public void aProgramDrawsOnTheHostGpu() throws Exception {
         org.robolectric.shadows.ShadowLog.stream = System.out;
         GLContext context = new GLContext(1, 1);
         System.out.println("HOST GL: " + GLES30.glGetString(GLES30.GL_RENDERER) + " / " + GLES30.glGetString(GLES30.GL_VERSION));
@@ -35,8 +35,11 @@ public class HostGlSmokeTest {
         GLTexture src = new GLTexture(new Point(w, h), new GLFormat(GLFormat.DataType.FLOAT_32, 4), in);
         GLTexture dst = new GLTexture(new Point(w, h), new GLFormat(GLFormat.DataType.FLOAT_32, 4));
         GLProg prog = new GLProg();
-        prog.useProgram("#version 310 es\nprecision highp float;\nuniform sampler2D InputBuffer;\nout vec4 Output;\n"
-                + "void main(){ Output = texelFetch(InputBuffer, ivec2(gl_FragCoord.xy), 0) * 2.0 + 0.25; }\n");
+        // a fragment program from source (GLProg's own private path; its public loaders read assets)
+        final java.lang.reflect.Method source = GLProg.class.getDeclaredMethod("useProgramSource", String.class, boolean.class, char.class, String.class);
+        source.setAccessible(true);
+        source.invoke(prog, "#version 310 es\nprecision highp float;\nuniform sampler2D InputBuffer;\nout vec4 Output;\n"
+                + "void main(){ Output = texelFetch(InputBuffer, ivec2(gl_FragCoord.xy), 0) * 2.0 + 0.25; }\n", false, (char) 0, null);
         prog.setTexture("InputBuffer", src);
         prog.drawBlocks(dst);
         ByteBuffer out = dst.textureBuffer(new GLFormat(GLFormat.DataType.FLOAT_32, 4));
