@@ -325,10 +325,7 @@ public final class WhyMsDenoise extends Node {
                 shaderProg.setVar("cacheOriginU", first);
                 cache.renderInto();
                 if (invalidate) android.opengl.GLES30.glInvalidateFramebuffer(android.opengl.GLES30.GL_FRAMEBUFFER, 1, colour0, 0);
-                android.opengl.GLES30.glViewport(0, 0, w, stop - first);
-                shaderProg.draw();
-                android.opengl.GLES30.glFlush();
-                com.scamera.app.processing.opengl.GpuPace.block();
+                pacedRows("resolvedn/optics(cache)", 0, stop - first, w);
                 if (fuseLab) shaderProg.setDefine("OUT_LAB", 1);
                 shaderProg.setDefine("OKLAB_CACHE", 2);
                 program("optics", filtered);
@@ -339,10 +336,7 @@ public final class WhyMsDenoise extends Node {
                 shaderProg.setVar("u_quad_speckle_threshold", speckleThreshold);
                 filtered.renderInto();
                 if (invalidate && y == 0) android.opengl.GLES30.glInvalidateFramebuffer(android.opengl.GLES30.GL_FRAMEBUFFER, 1, colour0, 0);
-                android.opengl.GLES30.glViewport(0, y, w, rows);
-                shaderProg.draw();
-                android.opengl.GLES30.glFlush();
-                com.scamera.app.processing.opengl.GpuPace.block();
+                pacedRows("resolvedn/optics(cached)", y, rows, w);
             }
             final int error = android.opengl.GLES30.glGetError();
             if (error != android.opengl.GLES30.GL_NO_ERROR) throw new IllegalStateException("GL error 0x" + Integer.toHexString(error));
@@ -353,6 +347,21 @@ public final class WhyMsDenoise extends Node {
             return false;
         } finally {
             if (cache != null) cache.close(); // (released when the GPU is done with it)
+        }
+    }
+
+    /**
+     * Rows [y, y + rows) of the bound target drawn in bands, each flushed and paced as GLProg.drawBlocks does (P616 / P668: a slow
+     * GPU gets bands of ~10 ms of its measured time of {@code pass}).
+     */
+    private void pacedRows(String pass, int y, int rows, int w) {
+        for (int r = 0; r < rows; ) {
+            final int n = Math.min(rows - r, com.scamera.app.processing.opengl.GpuPace.bandRows(pass, w, rows - r));
+            android.opengl.GLES30.glViewport(0, y + r, w, n);
+            shaderProg.draw();
+            android.opengl.GLES30.glFlush();
+            com.scamera.app.processing.opengl.GpuPace.submitted(pass, (long) w * n);
+            r += n;
         }
     }
 
