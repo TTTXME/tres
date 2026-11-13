@@ -154,6 +154,19 @@ public final class SensorModePick {
     static final String ISZ = "oplus ISZ", DCG = "oplus DCG";
 
     /**
+     * Owner, 2026-11-13 (OPPO Find X7 Ultra, 50 MP: «Для работы фокуса в 50мп на Oppo X7 Ultra ISP Stream должен стоять» fake off):
+     * «Поток ISP» Auto of a X7 Ultra session that would drop the ISP stream (a forced sensor mode, a pick but the DCG / DAG one) or
+     * a full-size session reads as fake off (3) - the stream stays in the session for the HAL's focus, no request targets it. An
+     * ISZ row without the remosaic / a Xiaomi row keeps its own rule ({@link #ispStreamOff}); a set value (On, Off, fake off) is
+     * the user's.
+     */
+    public static int ispSurfaceFor(int ispSurface, @Nullable Pick pick, boolean otherForcedMode, boolean fullRes, boolean x7Ultra) {
+        if (!x7Ultra || ispSurface != 0) return ispSurface;
+        if (pick != null && (pick.rawOnly() || pick.ispOff)) return ispSurface;
+        return fullRes || otherForcedMode || pick != null && !pick.dcg() ? 3 : ispSurface;
+    }
+
+    /**
      * P266 / P575 / P586: the session leaves its ISP stream out - the RAW-only session, the RAW viewfinder. «Поток ISP»
      * ({@code ispSurface}: 0 Auto, 1 On, 2 Off, 3 fake off) Off always; Auto with a forced sensor mode ({@code otherForcedMode}: a
      * vivo ISZ / module sensor mode; a pick but the DCG / DAG one, which keeps the ISP stream as Xiaomi's DCG does); a nubia row with
