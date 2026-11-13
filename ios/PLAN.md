@@ -1,0 +1,73 @@
+# SCAMERA iOS: plan and findings
+
+Separate iOS app in `ios/`, built by `.github/workflows/build-ios-ipa.yml` (XcodeGen → `xcodebuild archive` → IPA +
+`SHA256SUMS.txt`, artifact `SCAMERA-iOS-<version>`, 7 days). Without the `IOS_*` secrets the IPA is unsigned
+(`-unsigned.ipa`, re-sign with Sideloadly/AltStore): `-exportArchive` needs an identity, so the unsigned IPA is the
+archived `.app` in `Payload/`.
+
+## Architecture (Apple AVCam sample, `LICENSE-AVCam.txt`)
+- `Capture/CaptureService` — `actor` on its own `DispatchSerialQueue` executor, the only owner of `AVCaptureSession`.
+- `Capture/PhotoCapture` — `AVCapturePhotoOutput` + delegate → `async` via `withCheckedThrowingContinuation`.
+  `capturePhoto` runs inside `SCAMObjC.catchException` (`Bridge/`): invalid settings raise `NSException`; the
+  next candidate setting is tried and the refusal is logged (`capture … refused: …`).
+- `Capture/PreviewView` — `UIView` with `AVCaptureVideoPreviewLayer`, connected through `PreviewSource/PreviewTarget`.
+- `Capture/LensModules` — modules like Android `ModuleRegistry`: physical back lenses (ultra wide, wide, tele) +
+  one ISZ module per `secondaryNativeResolutionZoomFactors` entry of the lens's largest-still format
+  (`videoZoomFactor` = that factor), front lens. Labels from the field of view against the wide lens.
+- `Gallery/MediaLibrary` — one `PHAssetCreationRequest`: HEIC/JPEG `.photo`, DNG `.alternatePhoto`
+  (`shouldMoveFile`); add-only access.
+- `Support/SessionLog` — `Documents/Log/log-YYYY-MM-DD.txt` (7 days, also visible in the Files app), header
+  `I/ScameraBuild: SCAMERA iOS <version> (<build>) <sha> <iPhoneNN,N> <iOS>`; shared from the camera screen.
+- Interface strings: `Resources/{en,ru}.lproj`, checked by `tools/check_strings.py` (also bans foreign brand names).
+- Minimum iOS 17 (`RotationCoordinator`, `isResponsiveCaptureEnabled`, `DispatchSerialQueue` executor).
+  Swift 5 language mode.
+
+## Capture choices (stage 1)
+- `.photo` preset; if another 420f format at ≥29 fps has larger stills, it becomes `activeFormat` (logged).
+- `isAppleProRAWEnabled` is set before `startRunning` when supported.
+- «Полное разрешение» on: `maxPhotoDimensions` = the largest of the active format; off: largest ≤12.7 MP.
+- RAW: Bayer → `AVCapturePhotoSettings(rawPixelFormatType:processedFormat:)`, ProRAW as fallback, then HEIC only.
+  RAW requests use `.balanced` priority, HEIC-only `.quality`.
+- Bayer RAW with `videoZoomFactor ≠ 1` (ISZ modules) is reported to raise `NSException`; not assumed: the attempt
+  is caught and logged, ProRAW is taken instead.
+
+## Log lines to send from the phone
+`Modules`, `Probe` (device/format/exposure/formats per module; photoOutput raw formats, maxPhoto, bracket max,
+ZSL/responsive), `Capture` (module, format choice, deviceZoom), `Shot` (`resolved photo= raw=`, `raw at … buffer=WxH
+<fourcc>`, `processed at …`, `saved in … ms, memory … MB`), `capture … refused`.
+To fill per iPhone model: Bayer RAW and ProRAW size on every module and ISZ factor; whether ISZ is a true crop.
+
+## Findings from the Android code (2026-11-13)
+- There is **no CPU twin of the RAW merge**. The merge (alignment field, rejection, Sabre accumulation, Bento,
+  Shasta, native mosaics) exists only as GLES 3.1 compute (`kHyb*` strings, `HybridGpu` in `scam-hybrid.h`,
+  `FastGpu` in `scam-fast-gpu.h`). P531/P564 «CPU twins» are post passes on the merged RGB (`hybridAlongEdge`,
+  `hybridLatticeNotch`, `mosaicChromaMedian`). So the Bayer merge on iOS = Metal port of `HybridGpu`'s passes,
+  checked against the GLES output on llvmpipe (host checks) on identical inputs.
+- GL-free and portable as is: `scam-yuv-merge.h` (`scam_yuv::mergeBurst`, RGB/YUV burst → linear RGB float),
+  `oldstyle-tone-core.h` + `third_party/tone_port` + `tone_supplement` (ScamMaster 2.7/3.1), `scam-homography.h`,
+  `scam-preprocess.h`, `scam-merge.h`, `scam-superres.h` (`superResolveReference`, old CPU reference merge),
+  `scam-portable.h` (`portableDemosaic`), `scam-guide.h`, `scam-dcg-noise.h`, `scam-bayer-quads.h`.
+- Not portable: `scam-crash.h` (Linux ucontext/prctl), `scam-fast-gpu.h` (EGL, AHardwareBuffer), the worker `main`
+  (`scam-neural-worker.cpp`, QNN/CRE dlopen).
+- Why tone V2 = `why/v2_clean → v2_stride (AE on CPU, WhyV2Ae) → WhyLumaSharpen (sharp_in/r1/box/compose/rl) →
+  v2_bracket_dn/v2_hr_* (off by default) → v2_ef_prep/pyr_down/ef_coarsest/ef_collapse → v2_tonemap`; CPU parts
+  `WhyV2Ae`, `WhyV2Curve` port to Swift; `tools/check_why_v2_tone.py` has a numpy model of the tonemap.
+
+## GPU first (owner, 2026-11-13)
+Owner: «Обработку лучше делать на гпу, чем на цпу». All image processing on the phone runs on Metal compute:
+the RAW merge (port of `HybridGpu`), the RGB merge (`scam_yuv::mergeBurst` moved to Metal), Why V1/V2, denoise,
+sharpening, colour. C++ CPU code (`scam_yuv`, `superResolveReference`, CPU twins) is built only into XCTest as the
+reference the Metal passes are compared against on identical inputs. Exceptions stay on the CPU where Android has
+them there too: AE histograms of `WhyV2Ae` / `WhyV2Curve` (small readback) and ScamMaster `tone_port` (owner's
+C++ code, bit-exact hashes required).
+
+## Stages (estimates are working sessions)
+1. ✅ 0.1 skeleton, modules/ISZ/48 MP, RAW (Bayer/ProRAW) next to HEIC, probe log, IPA workflow.
+   Next in stage 1 (2–3): Metal engine (MTLDevice, compute pipelines from `Engine/*.metal`, RGBA16F textures);
+   Why V2 on Metal (v2_clean → v2_tonemap, AE in Swift) checked against `tools/check_why_v2_tone.py`; RGB merge on
+   Metal with `scam_yuv::mergeBurst` as the XCTest reference; burst of N frames (`AVCapturePhotoBracketSettings`,
+   same exposure); 48 MP module on the RGB merge with timing vs single ProRAW; Obj-C++ bridge for `tone_port`.
+2. (3–5) Metal port of `HybridGpu` (Bayer RAW merge), ES/L bracket, post pipeline on Metal (denoise, sharpen,
+   colour), manual row (ISO, shutter, focus, WB).
+3. (2–3) ScamMaster AE and tone, front camera and live viewfinder tone (if confirmed), merge/denoise/lens settings.
+4. Gallery and editor.
