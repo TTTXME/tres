@@ -24,6 +24,7 @@ targets:
       - path: Capture
       - path: Bridge
       - path: Engine
+      - path: Editor
       - path: ScamGL
       - path: Gallery
       - path: Support
@@ -58,6 +59,7 @@ targets:
         LSSupportsOpeningDocumentsInPlace: true
         NSCameraUsageDescription: SCAMERA uses the camera to take photos.
         NSPhotoLibraryAddUsageDescription: SCAMERA saves the photos you take to your library.
+        NSPhotoLibraryUsageDescription: SCAMERA shows your photos in its gallery and saves edited copies.
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.scamera.ios

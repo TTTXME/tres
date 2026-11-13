@@ -33,9 +33,23 @@ actor MediaLibrary {
         let processed = photo.processed
         let processedUTI = photo.processedUTI
         let raw = photo.rawFile
+        // the gallery's «Камера» (Android: DCIM/SCAMERA): the shot also goes into the «SCAMERA» album when the app may read the
+        // library (an album needs full access; with add-only access the photo is saved as before)
+        let fullAccess = PHPhotoLibrary.authorizationStatus(for: .readWrite) == .authorized
+        let album = fullAccess ? GalleryLibrary.album() : nil
         do {
             try await PHPhotoLibrary.shared().performChanges {
                 let request = PHAssetCreationRequest.forAsset()
+                defer {
+                    if fullAccess, let placeholder = request.placeholderForCreatedAsset {
+                        if let album {
+                            PHAssetCollectionChangeRequest(for: album)?.addAssets([placeholder] as NSArray)
+                        } else {
+                            PHAssetCollectionChangeRequest.creationRequestForAssetCollection(withTitle: GalleryLibrary.albumTitle)
+                                .addAssets([placeholder] as NSArray)
+                        }
+                    }
+                }
                 let rawOptions = PHAssetResourceCreationOptions()
                 rawOptions.shouldMoveFile = true
                 rawOptions.uniformTypeIdentifier = "com.adobe.raw-image"

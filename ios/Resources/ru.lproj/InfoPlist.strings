@@ -1,2 +1,3 @@
 "NSCameraUsageDescription" = "SCAMERA использует камеру, чтобы снимать фото.";
 "NSPhotoLibraryAddUsageDescription" = "SCAMERA сохраняет снятые фото в медиатеку.";
+"NSPhotoLibraryUsageDescription" = "SCAMERA показывает ваши фото в своей галерее и сохраняет отредактированные копии.";

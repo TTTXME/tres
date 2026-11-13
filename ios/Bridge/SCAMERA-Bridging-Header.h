@@ -2,3 +2,4 @@
 #import "ShaderTypes.h"
 #import "ScamMerge.h"
 #import "ScamShot.h"
+#import "ScamEdit.h"

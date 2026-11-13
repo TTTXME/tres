@@ -1,2 +1,3 @@
 "NSCameraUsageDescription" = "SCAMERA uses the camera to take photos.";
 "NSPhotoLibraryAddUsageDescription" = "SCAMERA saves the photos you take to your library.";
+"NSPhotoLibraryUsageDescription" = "SCAMERA shows your photos in its gallery and saves edited copies.";

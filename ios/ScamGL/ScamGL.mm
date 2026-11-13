@@ -1038,6 +1038,19 @@ void glTexSubImage2D(GLenum target, GLint level, GLint x, GLint y, GLsizei width
          destinationLevel:NSUInteger(level) destinationOrigin:MTLOriginMake(NSUInteger(x), NSUInteger(y), 0)];
     });
 }
+// The photo editor's mipmapped picture (EditRenderer: main / look, sampled with GL_LINEAR_MIPMAP_LINEAR by finish): the levels
+// below 0 from level 0, recorded in order with the draws (a blit encoder's box filter).
+void glGenerateMipmap(GLenum target) {
+    Guard g(gLock);
+    Context* c = ctx();
+    Texture* t = c ? boundTexture(*c, target) : nullptr;
+    if (!t || !t->mtl) { fail(GL_INVALID_OPERATION); return; }
+    if (t->levels <= 1) return;
+    id<MTLTexture> tex = t->mtl;
+    blit(*c, ^(id<MTLBlitCommandEncoder> e) {
+        [e generateMipmapsForTexture:tex];
+    });
+}
 void glBindImageTexture(GLuint unit, GLuint texture, GLint level, GLboolean layered, GLint layer, GLenum, GLenum format) {
     Context* c = ctx();
     if (!c || unit >= 32) { fail(GL_INVALID_VALUE); return; }

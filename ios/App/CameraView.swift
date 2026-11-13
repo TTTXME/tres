@@ -8,6 +8,7 @@ struct CameraView: View {
     @State private var showingSettings = false
     @State private var showingFormat = false
     @State private var showingPro = false
+    @State private var showingGallery = false
     @State private var chrome = CameraChrome()
 
     var body: some View {
@@ -35,6 +36,9 @@ struct CameraView: View {
         }
         .sheet(isPresented: $showingFormat) {
             FormatSheet(camera: camera).presentationDetents([.medium])
+        }
+        .fullScreenCover(isPresented: $showingGallery) {
+            GalleryView()
         }
         .sheet(isPresented: $showingPro) {
             ProSheet(camera: camera).presentationDetents([.medium])
@@ -145,7 +149,10 @@ struct CameraView: View {
                 .background(Color.white.opacity(0.1))
                 .clipShape(RoundedRectangle(cornerRadius: 14))
                 .overlay { if camera.activity != .idle { ProgressView().tint(.white) } }
+                .contentShape(Rectangle())
+                .onTapGesture { showingGallery = true }
                 .accessibilityLabel(L("bottom.gallery"))
+                .accessibilityAddTraits(.isButton)
                 Spacer()
                 Button {
                     chrome.shoot { await camera.capture() }

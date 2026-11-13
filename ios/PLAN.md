@@ -185,3 +185,29 @@ change: `scam-crash.h` keeps only the stage marks on Apple.
    colour), manual row (ISO, shutter, focus, WB).
 3. (2–3) ScamMaster AE and tone, front camera and live viewfinder tone (if confirmed), merge/denoise/lens settings.
 4. Gallery and editor.
+
+## Gallery and editor (2026-11-13)
+- Editor render (Editor/*.hpp, header-only C++, Java float semantics, -ffp-contract=off): EditState (Android JSON), EditMath
+  (uniforms, tone / point-curve tables, radii, overlap), CropMath, EditRenderer + EditGl (the Android shaders/editor GLSL
+  unchanged: demosaic, 512 px proxy + guided filters, nr, develop, gauss2, main, finish), DngRaw (DngPreview's TIFF reader,
+  Lj92Decoder, DngRaw with Quad / bin / gain maps / auto lift, DngColor), EditExport (EditSource.RawColour, the readers,
+  EditExporter.Plan / region / tile loop, EditorView's canvas / finishFor / histogram). ScamGL gained glGenerateMipmap (blit).
+- Check (tools/edit_check.cpp vs tools/android-host HostEditRender on Mesa): a 1280x960 crop of «Лента» (picture route) and two
+  DNGs mosaicked from it (tools/make_edit_dng.py: a.dng uncompressed RGGB, orientation 6, ForwardMatrix, DefaultCrop, 4 GainMaps;
+  b.dng LJ92 2-component, BGGR, ColorMatrix only, 2x2 black pattern) x 6 EditState cases (default; tone + NR + sharpen + grain +
+  vignette; HSL mixer + point / parametric curves + grading + turn / straighten / crop; mono + B&W mix + negative dehaze + flip;
+  negative texture / clarity, full NR; exposure + WB + 30° straighten), each as the 640x480 view frame, the crop tab's frame,
+  the histogram render and the full-resolution copy (2 tiles at 1280; odd cases at outMax 1 MP): 72 frames, 0 differing values.
+  Run: `make_edit_dng.py photo.rgba IN 1280 960`, cases.txt (one state JSON a line), `android-host/run.sh HostEditRender
+  EDIT_IN=IN EDIT_OUT=REF`, `edit_check app/src/main/assets/shaders IN REF`.
+- Bridge/ScamEdit.{h,mm} (SCAMEditSession): one photo's preview source and GL context; render the view frame / histogram /
+  thumbnail, the RAW white in K, export at full size (picture or DNG). Syntax-checked with clang (Foundation stubbed); not built
+  on a Mac here.
+- SwiftUI (Gallery/): GalleryView (PhotoKit, the «SCAMERA» album or all photos, month sections, 4 columns), PhotoViewer (paging,
+  zoom, favourite, share, edit / edit RAW, details sheet, delete), PhotoEditorView (top bar with undo / redo / «Ещё» / «Сохранить
+  копию», «Оригинал» on long press, histogram, crop frame, tabs Кадр / Стили / Свет / Цвет / Эффекты / Детали with the Android
+  sliders, ranges, defaults, curves, mixer, grading, B&W, styles), the copy saved as a new JPEG (q95, EXIF kept, orientation 1)
+  into the album. MediaLibrary adds new shots to the album when the app has full library access.
+- Not done: the «LUT» tab (EditLook: camera LUTs / film simulation - FilmSim, FilmLut, FinishedLook not ported) and «Знак»
+  (watermark); the full-resolution zoom regions (P367: the preview zooms as a picture); gallery albums / search / filters /
+  selection / compare / video; ScamGL editor output not compared with Mesa (needs the macOS runner).
