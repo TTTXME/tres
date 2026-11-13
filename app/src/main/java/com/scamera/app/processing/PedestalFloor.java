@@ -33,6 +33,17 @@ public final class PedestalFloor {
      * session (an upper bound of the true black), never above the declared one. NaN: none.
      */
     private float drift = Float.NaN, driftLow = Float.NaN;
+    /*
+     * P669 (owner, 2026-11-13, vivo X200 Pro camera 2, 31267: «видоискатель становится розовым после снимка пока ты не сменишь
+     * модули туда-сюда»): the RAW is 4096 x 3072 with the picture in 4000 x 3000 and zeros to the right (96) and below (72). While
+     * the shot is processed the viewfinder halves the frame (P616, one 2 x 2 quad of each 4 x 4): 48 zero columns, 24 sites a
+     * channel, and the drift's blocks (16 sites, every 4th read) at the picture's right edge then hold 2 picture columns and 2 zero
+     * columns - mean 32, 3 standard errors 24: 56 for a black of 64, the log's «black 63.927002 -> 56.22714». The session's lowest
+     * drift is kept until the camera session changes, so after the processing every channel kept ~8 DN of the pedestal, R x 2.46
+     * and B x 1.79 of the white balance over G - a magenta viewfinder until a module switch. A kept pedestal never reads exactly 0
+     * (the read noise of a 64 DN black does not reach it; zero padding is exactly 0), so a block with a zero sample is not a
+     * drifted black; a stream that lost its pedestal (zeros in its data) is the floor's case (P315), not the drift's.
+     */
     private boolean driftLogged;
     private int driftVotes;
 
@@ -58,7 +69,8 @@ public final class PedestalFloor {
     /**
      * {@link #measure(ShortBuffer, int, int, int, int, float, float)}; P557: {@code low} (length 1, or null) gets the third-lowest
      * block mean plus 3 standard errors of its samples, over the four channels, whatever the proof says (NaN: too few blocks) - the
-     * drift floor ({@link #black}): a noisy dark block cannot pull it under a black that did not move.
+     * drift floor ({@link #black}): a noisy dark block cannot pull it under a black that did not move. P669: blocks holding a zero
+     * sample are left out of it (see the class's P669 note).
      */
     static float measure(ShortBuffer d, int w, int h, int rowPx, int block, float black, float white, float[] low) {
         if (low != null) low[0] = Float.NaN;
@@ -75,7 +87,7 @@ public final class PedestalFloor {
         for (int c = 0; c < 4; c++) {
             final int ox = (c & 1) * b, oy = (c >> 1) * b;
             for (int by = 0; by < bh; by++) for (int bx = 0; bx < bw; bx++) {
-                long sum = 0, sq = 0; int n = 0, least = Integer.MAX_VALUE, atZero = 0; boolean hit = false, allZero = true;
+                long sum = 0, sq = 0; int n = 0, least = Integer.MAX_VALUE, atZero = 0, atExactZero = 0; boolean hit = false, allZero = true;
                 for (int j = 0; j < BLOCK; j += STEP) {
                     final int row = ((by * BLOCK + j) * period + oy) * rowPx;
                     for (int i = 0; i < BLOCK; i += STEP) {
@@ -83,6 +95,7 @@ public final class PedestalFloor {
                         sum += v; sq += (long) v * v; n++;
                         hit |= v > 0 && v < below;
                         allZero &= v == 0;
+                        if (v == 0) atExactZero++;
                         if (v > 0 && v < least) least = v;
                         if (v <= nearZero) atZero++;
                     }
@@ -92,9 +105,12 @@ public final class PedestalFloor {
                 if (allZero) continue;
                 final float mean = sum / (float) n;
                 final float upper = mean + 3f * (float) Math.sqrt(Math.max(0.0, (double) sq / n - (double) mean * mean) / n);
-                if (upper < d1) { d3 = d2; d2 = d1; d1 = upper; }
-                else if (upper < d2) { d3 = d2; d2 = upper; }
-                else if (upper < d3) d3 = upper;
+                // P669: a block that holds a zero sample (the padding's edge) is not a drifted black (the P669 note above)
+                if (atExactZero == 0) {
+                    if (upper < d1) { d3 = d2; d2 = d1; d1 = upper; }
+                    else if (upper < d2) { d3 = d2; d2 = upper; }
+                    else if (upper < d3) d3 = upper;
+                }
                 if (atZero >= 2 && mean <= 3f * nearZero) nearBlocks++;
                 if (mean < low1) { low3 = low2; low2 = low1; low1 = mean; }
                 else if (mean < low2) { low3 = low2; low2 = mean; }
