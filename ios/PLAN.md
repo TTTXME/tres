@@ -125,6 +125,11 @@ change: `scam-crash.h` keeps only the stage marks on Apple.
   hybridSwitch / scamDevSwitch defaults from res/xml + the burst .json prefs), then ScamRgb.run (default paths:
   half RGB upload, channelClip, hlrecovery chanprep/reduce/opposed, purplebound, scamrgb, clipmask/clipband, suncore).
 - Each node: a host check (Mesa) and the Metal run in CI on the same input; the Drive bursts for the whole chain.
+- The burst's .json (ScamBurstDump) holds the Android Parameters of the shot (CCT.matrix, ColorMatrix1/2, ForwardTransform1/2,
+  calibrationTransform1/2, sensorToProPhoto, proPhotoToSRGB, whitePoint, gainMap + mapSize, blackLevel, whiteLevel,
+  noiseModeler, rawSize, cameraRotation, mosaicBlock, ...) and all its SharedPreferences (513 keys, ["s"|"b"|..., value]):
+  the replay feeds the port exactly what the phone's PostPipeline read. On the iPhone the same Parameters are filled from
+  the DNG / AVCapturePhoto metadata (the DNG model is Camera2's: CM, FM, CC, illuminants, neutral, noise profile).
 
 ## Stages (estimates are working sessions)
 1. ✅ 0.1 skeleton, modules/ISZ/48 MP, RAW (Bayer/ProRAW) next to HEIC, probe log, IPA workflow.
