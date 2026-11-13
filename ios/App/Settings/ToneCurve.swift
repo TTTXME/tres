@@ -151,7 +151,7 @@ struct ToneCurve: Equatable {
     private static func groups(_ re: NSRegularExpression, _ text: String) -> [(start: Int, a: String, b: String)] {
         let ns = text as NSString
         return re.matches(in: text, range: NSRange(location: 0, length: ns.length)).map {
-            ($0.range.location, ns.substring(with: $0.range(at: 1)), $0.range.numberOfRanges > 2 ? ns.substring(with: $0.range(at: 2)) : "")
+            ($0.range.location, ns.substring(with: $0.range(at: 1)), $0.numberOfRanges > 2 ? ns.substring(with: $0.range(at: 2)) : "")
         }
     }
 
