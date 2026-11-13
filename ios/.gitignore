@@ -7,3 +7,4 @@ DerivedData/
 *.mobileprovision
 *.cer
 __pycache__/
+Tests/Resources/

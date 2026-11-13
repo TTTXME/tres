@@ -24,6 +24,7 @@ targets:
       - path: Capture
       - path: Bridge
       - path: Engine
+      - path: ScamGL
       - path: Gallery
       - path: Support
       - path: Resources
@@ -56,7 +57,17 @@ targets:
         PRODUCT_NAME: SCAMERA
         TARGETED_DEVICE_FAMILY: "1"
         SWIFT_OBJC_BRIDGING_HEADER: Bridge/SCAMERA-Bridging-Header.h
-        HEADER_SEARCH_PATHS: ["$(inherited)", "$(SRCROOT)/Engine"]
+        HEADER_SEARCH_PATHS: ["$(inherited)", "$(SRCROOT)/Engine", "$(SRCROOT)/ScamGL/include", "$(SRCROOT)/ScamGL",
+                              "$(SRCROOT)/../app/src/main/cpp", "$(SCAM_DEPS)/$(SCAM_DEPS_PLATFORM)/include",
+                              "$(SCAM_DEPS)/$(SCAM_DEPS_PLATFORM)/include/spirv_cross"]
+        # glslang / SPIRV-Cross static libraries (tools/build_shader_deps.sh; CI passes SCAM_DEPS)
+        SCAM_DEPS: $(SRCROOT)/build/deps
+        "SCAM_DEPS_PLATFORM[sdk=iphoneos*]": ios
+        "SCAM_DEPS_PLATFORM[sdk=iphonesimulator*]": iossim
+        LIBRARY_SEARCH_PATHS: ["$(inherited)", "$(SCAM_DEPS)/$(SCAM_DEPS_PLATFORM)/lib"]
+        OTHER_LDFLAGS: ["$(inherited)", "-lglslang", "-lMachineIndependent", "-lGenericCodeGen", "-lOSDependent", "-lSPIRV",
+                        "-lglslang-default-resource-limits", "-lspirv-cross-msl", "-lspirv-cross-glsl", "-lspirv-cross-core"]
+        CLANG_ENABLE_OBJC_ARC: YES
         MTL_HEADER_SEARCH_PATHS: ["$(inherited)", "$(SRCROOT)/Engine"]
         MTL_FAST_MATH: NO
         GCC_PREPROCESSOR_DEFINITIONS: ["$(inherited)", "SCAM_IOS=1"]

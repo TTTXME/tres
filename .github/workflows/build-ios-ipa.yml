@@ -109,8 +109,9 @@ jobs:
           retention-days: 3
 
   ipa:
+    needs: merge-reference
     runs-on: macos-15
-    timeout-minutes: 45
+    timeout-minutes: 60
     env:
       HAS_SIGNING: ${{ secrets.IOS_CERT_P12 != '' && secrets.IOS_PROVISION_PROFILE != '' }}
     steps:
@@ -136,6 +137,40 @@ jobs:
           echo "version=0.1.$count" >> "$GITHUB_OUTPUT"
           echo "sha=$(git rev-parse --short=10 HEAD)" >> "$GITHUB_OUTPUT"
 
+      - uses: actions/cache/restore@v4
+        id: deps
+        with:
+          path: |
+            ${{ runner.temp }}/deps/ios
+            ${{ runner.temp }}/deps/iossim
+          key: shader-deps-ios-${{ hashFiles('ios/tools/build_shader_deps.sh') }}
+      - name: Shader translators for iPhone and the simulator (glslang, SPIRV-Cross)
+        if: steps.deps.outputs.cache-hit != 'true'
+        run: |
+          ios/tools/build_shader_deps.sh ios "$RUNNER_TEMP/deps"
+          ios/tools/build_shader_deps.sh iossim "$RUNNER_TEMP/deps"
+      - uses: actions/cache/save@v4
+        if: steps.deps.outputs.cache-hit != 'true'
+        with:
+          path: |
+            ${{ runner.temp }}/deps/ios
+            ${{ runner.temp }}/deps/iossim
+          key: shader-deps-ios-${{ hashFiles('ios/tools/build_shader_deps.sh') }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: merge-reference
+          path: ${{ runner.temp }}/reference
+      - name: Test resources (a real burst crop and its Mesa merge)
+        run: |
+          python3 -m pip install -q --break-system-packages numpy==2.3.5 || python3 -m pip install -q numpy==2.3.5
+          git fetch -q --depth 1 origin replay/p335
+          mkdir -p ios/Tests/Resources
+          git show FETCH_HEAD:research/replay-bursts/n124513b.nch.xz > "$RUNNER_TEMP/n124513b.nch.xz"
+          python3 -c "import sys; sys.path.insert(0, 'ios/tools'); import replay_bursts as r; from pathlib import Path; Path('ios/Tests/Resources/n124513b.nch').write_bytes(r.unpack(Path(sys.argv[1])))" "$RUNNER_TEMP/n124513b.nch.xz"
+          cp tools/replay_tuning.txt ios/Tests/Resources/replay_tuning.txt
+          cp "$RUNNER_TEMP/reference/n124513b.f32" ios/Tests/Resources/n124513b.reference.f32
+          ls -la ios/Tests/Resources
+
       - name: Generate project
         working-directory: ios
         run: xcodegen generate --spec project.yml
@@ -150,7 +185,8 @@ jobs:
           print(next(d["udid"] for k in ios for d in devices[k] if d["name"].startswith("iPhone")))')
           echo "simulator $udid"
           xcodebuild test -project SCAMERA.xcodeproj -scheme SCAMERA -destination "id=$udid" \
-            CODE_SIGNING_ALLOWED=NO SCAM_GIT_SHA=${{ steps.ver.outputs.sha }} | tee /tmp/test.log | grep -E "error:|warning: .*(SCAMERA|ios/)|Test Case|Executed|\*\* TEST" || true
+            CODE_SIGNING_ALLOWED=NO SCAM_GIT_SHA=${{ steps.ver.outputs.sha }} SCAM_DEPS="$RUNNER_TEMP/deps" | tee /tmp/test.log \
+            | grep -E "error:|Test Case|Executed|MERGE TEST|\*\* TEST" || true
           grep -q "\*\* TEST SUCCEEDED \*\*" /tmp/test.log || { tail -120 /tmp/test.log; exit 1; }
 
       - name: Import signing identity
@@ -207,7 +243,7 @@ jobs:
             CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM="$TEAM_ID" PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
             PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" CODE_SIGN_IDENTITY="$SIGN_IDENTITY" \
             MARKETING_VERSION=0.1 CURRENT_PROJECT_VERSION=${{ steps.ver.outputs.build }} \
-            SCAM_GIT_SHA=${{ steps.ver.outputs.sha }} | tee /tmp/archive.log | grep -E "error:|\*\* ARCHIVE" || true
+            SCAM_GIT_SHA=${{ steps.ver.outputs.sha }} SCAM_DEPS="$RUNNER_TEMP/deps" | tee /tmp/archive.log | grep -E "error:|\*\* ARCHIVE" || true
           grep -q "\*\* ARCHIVE SUCCEEDED \*\*" /tmp/archive.log || { tail -120 /tmp/archive.log; exit 1; }
           cat > "$RUNNER_TEMP/ExportOptions.plist" <<EOF
           <?xml version="1.0" encoding="UTF-8"?>
@@ -232,7 +268,7 @@ jobs:
             -destination "generic/platform=iOS" -archivePath "$RUNNER_TEMP/SCAMERA.xcarchive" \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
             MARKETING_VERSION=0.1 CURRENT_PROJECT_VERSION=${{ steps.ver.outputs.build }} \
-            SCAM_GIT_SHA=${{ steps.ver.outputs.sha }} | tee /tmp/archive.log | grep -E "error:|\*\* ARCHIVE" || true
+            SCAM_GIT_SHA=${{ steps.ver.outputs.sha }} SCAM_DEPS="$RUNNER_TEMP/deps" | tee /tmp/archive.log | grep -E "error:|\*\* ARCHIVE" || true
           grep -q "\*\* ARCHIVE SUCCEEDED \*\*" /tmp/archive.log || { tail -120 /tmp/archive.log; exit 1; }
           # -exportArchive needs a signing identity; an unsigned IPA is the archived app in Payload/.
           mkdir -p "$RUNNER_TEMP/ipa/Payload" "$RUNNER_TEMP/out"
