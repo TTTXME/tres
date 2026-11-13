@@ -512,6 +512,9 @@ public final class DevKeys {
         // P672: 1 by default (V1's detail transfer at night as V2's: x1 up to SNR 20); 1.3 = P443's night floor as before
         k.add(n(post, "hybrid_why_night_detail", "1", Lang.t("Детали ночью (тон V1): усиление детали при SNR от 5 до 15 и выше; 1 — x1 до SNR 20, как в тоне V2 (по умолчанию), 1.3 — как раньше",
                 "Night detail (tone V1): the detail gain from SNR 5 up to SNR 15 and beyond; 1: x1 up to SNR 20, as tone V2 (default), 1.3: as before")));
+        // P672b: V1's detail into the photo as V2's (2), the sharpening's delta alone (1), as before P672b (0)
+        k.add(n(post, "hybrid_why_detail_split", "2", Lang.t("Детали в фото (тон V1): 2 — как в тоне V2: резкость добавляется к яркости без сжатия тона, детали снимка идут по наклону кривой (по умолчанию); 1 — только резкость как в V2; 0 — как раньше",
+                "Detail into the photo (tone V1): 2: as tone V2 - the sharpening onto the lightness without the tone's compression, the shot's own detail by the curve's slope (default); 1: only the sharpening as V2; 0: as before")));
         k.add(n(post, "hybrid_dn_snr_scale", "1", Lang.t("Шумодав: множитель SNR кадра (резкость и детали ночью читают его в обоих движках)", "Denoise: the shot SNR multiplier (the sharpening and the night detail read it with either engine)")));
         k.add(n(post, "hybrid_dn_model_shot", "1.2", Lang.t("Шумодав: дробовая составляющая модели шума (для SNR кадра)", "Denoise: the noise model's shot term (for the shot SNR)")));
         k.add(n(post, "hybrid_dn_model_read", "2", Lang.t("Шумодав: составляющая шума считывания модели (для SNR кадра)", "Denoise: the noise model's read term (for the shot SNR)")));

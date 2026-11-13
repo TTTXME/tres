@@ -52,7 +52,9 @@ import static org.mockito.Mockito.when;
  * row of one version among the preferences they read, the same values of those preferences and the same worker tuning with V1 and
  * V2 chosen - so their output is the same texture for both (host replay: bit for bit);</li>
  * <li>inside the tone V1 handles noise as V2: the same sharpening node (its low-light share of the same finish SNR), V2's
- * bracket_denoise rule, no noise terms in the fusion and the detail transfer at x1 up to SNR 20.</li>
+ * bracket_denoise rule, no noise terms in the fusion and the detail transfer at x1 up to SNR 20; P672b: the detail goes into the
+ * photo as V2's tonemap_final takes it (the sharpening's delta with V2's clamp and fade, the merge's own detail by the curve's slope,
+ * no boost by the light).</li>
  * </ul>
  */
 @RunWith(RobolectricTestRunner.class)
@@ -210,6 +212,30 @@ public class DenoiseToneParityTest {
         for (String v : new String[]{"v1", "v2"}) {
             version(v);
             assertFalse(WhyFusion.noiseModel());
+        }
+        // P672b: the full-size detail goes into the photo as V2's tonemap_final takes it, by default (no film, the input at hand)
+        for (String v : new String[]{"v1", "v2"}) {
+            version(v);
+            assertEquals(2, WhyTone.detailSplit(true, false, false));
+            assertEquals("a film keeps the merge's own detail", 0, WhyTone.detailSplit(true, true, false));
+            assertEquals("no sharpened luma: as before", 0, WhyTone.detailSplit(false, false, false));
+            assertEquals("the input given back: as before", 0, WhyTone.detailSplit(true, false, true));
+        }
+        // the sharpening's own delta: V2's clamp and highlight fade in both shaders
+        final String combine = read("src/main/assets/shaders/why/combine.glsl"), v2Shader = read("src/main/assets/shaders/why/v2_tonemap.glsl");
+        assertTrue(v2Shader.contains("float max_trench = min(0.035, L_base * 0.25);") && v2Shader.contains("clamp(luma_delta, -max_trench, 0.050);")
+                && v2Shader.contains("1.0 - smoothstep(0.75, 1.0, post_oklab_L) * 0.50"));
+        assertTrue(combine.contains("sharpDelta = clamp(cbrtp(max(yS0, 0.000001)) - lU, -min(0.035, lU * 0.25), 0.050);"));
+        assertTrue(combine.contains("sharpDelta * (1.0 - smoothstep(0.75, 1.0, post.x) * 0.5)")
+                || combine.contains("(delta + sharpDelta) * (1.0 - smoothstep(0.75, 1.0, post.x) * 0.5)"));
+        final String combineJava = read(PKG + "WhyCombine.java");
+        assertTrue(combineJava.contains("final int split = WhyTone.detailSplit(sharp, film != null, st.inputReleased);")
+                && combineJava.contains("shaderProg.setVar(\"detailSplitU\", split);")
+                && combineJava.contains("splitGain(split, WhyTone.value(\"sharp_gain\", 1.0f), pipeline.shotParams.finishSnr, film)"));
+        // V2's tonemap_final has no boost of the detail by the light: carried as V2 the gain is «sharp_gain» alone at every SNR
+        for (float snr : new float[]{Float.NaN, 5f, 20f, 39f, 150f, 683f}) {
+            assertEquals(1f, WhyCombine.splitGain(2, 1f, snr, null), 0f);
+            assertEquals(WhyCombine.detailGain(1f, snr, null), WhyCombine.splitGain(0, 1f, snr, null), 0f);
         }
         // the detail transfer at x1 (V2's) wherever the shot's noise matters: up to SNR 20
         for (float snr : new float[]{Float.NaN, 2f, 5f, 8f, 12f, 15f, 18f, 20f}) {

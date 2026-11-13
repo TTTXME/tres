@@ -95,6 +95,16 @@ public final class WhyCombine extends Node {
         return 1f + (sharpGain * boost - 1f) * (1f - film.strength);
     }
 
+    /**
+     * P672b: the detail gain with the detail carried as {@code split} (WhyTone.detailSplit): 2 - V2's rule, the merge's own detail at
+     * «sharp_gain» alone (V2's tonemap_final has no boost by the light; the P340 daylight ramp x1.7 of the full sharpened delta
+     * overshot V2's grain by day once the delta takes the curve's slope: lvc's shadows 12.5 - 15.0 against V2's 10.5 - 12.5,
+     * at x1 10.1 - 12.1); else {@link #detailGain}.
+     */
+    static float splitGain(int split, float sharpGain, float snr, @androidx.annotation.Nullable com.scamera.app.processing.color.FilmSim.Settings film) {
+        return split == 2 && film == null ? sharpGain : detailGain(sharpGain, snr, film);
+    }
+
     /** P154 «Мягкость засветов»: where the highlight landing starts below the data ceiling (fraction 0 .. 0.9; 0 = off). */
     static float hlSoft() {
         return Math.max(0f, Math.min(0.9f, WhyTone.value("hl_soft", 0.7f)));
@@ -197,7 +207,9 @@ public final class WhyCombine extends Node {
         final float sharpMul = st.sharpMul;
         // P369: the shot's film snapshot (PostPipeline.takeFilm); null: no film, every expression as before
         final com.scamera.app.processing.color.FilmSim.Settings film = pipeline.film;
-        final float detail = sharp ? detailGain(WhyTone.value("sharp_gain", 1.0f), pipeline.shotParams.finishSnr, film) : 2.0f;
+        // P672b: carried as V2 (WhyTone.detailSplit 2) the merge's own detail takes the curve's slope and no light-dependent boost
+        final int split = WhyTone.detailSplit(sharp, film != null, st.inputReleased);
+        final float detail = sharp ? splitGain(split, WhyTone.value("sharp_gain", 1.0f), pipeline.shotParams.finishSnr, film) : 2.0f;
         // P134 «Цвет»: COLOUR_LOOK only when a colour setting is off its default (else the shader before P134)
         final com.scamera.app.processing.color.ColourLook look = WhyTone.colourLook(pipeline);
         final int toneOp = WhyTone.toneOperator();
@@ -404,6 +416,7 @@ public final class WhyCombine extends Node {
             if (whyVibrance) shaderProg.setDefine("WHY_VIBRANCE", 1);   // P419: the reference app's vibrance in one gain
             if (WhyTone.edgeHold() > 0f && !st.inputReleased && !filmOnly) shaderProg.setDefine("EDGE_HOLD", 1);   // P394 (the full-size merge)
             if (WhyTone.rimSmooth()) shaderProg.setDefine("RIM_SMOOTH", 1);   // P441: the rim rules without steps along edges (photo only)
+            if (split > 0) shaderProg.setDefine("DETAIL_SPLIT", 1);   // P672b: the detail into the photo as V2's (WhyTone.detailSplit)
             shaderProg.setDefine("DITHER_TPDF", 1);   // P595: the photo's dither triangular (no 8-bit bands on a clean sky)
             skyLog = st.sky == null ? "" : " sky=" + Math.round(100f * st.skyMask.coverage) + "%" + (st.skyMask.keep < 1f
                     ? " backlit (level x" + Math.round(100f * st.skyMask.keep) / 100f + ")" : "");
@@ -580,6 +593,8 @@ public final class WhyCombine extends Node {
             shaderProg.setVar("clarityU", WhyTone.value("clarity", 0f));
             shaderProg.setVar("flatProtectU", WhyTone.value("flat_protect", 0f));
             shaderProg.setVar("detailGainU", detail);
+            // P672b: the detail carried as V2 carries it (WhyTone.detailSplit)
+            shaderProg.setVar("detailSplitU", split);
             shaderProg.setVar("deltaChromaU", Math.max(0f, Math.min(1f, WhyTone.value("delta_chroma", 1f))));
             shaderProg.setVar("filmToeU", WhyTone.value("film_toe", 0f));
             shaderProg.setVar("agxAU", r.slope, r.sp, r.tp, r.sat);
