@@ -6,6 +6,9 @@
 //   <nodes>: comma separated, e.g. ScamRgb
 #include "../Engine/post/WorkerOutput.hpp"
 #include "../Engine/post/nodes/ScamRgb.hpp"
+#include "../Engine/post/nodes/ScamHdrDenoise.hpp"
+#include "../Engine/post/nodes/WhyHlDezipper.hpp"
+#include "../Engine/post/nodes/WhyMsDenoise.hpp"
 
 #include <EGL/egl.h>
 
@@ -149,6 +152,11 @@ int main(int argc, char** argv) {
         };
         for (const auto& name : nodeNames) {
             if (name == "ScamRgb") p.add(std::make_unique<ScamRgb>());
+            else if (name == "ScamHdrDenoise") p.add(std::make_unique<ScamHdrDenoise>());
+            else if (name == "WhyHlDezipper") {
+                if (!p.merge.lastHlMask) throw std::runtime_error("no highlight mask from the worker");
+                p.add(std::make_unique<WhyHlDezipper>(*p.merge.lastHlMask));
+            } else if (name == "WhyMsDenoise") p.add(std::make_unique<WhyMsDenoise>());
             else throw std::runtime_error("node " + name + " is not ported yet");
         }
         int failures = 0;
