@@ -115,6 +115,17 @@ change: `scam-crash.h` keeps only the stage marks on Apple.
 - Then the Android camera screen and settings in SwiftUI with the same layout, icons (tools/icons) and strings
   (res/values, values-ru), the gallery and the editor.
 
+## Post port progress (update as nodes land)
+- Done: ScamGL render programs + format conversions; Engine/post/GLShaderSource.hpp (GLInterface.readProgram),
+  Engine/post/GLCore.hpp (GLFormat, GLTexture, GLProg, TileSize rows); tools/post_shader_check (119 / 119 shaders on Mesa
+  and Metal); tools/post_pass_check (Why V2 passes Mesa vs Metal in CI).
+- Next: Engine/post/PostPipeline.hpp (GLBasePipeline main1/main2 ping-pong, Node, runNodes, final output readback),
+  Parameters (the fields the nodes read: rawSize, whitePoint, sensorToProPhoto / proPhotoToSRGB, gainMap / mapSize,
+  blackLevel, whiteLevel, noise, cameraID, outputScale, mosaicBlock, scamRgb), settings (PreferenceKeys.hybridValue /
+  hybridSwitch / scamDevSwitch defaults from res/xml + the burst .json prefs), then ScamRgb.run (default paths:
+  half RGB upload, channelClip, hlrecovery chanprep/reduce/opposed, purplebound, scamrgb, clipmask/clipband, suncore).
+- Each node: a host check (Mesa) and the Metal run in CI on the same input; the Drive bursts for the whole chain.
+
 ## Stages (estimates are working sessions)
 1. ✅ 0.1 skeleton, modules/ISZ/48 MP, RAW (Bayer/ProRAW) next to HEIC, probe log, IPA workflow.
    Next in stage 1 (2–3): Metal engine (MTLDevice, compute pipelines from `Engine/*.metal`, RGBA16F textures);
