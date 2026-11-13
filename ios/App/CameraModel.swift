@@ -18,6 +18,9 @@ final class CameraModel {
     private(set) var fullResolution: Bool
     /// «Тон Why» V2 on the GPU for shots with RAW (the HEIC is rendered from the DNG).
     private(set) var whyTone: Bool
+    /// SHDR: a Bayer series merged by the Android merge (ScamGL), then «Why» V2.
+    private(set) var shdr: Bool
+    private(set) var burstFrames: Int
 
     private let captureService = CaptureService()
     private let mediaLibrary = MediaLibrary()
@@ -29,6 +32,9 @@ final class CameraModel {
         raw = RawChoice(rawValue: UserDefaults.standard.string(forKey: "raw_choice") ?? "") ?? .off
         fullResolution = UserDefaults.standard.object(forKey: "full_resolution") as? Bool ?? true
         whyTone = UserDefaults.standard.object(forKey: "why_tone") as? Bool ?? true
+        shdr = UserDefaults.standard.object(forKey: "shdr") as? Bool ?? true
+        let frames = UserDefaults.standard.integer(forKey: "burst_frames")
+        burstFrames = frames > 0 ? frames : 8
     }
 
     func start() async {
@@ -78,11 +84,21 @@ final class CameraModel {
         SessionLog.i("App", "Why tone \(enabled)")
     }
 
+    func setShdr(_ enabled: Bool) {
+        shdr = enabled
+        defaults.set(enabled, forKey: "shdr")
+        SessionLog.i("App", "SHDR \(enabled)")
+    }
+
     func capture() async {
         guard activity == .idle, status == .running else { return }
         activity = .capturing
         defer { activity = .idle }
         let started = Date()
+        if shdr {
+            await captureShdr(started: started)
+            return
+        }
         do {
             var photo = try await captureService.capturePhoto(PhotoRequest(raw: raw, fullResolution: fullResolution))
             photo.report.forEach { SessionLog.i("Shot", $0) }
@@ -95,6 +111,41 @@ final class CameraModel {
             SessionLog.i("Shot", "saved in \(Int(Date().timeIntervalSince(started) * 1000)) ms, \(memoryFootprint())")
         } catch {
             SessionLog.e("Shot", "failed: \(error.localizedDescription)")
+            show(error.localizedDescription)
+        }
+    }
+
+    /// SHDR: Bayer series → NCH → the Android merge on the GPU → white balance / colour → «Why» V2 → HEIC (+ the first DNG).
+    private func captureShdr(started: Date) async {
+        do {
+            let burst = try await captureService.captureBayerBurst(count: burstFrames)
+            activity = .saving
+            let result: (heic: Data?, log: [String], error: String?) = await Task.detached(priority: .userInitiated) {
+                let metadata = burst.processed.flatMap { CGImageSourceCreateWithData($0 as CFData, nil) }
+                    .flatMap { CGImageSourceCopyPropertiesAtIndex($0, 0, nil) as? [String: Any] } ?? [:]
+                do {
+                    let r = try BurstProcessor.process(burst, metadata: metadata)
+                    return (r.heic, r.log, nil)
+                } catch {
+                    return (nil, burst.report, error.localizedDescription)
+                }
+            }.value
+            result.log.forEach { SessionLog.i("SHDR", $0) }
+            var rawFile: URL?
+            if !burst.dng.isEmpty {
+                let url = FileManager.default.temporaryDirectory.appendingPathComponent("SCAM_\(UUID().uuidString).dng")
+                if (try? burst.dng.write(to: url)) != nil { rawFile = url }
+            }
+            if let error = result.error {
+                SessionLog.e("SHDR", "processing failed: \(error)")
+                show(error)
+            }
+            let heic = result.heic ?? burst.processed
+            if let heic { thumbnail = MediaLibrary.thumbnail(of: heic) }
+            try await mediaLibrary.save(CapturedPhoto(processed: heic, processedUTI: UTType.heic.identifier, rawFile: rawFile, report: []))
+            SessionLog.i("SHDR", "saved in \(Int(Date().timeIntervalSince(started) * 1000)) ms, \(memoryFootprint())")
+        } catch {
+            SessionLog.e("SHDR", "failed: \(error.localizedDescription)")
             show(error.localizedDescription)
         }
     }

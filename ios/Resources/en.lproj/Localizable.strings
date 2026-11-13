@@ -21,3 +21,4 @@
 "error.save" = "The photo could not be saved:";
 "why.title" = "Why";
 "why.hint" = "«Why» tone on the GPU from the RAW";
+"shdr.hint" = "SHDR: a RAW series merged on the GPU";

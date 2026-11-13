@@ -61,7 +61,13 @@ struct CameraView: View {
             } label: {
                 pill(camera.raw == .off ? L("raw.short_off") : camera.raw.title, active: camera.raw != .off)
             }
-            if camera.raw != .off {
+            Button {
+                camera.setShdr(!camera.shdr)
+            } label: {
+                pill("SHDR", active: camera.shdr)
+            }
+            .accessibilityLabel(L("shdr.hint"))
+            if camera.raw != .off && !camera.shdr {
                 Button {
                     camera.setWhyTone(!camera.whyTone)
                 } label: {

@@ -1,5 +1,8 @@
 # SCAMERA iOS
 
+## 0.1 — SHDR on the iPhone
+- «SHDR» button: a RAW series merged on the GPU by the same merge as on Android, then the «Why» tone.
+
 ## 0.1 — «Why» tone on the GPU
 - With RAW on, the photo gets the «Why» V2 tone rendered on the GPU (button «Why»).
 

@@ -144,6 +144,12 @@ actor CaptureService {
         return try await photoCapture.capture(request, device: device)
     }
 
+    /// A Bayer RAW series of one exposure for the SHDR merge.
+    func captureBayerBurst(count: Int) async throws -> BayerBurst {
+        guard let device = activeInput?.device else { throw CameraError.videoDeviceUnavailable }
+        return try await photoCapture.captureBayerBurst(count: count, device: device)
+    }
+
     // MARK: focus and rotation (AVCam)
 
     private var previewLayer: AVCaptureVideoPreviewLayer? {

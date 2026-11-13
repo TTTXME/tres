@@ -50,7 +50,7 @@ enum ShotProcessor {
         return buffer
     }
 
-    static func encode(_ texture: MTLTexture, metadata: [String: Any]) throws -> Data {
+    static func encode(_ texture: MTLTexture, metadata: [String: Any], orientation: Int = 1) throws -> Data {
         let w = texture.width, h = texture.height
         let rowBytes = w * 4
         var bytes = Data(count: rowBytes * h)
@@ -75,10 +75,10 @@ enum ShotProcessor {
             exif[kCGImagePropertyExifPixelYDimension as String] = h
             properties[kCGImagePropertyExifDictionary as String] = exif
         }
-        // The decoded pixels are already upright.
-        properties[kCGImagePropertyOrientation as String] = 1
+        // CIRAWFilter's pixels are upright (1); the merge's are the sensor's (the DNG's orientation).
+        properties[kCGImagePropertyOrientation as String] = orientation
         var tiff = properties[kCGImagePropertyTIFFDictionary as String] as? [String: Any] ?? [:]
-        tiff[kCGImagePropertyTIFFOrientation as String] = 1
+        tiff[kCGImagePropertyTIFFOrientation as String] = orientation
         tiff[kCGImagePropertyTIFFSoftware as String] = "SCAMERA iOS \(BuildInfo.version)"
         properties[kCGImagePropertyTIFFDictionary as String] = tiff
         properties[kCGImageDestinationLossyCompressionQuality as String] = 0.92

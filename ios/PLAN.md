@@ -86,6 +86,19 @@ change: `scam-crash.h` keeps only the stage marks on Apple.
 - Full bursts: `ios/tools/full_bursts.txt` (owner's Drive, BURSTS_ALL) → `.github/workflows/ios-burst-replay.yml`.
 - Not yet: render programs (the «Быстрый» route's fragment passes with blending), program binaries (always compiled).
 
+## SHDR on the iPhone (2026-11-13)
+- In the app: `Bridge/ScamMerge.mm` (`SCAMMerge`) runs `Engine/ScamMergeCore.hpp` on ScamGL; XCTest `MergeTests` merges the
+  n124513b crop on the simulator's GPU: 97.49 dB against Mesa (CI bundles the crop and its Mesa merge).
+- Capture (`Capture/BayerBurst.swift`): `AVCapturePhotoBracketSettings` of up to `maxBracketedCapturePhotoCount` Bayer
+  frames at bias 0, repeated to N (default 8); frames copied from the 14-bit Bayer pixel buffers (CFA from the format).
+- `Engine/NchWriter.swift`: the burst as NCH v11 (Android's transport) in Documents/Bursts/last.nch (Files app) — the
+  same file replays on a PC against the Android merge. Noise: DNG NoiseProfile, else estimated from frames 0 / 1 (green
+  sites, 32 px tiles, lower half of the variances), scaled by ISO per frame as Android's fallback.
+- Colour after the merge (`Engine/DngColor.swift`, `Camera.metal`): AsShotNeutral white balance, ForwardMatrix (else
+  inverted ColorMatrix + Bradford) interpolated by CCT → linear sRGB → «Why» V2 → HEIC with the sensor orientation.
+  Not Android's colour chain yet (ScamRgb, CCT matrix, lens shading, highlight recovery): the next port.
+- To check on the phone: log tag `SHDR` (burst timing per request, levels, noise source, merge lines, total ms, memory).
+
 ## Stages (estimates are working sessions)
 1. ✅ 0.1 skeleton, modules/ISZ/48 MP, RAW (Bayer/ProRAW) next to HEIC, probe log, IPA workflow.
    Next in stage 1 (2–3): Metal engine (MTLDevice, compute pipelines from `Engine/*.metal`, RGBA16F textures);

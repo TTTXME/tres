@@ -30,6 +30,9 @@ targets:
       - path: Resources
       - path: LICENSE-AVCam.txt
         buildPhase: resources
+      # the merge tuning of the replays (tools/replay_tuning.txt: the Android app's hybrid_tuning.txt of a shot)
+      - path: ../tools/replay_tuning.txt
+        buildPhase: resources
     info:
       path: App/Info.plist
       properties:

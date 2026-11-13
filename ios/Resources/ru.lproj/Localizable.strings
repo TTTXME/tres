@@ -21,3 +21,4 @@
 "error.save" = "Не удалось сохранить фото:";
 "why.title" = "Why";
 "why.hint" = "Тон «Why» на GPU из RAW";
+"shdr.hint" = "SHDR: серия RAW, склейка на GPU";

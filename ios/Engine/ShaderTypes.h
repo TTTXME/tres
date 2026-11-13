@@ -90,4 +90,12 @@ typedef struct {
     float shoulderHeadroom;
 } WhyV2ToneParams;
 
+// Engine/Camera.metal: the merged camera RGB (float32 buffer) → white-balanced linear sRGB (rgba16Float)
+typedef struct {
+    simd_float3x3 cameraToSRGB;
+    simd_float3 neutralInverse;
+    int width;
+    int height;
+} CameraToLinearParams;
+
 #endif

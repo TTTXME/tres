@@ -7,9 +7,9 @@ final class PhotoCapture {
     let output = AVCapturePhotoOutput()
     // Delegates finish on AVFoundation's queue, so the table that keeps them alive is locked.
     private let lock = NSLock()
-    private var inFlight: [Int64: PhotoCaptureDelegate] = [:]
+    private var inFlight: [Int64: NSObject] = [:]
 
-    private func keep(_ id: Int64, _ delegate: PhotoCaptureDelegate?) {
+    private func keep(_ id: Int64, _ delegate: NSObject?) {
         lock.lock()
         inFlight[id] = delegate
         lock.unlock()
@@ -106,6 +106,22 @@ final class PhotoCapture {
         }
     }
 
+    /// Every photo of one request (a bracket of RAW frames), in delivery order.
+    func capturePhotos(_ settings: AVCapturePhotoSettings) async throws -> [AVCapturePhoto] {
+        try await withCheckedThrowingContinuation { continuation in
+            let id = settings.uniqueID
+            let delegate = BurstCaptureDelegate { [weak self] result in
+                self?.keep(id, nil)
+                continuation.resume(with: result)
+            }
+            keep(id, delegate)
+            if let reason = SCAMObjC.catchException({ self.output.capturePhoto(with: settings, delegate: delegate) }) {
+                keep(id, nil)
+                continuation.resume(throwing: CameraError.captureException(reason))
+            }
+        }
+    }
+
     func setVideoRotationAngle(_ angle: CGFloat) {
         if let connection = output.connection(with: .video), connection.isVideoRotationAngleSupported(angle) {
             connection.videoRotationAngle = angle
@@ -180,5 +196,29 @@ private final class PhotoCaptureDelegate: NSObject, AVCapturePhotoCaptureDelegat
     private static func uti(_ data: Data) -> String? {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
         return CGImageSourceGetType(source) as String?
+    }
+}
+
+/// Collects the photos of a bracket request.
+private final class BurstCaptureDelegate: NSObject, AVCapturePhotoCaptureDelegate {
+    private let completion: (Result<[AVCapturePhoto], Error>) -> Void
+    private var photos: [AVCapturePhoto] = []
+    private var failure: Error?
+
+    init(completion: @escaping (Result<[AVCapturePhoto], Error>) -> Void) {
+        self.completion = completion
+    }
+
+    func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
+        if let error { failure = error; return }
+        photos.append(photo)
+    }
+
+    func photoOutput(_ output: AVCapturePhotoOutput, didFinishCaptureFor resolvedSettings: AVCaptureResolvedPhotoSettings, error: Error?) {
+        if let error = error ?? failure, photos.isEmpty {
+            completion(.failure(error))
+        } else {
+            completion(.success(photos))
+        }
     }
 }
