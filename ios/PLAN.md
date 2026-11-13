@@ -251,3 +251,29 @@ change: `scam-crash.h` keeps only the stage marks on Apple.
 - Not done: the «LUT» tab (EditLook: camera LUTs / film simulation - FilmSim, FilmLut, FinishedLook not ported) and «Знак»
   (watermark); the full-resolution zoom regions (P367: the preview zooms as a picture); gallery albums / search / filters /
   selection / compare / video; ScamGL editor output not compared with Mesa (needs the macOS runner).
+
+## Watermark (2026-11-13)
+- `Engine/Watermark/` ports `processing/watermark` (P628): `WatermarkSpec` (the Android keys and defaults from
+  `SettingsStore.values`, read as PreferenceValue / PreferenceNumber / SettingsNumericRules do: lists and sliders as strings,
+  size clamped 3..20, opacity 10..100 and margin 0..10 clamped and rounded half-even), `WatermarkText` (the groups, column,
+  band sides; Java's number formatting: `%.1f` half-up on the shortest decimal, Math.round; SimpleDateFormat's patterns, the
+  month in Russian with the interface language), `WatermarkPainter` (the plan in Float as Java's float: four layouts, six
+  positions, the glyph's paths, «Авто» ink from 16x8 samples, opacity, shadow; drawn with CoreGraphics / CoreText into the
+  RGBA8 rows), `WatermarkArea`, `WatermarkExif` (ImageIO properties: Make / Model, focal / 35 mm, f-number, exposure, ISO,
+  DateTimeOriginal + OffsetTimeOriginal), `PhotoWatermark` (switch, facts, apply), `WatermarkPreview` (SwiftUI card for the
+  settings row `custom:WatermarkPreviewPreference`: the settings' drawn landscape, LutSamples.scene, landscape / portrait).
+- Applied in `BurstProcessor` after SCAMShot and before the encoder (the camera's HEIC properties first, the DNG's EXIF for
+  what they lack, the shot's start time when neither has a date), and in `ShotProcessor.process` (upright CIRAWFilter route).
+  The Ultra HDR gain map is not watermarked (as ScamProcessor: the map is made before the watermark, the base alone is drawn on).
+- Fonts: Roboto Flex is a third-party font the Android app bundles, so «SCAM» is SF Pro; «Узкий» SF Pro condensed, «Засечки»
+  New York, «Моно» SF Mono (500 / 600). Geometry, text and colours follow Android exactly; glyph pixels cannot match Skia.
+  Shadow: Skia's sigma (0.57735 r + 0.5) with CoreGraphics blur = 2 sigma (approximate).
+- Check: `tools/watermark_host/run.sh` compiles the Android Java (Spec, Text, Painter.plan, Area, the preference readers) on
+  stubs in a plain JVM (fixed text advances) and writes `Tests/WatermarkGolden.swift` (`--check` diffs it):
+  stored-value parsing, all 256 field subsets, 90 times (3 zones x 5 formats x en / ru), shutter / aperture / number / clean,
+  90 layouts (15 specs x 6 sizes) with every box and WatermarkArea's rectangles. `Tests/WatermarkTests.swift` checks the Swift
+  port against them with the same fixed measures, plus CoreText drawing (corner, upright, «Авто», nothing outside the area),
+  EXIF reading.
+- Not done: P633 / P642 (the record of the pixels under the watermark appended to the file, WatermarkPatch / WatermarkStore,
+  for the gallery editor's «Знак»), the editor's watermark tab; the preview names the phone «Apple iPhone» (iOS has no public
+  model name; the shot uses the EXIF Model).

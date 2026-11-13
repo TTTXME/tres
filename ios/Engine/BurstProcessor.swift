@@ -65,8 +65,15 @@ enum BurstProcessor {
         log += photo.log
         log.append("merge \(Int(photo.mergeMilliseconds)) ms, post \(Int(photo.postMilliseconds)) ms, photo \(photo.width)x\(photo.height), \(memoryFootprint())")
         let format = ShotProcessor.photoFormat
+        // P628: the watermark on the finished photo (upright, after every crop and resize) before its encoding; the Ultra HDR gain
+        // map is left as the pipeline made it, as ScamProcessor does
+        var rgba = photo.rgba
+        if PhotoWatermark.on() {
+            PhotoWatermark.apply(&rgba, width: photo.width, height: photo.height, metadata: metadata, dng: burst.dng, shotTime: started,
+                                 log: { log.append($0) })
+        }
         var encodeLog: [String] = []
-        let heic = try ShotProcessor.encode(rgba: photo.rgba, width: photo.width, height: photo.height, metadata: metadata, format: format,
+        let heic = try ShotProcessor.encode(rgba: rgba, width: photo.width, height: photo.height, metadata: metadata, format: format,
                                             gainMap: ShotProcessor.GainMap(photo: photo), log: { encodeLog.append($0) })
         log += encodeLog
         log.append("burst processed in \(ms(since: started)) ms, HEIC \(heic.count) bytes, \(memoryFootprint())")

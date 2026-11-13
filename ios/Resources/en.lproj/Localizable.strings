@@ -195,3 +195,8 @@
 "editor.style.bw_contrast" = "B&W contrast";
 "editor.style.bw_soft" = "B&W soft";
 "editor.style.landscape" = "Landscape";
+
+// Watermark preview (Engine/Watermark/WatermarkPreview.swift)
+"watermark.preview" = "Watermark preview";
+"watermark.landscape" = "Landscape";
+"watermark.portrait" = "Portrait";

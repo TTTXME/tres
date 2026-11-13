@@ -22,7 +22,7 @@ enum ShotProcessor {
         let toned = try withExtendedLifetime(input.owner) { try renderer.render(input.texture, noise: WhyV2Ae.referenceNoiseFallback) }
         log += toned.log
         let encodeStarted = Date()
-        let heic = try encode(toned.texture, metadata: metadata)
+        let heic = try encode(toned.texture, metadata: metadata, watermark: { log.append($0) })
         log.append("encode HEIC \(heic.count) bytes ms=\(ms(since: encodeStarted)); total ms=\(ms(since: started)), \(memoryFootprint())")
         return Result(heic: heic, log: log)
     }
@@ -50,11 +50,17 @@ enum ShotProcessor {
         return buffer
     }
 
-    static func encode(_ texture: MTLTexture, metadata: [String: Any], orientation: Int = 1) throws -> Data {
+    /// `watermark` (nil: none): the photo is upright (orientation 1) and gets the stored settings' watermark (PhotoWatermark),
+    /// its log line given to the closure.
+    static func encode(_ texture: MTLTexture, metadata: [String: Any], orientation: Int = 1,
+                       watermark: ((String) -> Void)? = nil) throws -> Data {
         let w = texture.width, h = texture.height
         var bytes = Data(count: w * 4 * h)
         bytes.withUnsafeMutableBytes { raw in
             texture.getBytes(raw.baseAddress!, bytesPerRow: w * 4, from: MTLRegionMake2D(0, 0, w, h), mipmapLevel: 0)
+        }
+        if let watermark, orientation == 1, PhotoWatermark.on() {
+            PhotoWatermark.apply(&bytes, width: w, height: h, metadata: metadata, dng: nil, shotTime: Date(), log: watermark)
         }
         return try encode(rgba: bytes, width: w, height: h, metadata: metadata, orientation: orientation)
     }
