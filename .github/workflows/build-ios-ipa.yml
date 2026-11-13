@@ -36,6 +36,13 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq libegl-dev libgles-dev libegl1 libegl-mesa0 libgles2 libgl1-mesa-dri python3-numpy
           g++ -pthread -std=c++17 -O2 -Iapp/src/main/cpp ios/tools/hybrid_replay.cpp -ldl -lEGL -lGLESv2 -o "$RUNNER_TEMP/hybrid_replay"
+      - name: Post shaders on Mesa
+        env:
+          EGL_PLATFORM: surfaceless
+          LIBGL_ALWAYS_SOFTWARE: '1'
+        run: |
+          g++ -std=c++17 -O1 ios/tools/post_shader_check.cpp -lEGL -lGLESv2 -o "$RUNNER_TEMP/post_shader_check"
+          "$RUNNER_TEMP/post_shader_check" app/src/main/assets/shaders | tail -5
       - name: Merge
         env:
           EGL_PLATFORM: surfaceless
@@ -86,6 +93,15 @@ jobs:
             -o "$RUNNER_TEMP/hybrid_replay" > "$RUNNER_TEMP/build.log" 2>&1 || true
           grep -E "error|Undefined|ld: |^  \"_|referenced from" "$RUNNER_TEMP/build.log" | head -80 || true
           test -x "$RUNNER_TEMP/hybrid_replay"
+      - name: Post shaders on Metal (ScamGL)
+        run: |
+          D="$RUNNER_TEMP/deps/macos"
+          clang++ -std=c++17 -O1 -fobjc-arc -Iios/ScamGL/include -Iios/ScamGL -I"$D/include" -I"$D/include/spirv_cross" \
+            ios/tools/post_shader_check.cpp ios/ScamGL/ScamGL.mm ios/ScamGL/ScamGLCompiler.cpp -L"$D/lib" \
+            -lglslang -lMachineIndependent -lGenericCodeGen -lOSDependent -lSPIRV -lglslang-default-resource-limits \
+            -lspirv-cross-msl -lspirv-cross-glsl -lspirv-cross-core -framework Metal -framework Foundation \
+            -o "$RUNNER_TEMP/post_shader_check" > "$RUNNER_TEMP/post-build.log" 2>&1 || { grep -E "error|Undefined" "$RUNNER_TEMP/post-build.log" | head -30; exit 1; }
+          "$RUNNER_TEMP/post_shader_check" app/src/main/assets/shaders | grep -v "^SKIP" | tee "$RUNNER_TEMP/post-shaders.txt"
       - name: Merge
         run: |
           python3 -m pip install -q --break-system-packages numpy==2.3.5 || python3 -m pip install -q numpy==2.3.5

@@ -61,9 +61,13 @@ struct Location {
 };
 
 struct Linked {
-    scamgl::Compiled compiled;
+    scamgl::Compiled compiled;               // the compute or the fragment stage (uniforms, resources)
     id<MTLComputePipelineState> pipeline = nil;
+    bool render = false;                     // a vertex + fragment program
+    id<MTLFunction> vertex = nil, fragment = nil;
+    std::unordered_map<std::string, id<MTLRenderPipelineState>> renderPipelines; // by attachment formats + blend
     std::string log;
+    bool ready() const { return render ? (vertex && fragment) : pipeline != nil; }
 };
 
 struct Program {
@@ -112,6 +116,10 @@ struct Context {
     GLenum activeUnit = 0;
     GLuint readFb = 0, drawFb = 0;
     GLint unpackRowLength = 0, unpackAlignment = 4, packRowLength = 0, packAlignment = 4;
+    GLint viewport[4] = {0, 0, 1, 1}, scissor[4] = {0, 0, 1, 1};
+    bool blend = false, scissorTest = false;
+    GLenum blendEquation = GL_FUNC_ADD, blendSrc = GL_ONE, blendDst = GL_ZERO;
+    std::vector<GLenum> drawBuffers{GL_COLOR_ATTACHMENT0};
 };
 
 std::recursive_mutex gLock;
@@ -353,6 +361,52 @@ std::shared_ptr<Linked> linkCompute(const std::string& source) {
     return linked;
 }
 
+id<MTLFunction> functionOf(const scamgl::Compiled& c, std::string& log) {
+    MTLCompileOptions* options = [MTLCompileOptions new];
+    options.languageVersion = MTLLanguageVersion2_4;
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+    options.fastMathEnabled = NO;
+#pragma clang diagnostic pop
+    NSError* error = nil;
+    id<MTLLibrary> library = [metalDevice() newLibraryWithSource:@(c.msl.c_str()) options:options error:&error];
+    if (!library) {
+        log = std::string("MSL: ") + (error ? error.localizedDescription.UTF8String : "unknown");
+        if (verbose()) std::fprintf(stderr, "SCAMGL MSL source:\n%s\n", c.msl.c_str());
+        return nil;
+    }
+    id<MTLFunction> f = [library newFunctionWithName:@(c.entry.c_str())];
+    if (!f) log = "MSL: no entry point " + c.entry;
+    return f;
+}
+
+std::shared_ptr<Linked> linkRender(const std::string& vs, const std::string& fs) {
+    const std::string key = "R\n" + vs + "\x01" + fs;
+    auto cached = gLinkCache.find(key);
+    if (cached != gLinkCache.end()) return cached->second;
+    auto linked = std::make_shared<Linked>();
+    linked->render = true;
+#if TARGET_OS_IPHONE
+    const bool ios = true;
+#else
+    const bool ios = false;
+#endif
+    const scamgl::Compiled v = scamgl::compile(vs, scamgl::Stage::Vertex, ios);
+    if (!v.ok) { linked->log = "vertex " + v.log; return linked; }
+    for (const auto& r : v.resources) {
+        if (r.type != scamgl::Resource::DefaultBlock || !v.members.empty()) { linked->log = "vertex shader resources are not supported"; return linked; }
+    }
+    linked->compiled = scamgl::compile(fs, scamgl::Stage::Fragment, ios);
+    if (!linked->compiled.ok) { linked->log = "fragment " + linked->compiled.log; return linked; }
+    linked->vertex = functionOf(v, linked->log);
+    if (!linked->vertex) return linked;
+    linked->fragment = functionOf(linked->compiled, linked->log);
+    if (!linked->fragment) return linked;
+    gLinkCache[key] = linked;
+    note("linked render program " + linked->compiled.entry);
+    return linked;
+}
+
 template <typename T>
 void writeUniform(GLuint programName, GLint location, int components, GLsizei count, const T* values, int kind) {
     Guard g(gLock);
@@ -399,22 +453,28 @@ id<MTLTexture> imageView(Texture& t, const ImageUnit& unit, bool arrayed) {
     return view;
 }
 
-void dispatch(Context& c, GLuint gx, GLuint gy, GLuint gz, Buffer* indirect, GLintptr indirectOffset) {
-    auto pit = gPrograms.find(c.program);
-    if (pit == gPrograms.end() || !pit->second.linked || !pit->second.code || !pit->second.code->pipeline) { fail(GL_INVALID_OPERATION); return; }
-    Program& p = pit->second;
+void bindResources(Context& c, Program& p, id<MTLComputeCommandEncoder> ce, id<MTLRenderCommandEncoder> re) {
     const auto& cc = p.code->compiled;
-    id<MTLComputeCommandEncoder> e = computeEncoder(c);
-    [e setComputePipelineState:p.code->pipeline];
+    auto setBuffer = [&](id<MTLBuffer> buf, NSUInteger offset, int index) {
+        if (ce) [ce setBuffer:buf offset:offset atIndex:NSUInteger(index)]; else [re setFragmentBuffer:buf offset:offset atIndex:NSUInteger(index)];
+    };
+    auto setBytes = [&](const void* bytes, size_t length, int index) {
+        if (ce) [ce setBytes:bytes length:length atIndex:NSUInteger(index)]; else [re setFragmentBytes:bytes length:length atIndex:NSUInteger(index)];
+    };
+    auto setTexture = [&](id<MTLTexture> t, int index) {
+        if (ce) [ce setTexture:t atIndex:NSUInteger(index)]; else [re setFragmentTexture:t atIndex:NSUInteger(index)];
+    };
+    auto setSampler = [&](id<MTLSamplerState> s, int index) {
+        if (ce) [ce setSamplerState:s atIndex:NSUInteger(index)]; else [re setFragmentSamplerState:s atIndex:NSUInteger(index)];
+    };
     std::vector<uint32_t> sizes(32, 0);
     int sampled = 0;
     for (const auto& r : cc.resources) {
         switch (r.type) {
         case scamgl::Resource::DefaultBlock:
-            if (p.block.empty()) [e setBuffer:dummyBuffer() offset:0 atIndex:NSUInteger(r.mslIndex)];
-            else if (p.block.size() <= 4096) [e setBytes:p.block.data() length:p.block.size() atIndex:NSUInteger(r.mslIndex)];
-            else [e setBuffer:[metalDevice() newBufferWithBytes:p.block.data() length:p.block.size() options:MTLResourceStorageModeShared]
-                       offset:0 atIndex:NSUInteger(r.mslIndex)];
+            if (p.block.empty()) setBuffer(dummyBuffer(), 0, r.mslIndex);
+            else if (p.block.size() <= 4096) setBytes(p.block.data(), p.block.size(), r.mslIndex);
+            else setBuffer([metalDevice() newBufferWithBytes:p.block.data() length:p.block.size() options:MTLResourceStorageModeShared], 0, r.mslIndex);
             break;
         case scamgl::Resource::UniformBlock:
         case scamgl::Resource::StorageBlock: {
@@ -422,9 +482,9 @@ void dispatch(Context& c, GLuint gx, GLuint gy, GLuint gz, Buffer* indirect, GLi
             const BufferBinding& b = r.type == scamgl::Resource::UniformBlock ? c.ubo[slot] : c.ssbo[slot];
             auto bit = gBuffers.find(b.buffer);
             if (bit == gBuffers.end() || !bit->second.mtl) {
-                [e setBuffer:dummyBuffer() offset:0 atIndex:NSUInteger(r.mslIndex)];
+                setBuffer(dummyBuffer(), 0, r.mslIndex);
             } else {
-                [e setBuffer:bit->second.mtl offset:NSUInteger(b.offset) atIndex:NSUInteger(r.mslIndex)];
+                setBuffer(bit->second.mtl, NSUInteger(b.offset), r.mslIndex);
                 const size_t avail = bit->second.size - size_t(b.offset);
                 if (r.mslIndex < 32) sizes[size_t(r.mslIndex)] = uint32_t(b.size > 0 ? std::min<size_t>(size_t(b.size), avail) : avail);
             }
@@ -434,7 +494,7 @@ void dispatch(Context& c, GLuint gx, GLuint gy, GLuint gz, Buffer* indirect, GLi
             const ImageUnit& unit = c.images[r.glBinding & 31];
             auto t = gTextures.find(unit.texture);
             if (t == gTextures.end() || !t->second.mtl) { note("image unit " + std::to_string(r.glBinding) + " empty"); break; }
-            [e setTexture:imageView(t->second, unit, r.arrayed) atIndex:NSUInteger(r.mslIndex)];
+            setTexture(imageView(t->second, unit, r.arrayed), r.mslIndex);
             break;
         }
         case scamgl::Resource::Sampled: {
@@ -442,13 +502,23 @@ void dispatch(Context& c, GLuint gx, GLuint gy, GLuint gz, Buffer* indirect, GLi
             const GLuint name = r.arrayed ? c.tex2DArray[unit] : c.tex2D[unit];
             auto t = gTextures.find(name);
             if (t == gTextures.end() || !t->second.mtl) { note("texture unit " + std::to_string(unit) + " empty"); break; }
-            [e setTexture:t->second.mtl atIndex:NSUInteger(r.mslIndex)];
-            [e setSamplerState:samplerOf(t->second) atIndex:NSUInteger(r.mslSampler)];
+            setTexture(t->second.mtl, r.mslIndex);
+            setSampler(samplerOf(t->second), r.mslSampler);
             break;
         }
         }
     }
-    if (cc.bufferSizeIndex >= 0) [e setBytes:sizes.data() length:sizes.size() * 4 atIndex:NSUInteger(cc.bufferSizeIndex)];
+    if (cc.bufferSizeIndex >= 0) setBytes(sizes.data(), sizes.size() * 4, cc.bufferSizeIndex);
+}
+
+void dispatch(Context& c, GLuint gx, GLuint gy, GLuint gz, Buffer* indirect, GLintptr indirectOffset) {
+    auto pit = gPrograms.find(c.program);
+    if (pit == gPrograms.end() || !pit->second.linked || !pit->second.code || !pit->second.code->pipeline || pit->second.code->render) { fail(GL_INVALID_OPERATION); return; }
+    Program& p = pit->second;
+    const auto& cc = p.code->compiled;
+    id<MTLComputeCommandEncoder> e = computeEncoder(c);
+    [e setComputePipelineState:p.code->pipeline];
+    bindResources(c, p, e, nil);
     const MTLSize local = MTLSizeMake(cc.local[0], cc.local[1], cc.local[2]);
     if (indirect) {
         [e dispatchThreadgroupsWithIndirectBuffer:indirect->mtl indirectBufferOffset:NSUInteger(indirectOffset) threadsPerThreadgroup:local];
@@ -568,12 +638,22 @@ void glGetIntegeri_v(GLenum name, GLuint index, GLint* data) {
 void glFlush(void) { if (Context* c = ctx()) submit(*c, false); }
 void glFinish(void) { if (Context* c = ctx()) submit(*c, true); }
 void glMemoryBarrier(GLbitfield) {} // serial compute encoder + tracked resources: Metal orders the dispatches
-void glEnable(GLenum) {}
-void glDisable(GLenum) {}
-void glBlendEquation(GLenum) {}
-void glBlendFunc(GLenum, GLenum) {}
-void glViewport(GLint, GLint, GLsizei, GLsizei) {}
-void glScissor(GLint, GLint, GLsizei, GLsizei) {}
+static void enable(GLenum cap, bool on) {
+    Context* c = ctx();
+    if (!c) return;
+    if (cap == GL_BLEND) c->blend = on;
+    else if (cap == GL_SCISSOR_TEST) c->scissorTest = on;
+}
+void glEnable(GLenum cap) { enable(cap, true); }
+void glDisable(GLenum cap) { enable(cap, false); }
+void glBlendEquation(GLenum mode) { if (Context* c = ctx()) c->blendEquation = mode; }
+void glBlendFunc(GLenum src, GLenum dst) { if (Context* c = ctx()) { c->blendSrc = src; c->blendDst = dst; } }
+void glViewport(GLint x, GLint y, GLsizei w, GLsizei h) {
+    if (Context* c = ctx()) { c->viewport[0] = x; c->viewport[1] = y; c->viewport[2] = w; c->viewport[3] = h; }
+}
+void glScissor(GLint x, GLint y, GLsizei w, GLsizei h) {
+    if (Context* c = ctx()) { c->scissor[0] = x; c->scissor[1] = y; c->scissor[2] = w; c->scissor[3] = h; }
+}
 void glPixelStorei(GLenum name, GLint value) {
     Context* c = ctx();
     if (!c) return;
@@ -803,7 +883,9 @@ void glFramebufferTexture2D(GLenum target, GLenum attachment, GLenum, GLuint tex
 }
 GLenum glCheckFramebufferStatus(GLenum) { return GL_FRAMEBUFFER_COMPLETE; }
 void glReadBuffer(GLenum) {}
-void glDrawBuffers(GLsizei, const GLenum*) {}
+void glDrawBuffers(GLsizei n, const GLenum* bufs) {
+    if (Context* c = ctx()) c->drawBuffers.assign(bufs, bufs + std::max<GLsizei>(n, 0));
+}
 void glInvalidateFramebuffer(GLenum, GLsizei, const GLenum*) {}
 void glReadPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type, void* pixels) {
     Guard g(gLock);
@@ -836,9 +918,96 @@ void glClearBufferfv(GLenum buffer, GLint drawBuffer, const GLfloat* value) {
     pass.colorAttachments[0].clearColor = MTLClearColorMake(value[0], value[1], value[2], value[3]);
     [[commandBuffer(*c) renderCommandEncoderWithDescriptor:pass] endEncoding];
 }
-void glDrawArrays(GLenum, GLint, GLsizei) {
-    note("glDrawArrays: render programs are not implemented (the fast merge route)");
-    fail(GL_INVALID_OPERATION);
+static MTLBlendFactor blendFactor(GLenum f) {
+    switch (f) {
+    case GL_ZERO: return MTLBlendFactorZero;
+    case GL_SRC_ALPHA: return MTLBlendFactorSourceAlpha;
+    case GL_ONE_MINUS_SRC_ALPHA: return MTLBlendFactorOneMinusSourceAlpha;
+    case GL_DST_ALPHA: return MTLBlendFactorDestinationAlpha;
+    case GL_SRC_COLOR: return MTLBlendFactorSourceColor;
+    case GL_DST_COLOR: return MTLBlendFactorDestinationColor;
+    default: return MTLBlendFactorOne;
+    }
+}
+static MTLBlendOperation blendOperation(GLenum e) {
+    switch (e) {
+    case GL_MIN: return MTLBlendOperationMin;
+    case GL_MAX: return MTLBlendOperationMax;
+    case GL_FUNC_SUBTRACT: return MTLBlendOperationSubtract;
+    case GL_FUNC_REVERSE_SUBTRACT: return MTLBlendOperationReverseSubtract;
+    default: return MTLBlendOperationAdd;
+    }
+}
+// A draw of the current render program into the draw framebuffer's attachments (GL window rows = texture rows: the vertex
+// stage is flipped by SPIRV-Cross, so gl_FragCoord, the viewport and the scissor keep their GL meaning).
+void glDrawArrays(GLenum mode, GLint first, GLsizei count) {
+    Guard g(gLock);
+    Context* c = ctx();
+    if (!c || count <= 0) return;
+    auto pit = gPrograms.find(c->program);
+    if (pit == gPrograms.end() || !pit->second.linked || !pit->second.code || !pit->second.code->render) { fail(GL_INVALID_OPERATION); return; }
+    Program& p = pit->second;
+    auto fb = gFramebuffers.find(c->drawFb);
+    if (fb == gFramebuffers.end()) { fail(GL_INVALID_FRAMEBUFFER_OPERATION); return; }
+    std::vector<id<MTLTexture>> targets;
+    for (GLenum b : c->drawBuffers) {
+        const GLuint i = b - GL_COLOR_ATTACHMENT0;
+        auto t = b == GL_NONE || i >= 8 ? gTextures.end() : gTextures.find(fb->second.color[i]);
+        targets.push_back(t == gTextures.end() ? nil : t->second.mtl);
+    }
+    if (targets.empty() || !targets[0]) { fail(GL_INVALID_FRAMEBUFFER_OPERATION); return; }
+    std::string key;
+    for (id<MTLTexture> t : targets) key += std::to_string(t ? t.pixelFormat : 0) + ",";
+    if (c->blend) key += "b" + std::to_string(c->blendEquation) + "," + std::to_string(c->blendSrc) + "," + std::to_string(c->blendDst);
+    id<MTLRenderPipelineState> state = p.code->renderPipelines[key];
+    if (!state) {
+        MTLRenderPipelineDescriptor* d = [MTLRenderPipelineDescriptor new];
+        d.vertexFunction = p.code->vertex;
+        d.fragmentFunction = p.code->fragment;
+        for (size_t i = 0; i < targets.size(); ++i) {
+            if (!targets[i]) continue;
+            d.colorAttachments[i].pixelFormat = targets[i].pixelFormat;
+            if (c->blend) {
+                d.colorAttachments[i].blendingEnabled = YES;
+                d.colorAttachments[i].rgbBlendOperation = d.colorAttachments[i].alphaBlendOperation = blendOperation(c->blendEquation);
+                d.colorAttachments[i].sourceRGBBlendFactor = d.colorAttachments[i].sourceAlphaBlendFactor = blendFactor(c->blendSrc);
+                d.colorAttachments[i].destinationRGBBlendFactor = d.colorAttachments[i].destinationAlphaBlendFactor = blendFactor(c->blendDst);
+            }
+        }
+        NSError* error = nil;
+        state = [metalDevice() newRenderPipelineStateWithDescriptor:d error:&error];
+        if (!state) {
+            std::fprintf(stderr, "SCAMGL: render pipeline failed: %s\n", error ? error.localizedDescription.UTF8String : "unknown");
+            fail(GL_INVALID_OPERATION);
+            return;
+        }
+        p.code->renderPipelines[key] = state;
+    }
+    endCompute(*c);
+    MTLRenderPassDescriptor* pass = [MTLRenderPassDescriptor renderPassDescriptor];
+    for (size_t i = 0; i < targets.size(); ++i) {
+        if (!targets[i]) continue;
+        pass.colorAttachments[i].texture = targets[i];
+        pass.colorAttachments[i].loadAction = MTLLoadActionLoad;
+        pass.colorAttachments[i].storeAction = MTLStoreActionStore;
+    }
+    id<MTLRenderCommandEncoder> e = [commandBuffer(*c) renderCommandEncoderWithDescriptor:pass];
+    [e setRenderPipelineState:state];
+    MTLViewport viewport = {double(c->viewport[0]), double(c->viewport[1]), double(c->viewport[2]), double(c->viewport[3]), 0.0, 1.0};
+    [e setViewport:viewport];
+    const NSInteger tw = NSInteger(targets[0].width), th = NSInteger(targets[0].height);
+    NSInteger x0 = 0, y0 = 0, x1 = tw, y1 = th;
+    if (c->scissorTest) {
+        x0 = std::max<NSInteger>(0, c->scissor[0]); y0 = std::max<NSInteger>(0, c->scissor[1]);
+        x1 = std::min<NSInteger>(tw, c->scissor[0] + c->scissor[2]); y1 = std::min<NSInteger>(th, c->scissor[1] + c->scissor[3]);
+    }
+    if (x1 <= x0 || y1 <= y0) { [e endEncoding]; return; }
+    MTLScissorRect rect = {NSUInteger(x0), NSUInteger(y0), NSUInteger(x1 - x0), NSUInteger(y1 - y0)};
+    [e setScissorRect:rect];
+    bindResources(*c, p, nil, e);
+    const MTLPrimitiveType type = mode == GL_TRIANGLE_STRIP ? MTLPrimitiveTypeTriangleStrip : MTLPrimitiveTypeTriangle;
+    [e drawPrimitives:type vertexStart:NSUInteger(first) vertexCount:NSUInteger(count)];
+    [e endEncoding];
 }
 
 // ---- shaders and programs ----
@@ -891,14 +1060,18 @@ void glLinkProgram(GLuint name) {
     Program& p = it->second;
     p.linked = false;
     p.log.clear();
-    std::string compute;
+    std::string compute, vertex, fragment;
     for (GLuint s : p.shaders) {
         auto sh = gShaders.find(s);
-        if (sh != gShaders.end() && sh->second.type == GL_COMPUTE_SHADER) compute = sh->second.source;
+        if (sh == gShaders.end()) continue;
+        if (sh->second.type == GL_COMPUTE_SHADER) compute = sh->second.source;
+        else if (sh->second.type == GL_VERTEX_SHADER) vertex = sh->second.source;
+        else if (sh->second.type == GL_FRAGMENT_SHADER) fragment = sh->second.source;
     }
-    if (compute.empty()) { p.log = "ScamGL: only compute programs are supported"; return; }
-    p.code = linkCompute(compute);
-    if (!p.code->pipeline) {
+    if (!compute.empty()) p.code = linkCompute(compute);
+    else if (!vertex.empty() && !fragment.empty()) p.code = linkRender(vertex, fragment);
+    else { p.log = "ScamGL: a compute or a vertex + fragment program"; return; }
+    if (!p.code->ready()) {
         p.log = p.code->log;
         std::fprintf(stderr, "SCAMGL: link failed: %s\n", p.log.c_str());
         return;

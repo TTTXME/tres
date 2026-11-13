@@ -7,6 +7,7 @@
 #include <spirv_parser.hpp>
 
 #include <map>
+#include <regex>
 #include <mutex>
 #include <set>
 
@@ -86,8 +87,11 @@ int baseTypeOf(const spirv_cross::SPIRType& t) {
 
 } // namespace
 
-Compiled compile(const std::string& glsl, Stage stage, bool iosPlatform) {
+Compiled compile(const std::string& source, Stage stage, bool iosPlatform) {
     Compiled out;
+    // GLSL ES words that Vulkan GLSL reserves or refuses: a parameter named `sampler` (a type there), #version 100 / 300 es
+    std::string glsl = std::regex_replace(source, std::regex("\\bsampler\\b"), "scam_sampler");
+    glsl = std::regex_replace(glsl, std::regex("#version[ \\t]+(100|300[ \\t]+es)"), "#version 310 es");
     std::vector<uint32_t> spirv;
     if (!toSpirv(glsl, stage, spirv, out.log)) return out;
     try {
@@ -113,6 +117,13 @@ Compiled compile(const std::string& glsl, Stage stage, bool iosPlatform) {
         options.buffer_size_buffer_index = kBufferSizeIndex;
         options.enable_decoration_binding = false;
         msl.set_msl_options(options);
+        if (stage == Stage::Vertex) {
+            // GL window rows = texture rows: y flipped into Metal's top-left space, z from [-w, w] to [0, w]
+            auto common = msl.get_common_options();
+            common.vertex.flip_vert_y = true;
+            common.vertex.fixup_clipspace = true;
+            msl.set_common_options(common);
+        }
         const spv::ExecutionModel exec = model(stage);
         const auto resources = msl.get_shader_resources();
         int nextBuffer = 0, nextTexture = 0, nextSampler = 0;
