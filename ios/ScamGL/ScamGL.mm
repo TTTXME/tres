@@ -987,6 +987,7 @@ void glGetActiveUniform(GLuint program, GLuint index, GLsizei bufSize, GLsizei* 
     if (name && bufSize > 0) { std::memcpy(name, n.data(), len); name[len] = 0; }
     if (length) *length = GLsizei(len);
 }
+extern "C++" {
 template <typename T>
 static void readUniform(GLuint program, GLint location, T* out) {
     Guard g(gLock);
@@ -1007,6 +1008,7 @@ static void readUniform(GLuint program, GLint location, T* out) {
         else { uint32_t x; std::memcpy(&x, src + 4 * k, 4); out[k] = T(x); }
     }
 }
+} // extern "C++"
 void glGetUniformfv(GLuint program, GLint location, GLfloat* params) { readUniform(program, location, params); }
 void glGetUniformiv(GLuint program, GLint location, GLint* params) { readUniform(program, location, params); }
 
