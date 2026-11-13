@@ -412,6 +412,9 @@ def shader_part(strict: bool) -> None:
     check(P310_BLOCK.search(new.replace('\r\n', '\n')) is not None,
           'combine.glsl lost the P310 AgX gate of the highlight white (the LED rings\' colour goes white)')
     check(has_p441(new), 'combine.glsl lost P441\'s rim rules (RIM_SMOOTH: steps and dotted lines along edges beside light come back)')
+    # P672b: DETAIL_SPLIT 0 (the token stream below is the shader before it); 1 carries the detail as «Why тон» V2
+    check('#define DETAIL_SPLIT 0' in new and 'sharpDelta = clamp(cbrtp(max(yS0, 0.000001)) - lU, -min(0.035, lU * 0.25), 0.050);' in new
+          and 'toneSlopeAt(post.x)' in new, 'combine.glsl lost P672b\'s DETAIL_SPLIT (V1\'s detail into the photo as V2\'s)')
     n = without_p441(new)
     check('float lightRimDelta(' in n and all(e[0] in n for e in P311_RIM_EDITS),
           'combine.glsl lost the P311 rim rule of the detail delta (the dark / crimson line beside LED rings comes back)')
@@ -448,7 +451,11 @@ def shader_part(strict: bool) -> None:
                 ('RIM_SMOOTH 1', {'RIM_SMOOTH': '1'}),   # P441: the photo's rim rules
                 ('TONE_OP 1 + LIGHT_WARM 1 + HL_LOCAL 1', {'TONE_OP': '1', 'LIGHT_WARM': '1', 'HL_LOCAL': '1'}),   # P506 / P508
                 ('TONE_OP 1 + HL_LOCAL 1 + HL_LOCAL_RIM 1', {'TONE_OP': '1', 'HL_LOCAL': '1', 'HL_LOCAL_RIM': '1'}),   # P607
-                ('FACE_MASK 1 + FACE_AWB 1 + PORTRAIT 1', {'FACE_MASK': '1', 'FACE_AWB': '1', 'PORTRAIT': '1'}))   # P512
+                ('FACE_MASK 1 + FACE_AWB 1 + PORTRAIT 1', {'FACE_MASK': '1', 'FACE_AWB': '1', 'PORTRAIT': '1'}),   # P512
+                # P672b: the detail into the photo as V2's, with the own curve's slope and with the sky / edge hold paths
+                ('TONE_OP 1 + DETAIL_SPLIT 1 + SKY 1 + EDGE_HOLD 1 + RIM_SMOOTH 1',
+                 {'TONE_OP': '1', 'DETAIL_SPLIT': '1', 'SKY': '1', 'EDGE_HOLD': '1', 'RIM_SMOOTH': '1'}),
+                ('DETAIL_SPLIT 1', {'DETAIL_SPLIT': '1'}))
     for label, defines in variants:
         with tempfile.TemporaryDirectory() as d:
             f = Path(d) / 'combine.frag'

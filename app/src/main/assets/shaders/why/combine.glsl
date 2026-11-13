@@ -174,6 +174,9 @@ precision highp int;
 // P441 RIM_SMOOTH 1: the P311 / P349 rim rules of the detail delta on every darkening pixel with a continuous far side (rimDelta;
 // the photo, WhyCombine); 0: the rules before P441 (lightRimDelta / rimDeltaBy, the viewfinder), token for token.
 #define RIM_SMOOTH 0
+// P672b (owner, 2026-11-13: «сделай так чтобы V1 не отличался от V2»): 1 = the full-size detail goes into the photo as «Why тон» V2's
+// tonemap_final takes it (detailSplitU; WhyCombine, WhyTone.detailSplit); 0 = the shader before P672b, token for token
+#define DETAIL_SPLIT 0
 // P395 (owner, 2026-10-29: the «Лента» facade orange-ochre beside WhyCam's yellow): 1 = the saturated orange-yellow scene hues
 // turned towards yellow (yellowHueU; 0 = the shader before)
 #define YELLOW_HUE 0
@@ -252,6 +255,9 @@ uniform float chromaDnU;            // chroma denoise of strongly lifted pixels 
 uniform float clarityU;             // delta * (1 + clarity)
 uniform float flatProtectU;         // flat-area protection of the delta (0 = off)
 uniform float detailGainU;          // why_detail_gain; 0 (unset) = no detail
+#if DETAIL_SPLIT == 1
+uniform int detailSplitU;           // P672b: 1 = the sharpening's own delta as V2 adds it (sharpDelta), 2 = and the merge's detail by the curve's slope
+#endif
 uniform int detailRefU;             // 1: bounded, compression-scaled delta against WhyDetailRef; unset -> unbounded delta
 uniform int sharpU;                 // 1: the delta's luminance is WhyLumaS; unset -> the full-size merge
 uniform int fullInputU;             // P349: 1 = InputBuffer is the full-size image (not given back above 100 MP); 0 / unset: it may not be
@@ -847,6 +853,25 @@ float toneCurve(float x) {
     int i = min(int(f), 254);
     return mix(curveSample(i), curveSample(i + 1), f - float(i));
 }
+#if DETAIL_SPLIT == 1
+// P672b: the own curve's OKLab lightness of a grey at the curve's coordinate n (graded cur^2.4, L = cur^0.8), and its slope
+// dL / dln Y where it gives the lightness L (n by bisection; the curve rises): V2's tone scale of a pixel's own detail
+float toneLn(float n) {
+    float c = toneCurve(n);
+    if (curveBoostU > 0.0001) c = clamp(c + curveContrast(n) * curveBoostU, 0.0, 1.0);
+    return pow(max(c, 0.0), 0.8);
+}
+float toneSlopeAt(float L) {
+    float lo = 0.0, hi = 1.0;
+    for (int i = 0; i < 14; i++) {
+        float m = 0.5 * (lo + hi);
+        if (toneLn(m) < L) lo = m; else hi = m;
+    }
+    float n = 0.5 * (lo + hi);
+    float a = max(n - 0.01, 0.0), b = min(n + 0.01, 1.0);
+    return (toneLn(b) - toneLn(a)) / max(b - a, 0.000001) * 0.1 / 0.6931472;
+}
+#endif
 #endif
 
 // Exact quadratic inverse of the kernel's ACES curve, pre-gain 1.5, a 2.51, d 0.59 [:987-1004].
@@ -1477,6 +1502,14 @@ void main() {
 
     // === 3. detail of the full-size merge (delta), applied after the tone ===
     float delta = 0.0;
+#if DETAIL_SPLIT == 1
+    // P672b: the detail split as «Why тон» V2's tonemap_final carries it - the merge's own full-size detail (the unsharpened luma
+    // against the fused base) through the tone below, and what the sharpening added (cbrt of the sharpened luma - cbrt of the
+    // unsharpened, V2's clamp -min(0.035, L / 4) .. 0.05) onto the lightness as it is: no compression, no gain, V2's highlight fade.
+    // Before it the whole sharpened delta took the tone's compression (its square on brightening): the sharpening - and the grain
+    // it lifts - in the shadows a half to a third of V2's at the same lightness.
+    float sharpDelta = 0.0;
+#endif
 #if FILM_SIM == 1
     float filmDelta = 0.0;
 #endif
@@ -1484,6 +1517,9 @@ void main() {
     float sharpTone = sharpU == 1 && sharpToneU > 0.0 ? sharpToneU : 1.0;
     if (detailGainU != 0.0) {
         float yS = sharpU == 1 ? max(texelFetch(WhyLumaS, xy, 0).r, 0.0) : 0.0;
+#if DETAIL_SPLIT == 1
+        float yS0 = yS;
+#endif
 #if EDGE_HOLD == 1
         if (sharpU == 1 && bounded) yS = edgeHold(yS, xy, size, refDomain);   // P394
 #endif
@@ -1495,6 +1531,15 @@ void main() {
         } else if (bounded) {
             // bounded like the kernel's a3: min(m * Y, 1) (or its sharpened S) against the B-spline of its box mean
             lRef = cbrtp(max(yRef, 0.000001));
+#if DETAIL_SPLIT == 1
+            if (detailSplitU >= 1 && sharpU == 1 && fullInputU == 1) {
+                // the unsharpened luma in WhyLumaS's domain (why/sharp_in: min(m Y, 1)) carries the merge's own detail
+                float yU = clamp(dot(sceneLinear(xy, size), LUMA) * refDomain, 0.0, 1.0);
+                float lU = cbrtp(max(yU, 0.000001));
+                sharpDelta = clamp(cbrtp(max(yS0, 0.000001)) - lU, -min(0.035, lU * 0.25), 0.050);
+                yS = yU;
+            }
+#endif
             float yD = sharpU == 1 ? yS : min(yFull * ae, 1.0);
             delta = cbrtp(max(yD, 0.000001)) - lRef;
             // P311: beside a clipped light, against the side of the neighbourhood that is not the light
@@ -2143,10 +2188,26 @@ void main() {
         // Where the tone compresses (Bento roll-off, fusion darkening, AgX shoulder: L_base below the cube-root
         // reference) the delta is scaled down with it; lifted shadows and mid-tones (ratio >= 1) keep the full delta.
         float compression = min(1.0, post.x / (lRef * (sharpTone != 1.0 ? cbrtp(sharpTone) : 1.0)));
+#if DETAIL_SPLIT == 1
+        if (detailSplitU == 2) {
+            // P672b: V2's scale of the merge's own detail - tonemap_final multiplies the full-size pixel by the tone's gain and runs
+            // it through the curve, so its detail takes the curve's slope at the toned level both ways: dL = dL/dlnY x 3 d(cbrt Y)
+            // / cbrt Y (no cap at 1, the same for darkening and brightening); with ACES / Uchimura / AgX the lift alone
+            float scale = post.x / (lRef * (sharpTone != 1.0 ? cbrtp(sharpTone) : 1.0));
+#if TONE_OP == 1
+            if (toneOpU == 3) scale = 3.0 * toneSlopeAt(post.x) / max(lRef, 0.0001);
+#endif
+            compression = clamp(scale, 0.0, 8.0);
+        }
+#endif
         // P341 (owner, 2026-10-26: «на 31148 есть ступенька, а на новой нет»): a darkening delta scales with the compression, not
         // its square. A ladder rung 10 x darker than the sun's glow around it (2 - 4 x white, compressed ~0.3) kept 9 % of its
         // detail and read as glow; the fused base carries it only at half size. Brightening detail keeps the square (no
         // white rims around lights).
+#if DETAIL_SPLIT == 1
+        if (detailSplitU == 2) delta *= compression;
+        else
+#endif
 #if SKY == 1
         // P378 (M1): in the clear sky brightening detail scales with the compression as darkening detail does (no light there to
         // draw a white rim round)
@@ -2159,11 +2220,18 @@ void main() {
     delta *= max(1.0 - faceBU.y * faceM, 0.0) * (1.0 + faceBU.z * faceM);   // P512: the skin's smoothing and detail
 #endif
     float lBefore = post.x;
+#if DETAIL_SPLIT == 1
+    // P672b: the sharpening's own delta with V2's highlight fade (1 - smoothstep(0.75, 1.0, L) x 0.5, of the lightness before it)
+    float sharpFade = sharpDelta * (1.0 - smoothstep(0.75, 1.0, post.x) * 0.5);
+#endif
 #if SKY == 1
     // P378 (M1): the clear sky's detail is not halved towards white (the clouds' tops: 1.8x flatter than the reference's)
     post.x = clamp(post.x + delta * (1.0 - smoothstep(0.75, 1.0, post.x) * 0.5 * (1.0 - skyModel)), 0.0001, 1.0);
 #else
     post.x = clamp(post.x + delta * (1.0 - smoothstep(0.75, 1.0, post.x) * 0.5), 0.0001, 1.0);
+#endif
+#if DETAIL_SPLIT == 1
+    post.x = clamp(post.x + sharpFade, 0.0001, 1.0);
 #endif
 #if HEADROOM_WIDE == 1
     // P216: the bounded reference (min(ae Y, 1)) gives no detail above white, and the colour / fusion grid is the 2 x 2 box:

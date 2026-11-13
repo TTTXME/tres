@@ -304,6 +304,19 @@ public final class WhyTone {
         return value("fusion_noise_model", 0f) >= 0.5f;
     }
 
+    /**
+     * P672b (owner, 2026-11-13: «сделай так чтобы V1 не отличался от V2»): how why/combine carries the full-size detail (detailSplitU) -
+     * 2 (the default): as «Why тон» V2's tonemap_final - the sharpening's own delta onto the lightness as it is (V2's clamp, no tone
+     * scale, no gain) and the merge's own detail by the curve's slope at the toned level (V2 runs the pixel through the tone); 1: the
+     * sharpening's delta alone; 0: the whole sharpened delta under the compression as before. scam_dev.txt "hybrid_why_detail_split".
+     * Only with the sharpened luma, no film (the film keeps the merge's own detail as before) and the full-size input at hand.
+     */
+    static int detailSplit(boolean sharp, boolean film, boolean inputReleased) {
+        if (!sharp || film || inputReleased) return 0;
+        final float v = value("detail_split", 2f);
+        return v >= 1.5f ? 2 : v >= 0.5f ? 1 : 0;
+    }
+
     /** P391: the default of {@link #deepNoise}: the fused luma's noise at most 0.008 (two 8-bit steps of the curve) in a lifted shadow. */
     static final float DEEP_NOISE = 0.008f;
 
