@@ -225,7 +225,7 @@ struct CameraView: View {
         VStack(spacing: 8) {
             if camera.locked {
                 HStack(spacing: 4) {
-                    Image("ui_ic_lock").renderingMode(.template).resizable().frame(width: 13, height: 13)
+                    Image("kb_ui_ic_lock_rest").renderingMode(.template).resizable().frame(width: 13, height: 13)
                     Text(L("focus.locked")).font(.system(size: 13, weight: .semibold))
                 }
                 .foregroundStyle(.black)
@@ -353,7 +353,7 @@ struct CameraView: View {
                     if let thumbnail = camera.thumbnail {
                         Image(decorative: thumbnail, scale: 1).resizable().scaledToFill()
                     } else {
-                        Image("ic_shade_jpeg").renderingMode(.template).resizable().frame(width: 26, height: 26).foregroundStyle(.white.opacity(0.6))
+                        Image("kb_ic_shade_jpeg_rest").renderingMode(.template).resizable().frame(width: 26, height: 26).foregroundStyle(.white.opacity(0.6))
                     }
                 }
                 .frame(width: 58, height: 58)

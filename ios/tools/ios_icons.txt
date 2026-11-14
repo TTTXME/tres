@@ -76,3 +76,4 @@ kb_ui_ic_aspect_rest
 kb_ui_ic_lock_rest
 kb_ui_ic_unlock_rest
 kb_ui_ic_rotate_rest
+kb_ic_shade_jpeg_rest
