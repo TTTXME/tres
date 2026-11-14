@@ -163,6 +163,30 @@ inline std::array<float, 3> edgeRamp(const std::array<float, 6>& band, int l) {
     return {lo, hi, band[5] * hi};
 }
 inline float edgeBeta(int l) { return l < 5 ? EDGE_BETA[std::max(0, l)] : EDGE_BETA[4] / float(1 << std::min(20, l - 5 + 1)); }
+/// P673: the joint bilateral collapse (V1 off; V2 on at 0.1 since P673c), its guide and the shader's define / log floor
+inline float jbuSigma() { return std::max(0.f, value("fusion_jbu_sigma", 0.f)); }
+inline float jbuSigmaV2() { return std::max(0.f, value("v2_jbu_sigma", 0.1f)); }
+inline int jbuGuide() { return std::max(1, std::min(4, javaRoundI(value("fusion_jbu_guide", 1.f)))); }
+inline int jbuGuideV2() { return std::max(1, std::min(4, javaRoundI(value("v2_jbu_guide", 1.f)))); }
+constexpr float JBU_LOG_FLOOR = 0.01f;
+inline int jbuDefine(int guide) { return guide == 2 || guide == 4 ? 2 : 1; }
+inline float jbuLog(int guide) { return guide >= 3 ? JBU_LOG_FLOOR : 0.f; }
+/// P677: V1's edge-aware bands on V2's pyramid (off by default)
+inline std::optional<std::array<float, 6>> edgeBandsV2() {
+    const float strength = std::max(0.f, std::min(1.f, value("v2_edge_bands", 0.f)));
+    if (!(strength > 0.f)) return std::nullopt;
+    const float lo = std::max(0.f, value("v2_edge_bands_lo", value("fusion_bands_lo", 1.2f)));
+    return std::array<float, 6>{lo, std::max(value("v2_edge_bands_hi", value("fusion_bands_hi", 1.8f)), lo + 0.01f), BAND_FLOOR, strength,
+                                float(std::max(0, std::min(4, javaRoundI(value("fusion_bands_reach", 3.f))))), std::max(0.f, value("fusion_bands_fall", 0.25f))};
+}
+/// P672: the fusion's noise model (off by default, as V2's fusion)
+inline bool fusionNoiseModel() { return value("fusion_noise_model", 0.f) >= 0.5f; }
+/// P672b: how why/combine carries the full-size detail (2: as V2's tonemap_final)
+inline int detailSplit(bool sharp, bool film, bool inputReleased) {
+    if (!sharp || film || inputReleased) return 0;
+    const float v = value("detail_split", 2.f);
+    return v >= 1.5f ? 2 : v >= 0.5f ? 1 : 0;
+}
 inline bool depthSmooth() { return value("fusion_depth_smooth", 1.f) >= 0.5f; }
 constexpr float DEEP_NOISE = 0.008f, NOISE_SCALE = 1.0f;
 inline float deepNoise() { return std::max(0.f, value("deep_noise", DEEP_NOISE)); }
@@ -191,9 +215,13 @@ constexpr float LOCAL_CONTRAST_SIGMA = 4.f, LOCAL_CONTRAST_T = 0.04f;
 inline float latticeCap() { return std::max(0.f, value("sharp_lattice_cap", 0.005f)); }
 inline bool rimSmooth() { return value("rim_smooth", 1.f) > 0.5f; }
 /// yellowHue: 1 by default on vivo (Build.MANUFACTURER), 0 elsewhere - an iPhone is no vivo
-inline float yellowHue() { return std::max(0.f, std::min(1.f, value("yellow_hue", 0.f))); }
-inline float hlNeutral() { return std::max(0.f, std::min(1.f, value("hl_neutral", 1.f))); }
-inline std::array<float, 4> lightWarm() { return {std::max(0.f, std::min(1.f, value("light_warm", 1.f))), 0.6f, 0.9f, std::max(0.f, std::min(1.f, value("light_warm_chroma", 0.5f)))}; }
+/// P676: V1's colour after the tone as V2's (V2_COLOUR); the V1-only colour stages are off with it
+inline bool v2Colour() { return value("v2_colour", 1.f) >= 0.5f; }
+inline float hlWhite() { return v2Colour() ? 0.f : std::max(0.f, std::min(1.f, value("hl_white", 0.15f))); }
+inline float deltaChroma() { return v2Colour() ? 0.f : std::max(0.f, std::min(1.f, value("delta_chroma", 1.f))); }
+inline float yellowHue() { return v2Colour() ? 0.f : std::max(0.f, std::min(1.f, value("yellow_hue", 0.f))); }
+inline float hlNeutral() { return v2Colour() ? 0.f : std::max(0.f, std::min(1.f, value("hl_neutral", 1.f))); }
+inline std::array<float, 4> lightWarm() { return {v2Colour() ? 0.f : std::max(0.f, std::min(1.f, value("light_warm", 1.f))), 0.6f, 0.9f, std::max(0.f, std::min(1.f, value("light_warm_chroma", 0.5f)))}; }
 inline std::array<float, 4> hlLocal() { return {std::max(0.f, std::min(2.f, value("hl_local", 0.8f))), 1.5f, 6.f, 12.f}; }
 inline bool hlLocalRim() { return value("hl_local_rim", 1.f) > 0.f; }
 inline bool hlMeasured() { return value("hl_measured", 1.f) > 0.f; }
@@ -224,7 +252,7 @@ inline float fusionMono() { return std::max(0.f, value("fusion_mono", 0.04f)); }
 inline float deepFloor() { return std::max(0.f, value("deep_floor", 2.f)); }
 inline float windowShare() { return std::max(0.f, std::min(1.f, value("window_31091", 1.f))); }
 inline bool macroToe() { return value("macro_toe", 1.f) >= 0.5f; }
-inline float lightChroma() { return std::max(0.f, std::min(1.f, value("light_chroma", 1.f))); }
+inline float lightChroma() { return v2Colour() ? 0.f : std::max(0.f, std::min(1.f, value("light_chroma", 1.f))); }
 inline float insetStrength() { return std::max(0.f, std::min(1.f, value("agx_inset", 50.f) / 100.f)); }
 inline float shoulderStrength() { return std::max(0.f, std::min(1.f, value("hr_strength", 0.6f))); }
 inline std::array<float, 3> headroomTone() { return {value("hr_knee", 0.6f), value("hr_room", 0.35f), std::max(0.f, value("hr_detail", 0.35f))}; }

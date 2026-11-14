@@ -15,7 +15,7 @@ public:
     WhyCombine() : Node("", "WhyCombine") {}
     void Compile() override {}
 
-    static constexpr float NIGHT_DETAIL = 1.3f;
+    static constexpr float NIGHT_DETAIL = 1.f;   // P672: the night floor off (V1 detail as V2)
     std::function<void(const std::string&, const Texture&)> stageHook; // the reference's ScamDiagnostics.gpu stages
 
     static std::optional<std::vector<float>> hlWeights(float sigmaU) {
@@ -46,6 +46,10 @@ public:
         const float boost = detailBoost(snr, nightDetail());
         if (!film) return sharpGain * boost;
         return 1.f + (sharpGain * boost - 1.f) * (1.f - film->strength);
+    }
+    /// P672b: V2's rule with the detail split 2 (no light-dependent boost), else detailGain
+    static float splitGain(int split, float sharpGain, float snr, const FilmSettings* film) {
+        return split == 2 && !film ? sharpGain : detailGain(sharpGain, snr, film);
     }
     /// WhyAe.filmAe: the meter before the highlight overflow's cut, within the noise clamp and the x9 cap
     static float filmAe(const WhyAe::Result& r) {
@@ -239,7 +243,8 @@ public:
         const bool sharp = st.lumaS != nullptr;
         const float sharpMul = st.sharpMul;
         const FilmSettings* film = pipeline.film.get();
-        const float detail = sharp ? detailGain(WhyTone::value("sharp_gain", 1.0f), pipeline.mParameters.finishSnr, film) : 2.0f;
+        const int split = WhyTone::detailSplit(sharp, film != nullptr, st.inputReleased);
+        const float detail = sharp ? splitGain(split, WhyTone::value("sharp_gain", 1.0f), pipeline.mParameters.finishSnr, film) : 2.0f;
         const ColourLook look = WhyTone::colourLook();
         const int toneOp = WhyTone::toneOperator();
         const bool colourOn = WhyTone::colourLookOn(look, toneOp, r.sat);
@@ -375,6 +380,7 @@ public:
         if (st.sky) prog.setDefine("SKY", 1);
         if (WhyTone::macroToe()) prog.setDefine("MACRO_TOE", 1);
         if (lightChroma > 0.f) prog.setDefine("LIGHT_CHROMA", 1);
+        if (WhyTone::v2Colour()) prog.setDefine("V2_COLOUR", 1);
         if (WhyTone::yellowHue() > 0.f) prog.setDefine("YELLOW_HUE", 1);
         if (WhyTone::hlNeutral() > 0.f) prog.setDefine("HL_NEUTRAL", 1);
         const std::optional<std::array<float, 4>> lightWarm = toneOp != ToneCurve::AGX ? std::optional<std::array<float, 4>>(WhyTone::lightWarm()) : std::nullopt;
@@ -394,6 +400,7 @@ public:
         if (whyVibrance) prog.setDefine("WHY_VIBRANCE", 1);
         if (WhyTone::edgeHold() > 0.f && !st.inputReleased && !filmOnly) prog.setDefine("EDGE_HOLD", 1);
         if (WhyTone::rimSmooth()) prog.setDefine("RIM_SMOOTH", 1);
+        if (split > 0) prog.setDefine("DETAIL_SPLIT", 1);
         prog.setDefine("DITHER_TPDF", 1);
         if (st.sky) {
             skyLog = " sky=" + std::to_string(javaRound(100.f * st.skyMask->coverage)) + "%";
@@ -479,7 +486,7 @@ public:
         prog.setVar("fU", st.factor);
         prog.setVar("colourFU", colourFactor);
         prog.setVar("signedColourU", pipeline.signedRgb ? 1 : 0);
-        prog.setVar("signedHueU", WhyTone::signedHue() ? 1 : 0);
+        prog.setVar("signedHueU", WhyTone::signedHue() && !WhyTone::v2Colour() ? 1 : 0);
         prog.setVar("aeU", r.ae);
         prog.setVar("clipU", r.clip);
         if (WhyTone::insetStrength() < 0.999f) prog.setVar("insetU", WhyTone::insetStrength());
@@ -511,7 +518,7 @@ public:
             prog.setVar("hlMeasGlareU", st.inputReleased ? 0.f : WhyTone::hlMeasuredGlare());
         }
         prog.setVar("headroomU", realClip ? 1 : 0);
-        prog.setVar("hlWhiteU", std::max(0.f, std::min(1.f, WhyTone::value("hl_white", 0.15f))));
+        prog.setVar("hlWhiteU", WhyTone::hlWhite());
         if (lightChroma > 0.f) prog.setVar("lightChromaU", lightChroma);
         if (hlB) prog.setVar("hlSoftU", soft);
         prog.setVar("toeU", WhyTone::value("aces_toe", 0.05f));
@@ -541,7 +548,8 @@ public:
         prog.setVar("clarityU", WhyTone::value("clarity", 0.f));
         prog.setVar("flatProtectU", WhyTone::value("flat_protect", 0.f));
         prog.setVar("detailGainU", detail);
-        prog.setVar("deltaChromaU", std::max(0.f, std::min(1.f, WhyTone::value("delta_chroma", 1.f))));
+        prog.setVar("detailSplitU", split);
+        prog.setVar("deltaChromaU", WhyTone::deltaChroma());
         prog.setVar("filmToeU", WhyTone::value("film_toe", 0.f));
         prog.setVar("agxAU", r.slope, r.sp, r.tp, r.sat);
         prog.setVar("agxBU", r.minEv, r.maxEv, r.ev, toneOp == ToneCurve::AGX ? float(r.look) : 0.f);
@@ -597,7 +605,7 @@ public:
         for (Texture* t : {&fallback, &hlA, &hlB, &fusedLc, &sunBloom, &oppShare, &faceTex}) if (*t) (*t)->close();
         if (lutTexture) glDeleteTextures(1, &lutTexture);
         logI("SCAM_PIPELINE", "WHY combine ae=" + javaFloatString(r.ae) + " clip=" + javaFloatString(r.clip) + " headroom=" + (realClip ? "true" : "false")
-             + " hlWhite=" + javaFloatString(WhyTone::value("hl_white", 0.15f)) + " hlSoft=" + javaFloatString(WhyTone::value("hl_soft", 0.7f))
+             + (WhyTone::v2Colour() ? " v2Colour" : "") + " hlWhite=" + javaFloatString(WhyTone::hlWhite()) + " hlSoft=" + javaFloatString(WhyTone::value("hl_soft", 0.7f))
              + (lightChroma > 0.f ? " lightChroma=" + javaFloatString(lightChroma) : "") + " grid=" + std::to_string(input->mSize.x) + "x" + std::to_string(input->mSize.y)
              + " lowFactor=" + std::to_string(st.factor) + (st.factor > 2 ? " colour=whyMid" : " colour=whyLow") + " detail=" + javaFloatString(detail) + (sharp ? " (WhyLumaS, mul " + javaFloatString(sharpMul) + ")" : "")
              + (sunBloomOn ? " sunBloom=" + javaFloatString(WhyTone::sunBloom()[0]) + "@" + javaFloatString(WhyTone::sunBloom()[1]) : "")

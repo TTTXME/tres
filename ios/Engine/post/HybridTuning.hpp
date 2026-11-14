@@ -89,6 +89,9 @@ inline std::string text(const Settings& s) {
     if (flowPick != 2.f) out += "fastFlowPick " + std::to_string(round(std::max(0.f, std::min(2.f, flowPick)))) + "\n";
     const float lightFill = s.hybridValue("fast_light_fill", 1.f);
     if (lightFill != 1.f) out += "fastLightFill " + f(std::max(0.f, std::min(1.f, lightFill))) + "\n";
+    // P675: the fast route's night motion test (worker fastNightMotion, default 1)
+    const float nightMotion = s.hybridValue("fast_night_motion", 1.f);
+    if (nightMotion != 1.f) out += "fastNightMotion " + f(std::max(0.f, std::min(1.f, nightMotion))) + "\n";
     if (s.hybridValue("us_weak_hom", 1.f) == 0.f) out += "usWeakHom 0\n";
     if (s.hybridValue("us_clip_vote", 1.f) == 0.f) out += "usClipVote 0\n";
     if (s.hybridValue("strip_guard", 1.f) == 0.f) out += "stripGuard 0\n";
@@ -100,6 +103,8 @@ inline std::string text(const Settings& s) {
     // P647 «Ядро по освещению» (pref_scam_hybrid_kernel_snr, on by default): the kernel's three footprints follow the shot's SNR
     // key (worker kernelSnr; 0 = the footprints as before), written in every mode
     out += std::string("kernelSnr ") + (s.hybridSwitch("kernel_snr", true) ? "1" : "0") + "\n";
+    // P666: by day the shadows keep the kernel's footprints of before P647 (worker kernelSnrShadow, on by default: no line)
+    if (!s.hybridSwitch("kernel_snr_shadow", true)) out += "kernelSnrShadow 0\n";
     const float dezipper = s.hybridValue("dezipper", 4.5f);
     if (dezipper > 0.f) out += "dezipper " + f(std::max(0.5f, std::min(15.f, dezipper))) + "\n";
     if (s.hybridValue("rej_prior", 1.f) > 0.f) out += "rejPrior 1\n";

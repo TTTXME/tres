@@ -71,8 +71,9 @@ public:
         const WhyAe::Result& r = *st.ae;
         const Point lowSize = st.low->mSize;
         float strength = Settings::current().hybridSwitch("denoise", true) ? WhyTone::value("bracket_denoise", 0.f) : 0.f;
+        strength = r.clip > 1.05f && strength > 0.001f ? strength : 0.f;   // P672: V2's rule (WhyV2Highlights::bracketOn)
         st.lowDn = st.low;
-        if (r.clip > 1.05f && strength > 0.001f) {
+        if (strength > 0.f) {
             st.lowDn = makeTexture(lowSize, GLFormat(DataType::FLOAT_16, 4), nullptr, GL_NEAREST, GL_CLAMP_TO_EDGE);
             prog.useAssetProgram("why/bracket_dn", false);
             prog.setTexture("InputBuffer", st.low);
@@ -82,7 +83,8 @@ public:
         const bool why = WhyTone::whyLayout();
         const std::array<float, 4> em = why ? exposures207(r) : WhyAe::exposures(r, headroomExposure(WhyAe::darkestExposure(r), r.ae, r.clip, r.hr));
         std::array<float, 4> lw = WhyTone::layerWeights();
-        const auto noiseI = guideNoise(st.noiseS, st.noiseO, st.noiseMerged, r.ae, st.inScale, WhyTone::noiseScale());
+        // P672: no noise model by default, as V2's fusion
+        const auto noiseI = !WhyTone::fusionNoiseModel() ? std::nullopt : guideNoise(st.noiseS, st.noiseO, st.noiseMerged, r.ae, st.inScale, WhyTone::noiseScale());
         const float tau = noiseI ? WhyTone::deepNoise() : 0.f;
         deepNoise_[0] = tau;
         deepNoise_[1] = tau > 0.f ? (*noiseI)[0] : 0.f;
@@ -259,6 +261,8 @@ private:
         const auto edge = WhyTone::edgeShare();
         const bool edgeOn = edge[1] > edge[0];
         const auto nz = WhyTone::fusionNoise();
+        const float jbu = WhyTone::jbuSigma();   // P673 (0: off)
+        const int jbuGuide = WhyTone::jbuGuide();
         const bool noiseCap = bands && noiseI && nz[1] > nz[0] && nz[2] > 0;
         float beta[4] = {0, 0, 0, 0};
         if (noiseCap) for (int l = 0; l < std::min(4, int(nz[2])); l++) beta[l] = WhyTone::BAND_BETA[l];
@@ -363,8 +367,10 @@ private:
         for (int l = levels - 1; l >= 1; l--) {
             if (bands) prog.setDefine("EDGE_BANDS", 1);
             prog.setDefine("MODE", 4);
+            if (jbu > 0.f) prog.setDefine("JBU", WhyTone::jbuDefine(jbuGuide));
             gammaDefine();
             prog.useAssetProgram("why/lpyr", false);
+            if (jbu > 0.f) prog.setVar("jbuU", jbu, WhyTone::jbuLog(jbuGuide));
             prog.setTexture("LevelL", L[size_t(l)]);
             prog.setTexture("LevelW", W[size_t(l)]);
             prog.setTexture("CoarseL", L[size_t(l + 1)]);
@@ -389,7 +395,9 @@ private:
         if (sky) prog.setDefine("SKY", 1);
         if (bands) prog.setDefine("EDGE_BANDS", 1);
         if (winLevel > 0) prog.setDefine("WINDOW", 1);
+        if (jbu > 0.f) prog.setDefine("JBU", WhyTone::jbuDefine(jbuGuide));
         fusionProgram("why/lpyr", 5, *st.lowDn, em, lw, ae, center, satLight);
+        if (jbu > 0.f) prog.setVar("jbuU", jbu, WhyTone::jbuLog(jbuGuide));
         if (winLevel > 0) {
             prog.setTexture("WinMean", GF[size_t(winLevel)]);
             prog.setTexture("Fused31", fused31);

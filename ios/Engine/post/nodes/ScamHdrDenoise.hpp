@@ -14,6 +14,14 @@ constexpr float DAY = 30.f, NIGHT = 6.f;
 /// the flat smoothing's night share, the factor on a flat pixel and the even grain given back there (why_resolve uniforms)
 constexpr float FLAT = 1.f, FLAT_BOOST = 3.f, FLAT_GRAIN = 1.f;
 
+/// P666: the shadows' texture is not called flat - their local-SNR band follows the shot's SNR
+constexpr float SHADOW_LO = 2.f, SHADOW_HI = 6.f, SHADOW_REL_LO = 0.2f, SHADOW_REL_HI = 0.5f, SHADOW_COARSE = 0.2f;
+inline std::array<float, 2> shadowBand(float snr) {
+    if (!(snr > 0.f) || std::isinf(snr)) return {0.f, 0.f};
+    return {std::min(SHADOW_LO, SHADOW_REL_LO * snr), std::min(SHADOW_HI, SHADOW_REL_HI * snr)};
+}
+inline bool shadowTexture() { return Settings::current().hybridValue("post_snr_shadow", 1.f) > 0.f; }
+
 /// the switch (pref_scam_hybrid_post_snr, on by default; scam_dev.txt "hybrid_post_snr 0" too)
 inline bool on() { return Settings::current().hybridSwitch("post_snr", true); }
 
@@ -100,6 +108,8 @@ inline Texture process(GLProg& prog, PostPipeline& pipeline, const Texture& inpu
     const float shotSnr = DenoiseStats::finishSnr(prog, pipeline, *input, &log);
     // P648c: the night's flat-area smoothing (only where the merged luma is flat against its measured noise; 0: none)
     const float flatNight = PostSnr::flatNight(adapt ? shotSnr : NAN, adapt, par.finishNoiseS, par.finishNoiseO);
+    const std::array<float, 2> band = flatNight > 0.f && PostSnr::shadowTexture() ? PostSnr::shadowBand(shotSnr) : std::array<float, 2>{0.f, 0.f};
+    const bool shadow = band[1] > band[0];
     const auto so = shotNoise(pipeline);
     const auto model = noiseModel(so[0], so[1]);
     const float boost = vignetteBoost(so[0], so[1]);
@@ -145,6 +155,7 @@ inline Texture process(GLProg& prog, PostPipeline& pipeline, const Texture& inpu
             prog.setVar("flatBoostU", PostSnr::FLAT_BOOST);
             prog.setVar("flatGrainU", PostSnr::FLAT_GRAIN);
             prog.setVar("flatNoiseU", flatNight > 0.f ? par.finishNoiseS : 0.f, flatNight > 0.f ? par.finishNoiseO : 0.f);
+            prog.setVar("flatShadowU", shadow ? band[0] : 0.f, shadow ? band[1] : 0.f, shadow ? PostSnr::SHADOW_COARSE : 0.f);
             prog.setVar("outlierU", OUTLIER);
             prog.setVar("rejectRevertU", motionRevert);
             prog.setVar("globalRevertU", lumaRevert);
@@ -156,7 +167,7 @@ inline Texture process(GLProg& prog, PostPipeline& pipeline, const Texture& inpu
             source = target;
         }
     }
-    log += " factor=" + javaFloatString(factor) + " flat=" + javaFloatString(flatNight) + " revert=" + javaFloatString(lumaRevert) + "/" + javaFloatString(motionRevert) + " grain="
+    log += " factor=" + javaFloatString(factor) + " flat=" + javaFloatString(flatNight) + (shadow ? " shadow " + javaFloatString(band[0]) + ".." + javaFloatString(band[1]) : "") + " revert=" + javaFloatString(lumaRevert) + "/" + javaFloatString(motionRevert) + " grain="
            + javaFloatString(grain) + " S=" + javaFloatString(so[0]) + " O=" + javaFloatString(so[1]) + " vignette=" + javaFloatString(boost)
            + " rows=" + std::to_string(rows) + " N=" + (effMap ? "map(x" + javaFloatString(scale) + ")" : std::string("flat")) + " default="
            + javaFloatString(frames) + " total=" + std::to_string(normals);

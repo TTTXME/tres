@@ -16,6 +16,8 @@ public:
     /// PostPipeline.V2_MAX_PIXELS: level 0 is half the grid above it (never on V2's grids)
     static constexpr int64_t FULL_LIMIT = 100000000LL;
     static int baseScale(int w, int h) { return int64_t(w) * h > FULL_LIMIT ? 2 : 1; }
+    /// P677: the edge measure's reference, the guide's Gaussian this many levels down
+    static constexpr int REF_DOWN = 3;
 
     void Run() override {
         PostPipeline& pipeline = *basePipeline;
@@ -32,7 +34,14 @@ public:
         const int n = int(lv.size());
         std::vector<Texture> g(static_cast<size_t>(n)), w(static_cast<size_t>(n)), fu(static_cast<size_t>(n));
         const std::array<float, 4> em = WhyV2Ae::exposures(r), lw = WhyV2Ae::layerWeights(p);
+        // P673: the joint bilateral collapse (0: off); P677: V1's edge-aware bands (off by default)
+        const float jbu = WhyTone::jbuSigmaV2();
+        const int jbuGuide = WhyTone::jbuGuideV2();
+        const auto band = scale == 1 ? WhyTone::edgeBandsV2() : std::nullopt;
+        const int deep = n + REF_DOWN - 1;
+        std::vector<Texture> gf(static_cast<size_t>(deep)), dd(static_cast<size_t>(n)), sh(static_cast<size_t>(n));
         auto cleanup = [&] {
+            for (auto* a : {&gf, &dd, &sh}) for (auto& t : *a) if (t) t->close();
             for (int l = 0; l < n; l++)
                 for (Texture* t : {&g[size_t(l)], &w[size_t(l)], &fu[size_t(l)]}) if (*t) (*t)->close();
         };
@@ -69,14 +78,35 @@ public:
                     prog.drawBlocks((*pyr)[size_t(l + 1)]);
                 }
             }
+            if (band) bandPasses(*v2, p, r, em, lw, lv, *band, pipeline, gf, dd, sh);
+            if (band) prog.setDefine("BANDS", 1);
             prog.useAssetProgram("why/v2_ef_coarsest", false);
             prog.setTexture("u_tex_G", g[size_t(n - 1)]);
             prog.setTexture("u_tex_W", w[size_t(n - 1)]);
             prog.setVar("u_width", lv[size_t(n - 1)][0]);
             prog.setVar("u_height", lv[size_t(n - 1)][1]);
+            if (band) {
+                prog.setTexture("u_tex_GF", gf[size_t(n - 1)]);
+                prog.setTexture("u_tex_share", sh[size_t(n - 1)]);
+                prog.setVar("u_band_strength", (*band)[3]);
+            }
             prog.drawBlocks(fu[size_t(n - 1)]);
             for (int l = n - 2; l >= 0; l--) {
+                if (jbu > 0.f) prog.setDefine("JBU", WhyTone::jbuDefine(jbuGuide));
+                if (band) prog.setDefine("BANDS", 1);
                 prog.useAssetProgram("why/v2_ef_collapse", false);
+                if (band) {
+                    prog.setTexture("u_tex_GF_fine", gf[size_t(l)]);
+                    prog.setTexture("u_tex_GF_coarse", gf[size_t(l + 1)]);
+                    prog.setTexture("u_tex_share", l == 0 ? dd[0] : sh[size_t(l)]);
+                    const auto ramp0 = WhyTone::edgeRamp(*band, 0);
+                    prog.setVar("u_band_edge", l == 0 ? ramp0[0] : 0.f, l == 0 ? ramp0[1] : 0.f, l == 0 ? ramp0[2] : 0.f, (*band)[3]);
+                    prog.setVar("u_band_reach", l == 0 ? int((*band)[4]) : -1);
+                }
+                if (jbu > 0.f) {
+                    prog.setVar("u_jbu_sigma", jbu);
+                    prog.setVar("u_jbu_log", WhyTone::jbuLog(jbuGuide));
+                }
                 prog.setTexture("u_tex_G_fine", g[size_t(l)]);
                 prog.setTexture("u_tex_G_coarse", g[size_t(l + 1)]);
                 prog.setTexture("u_tex_W_fine", w[size_t(l)]);
@@ -99,10 +129,83 @@ public:
              + " coarsest=" + std::to_string(lv[size_t(n - 1)][0]) + "x" + std::to_string(lv[size_t(n - 1)][1]) + " em=" + javaFloatString(em[0]) + ","
              + javaFloatString(em[1]) + "," + javaFloatString(em[2]) + "," + javaFloatString(em[3]) + " lw=" + javaFloatString(lw[0]) + ","
              + javaFloatString(lw[1]) + "," + javaFloatString(lw[2]) + "," + javaFloatString(lw[3]) + " centre=" + javaFloatString(p.weightCenter)
-             + " smooth=" + javaFloatString(p.blendSmoothness));
+             + " smooth=" + javaFloatString(p.blendSmoothness)
+             + (jbu > 0.f ? " jbu=" + javaFloatString(jbu) + "/" + std::to_string(jbuGuide) : "")
+             + (band ? " edgeBands=" + javaFloatString((*band)[0]) + ".." + javaFloatString((*band)[1]) + "EV x" + javaFloatString((*band)[3]) : ""));
     }
 
 private:
+    /// P677: WhyV2Fusion.bandPasses - V1's edge-aware bands' passes on V2's pyramid (fills gf, dd, sh)
+    void bandPasses(WhyV2State& v2, const WhyV2Ae::Params& p, const WhyV2Ae::Result& r, const std::array<float, 4>& em,
+                    const std::array<float, 4>& lw, const std::vector<std::array<int, 2>>& lv, const std::array<float, 6>& band,
+                    PostPipeline& pipeline, std::vector<Texture>& gf, std::vector<Texture>& dd, std::vector<Texture>& sh) {
+        GLProg& prog = *glProg;
+        const int n = int(lv.size()), deep = int(gf.size());
+        std::vector<std::array<int, 2>> sz(static_cast<size_t>(deep));
+        for (int l = 0; l < deep; l++) {
+            sz[size_t(l)] = l < n ? lv[size_t(l)]
+                                  : std::array<int, 2>{std::max(sz[size_t(l - 1)][0] >> 1, 1), sz[size_t(l - 1)][1] > 3 ? sz[size_t(l - 1)][1] / 2 : 1};
+            gf[size_t(l)] = plane(sz[size_t(l)][0], sz[size_t(l)][1], 2);
+        }
+        prog.setDefine("MODE", 2);
+        prog.useAssetProgram("why/v2_ef_prep", false);
+        prog.setTexture("u_tex_clean_rgb", v2.clean);
+        prog.setVar("u_width", lv[0][0]);
+        prog.setVar("u_height", lv[0][1]);
+        prog.setVar("u_exp_multipliers", em[0], em[1], em[2], em[3]);
+        prog.setVar("u_layer_weights", lw[0], lw[1], lw[2], lw[3]);
+        prog.setVar("u_weight_center", p.weightCenter);
+        prog.setVar("u_auto_exposure", r.ae);
+        prog.setVar("u_blend_smoothness", p.blendSmoothness);
+        prog.setVar("u_gamma_curve_type", p.gammaType);
+        prog.setVar("u_gamma_inv", 1.f / jmath::max(p.gamma, 1.f));
+        prog.setVar("u_aces_toe", p.acesToe);
+        prog.setVar("u_band_floor", band[2]);
+        prog.drawBlocks(gf[0]);
+        for (int l = 1; l < deep; l++) {
+            prog.useAssetProgram("why/v2_pyr_down", false);
+            prog.setTexture("u_tex_src", gf[size_t(l - 1)]);
+            prog.setVar("u_texel_size", 1.f / float(sz[size_t(l - 1)][0]), 1.f / float(sz[size_t(l - 1)][1]));
+            prog.setVar("u_dst_w", sz[size_t(l)][0]);
+            prog.setVar("u_dst_h", sz[size_t(l)][1]);
+            prog.drawBlocks(gf[size_t(l)]);
+        }
+        const float k = WhyTone::bandsNoise(), c = WhyTone::noiseScale();
+        const bool noise = k > 0.f && std::isfinite(pipeline.fusionNoiseS) && std::isfinite(pipeline.fusionNoiseO)
+                           && (pipeline.fusionNoiseS > 0.f || pipeline.fusionNoiseO > 0.f) && r.ae > 0.f;
+        const float ns = noise ? c * r.ae * std::max(pipeline.fusionNoiseS, 0.f) : 0.f;
+        const float no = noise ? c * r.ae * r.ae * std::max(pipeline.fusionNoiseO, 0.f) : 0.f;
+        for (int l = 0; l + 1 < n; l++) {
+            dd[size_t(l)] = plane(sz[size_t(l)][0], sz[size_t(l)][1], 1);
+            prog.setDefine("MODE", 0);
+            prog.useAssetProgram("why/v2_ef_bands", false);
+            prog.setTexture("u_tex_GF", gf[size_t(l)]);
+            prog.setTexture("u_tex_ref", gf[size_t(l + REF_DOWN)]);
+            prog.setVar("u_width", sz[size_t(l)][0]);
+            prog.setVar("u_height", sz[size_t(l)][1]);
+            prog.setVar("u_band_noise", noise ? k * WhyTone::edgeBeta(l) : 0.f, ns, no, band[2]);
+            prog.drawBlocks(dd[size_t(l)]);
+        }
+        const auto ramp0 = WhyTone::edgeRamp(band, 0);
+        for (int l = 1; l < n; l++) {
+            sh[size_t(l)] = plane(sz[size_t(l)][0], sz[size_t(l)][1], 2);
+            const auto ramp = WhyTone::edgeRamp(band, l);
+            prog.setDefine("MODE", 1);
+            prog.useAssetProgram("why/v2_ef_bands", false);
+            prog.setTexture("u_tex_fine", l == 1 ? dd[0] : sh[size_t(l - 1)]);
+            prog.setTexture("u_tex_D", l < n - 1 ? dd[size_t(l)] : dd[0]);
+            prog.setVar("u_width", sz[size_t(l)][0]);
+            prog.setVar("u_height", sz[size_t(l)][1]);
+            prog.setVar("u_band_edge", ramp[0], ramp[1], ramp[2], 0.f);
+            prog.setVar("u_band_reach", l == n - 1 ? -1 : int(band[4]), l == 1 ? int(band[4]) : 1);
+            if (l == 1) prog.setVar("u_band_carry", ramp0[0], ramp0[1], ramp0[2]);
+            else prog.setVar("u_band_carry", 1.f, 0.f, 0.f);
+            prog.drawBlocks(sh[size_t(l)]);
+        }
+        for (int l = 1; l + 1 < n; l++) { dd[size_t(l)]->close(); dd[size_t(l)] = nullptr; }
+        for (int l = n; l < deep; l++) { gf[size_t(l)]->close(); gf[size_t(l)] = nullptr; }
+    }
+
     static Texture plane(int w, int h, int channels) {
         return makeTexture({w, h}, GLFormat(DataType::FLOAT_16, channels), nullptr, GL_LINEAR, GL_CLAMP_TO_EDGE);
     }
