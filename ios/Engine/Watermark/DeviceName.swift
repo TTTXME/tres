@@ -13,7 +13,7 @@ enum DeviceName {
         if id == "arm64" || id == "x86_64" || id == "i386" {
             id = ProcessInfo.processInfo.environment["SIMULATOR_MODEL_IDENTIFIER"] ?? id
         }
-        return marketName(id) ?? "iPhone"
+        return marketName(id) ?? (id.hasPrefix("iPad") ? "iPad" : "iPhone")
     }()
 
     /// The watermark's device line for this phone (PhotoInfo.device(make, model)).
@@ -33,6 +33,7 @@ enum DeviceName {
             "iPhone17,1": "iPhone 16 Pro", "iPhone17,2": "iPhone 16 Pro Max", "iPhone17,3": "iPhone 16", "iPhone17,4": "iPhone 16 Plus",
             "iPhone17,5": "iPhone 16e",
             "iPhone18,1": "iPhone 17 Pro", "iPhone18,2": "iPhone 17 Pro Max", "iPhone18,3": "iPhone 17", "iPhone18,4": "iPhone Air",
+            "iPad13,16": "iPad Air (5th generation)", "iPad13,17": "iPad Air (5th generation)",
         ]
         return names[id]
     }
