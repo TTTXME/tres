@@ -146,6 +146,8 @@ static void filmAssets() {
     }
 }
 
+@end
+
 // ───── the lens filter's CPU preview (LensFilterPreference.render: linear, LensFilters.apply -> DiffusionGauss.apply, pixels) ─────
 
 namespace {
