@@ -21,6 +21,7 @@ struct PhotoEditorView: View {
     @GestureState private var holding = false
     @Environment(\.dismiss) private var dismiss
     @Environment(\.displayScale) private var displayScale
+    @Environment(\.horizontalSizeClass) private var sizeClass
 
     init(asset: PHAsset, raw: Bool) {
         _model = State(initialValue: EditorModel(asset: asset, raw: raw))
@@ -195,15 +196,23 @@ struct PhotoEditorView: View {
         ScrollView {
             ZStack(alignment: .top) {
                 EditorPanels(model: model).padding(.top, 8).padding(.bottom, 8)
+                    .tabletColumn()
                     .id(model.tab)
                     .transition(EditMotion.on ? EditMotion.panel(panelDirection) : .identity)
             }
             .environment(\.editStagger, stagger)
         }
-        .frame(height: min(300, UIScreen.main.bounds.height * 0.36))
+        .frame(height: panelHeight)
         .background(GalleryStyle.page)
         .clipShape(UnevenRoundedRectangle(topLeadingRadius: 30, bottomLeadingRadius: 0, bottomTrailingRadius: 0, topTrailingRadius: 30))
         .disabled(model.loading || model.failure != nil)
+    }
+
+    /// The tools' sheet: at most 300 pt (36 % of the screen); an iPad's taller screen gives it up to 380 pt (32 %), the rows in
+    /// the readable column
+    private var panelHeight: CGFloat {
+        let h = UIScreen.main.bounds.height
+        return sizeClass == .regular ? min(380, h * 0.32) : min(300, h * 0.36)
     }
 
     private var tabBar: some View {
@@ -232,6 +241,7 @@ struct PhotoEditorView: View {
                 .accessibilityAddTraits(on ? .isSelected : [])
             }
         }
+        .tabletColumn()
         .padding(.horizontal, 8).padding(.top, 6).padding(.bottom, 14)
         .background(GalleryStyle.page)
     }

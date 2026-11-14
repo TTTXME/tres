@@ -46,7 +46,7 @@ struct SelectableGrid: View {
             ScrollViewReader { reader in
                 ZStack(alignment: .bottom) {
                     ScrollView {
-                        content(runs, now: now)
+                        content(runs, now: now, factor: Tablet.widthFactor(outer.size.width))
                             .coordinateSpace(name: Self.contentSpace)
                             .background(GeometryReader { g in
                                 Color.clear.preference(key: ContentFrameKey.self, value: g.frame(in: .named(Self.scrollSpace)))
@@ -135,18 +135,20 @@ struct SelectableGrid: View {
         }
     }
 
-    @ViewBuilder private func content(_ runs: [GalleryRun], now: Date) -> some View {
+    /// `factor`: GalleryUi.widthFactor (P502) - an iPad's width shows the columns that many times (the list keeps one), the
+    /// timeline's month and year cards that many a row
+    @ViewBuilder private func content(_ runs: [GalleryRun], now: Date, factor: Int) -> some View {
         switch mode {
-        case .grid: gridContent(runs)
+        case .grid: gridContent(runs, columns: prefs.columns * factor)
         case .list: listContent(runs, now: now)
         case .timeline:
-            if level == .all { timelineContent(runs) } else { cardsContent(runs) }
+            if level == .all { timelineContent(runs, columns: prefs.timelineColumns * factor) } else { cardsContent(runs, perRow: factor) }
         }
     }
 
     /// LibraryAdapter: the day's caption over its cards (14pt corners, 6pt apart, 12pt from the edges).
-    private func gridContent(_ runs: [GalleryRun]) -> some View {
-        let columns = Array(repeating: GridItem(.flexible(), spacing: 6), count: prefs.columns)
+    private func gridContent(_ runs: [GalleryRun], columns count: Int) -> some View {
+        let columns = Array(repeating: GridItem(.flexible(), spacing: 6), count: count)
         return LazyVGrid(columns: columns, spacing: 6) {
             ForEach(Array(runs.enumerated()), id: \.element.id) { r, run in
                 Section {
@@ -214,9 +216,9 @@ struct SelectableGrid: View {
     }
 
     /// TimelineRows «Все фото»: the month's title (the year in grey) and count, the photos edge to edge with hairline gaps.
-    private func timelineContent(_ runs: [GalleryRun]) -> some View {
+    private func timelineContent(_ runs: [GalleryRun], columns count: Int) -> some View {
         let gap = GalleryLayout.gap
-        let columns = Array(repeating: GridItem(.flexible(), spacing: gap), count: prefs.timelineColumns)
+        let columns = Array(repeating: GridItem(.flexible(), spacing: gap), count: count)
         return LazyVGrid(columns: columns, spacing: gap) {
             ForEach(Array(runs.enumerated()), id: \.element.id) { r, run in
                 Section {
@@ -263,18 +265,29 @@ struct SelectableGrid: View {
     }
 
     /// TimelineRows' month cards (the newest photo, the title on a fade) and year cards (three months side by side).
-    private func cardsContent(_ runs: [GalleryRun]) -> some View {
-        LazyVStack(spacing: 12) {
-            ForEach(runs) { run in
-                TimelineCard(library: library, assets: assets, run: run, year: level == .years) {
-                    zoom(level == .years ? .months : .all, item: run.range.lowerBound)
-                }
-                .id("card:" + run.id)
-                .modifier(ItemFrame(index: run.range.lowerBound))
+    @ViewBuilder private func cardsContent(_ runs: [GalleryRun], perRow: Int) -> some View {
+        if perRow > 1 {
+            // TimelineRows.span: a card is one span, so a wide screen has `perRow` of them side by side
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: perRow), spacing: 12) {
+                ForEach(runs) { run in card(run) }
             }
+            .padding(.horizontal, 9)
+            .padding(.top, 6)
+        } else {
+            LazyVStack(spacing: 12) {
+                ForEach(runs) { run in card(run) }
+            }
+            .padding(.horizontal, 9)
+            .padding(.top, 6)
         }
-        .padding(.horizontal, 9)
-        .padding(.top, 6)
+    }
+
+    private func card(_ run: GalleryRun) -> some View {
+        TimelineCard(library: library, assets: assets, run: run, year: level == .years) {
+            zoom(level == .years ? .months : .all, item: run.range.lowerBound)
+        }
+        .id("card:" + run.id)
+        .modifier(ItemFrame(index: run.range.lowerBound))
     }
 
     // ---------------------------------------------------------------- taps, long press, drag selection
@@ -351,7 +364,8 @@ struct SelectableGrid: View {
     private func autoScroll() async {
         while !Task.isCancelled, let d = scroll.drag, let proxy = scroll.proxy {
             let up = d.viewportY < 56
-            let step = mode == .grid ? prefs.columns : mode == .timeline ? prefs.timelineColumns : 1
+            let factor = Tablet.widthFactor(scroll.viewport.width)
+            let step = mode == .grid ? prefs.columns * factor : mode == .timeline ? prefs.timelineColumns * factor : 1
             let target = up ? max(0, d.current - step) : min(assets.count - 1, d.current + step)
             withAnimation(.linear(duration: 0.12)) { proxy.scrollTo(assets[target].localIdentifier, anchor: up ? .top : .bottom) }
             try? await Task.sleep(nanoseconds: 130_000_000)
@@ -833,7 +847,9 @@ struct TimelineCard: View {
                             + (year ? L("gallery.open_months") : L("gallery.open_month")))
         .task(id: run.id) {
             for (i, index) in covers.enumerated() {
-                let side = UIScreen.main.bounds.width * scale * (year && i > 0 ? 1.0 / 3 : year ? 2.0 / 3 : 1)
+                // an iPad has Tablet.widthFactor cards a row: each that share of the width
+                let width = UIScreen.main.bounds.width / CGFloat(Tablet.widthFactor(UIScreen.main.bounds.width))
+                let side = width * scale * (year && i > 0 ? 1.0 / 3 : year ? 2.0 / 3 : 1)
                 images[i] = await library.thumbnail(assets[index], side: side)
             }
         }

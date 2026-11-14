@@ -152,7 +152,8 @@ struct GallerySearchPage: View {
     private var results: some View {
         _ = OcrIndex.shared.version // P504: the photos read since add their text
         let found = GallerySearch.find(all, query, kinds: library.kinds, now: Date())
-        let columns = Array(repeating: GridItem(.flexible(), spacing: 2), count: 4)
+        // ThumbGrid.view: the columns times GalleryUi.widthFactor (an iPad: twice as many)
+        let columns = Array(repeating: GridItem(.flexible(), spacing: 2), count: 4 * Tablet.widthFactor(Tablet.screenWidth))
         return VStack(alignment: .leading, spacing: 0) {
             Text(found.isEmpty ? L("gallery.search_nothing") : L("gallery.search_found") + " " + GalleryView.countText(found.count))
                 .font(.app(13)).foregroundStyle(GalleryStyle.muted).padding(.horizontal, 18).padding(.bottom, 8)

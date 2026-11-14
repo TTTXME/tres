@@ -19,6 +19,9 @@ struct AlbumsPage: View {
 
     static let firstFrequent = 4, firstOthers = 9
 
+    /// AlbumViews.covers / AlbumsPage.tiles: 2 and 3 a row times GalleryUi.widthFactor (an iPad: twice as many)
+    private var widthFactor: Int { Tablet.widthFactor(Tablet.screenWidth) }
+
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
@@ -32,7 +35,7 @@ struct AlbumsPage: View {
                     if !lists.frequent.isEmpty {
                         section("frequent", L("gallery.albums.frequent"), more: lists.frequent.count > Self.firstFrequent) {
                             let shown = expanded.contains("frequent") ? lists.frequent : Array(lists.frequent.prefix(Self.firstFrequent))
-                            LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
+                            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 2 * widthFactor), spacing: 12) {
                                 ForEach(shown) { a in card(a) }
                             }
                         }
@@ -40,7 +43,7 @@ struct AlbumsPage: View {
                     if !lists.others.isEmpty {
                         section("others", L("gallery.albums.others"), more: lists.others.count > Self.firstOthers) {
                             let shown = expanded.contains("others") ? lists.others : Array(lists.others.prefix(Self.firstOthers))
-                            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 3), spacing: 12) {
+                            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 3 * widthFactor), spacing: 12) {
                                 ForEach(shown) { a in card(a, small: true) }
                             }
                         }
