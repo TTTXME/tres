@@ -17,7 +17,13 @@ enum PageReset {
     }
 
     static func resetRow(_ n: SettingsNode) -> Bool {
-        guard let key = n.key, !SettingsAvailability(store.values).hidden(key) else { return false }
+        guard let key = n.key, !SettingsAvailability(store.values).hidden(key), !SettingsExtras.codeHidden.contains(key) else { return false }
+        if key == Sounds.key {
+            // «Звуки» stores nothing: its two switches go back to their defaults
+            let before = Sounds.value(store)
+            for k in [Sounds.shutter, Sounds.timer] { store.set(k, find(k)?.defaultValue?.bool ?? true) }
+            return Sounds.value(store) != before
+        }
         if n.type == "custom:PhotoStylePreference" {
             if PhotoStyle.current(store) == PhotoStyle.normal { return false }
             PhotoStyle.apply(store, PhotoStyle.normal)
@@ -108,41 +114,6 @@ struct OldstyleResetRow<Label: View>: View {
     }
 }
 
-/// «Модули камеры» (ModuleRows' root_modules) on the iPhone: the lenses AVFoundation lists (ios/Capture LensModules: a physical
-/// lens or an in-sensor zoom of one), read-only. The Android cards' copies, Camera IDs, sensor modes and per-module profiles have
-/// no counterpart here (the note says why).
-struct LensModulesList: View {
-    @Environment(\.settingsCamera) private var camera
-    @State private var found: [LensModule] = []
-
-    var body: some View {
-        let modules = (camera?.modules.isEmpty == false ? camera?.modules : nil) ?? found
-        Group {
-            if modules.isEmpty {
-                Text(L("set.modules.none")).font(.footnote).foregroundStyle(.secondary)
-            }
-            ForEach(modules) { m in
-                HStack(spacing: 12) {
-                    Text(m.label).font(.headline.monospacedDigit()).frame(minWidth: 52, alignment: .leading)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(m.deviceName)
-                        Text((m.isFront ? L("set.modules.front") : L("set.modules.back")) + " · "
-                             + (m.kind == .isz ? L("set.modules.isz") : L("info.lens"))
-                             + (m.id == camera?.activeModuleID ? " · " + L("set.modules.active") : ""))
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                }
-            }
-            Text(L("set.modules.note")).font(.caption).foregroundStyle(.secondary)
-        }
-        .task {
-            if camera?.modules.isEmpty == false { return }
-            found = await Task.detached(priority: .userInitiated) { DeviceLookup.modules() }.value
-        }
-    }
-}
-
-/// The session log (ios/Support/SessionLog: Documents/Log, a file a day) for «Логи»
 enum LogFiles {
     static func current() -> URL? { SessionLog.shared.flushedFiles().first }
 
@@ -246,10 +217,22 @@ enum SettingsExtras {
     /// What a category built in code on Android shows here
     @ViewBuilder static func categoryContent(_ key: String?) -> some View {
         if key == "root_modules" {
-            LensModulesList()
+            ModulesCard()
         }
     }
 
     /// «Версия»: the version, the build and the phone (version_summary: v%1$s · %3$s, then the source revision)
     static var versionText: String { "v\(BuildInfo.version).\(BuildInfo.build) · \(BuildInfo.machine)\n\(BuildInfo.sha)" }
+
+    /// Rows the page's code hides (SettingsActivity.codeHidden): the two sound switches under «Звуки»
+    static let codeHidden: Set<String> = [Sounds.shutter, Sounds.timer]
+
+    /// SettingsStyle.valueOf: the value a page's row shows on its right
+    static func pageValue(_ key: String?) -> String? {
+        switch key {
+        case "backup_settings_screen": return ConfigState.label()
+        case "output_settings_screen": return PhotoEncoding.codec.uppercased()
+        default: return nil
+        }
+    }
 }
