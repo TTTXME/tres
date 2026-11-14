@@ -93,7 +93,8 @@ final class CameraChrome {
 
 /// The camera accent (the concept's #FFD60A) and the items' tint when on
 enum CameraStyle {
-    static let accent = Color(red: 1, green: 0.839, blue: 0.039)
+    /// pref_theme_accent_key (AccentPalette): the chosen accent, else the camera's own yellow
+    static var accent: Color { AccentPalette.chosen ?? Color(red: 1, green: 0.839, blue: 0.039) }
 
     static var russian: Bool { (Locale.preferredLanguages.first ?? "en").hasPrefix("ru") }
 

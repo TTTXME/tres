@@ -10,6 +10,7 @@ struct SCAMERAApp: App {
             CameraView(camera: camera)
                 .statusBarHidden(true)
                 .preferredColorScheme(.dark)
+                .modifier(AccentTint())
                 .task { await camera.start() }
         }
         .onChange(of: scenePhase) { _, phase in

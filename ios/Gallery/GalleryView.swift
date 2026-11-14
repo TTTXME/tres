@@ -54,7 +54,9 @@ struct GalleryView: View {
             }
             if selection == nil, library.access == .granted { tabBar }
         }
-        .preferredColorScheme(.dark)
+        // pref_theme_key (GalleryTheme): the system sheets, menus and alerts follow it; the gallery's own pages stay dark
+        .environment(\.colorScheme, .dark)
+        .preferredColorScheme(GalleryTheme.scheme)
         .task { await library.start() }
         .onDisappear { library.stop() }
         .fullScreenCover(item: $viewer) { start in
