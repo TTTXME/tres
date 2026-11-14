@@ -38,6 +38,8 @@ CAPTION_LIMIT = 1000        # Telegram allows 1024 visible characters; keep a ma
 SUBJECT_LIMIT = 140
 HEADER_LIMIT = 300
 WORKFLOW = 'build-test-apk.yml'
+BRANCH = 'main'
+ARTIFACT = r'SCAMERA-Build-(\d+)'
 AI_MODEL = '@cf/meta/llama-3.3-70b-instruct-fp8-fast'   # Workers AI free plan: 10k neurons a day, ~200 a changelog
 AI_INPUT_LIMIT = 12000      # characters of commit messages sent to the model
 CHANGELOG_ITEMS = 6
@@ -197,6 +199,8 @@ def english_sections(sections, head):
         for heading, items in all_sections:
             days.setdefault(heading.split(' — ', 1)[0].strip(), []).append((heading, items))
         return days
+    if not CHANGELOG_EN_FILE:
+        return []
     english = by_day(changelog_sections(repo_file(CHANGELOG_EN_FILE, head)))
     russian = by_day(changelog_sections(repo_file(CHANGELOG_FILE, head)))
     out = []
@@ -219,7 +223,7 @@ def md_inline(text):
 
 def previous_build(head):
     """(commit, build number or '') of the last successful push build of main before the build of commit <head>."""
-    runs = github_api(f'/actions/workflows/{WORKFLOW}/runs?branch=main&event=push&status=success'
+    runs = github_api(f'/actions/workflows/{WORKFLOW}/runs?branch={BRANCH}&event=push&status=success'
                       '&exclude_pull_requests=true&per_page=10')   # 10: a run is ~13 KB of JSON
     runs = runs['workflow_runs']   # newest first
     same = [i for i, run in enumerate(runs) if run['head_sha'] == head]
@@ -229,7 +233,7 @@ def previous_build(head):
         number = ''
         try:
             for artifact in github_api(f'/actions/runs/{run["id"]}/artifacts?per_page=50')['artifacts']:
-                m = re.fullmatch(r'SCAMERA-Build-(\d+)', artifact['name'])
+                m = re.fullmatch(ARTIFACT, artifact['name'])
                 if m:
                     number = m[1]
                     break
@@ -358,6 +362,9 @@ def visible_length(text):
 
 
 def build_title(apk):
+    m = re.match(r'SCAMERA-iOS-(?P<ver>[0-9.]+)', apk.name)
+    if m:   # the iOS build: its version, and that the IPA is unsigned (installed by re-signing: AltStore, Sideloadly)
+        return f'SCAMERA iOS {m["ver"]}' + (' · unsigned IPA' if 'unsigned' in apk.name else '')
     m = re.match(r'SCAMERA-(?P<ver>[^-]+)-(?P<code>\d+)', apk.name)
     return f'SCAMERA {m["ver"]} · {m["code"]}' if m else apk.stem
 
@@ -532,8 +539,9 @@ async def publish(args, digest):
                 continue
             media = media or message.media
             posted.append((name, message.id))
-            try:   # the newest APK on top of its topic; silent, the post itself has notified
-                await client.pin_message(chat, message, notify=False)
+            try:   # the newest APK on top of its topic; silent, the post itself has notified (an IPA is not pinned)
+                if args.pin:
+                    await client.pin_message(chat, message, notify=False)
             except Exception as e:
                 print(f'::warning::Post not pinned: {type(e).__name__}')
                 unpinned.append(name)
@@ -566,7 +574,10 @@ async def publish(args, digest):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument('--apk', required=True, type=Path)
+    ap.add_argument('--apk', required=True, type=Path, help='the build: an APK, or with --platform ios an IPA')
+    ap.add_argument('--platform', choices=('android', 'ios'), default='android',
+                    help='ios: the IPA of build-ios-ipa.yml, its branch and ios/CHANGELOG.md; not pinned')
+    ap.add_argument('--branch', default='', help='with --platform ios: the branch whose builds are compared')
     ap.add_argument('--to-rev', default='main', help='commit (or branch) of the build on GitHub')
     ap.add_argument('--from-rev', default='', help='changelog range start when no previous build is found '
                                                    '(github.event.before)')
@@ -576,9 +587,17 @@ def main():
     ap.add_argument('--dry-run', action='store_true', help='print the caption and do not post')
     ap.add_argument('--settings-json', default='', help='with --dry-run: settings to preview the caption with')
     args = ap.parse_args()
+    global WORKFLOW, BRANCH, ARTIFACT, CHANGELOG_FILE, CHANGELOG_EN_FILE
+    suffix = '.apk'
+    args.pin = True
+    if args.platform == 'ios':
+        WORKFLOW, ARTIFACT = 'build-ios-ipa.yml', r'SCAMERA-iOS-([0-9.]+)'
+        BRANCH = args.branch or BRANCH
+        CHANGELOG_FILE, CHANGELOG_EN_FILE = 'ios/CHANGELOG.md', ''
+        suffix, args.pin = '.ipa', False
 
-    if not args.apk.is_file() or args.apk.suffix.lower() != '.apk':
-        print(f'::error::Not an APK: {args.apk}')
+    if not args.apk.is_file() or args.apk.suffix.lower() != suffix:
+        print(f'::error::Not an {suffix[1:].upper()}: {args.apk}')
         return 1
     digest = sha256(args.apk)
     if args.dry_run:

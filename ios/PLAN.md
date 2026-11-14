@@ -867,3 +867,11 @@ camera_screen: the top row (64 pt) with its grabber, the 3:4 viewfinder from the
 - Risky for the CI build / device: `horizontalSizeClass` drives the camera's and the editor's iPad paths (a regular width; an
   iPad form sheet may report compact - it then gets the phone layout); `UIRequiresFullScreen` is deprecated on iPadOS 26 (still
   honoured; a resizable-window future would need all four orientations and the camera's rotation handling).
+
+## IPA to Telegram (2026-11-14)
+- Owner: «наш бот в тг отправлял и ипа», every build. build-ios-ipa.yml posts the IPA after its artifact through
+  tools/telegram_publish.py --platform ios (the APK's bot, targets, /on /off and secrets; continue-on-error): the previous
+  build is the last green build-ios-ipa.yml run of the same branch (artifact SCAMERA-iOS-<version>), the caption's sections
+  come from ios/CHANGELOG.md (no English copy), the title «SCAMERA iOS <version> · unsigned IPA»; the IPA is not pinned (the
+  APK stays the topic's pin). The bot's /post re-sends APKs only.
+
