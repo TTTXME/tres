@@ -26,9 +26,9 @@ struct FormatPickerCard: View {
     }
 
     var body: some View {
-        let format = store.string("pref_photo_format", "jpeg") == "heic" ? "heic" : "jpeg"
-        let mode = min(2, max(0, Int(store.string(CameraModel.saveRawKey, "0")) ?? 0))
-        let kind = camera?.rawKind ?? storedKind
+        let format: String = store.string("pref_photo_format", "jpeg") == "heic" ? "heic" : "jpeg"
+        let mode: Int = min(2, max(0, Int(store.string(CameraModel.saveRawKey, "0")) ?? 0))
+        let kind: RawChoice = camera?.rawKind ?? storedKind
         VStack(alignment: .leading, spacing: 8) {
             Text(Lang.t("Фото", "Photo")).font(.app(12)).foregroundStyle(.secondary)
             Picker("", selection: Binding(get: { format }, set: { store.set("pref_photo_format", $0) })) {
@@ -55,12 +55,18 @@ struct FormatPickerCard: View {
             }
             .pickerStyle(.segmented)
             .disabled(mode == 0)
-            Text(Lang.t("Сохраняется: ", "Saved: ") + (mode == 2 ? "DNG (" + kind.title + ")"
-                                                     : format.uppercased() + (mode == 0 ? "" : " + DNG (" + kind.title + ")")))
+            Text(Self.saved(mode: mode, format: format, kind: kind))
                 .font(.app(13)).foregroundStyle(.secondary)
             Text(Lang.t("Качество", "Quality")).font(.app(13, 600)).foregroundStyle(Color.accentColor).padding(.top, 8)
         }
         .padding(.vertical, 4)
+    }
+
+    private static func saved(mode: Int, format: String, kind: RawChoice) -> String {
+        let dng: String = "DNG (" + kind.title + ")"
+        let what: String
+        if mode == 2 { what = dng } else if mode == 0 { what = format.uppercased() } else { what = format.uppercased() + " + " + dng }
+        return Lang.t("Сохраняется: ", "Saved: ") + what
     }
 }
 

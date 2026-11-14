@@ -69,9 +69,9 @@ struct CameraView: View {
         .sheet(isPresented: Binding(get: { lutPage != nil }, set: { if !$0 { lutPage = nil; lut.touch() } })) {
             NavigationStack {
                 switch lutPage ?? 0 {
-                case 1: LensFilterPage()
+                case 1: Form { LensFilterCard() }
                 case 2: FilmSimPage()
-                default: FilmLutPage()
+                default: Form { FilmLutCard() }
                 }
             }
             .preferredColorScheme(.dark)
