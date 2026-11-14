@@ -32,9 +32,14 @@ public final class FullResRecipeShot {
 
     /** The shot's verdict: measured on the first frame that comes (logged once), the same for every later frame. */
     public synchronized FullResTruth.Result judge(@Nullable ByteBuffer raw, int width, int height, int stride) {
+        return judge(raw, width, height, stride, false);
+    }
+
+    /** P689: {@link #judge(ByteBuffer, int, int, int)} of a packed RAW10 still ({@code raw10}: the X9 Ultra recipe's stills). */
+    public synchronized FullResTruth.Result judge(@Nullable ByteBuffer raw, int width, int height, int stride, boolean raw10) {
         if (first != null) return first;
         final long start = System.nanoTime();
-        first = FullResTruth.check(raw, width, height, stride, declaredBlack);
+        first = FullResTruth.check(raw, width, height, stride, declaredBlack, raw10);
         Log.i("SCAM_CAPTURE", first.line() + " (camera " + camera + ", " + profile + ", " + (System.nanoTime() - start) / 1_000_000 + " ms, P635)");
         return first;
     }

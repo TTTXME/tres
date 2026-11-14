@@ -33,7 +33,7 @@ public final class FullResRecipePlan {
     public enum Stream { VIEWFINDER, RAW_PREVIEW, RAW_CAPTURE, COMPANION }
 
     /** ImageFormat's numbers (the engine needs no Android class for them). */
-    public static final int RAW_SENSOR = 0x20, YUV_420_888 = 0x23, PRIVATE = 0x22;
+    public static final int RAW_SENSOR = 0x20, YUV_420_888 = 0x23, PRIVATE = 0x22, RAW10 = 0x25;
     /** CameraMetadata.SENSOR_PIXEL_MODE_*. */
     public static final int PIXEL_DEFAULT = 0, PIXEL_MAXIMUM_RESOLUTION = 1;
     /**
@@ -110,6 +110,7 @@ public final class FullResRecipePlan {
         FullResRecipe.Preview preview = recipe.preview;
         if (preview != FullResRecipe.Preview.ISP && !hasRaw) preview = FullResRecipe.Preview.ISP;
         if (preview != FullResRecipe.Preview.RAW && !hasIsp) preview = FullResRecipe.Preview.RAW;
+        // P689: fake off needs both streams (the ISP one configured, the RAW one repeated): without either it is what is left
         if (preview == FullResRecipe.Preview.RAW && !hasRaw) return null;
         final boolean annotate = recipe.pixelMode == FullResRecipe.PixelMode.ANNOTATE;
         final int[] none = new int[0], def = annotate ? new int[]{PIXEL_DEFAULT} : none, max = annotate ? new int[]{PIXEL_MAXIMUM_RESOLUTION} : none;
@@ -118,7 +119,8 @@ public final class FullResRecipePlan {
             out.add(new Output(Stream.VIEWFINDER, env.viewfinderWidth, env.viewfinderHeight, PRIVATE, 0, 0, def));
         if (preview != FullResRecipe.Preview.ISP)
             out.add(new Output(Stream.RAW_PREVIEW, env.previewRawWidth, env.previewRawHeight, env.previewRawFormat, 0, 0, def));
-        out.add(new Output(Stream.RAW_CAPTURE, recipe.width, recipe.height, RAW_SENSOR, recipe.usage, recipe.useCase, max));
+        out.add(new Output(Stream.RAW_CAPTURE, recipe.width, recipe.height, recipe.format == FullResRecipe.RAW10 ? RAW10 : RAW_SENSOR,
+                recipe.usage, recipe.useCase, max)); // P689: the profile's format (RAW10: the X9 Ultra recipe's photo stream)
         if (recipe.companion == FullResRecipe.Companion.YUV) {
             final int[] size = recipe.companionWidth > 0 && recipe.companionHeight > 0
                     ? new int[]{recipe.companionWidth, recipe.companionHeight} : companionSize(env.yuvSizes, recipe.width, recipe.height);
@@ -198,6 +200,20 @@ public final class FullResRecipePlan {
         return output(Stream.VIEWFINDER) != null;
     }
 
+    /**
+     * P689: the ISP stream is in the session but in no request (fake off) - the RAW viewfinder repeats alone while the HAL keeps
+     * the stream it runs its 3A on.
+     */
+    public boolean ispFake() {
+        return preview == FullResRecipe.Preview.FAKE && ispStream() && rawViewfinder();
+    }
+
+    /** P689: the capture RAW's format (ImageFormat: RAW_SENSOR or RAW10). */
+    public int captureFormat() {
+        final Output o = output(Stream.RAW_CAPTURE);
+        return o == null ? RAW_SENSOR : o.format;
+    }
+
     /** A still also targets the viewfinder's ISP stream (the profile's «viewfinder» companion). */
     public boolean viewfinderCompanion() {
         return recipe.companion == FullResRecipe.Companion.VIEWFINDER && ispStream();
@@ -214,7 +230,7 @@ public final class FullResRecipePlan {
             if (output(Stream.COMPANION) != null) out.add(Stream.COMPANION);
             else if (viewfinderCompanion()) out.add(Stream.VIEWFINDER);
         } else {
-            if (ispStream()) out.add(Stream.VIEWFINDER);
+            if (ispStream() && !ispFake()) out.add(Stream.VIEWFINDER); // P689: fake off - configured, never targeted
             if (rawViewfinder()) out.add(Stream.RAW_PREVIEW);
             // P653: the YUV companion on every request of the session (its frames are dropped), the profile's «YUV на видоискателе»
             if (recipe.viewCompanion && output(Stream.COMPANION) != null) out.add(Stream.COMPANION);
@@ -286,6 +302,7 @@ public final class FullResRecipePlan {
                 .append(recipe.id.isEmpty() ? "own profile" : "«" + recipe.id + "»").append(recipe.experimental ? " (experimental)" : "")
                 .append(": streams");
         for (Output o : outputs) sb.append(" {").append(o).append('}');
+        if (ispFake()) sb.append(" (the ISP stream as fake off: in the session, in no request, P689)");
         if (preview != recipe.preview) sb.append(" (viewfinder ").append(preview.name().toLowerCase(Locale.ROOT)).append(": the camera has no stream for «")
                 .append(recipe.preview.name().toLowerCase(Locale.ROOT)).append("»)");
         sb.append("; repeating -> ").append(list(targets(false))).append(pixelMode(false) == null ? "" : " DEFAULT");

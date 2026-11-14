@@ -125,8 +125,9 @@ public class SaverImplementation {
         }
         // P635 / P635b: a recipe shot's truth check on the whole buffer, before any crop
         final FullResRecipeShot recipe = recipeShot;
-        if (recipe != null && rows.format == ImageFormat.RAW_SENSOR && payload.plain()) {
-            final FullResTruth.Result truth = recipe.judge(buffer, image.getWidth(), rows.height, rows.stride);
+        // P689: the X9 Ultra recipe's RAW10 stills are judged on their packed rows
+        if (recipe != null && (rows.format == ImageFormat.RAW_SENSOR || rows.format == RAW10) && payload.plain()) {
+            final FullResTruth.Result truth = recipe.judge(buffer, image.getWidth(), rows.height, rows.stride, rows.format == RAW10);
             if (truth.verdict == FullResTruth.Verdict.UPSCALED || truth.verdict == FullResTruth.Verdict.PARTIAL)
                 return recipeFrame(image, buffer, rows, truth);
         }
@@ -182,7 +183,7 @@ public class SaverImplementation {
      * without a buffer, which the series drops.
      */
     private ImageFrame recipeFrame(Image image, ByteBuffer buffer, Rows rows, FullResTruth.Result truth) {
-        final ImageFrame binned = recipeBinned(image, buffer, rows.stride, rows.height, truth);
+        final ImageFrame binned = recipeBinned(image, buffer, rows.stride, rows.height, truth, rows.format == RAW10);
         if (binned != null) return binned;
         final ImageFrame refused = ImageFrame.wrap(null, image.getWidth(), rows.height);
         refused.rawPayloadError = "the full-size buffer holds no full frame (" + truth.verdict + ") and no binned frame the shot could take";
@@ -223,15 +224,18 @@ public class SaverImplementation {
      * the binned frame at its own pitch in the buffer's first quarter unpacked (FullResTruth) - in the shot's arena, else a buffer
      * of its own; null when there is none to take (the caller refuses the frame).
      */
-    private ImageFrame recipeBinned(Image image, ByteBuffer buffer, int rowStride, int height, FullResTruth.Result truth) {
+    private ImageFrame recipeBinned(Image image, ByteBuffer buffer, int rowStride, int height, FullResTruth.Result truth, boolean raw10) {
         final int width = image.getWidth();
         final boolean doubled = truth.verdict == FullResTruth.Verdict.UPSCALED;
         if (!doubled && !truth.packedQuarter()) return null;
         final int[] half = FullResTruth.halfSize(width, height);
         final ByteBuffer out = binnedBuffer(half[0] * half[1] * 2);
         if (out == null) return null;
-        final boolean made = doubled
-                ? FullResTruth.halve(out, buffer, 0, width, height, rowStride, truth.phase)
+        // P689: a RAW10 still (the X9 Ultra recipe) unpacked to the uint16 binned frame as it is taken back
+        final boolean made = raw10
+                ? doubled ? FullResTruth.halveRaw10(out, buffer, 0, width, height, rowStride, truth.phase)
+                : FullResTruth.unpackQuarterRaw10(out, buffer, width, height, rowStride)
+                : doubled ? FullResTruth.halve(out, buffer, 0, width, height, rowStride, truth.phase)
                 : FullResTruth.unpackQuarter(out, buffer, width, height, rowStride);
         if (!made) return null;
         out.position(0);

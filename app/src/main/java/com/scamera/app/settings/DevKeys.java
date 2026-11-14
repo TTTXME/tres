@@ -774,6 +774,10 @@ public final class DevKeys {
                 "OnePlus 16, main, 50 MP: first modes 25 and 9 (8192x6144) with the ISP stream in the session - fake off, then on")));
         k.add(s(cap, "oplus_binned_50", true, Lang.t("OnePlus 16, основная: когда строки 50 Мп кончились, 50 Мп — режим 200 Мп с бинингом 2×2 в ячейке Tetra. Выкл — 50 Мп тускнеет",
                 "OnePlus 16, main: with no 50 MP row left, 50 MP is the 200 MP mode binned 2x2 per Tetra cell. Off: 50 MP is dimmed")));
+        k.add(s(cap, "x9u_fullres", true, Lang.t("OPPO Find X9 Ultra: «50 Мп» по рецепту полного разрешения X9 Ultra (RAW10 полного размера только в снимках, режим сенсора — только в снимке). Выкл — FULLRES на X9 Ultra нет",
+                "OPPO Find X9 Ultra: «50 MP» by the X9 Ultra full-resolution recipe (the full-size RAW10 in the stills only, the sensor mode on the still only). Off: no FULLRES on the X9 Ultra")));
+        k.add(s(cap, "x9u_isp_fake_first", true, Lang.t("OPPO Find X9 Ultra, «50 Мп», «Поток ISP» Авто: сначала поток ISP фиктивно выкл. (для автофокуса), при сбое — выкл. Выкл — сразу выкл., как в рецепте",
+                "OPPO Find X9 Ultra, «50 MP», «ISP stream» Auto: the ISP stream fake off first (for the autofocus), off after a failure. Off: off at once, as the recipe has it")));
         k.add(s(cap, "oplus_dead_rows_last", true, Lang.t("OnePlus 16, основная, 50 Мп: режим 9 (камера падала) после режима 25. Выкл — по порядку таблицы",
                 "OnePlus 16, main, 50 MP: mode 9 (the camera died in it) after mode 25. Off — in the table's order")));
         k.add(s(cap, "oplus_dcg_hdr_key", true, Lang.t("OnePlus 16, DCG / DAG: EnableHDRDCGMode = 1 в сессии и каждом запросе (если камера его перечисляет)",

@@ -3552,7 +3552,7 @@ public class CaptureController {
                     + (cap == Integer.MAX_VALUE ? "" : ", ISO cap " + cap) + ")");
         }
         if (mRecipePlan != null) {
-            mTargetFormat = ImageFormat.RAW_SENSOR;
+            mTargetFormat = mRecipePlan.captureFormat(); // P689: the profile's (RAW_SENSOR; RAW10 on the X9 Ultra)
             fullRes = new Size(mRecipePlan.recipe.width, mRecipePlan.recipe.height);
             mFullResSession = true;
         }
@@ -4098,7 +4098,7 @@ public class CaptureController {
             if (photoMode && PreferenceKeys.scamDevSwitch("isp_preview_off_always", false)) mIspPreviewOff = true;
             if (mRecipePlan != null) { // P635: the viewfinder's streams are the profile's, whatever «Поток ISP» says
                 mIspSurfaceOff = !mRecipePlan.ispStream();
-                mIspPreviewOff = mIspSurfaceOff;
+                mIspPreviewOff = mIspSurfaceOff || mRecipePlan.ispFake(); // P689: fake off - configured, in no request
             }
             if (loficSetup != null) { // P679: the recipe's viewfinder is its PRIVATE stream (output 1)
                 mIspSurfaceOff = false;
@@ -4554,7 +4554,8 @@ public class CaptureController {
         final CameraMode mode = ScameraApp.getSettings().mode;
         if (sdkFullRes || recordingVideo || !isRawFormat(mTargetFormat)
                 || (mode != CameraMode.PHOTO && mode != CameraMode.NIGHT && mode != CameraMode.MOTION)) return;
-        final FullResRecipeStore.Active active = FullResRecipeStore.active(physicalID, characteristics);
+        // P689: with the session's «Поток ISP» (the OPPO Find X9 Ultra's «50 Мп» recipe takes its viewfinder variant from it)
+        final FullResRecipeStore.Active active = FullResRecipeStore.active(physicalID, characteristics, this.ispSurface);
         if (active == null) return;
         Size viewfinder = null;
         try {
@@ -4601,6 +4602,7 @@ public class CaptureController {
         Log.i("SCAM_CAPTURE", "FULLRES RECIPE camera " + physicalID + " on: " + active.recipe + " (module " + active.slot
                 + (active.autoRow >= 0 ? ", instead of the module's sensor mode row " + active.autoRow + ": that row alone gives no full frame, P635b" : "")
                 + (mRecipeProof == 1 ? ", not proven on this firmware yet: one proof still follows" : ", proven on this firmware") + ", P635)");
+        if (active.x9Ultra() && OplusX9Ultra.learnLine(physicalID) != null) Log.i("SCAM_CAPTURE", OplusX9Ultra.learnLine(physicalID)); // P689
     }
 
     /**
@@ -4681,8 +4683,10 @@ public class CaptureController {
             CameraCharacteristics c = mCameraCharacteristicsMap.get(physicalID);
             if (c == null) c = mCameraCharacteristics;
             final float black = com.scamera.app.processing.RawLevels.current(c, null).meanBlack();
-            if (img.getFormat() == ImageFormat.RAW_SENSOR)
-                truth = FullResTruth.check(img.getPlanes()[0].getBuffer(), img.getWidth(), img.getHeight(), img.getPlanes()[0].getRowStride(), black);
+            // P689: a RAW10 proof (the X9 Ultra recipe's stills) is judged on its packed rows
+            if (img.getFormat() == ImageFormat.RAW_SENSOR || img.getFormat() == ImageFormat.RAW10)
+                truth = FullResTruth.check(img.getPlanes()[0].getBuffer(), img.getWidth(), img.getHeight(), img.getPlanes()[0].getRowStride(),
+                        black, img.getFormat() == ImageFormat.RAW10);
         } catch (RuntimeException e) {
             Log.w("SCAM_CAPTURE", "FULLRES RECIPE proof: " + e);
         } finally {
@@ -4797,11 +4801,12 @@ public class CaptureController {
     }
 
     /** P635: the running profile failed for {@code why}: remembered for this lens (until a field changes), said in the log with its field set. */
-    private void recipeFailed(String why) {
+    @Nullable
+    private String recipeFailed(String why) {
         final FullResRecipeStore.Active active = mRecipe;
         final FullResRecipePlan plan = mRecipePlan;
-        if (active == null) return;
-        FullResRecipeStore.failActive(active, why);
+        if (active == null) return null;
+        final String notice = FullResRecipeStore.failActive(active, why); // P689: the X9 Ultra's variant memory and message
         Log.w("SCAM_CAPTURE", "FULLRES RECIPE camera " + physicalID + " failed (" + why + "): the normal session opens; the lens keeps this"
                 + " until a field of the profile changes. " + (plan == null ? String.valueOf(active.recipe) : plan.describe(String.valueOf(physicalID))));
         mRecipe = null;
@@ -4809,6 +4814,7 @@ public class CaptureController {
         mRecipeShot = null;
         FullResRecipeSession.session(null);
         mFullResSession = false;
+        return notice;
     }
 
     /**
@@ -4818,9 +4824,9 @@ public class CaptureController {
      */
     private boolean retryWithoutRecipe(@Nullable CameraCaptureSession session, String why) {
         if (mRecipe == null) return false;
-        recipeFailed(why);
+        final String x9u = recipeFailed(why); // P689: the X9 Ultra's «50 Мп» names its next variant
         if (session != null) try { session.close(); } catch (Exception ignored) { }
-        showError(Lang.t("Полное разрешение (рецепт): камера отказала, обычный режим. Причина — в настройках объектива.",
+        showError(x9u != null ? x9u : Lang.t("Полное разрешение (рецепт): камера отказала, обычный режим. Причина — в настройках объектива.",
                 "Full resolution (recipe): refused by the camera, normal mode. The reason is in the lens settings."));
         mainHandler().post(this::restartCamera);
         return true;
