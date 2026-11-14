@@ -34,6 +34,8 @@ struct RoundIconButton: View {
     let label: String
     var enabled = true
     var background: Color = GalleryStyle.card
+    /// Motion.press (0.94) / EditMotion.press (0.9): the press shrinks it, the release springs it back
+    var pressScale: CGFloat = 0.94
     let action: () -> Void
     var body: some View {
         Button(action: action) {
@@ -41,7 +43,7 @@ struct RoundIconButton: View {
                 .frame(width: 40, height: 40)
                 .background(background, in: Circle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PressScaleStyle(scale: pressScale))
         .opacity(enabled ? 1 : 0.35)
         .disabled(!enabled)
         .accessibilityLabel(label)
@@ -182,6 +184,7 @@ struct EditSliderRow: View {
             .frame(height: 28)
         }
         .padding(.horizontal, 18).padding(.top, 8).padding(.bottom, 2)
+        .modifier(StaggerIn())
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(label)
         .accessibilityValue(format(value))
