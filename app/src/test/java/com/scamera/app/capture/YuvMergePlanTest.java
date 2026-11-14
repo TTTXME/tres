@@ -227,4 +227,24 @@ public class YuvMergePlanTest {
         }
         assertTrue(src.contains("YuvMergePlan.ringFrames(PreferenceKeys.getZslBufferCountValue(), PreferenceKeys.getHybridZslFrames(), yuv.frameBytes, SUSPENDED_RING)"));
     }
+
+    /** P690 (owner's log 2026-11-14): N frames filling the whole budget left no room for the brackets of a backlit scene. */
+    @Test public void theBracketsKeepTheirRoomWhenTheNFillTheBudget() {
+        final YuvMergePlan.Tuning twenty = new YuvMergePlan.Tuning(20, true, 3f, 2f);
+        final long frame = 18L << 20; // 4096 x 3072 8-bit: 16 frames in the budget
+        final HybridPlan plan = YuvMergePlan.build(8_333_326L, 78, TIMES, ISOS, 0.1681f, 0.162f, twenty, frame, true);
+        int n = 0, es = 0, l = 0;
+        for (HybridPlan.Request r : plan.requests) {
+            if (r.role == ImageFrame.CaptureRole.NORMAL) n++;
+            else if (r.role == ImageFrame.CaptureRole.EXTRA_SHORT) es++;
+            else if (r.role == ImageFrame.CaptureRole.LONG) l++;
+        }
+        assertEquals(2, es);
+        assertEquals(1, l);
+        assertEquals(13, n);
+        assertTrue(plan.requests.size() <= 16);
+        // a scene with nothing clipped and no deep shadows keeps every frame for N
+        assertEquals(16, YuvMergePlan.build(8_333_326L, 78, TIMES, ISOS, 0f, 0.01f, twenty, frame, true).requests.size());
+        assertEquals(0, YuvMergePlan.bracketsWanted(twenty, false, 0.2f, 0.2f));
+    }
 }

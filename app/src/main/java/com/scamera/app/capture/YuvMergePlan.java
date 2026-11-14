@@ -74,7 +74,10 @@ final class YuvMergePlan {
     static HybridPlan build(long nNs, int nIso, Range<Long> times, Range<Integer> isos, float clip, float shadow, Tuning t,
                             long frameBytes, boolean bracketAllowed) {
         final int maxFrames = (int) Math.max(2, Math.min(16, BUDGET_BYTES / Math.max(1, frameBytes)));
-        final int normals = Math.min(t.frames, maxFrames);
+        // P690 (owner's log 2026-11-14: 16 N frames filled the 16-frame budget, so a backlit scene - 17 % clipped, 16 % deep
+        // shadows - got no short and no long frame): the brackets the scene asks for are kept out of the N's share of the budget
+        final int reserved = bracketsWanted(t, bracketAllowed, clip, shadow);
+        final int normals = Math.max(2, Math.min(t.frames, maxFrames - reserved));
         // P650: the general frame count was cut to the packed-frame memory budget (the RAW path logs its own cap the same way)
         final String memCap = normals < t.frames
                 ? String.format(Locale.ROOT, " N %d->%d (memory: %d frames of %.1f MB)", t.frames, normals, maxFrames, frameBytes / 1048576.0) : "";
@@ -100,7 +103,8 @@ final class YuvMergePlan {
                     for (int i = 0; i < count; i++) out.add(new HybridPlan.Request(ImageFrame.CaptureRole.EXTRA_SHORT, ns, iso, ratio));
                     room -= count;
                 } else why.append(String.format(Locale.ROOT, " ES skipped (sensor floor x%.2f)", ratio));
-            } else why.append(String.format(Locale.ROOT, " no ES (clipped %.4f)", clip));
+            } else why.append(clip >= CLIP_TRIGGER ? " no ES (no room in the memory budget)"
+                    : String.format(Locale.ROOT, " no ES (clipped %.4f)", clip));
             if (shadow >= SHADOW_TRIGGER && room >= 1) {
                 final double target = n * Math.pow(2, t.longEv);
                 int iso = (int) Math.max(isos.getLower(), Math.min(isos.getUpper(), Math.round(nIso * Math.pow(2, t.longEv))));
@@ -112,10 +116,17 @@ final class YuvMergePlan {
                 final double ratio = ns * (double) iso / n;
                 if (ratio >= 1.4) out.add(new HybridPlan.Request(ImageFrame.CaptureRole.LONG, ns, iso, ratio));
                 else why.append(String.format(Locale.ROOT, " L skipped (x%.2f)", ratio));
-            } else why.append(String.format(Locale.ROOT, " no L (shadows %.3f)", shadow));
+            } else why.append(shadow >= SHADOW_TRIGGER ? " no L (no room in the memory budget)"
+                    : String.format(Locale.ROOT, " no L (shadows %.3f)", shadow));
         }
         final String description = String.format(Locale.ROOT, "YUV MERGE plan: N=%.3fms*ISO%d clip=%.4f shadows=%.3f requests=%s%s"
                 + " (at most %d frames of %.1f MB)%s", nNs / 1e6, nIso, clip, shadow, out, why, maxFrames, frameBytes / 1048576.0, memCap);
         return HybridPlan.of(out, nNs, nIso, description);
+    }
+
+    /** P690: the bracket frames this scene asks for - 2 short ones over the clip trigger, 1 long one over the shadow trigger. */
+    static int bracketsWanted(Tuning t, boolean bracketAllowed, float clip, float shadow) {
+        if (!bracketAllowed || !t.bracket) return 0;
+        return (clip >= CLIP_TRIGGER ? 2 : 0) + (shadow >= SHADOW_TRIGGER ? 1 : 0);
     }
 }

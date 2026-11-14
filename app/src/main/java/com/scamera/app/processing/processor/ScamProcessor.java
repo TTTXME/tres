@@ -727,6 +727,7 @@ public class ScamProcessor extends ProcessorBase {
                             // P656: the merge's span in SHOT SUMMARY (merge=-1 before: the in-process merge had no marks; log 7's
                             // 969 ms YUV merge read as «gap» between nothing and the post)
                             com.scamera.app.processing.ShotTimeline.mark("job");
+                            keepYuvSeries(images); // P690: «Сохранять RAW-серию» of a YUV shot (no worker keeps it)
                             scamOwnedOutput = com.scamera.app.processing.yuv.YuvBurst.process(images, processingParameters,
                                     shotCamera, referenceMetadata);
                             com.scamera.app.processing.ShotTimeline.mark("client_done");
@@ -2121,5 +2122,24 @@ public class ScamProcessor extends ProcessorBase {
             x += strip.getWidth();
         }
         return out;
+    }
+
+    /**
+     * P690 (owner, 2026-11-14: «При включенном YUV бурст не сохраняется»): the RAW routes' series is kept by the merge worker; a YUV
+     * shot is merged here, so «Сохранять RAW-серию» (scam_dev keep_burst) writes its frames itself, next to the RAW series in
+     * Download/SCAMERA, and the lab's sidecars (metadata, photo) land beside it as for a kept RAW series.
+     */
+    private static void keepYuvSeries(java.util.List<ImageFrame> frames) {
+        if (!com.scamera.app.settings.PreferenceKeys.scamDevSwitch("keep_burst",
+                com.scamera.app.settings.PreferenceKeys.isKeepRawBurst())) return;
+        final java.io.File dir = com.scamera.app.util.ScameraFiles.dir();
+        if (dir == null || !dir.isDirectory()) {
+            Log.w("SCAM_HDR", "YUV series not kept: no folder " + dir);
+            return;
+        }
+        final java.io.File target = new java.io.File(dir, "scam_yuvburst-" + new java.text.SimpleDateFormat("yyyyMMdd-HHmmss",
+                java.util.Locale.ROOT).format(new java.util.Date()) + ".bin");
+        if (com.scamera.app.processing.yuv.YuvBurstFile.write(frames, null, target))
+            com.scamera.app.processing.opengl.postpipeline.ScamLab.keepingSeries(target);
     }
 }
