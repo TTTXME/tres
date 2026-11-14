@@ -566,16 +566,15 @@ change: `scam-crash.h` keeps only the stage marks on Apple.
   iPhone, zlib on the host), Parameters.toJson (generated with fromJson by tools/gen_parameters.py: ScamLabParams.toJson's keys
   and forms), JsonOut.hpp. ShotRun.hpp takes it right before the pipeline (DevelopCapture.take), SCAMPhoto.developRecord,
   CameraModel appends it to the DNG file before the library gets it.
-- The iPhone's DNG is the camera's DNG of the series' first frame, not the merged mosaic Android writes (P165; Android gives that
-  reference-frame DNG no record). Its record describes that frame: the shot's Parameters on the DNG's whole grid (the lens shading
-  map before the «16:9» / window crops, the faces on the whole frame, the final size scaled to the grid, outputScale 1), one N
-  frame, no Bento, no effective-frame or clip map, the base highlight mask only when the base is the DNG's frame on its grid,
-  headroom 1, the zoom's crop after the pipeline, "dng":{"frame":"reference"}. A develop of it is the camera's pipeline on one
-  frame (more noise than the merged photo, highlights as that frame clipped them).
+- Only the merged DNG (P165 below) gets a record, as Android: the shot's pipeline Parameters, the merge's worker numbers (Bento,
+  factor, usClipped, effMedian, noise factor, normals, report), the CLIP / EFFR / HLMK maps when the output is at most 24 MP, the
+  DNG's headroom and size, the zoom's crop (none for a Sabre window: the DNG holds it). The develop takes the DNG's level times
+  the headroom.
 - Develop: Engine/post/DevelopRun.hpp (DevelopRun.parameters / values / map / resampled / hlMask / crops; the record's worker
   numbers over the report's; Ultra HDR off: the editor takes SDR), Editor/EditDevelop.hpp (superpixel preview of 2x2 cells of at
-  most 2048 px, Malvar-He-Cutler full develop, halves above 16 MP), DngRaw.decodeLinear (floats; the OpcodeList2 lens shading left
-  out when the record's Parameters carry the map - the pipeline applies it, as on the shot). Bridge/ScamDevelop.mm (SCAMDevelop:
+  most 2048 px, Malvar-He-Cutler full develop, halves above 16 MP), DngRaw.decodeLinear (floats; the DNG's GainMap left
+  out when the record's Parameters carry the map - the pipeline applies it, as on the shot; Android's reader reads tag 0xC740
+  (OpcodeList1) as its «opcodeList2», so it applies none of our files' OpcodeList2 GainMaps either: the same picture). Bridge/ScamDevelop.mm (SCAMDevelop:
   preview / full with the changes' JSON, a GL context of its own per develop, processLock() shared with SCAMShot: ScamLab.LOCK).
 - Editor: «Проявка» tab after «Кадр» (Gallery/EditDevelopPanel.swift): «Проявка камерой», the groups as chips, the settings
   screen's own rows (SettingsRow over a DevelopValues source; lists as menus), greyed with DevelopCatalog.inert, a changed row
@@ -591,6 +590,35 @@ change: `scam-crash.h` keeps only the stage marks on Apple.
 - Not here / to check on the phone: Swift not compiled (no Mac); that Photos keeps the bytes after the DNG; the develop's speed and
   memory on a 48 MP DNG (12 B a pixel below 16 MP, 6 B above, plus the pipeline); an Android-recorded DNG of a DCG shot does not
   develop here (the DCG noise zones are not ported); the copy's description line (EditExporter.describe) is not written.
+
+## Merged DNG (P165 / P214c / P243 / P618 / P620, 2026-11-14)
+- The SHDR shot with RAW saved writes Android's merged DNG instead of the camera's DNG of frame 0: the merge is asked for its
+  merged Bayer RAW (header flag 2, as ScamHybridBurst.mergedDng; the shared C++ fills MergeResult.mergedDng, ShotRun takes the
+  trailer out before the worker output is read), then ScamProcessor's P165 block before the pipeline (Engine/post/DngWriter.hpp):
+  the levels x 65535 / white, WhiteLevel 65535, BaselineExposure log2(headroom) of «HYBRID DNG: ... headroom=», NoiseProfile of
+  the merged level (DngMetadata.mergeFrames / noiseProfile, the noise check's factor), the JPEG's colour (DngColour.jpegProfile,
+  scam_dev dng_colour_jpeg), ImageDescription «RAW=merged burst», ShotExif's DNG tags (time, sub-seconds, zone, ISO, exposure,
+  f-number, APEX, focal, LensMake / LensModel / LensSpecification), «DNG без потерь» (LJ92). The writer is Android's own:
+  Engine/post/DngWriter.cpp holds dngCreator.cpp's class over the same deps/tiny_dng_writer.h, without its JNI part.
+- P620: once the photo is encoded, the photo (watermark included) at 1024 px turned back to the sensor's orientation is the DNG's
+  preview IFD (Engine/post/DngPreview.hpp: PhotoThumbnail.sample / dngSource, DngPreview.append on the bytes), not for a mirrored
+  front shot; then P665's record. CameraModel saves that file as the asset's .alternatePhoto (com.adobe.raw-image, as before).
+- iPhone values where Android's come from Camera2: Make / Model from the photo's TIFF (Apple / the market name), UniqueCameraModel
+  «Apple <hw model>» without « camera N» (no physical camera id), Software «SCAMERA iOS ...», the lens from the photo's EXIF (no
+  lens tables: LensSpecification / LensInfo are written only from Parameters' lens tables, which the iPhone's DNG does not give),
+  FocalLengthIn35mmFilm of the DNG's field (the photo's over the zoom's crop).
+- Not on the iPhone: «RAW only» (rawSaving 2: the app has no such choice; the photo is always saved), the Quad / Tetra mosaic DNG
+  (P258 / P267: no mosaic streams), the DCG NoiseProfile (P320), the reference frame written by our writer when the merge gives no
+  mosaic (the camera's DNG of frame 0 stays then). The non-SHDR capture (PhotoCapture) keeps the camera's DNG.
+- Checks: tools/dng_check.cpp against ios/tools/android-host (HostPostRender ... DNG=1: the Android P165 block, ImageSaver /
+  DngCreator with libdngCreator built for the host, mosaic.u16, dng_facts.txt). «Лента» (4096x3072): the DNG byte for byte the
+  Android file uncompressed (25170910 B) and LJ92 (15522956 B); the decode of both identical; the preview appended without
+  moving a byte. The develop of that DNG (record, decode, MHC, DevelopRun on Mesa) against the shot's photo of the same merge:
+  PSNR 35.81 dB, 3.6 % of the values off by more than 8 (the mosaic over the headroom and its demosaic instead of the merge's RGB;
+  Android's develop is the same code on the same file). shot_run_check SCAM_SHOT_DNG=<file>: the app's whole shot with RAW
+  saving (merge 39 s, the DNG 25170858 B, the record with its three maps). develop_check: DngMetadata / ShotExif cases.
+- To see on the phone: Photos takes our DNG as the RAW resource and shows its preview; Lightroom / Apple's RAW decode of it; the
+  DNG's time and lens tags; LJ92 with «DNG без потерь»; the shot's extra memory (the mosaic: 2 B a sensor pixel; the file).
 
 ## Re-sync with main P665-P679 (2026-11-14)
 - Ported (output): P666 the shadows' texture test of why_resolve (PostSnr.shadowBand / shadowTexture, flatShadowU, the log's

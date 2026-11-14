@@ -262,7 +262,9 @@ final class CameraModel {
             described.frames = burst.frames.count
             described.merged = true
             let base = described
-            let result: (heic: Data?, uti: String, log: [String], error: String?, develop: Data?) = await Task.detached(priority: .userInitiated) {
+            // P165: a merged DNG when RAW is saved (ScamProcessor: rawSaving >= 1)
+            let wantDng = raw != .off
+            let result: (heic: Data?, uti: String, log: [String], error: String?, mergedDng: Data?) = await Task.detached(priority: .userInitiated) {
                 var shot = base
                 shot.filmRecipe = ViewfinderNative.filmRecipe()
                 let camera = burst.processed.flatMap { CGImageSourceCreateWithData($0 as CFData, nil) }
@@ -274,8 +276,9 @@ final class CameraModel {
                     metadata[kCGImagePropertyExifDictionary as String] = exif
                 }
                 do {
-                    let r = try BurstProcessor.process(burst, metadata: metadata, zoom: burst.zoom)
-                    return (r.heic, r.uti, r.log, nil, r.developRecord)
+                    let r = try BurstProcessor.process(burst, metadata: metadata, zoom: burst.zoom,
+                                                       dngFacts: wantDng ? BurstProcessor.dngFacts(metadata: metadata, shot: shot) : nil)
+                    return (r.heic, r.uti, r.log, nil, r.dng)
                 } catch {
                     return (nil, UTType.heic.identifier, burst.report, error.localizedDescription, nil)
                 }
@@ -284,12 +287,11 @@ final class CameraModel {
             var rawFile: URL?
             if !burst.dng.isEmpty {
                 let url = FileManager.default.temporaryDirectory.appendingPathComponent("SCAM_\(UUID().uuidString).dng")
-                // P665: the gallery developer's record at the DNG's very end (DevelopRecord.append), after the DNG's own bytes
-                var dng = burst.dng
-                if let record = result.develop {
-                    dng.append(record)
-                    SessionLog.i("SHDR", "develop record appended to the DNG: \(record.count) bytes")
-                }
+                // P165: the merged DNG (its preview and develop record in it); the camera's DNG of the reference frame only when
+                // the merge gave none
+                let dng = result.mergedDng ?? burst.dng
+                SessionLog.i("SHDR", result.mergedDng != nil ? "DNG: the merged burst RAW, \(dng.count) bytes"
+                                                           : "DNG: the reference frame's (the camera's), \(dng.count) bytes")
                 if (try? dng.write(to: url)) != nil { rawFile = url }
             }
             if let error = result.error {

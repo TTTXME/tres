@@ -10,8 +10,32 @@ enum BurstProcessor {
         let heic: Data          // the photo in «Формат фото» (JPEG or HEIC)
         let uti: String
         let log: [String]
-        /// P665: the gallery developer's record to append to the shot's DNG (SCAMPhoto.developRecord), nil without one
-        var developRecord: Data? = nil
+        /// P165: the shot's merged DNG as Android saves it - with the photo as its preview (P620) and the gallery developer's record
+        /// at its end (P665); nil when none was asked or made (the camera's DNG of the reference frame is saved then)
+        var dng: Data? = nil
+    }
+
+    /// P165: the facts of the shot's files for the merged DNG (dngFacts of SCAMShot.processBurst) from the photo's properties
+    /// (ShotExif.apply's EXIF / TIFF) and the shot's record: the make and the phone, the build's hardware model, the app, the time as
+    /// text, the lens.
+    static func dngFacts(metadata: [String: Any], shot: ShotExif) -> [String: Any] {
+        let exif = metadata[kCGImagePropertyExifDictionary as String] as? [String: Any] ?? [:]
+        let tiff = metadata[kCGImagePropertyTIFFDictionary as String] as? [String: Any] ?? [:]
+        let make = (tiff[kCGImagePropertyTIFFMake as String] as? String) ?? "Apple"
+        let model = (tiff[kCGImagePropertyTIFFModel as String] as? String) ?? ""
+        var facts: [String: Any] = [
+            "make": make, "model": model, "device": ShotExif.device(make: make, model: model) ?? model, "buildModel": BuildInfo.machine,
+            "software": ShotExif.software, "dateTime": ShotExif.dateTime(shot.time), "subSec": ShotExif.subSec(shot.time),
+            "offset": ShotExif.offset(shot.time), "facing": shot.facing ?? "", "cameraID": shot.cameraID ?? "",
+            "filmRecipe": shot.filmRecipe ?? "", "frames": shot.frames, "physicalId": -1,
+        ]
+        let fNumber = (exif[kCGImagePropertyExifFNumber as String] as? NSNumber)?.doubleValue ?? shot.fNumber
+        if fNumber > 0 { facts["fNumber"] = fNumber }
+        let focal = (exif[kCGImagePropertyExifFocalLength as String] as? NSNumber)?.doubleValue ?? shot.focalLength
+        if focal > 0 { facts["focalLength"] = focal }
+        let focal35 = (exif[kCGImagePropertyExifFocalLenIn35mmFilm as String] as? NSNumber)?.intValue ?? shot.focal35
+        if focal35 > 0 { facts["focal35"] = focal35 }
+        return facts
     }
 
     /// The last burst is kept as an NCH file (Documents/Bursts, Files app) to replay it against the Android merge.
@@ -26,7 +50,8 @@ enum BurstProcessor {
 
     /// zoom: the press's digital zoom over the module's own (ZoomController.processingResidual; nil: the burst's, BayerBurst.zoom) -
     /// SabreCrop's window of the frames before the merge and the photo's crop after the pipeline (Engine/post/ShotRun.hpp).
-    static func process(_ burst: BayerBurst, metadata: [String: Any], zoom: Double? = nil) throws -> Result {
+    /// dngFacts (P165): the facts for the merged DNG (dngFacts(metadata:shot:)), nil when no RAW is saved.
+    static func process(_ burst: BayerBurst, metadata: [String: Any], zoom: Double? = nil, dngFacts: [String: Any]? = nil) throws -> Result {
         guard MetalEngine.shared != nil else { throw EngineError.noDevice }
         guard burst.frames.count >= 1, burst.width >= 64, burst.height >= 64 else { throw EngineError.decode("empty burst") }
         var log = burst.report
@@ -85,7 +110,7 @@ enum BurstProcessor {
         do {
             photo = try SCAMShot.processBurst(atPath: nch.path, dng: burst.dng, settings: PostSettings.json(),
                                               faces: faces.boxes.map { NSNumber(value: $0) }, facesDetected: faces.detected, front: burst.front,
-                                              shaders: shaders.path)
+                                              dngFacts: dngFacts, shaders: shaders.path)
         } catch let error as NSError {
             log += (error.userInfo["log"] as? [String]) ?? []
             throw error
@@ -108,7 +133,27 @@ enum BurstProcessor {
         log += encodeLog
         // P633: the record at the very end of the file (WatermarkStore), as PhotoOutput appends it to Android's files
         if let watermarkRecord { heic = PhotoWatermark.appendRecord(watermarkRecord, to: heic, log: { log.append($0) }) }
+        // P620: the photo as saved becomes the merged DNG's preview (not a mirrored front camera's), then P665's record, the file's
+        // last part
+        var dng: Data?
+        if var merged = photo.mergedDng {
+            if !photo.mirrored {
+                let previewStarted = Date()
+                if let withPreview = SCAMShot.dng(merged, preview: rgba, width: photo.width, height: photo.height,
+                                                  rotation: photo.dngRotation, software: ShotExif.software) {
+                    log.append("DNG preview in \(ms(since: previewStarted)) ms, DNG \(merged.count) -> \(withPreview.count) bytes")
+                    merged = withPreview
+                } else {
+                    log.append("DNG preview not written (the DNG stays without one)")
+                }
+            }
+            if let record = photo.developRecord {
+                merged.append(record)
+                log.append("develop record appended to the DNG: \(record.count) bytes")
+            }
+            dng = merged
+        }
         log.append("burst processed in \(ms(since: started)) ms, HEIC \(heic.count) bytes, \(memoryFootprint())")
-        return Result(heic: heic, uti: format.type.identifier, log: log, developRecord: photo.developRecord)
+        return Result(heic: heic, uti: format.type.identifier, log: log, dng: dng)
     }
 }

@@ -77,7 +77,7 @@ jobs:
           EGL_PLATFORM: surfaceless
           LIBGL_ALWAYS_SOFTWARE: '1'
         run: |
-          g++ -pthread -std=c++17 -O2 -ffp-contract=off -Iios/ScamGL/include -Iapp/src/main/cpp -Iapp/src/main/cpp/third_party/tone_port/include ios/tools/shot_run_check.cpp -ldl -lEGL -lGLESv2 \
+          g++ -pthread -std=c++17 -O2 -ffp-contract=off -Iios/ScamGL/include -Iapp/src/main/cpp -Iapp/src/main/cpp/third_party/tone_port/include ios/tools/shot_run_check.cpp ios/Engine/post/DngWriter.cpp -ldl -lEGL -lGLESv2 \
             -o "$RUNNER_TEMP/shot_run_check"
           cp "$RUNNER_TEMP/shot/burst.nch" "$RUNNER_TEMP/app-burst.nch"
           "$RUNNER_TEMP/shot_run_check" app/src/main/assets/shaders "$RUNNER_TEMP/shot/meta.json" "$RUNNER_TEMP/app-burst.nch" "$RUNNER_TEMP/shot.dng" \

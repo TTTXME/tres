@@ -5,6 +5,7 @@
 //   g++ -std=c++17 -O1 -ffp-contract=off -Iios/ScamGL/include -Iapp/src/main/cpp -Iapp/src/main/cpp/third_party/tone_port/include
 //       ios/tools/develop_check.cpp -lz -pthread -o develop_check && ./develop_check
 #include "../Engine/post/DevelopRun.hpp"
+#include "../Engine/post/DngWriter.hpp"
 #include "../Editor/EditDevelop.hpp"
 
 #include <zlib.h>
@@ -274,6 +275,44 @@ int main() {
         CHECK(hv[0] == develop::toHalf(.5f) && hv[1] == develop::toHalf(1.f) && hv[2] == develop::toHalf(6.f));
         CHECK(develop::binFor(4096, 3072) == 1 && develop::binFor(8160, 6144) == 2 && develop::binFor(16320, 12288) == 4
               && develop::binFor(1000, 800) == 1);
+    }
+    // P165: the merged DNG's arithmetic (DngMetadataTest, ShotExifTest)
+    {
+        using namespace dng;
+        const std::string F = "HYBRID MERGE FACTORS: 1:0.32 2:0.30 3:0.33 4:0.33 5:0.29 6:0.54 7:0.51 8:0.54 9:0.58 10:0.57 11:0.00 12:0.32  average=0.386570";
+        NEAR(DngMetadata::mergeFrames("HYBRID OUTPUT: Sabre 2x grid 8192x6144\n" + F + "\nHYBRID EFFECTIVE MAP: median frames=4.2\n"), 1 + 12 * 0.386570, 1e-9);
+        NEAR(DngMetadata::mergeFrames("HYBRID MERGE FACTORS: 1:0.32 2:0.30 7:0.50"), 1 + 0.32 + 0.30 + 0.5, 1e-9);
+        NEAR(DngMetadata::mergeFrames("HYBRID MERGE FACTORS: 1:1.70 2:-0.20"), 2, 1e-9);
+        NEAR(DngMetadata::mergeFrames("HYBRID MERGE FACTORS:\nSCAM CAPTURE OK\n"), 1, 0);
+        CHECK(std::isnan(DngMetadata::mergeFrames("")));
+        CHECK(std::isnan(DngMetadata::mergeFrames("HYBRID EFFECTIVE MAP: median frames=71.629272 code scale=0.893489\n")));
+        const std::string previous = "SCAMERA: neural inference job\nPREVIOUS ATTEMPT:\n" + F + "\nWORKER EXIT: signal 9\nRETRY:\n";
+        CHECK(std::isnan(DngMetadata::mergeFrames(previous + "HYBRID DNG: merged Bayer 8192x6144\n")));
+        NEAR(DngMetadata::mergeFrames(previous + "HYBRID MERGE FACTORS: 1:0.50  average=0.500000\n"), 1.5, 1e-9);
+        NEAR(DngMetadata::mergeFrames(F + "\nHYBRID DNG: merged Bayer 4096x3072\nHYBRID MERGE FACTORS: 1:0.20 2:0.30  average=0.250000\n"), 1.5, 1e-9);
+        const std::string split = "HYBRID MOSAIC: binned alignment 210 ms; merging 8 sub-frames on their 2x grid -> 8192x6144\n"
+                                  "HYBRID OUTPUT: Sabre 2x grid 8192x6144 (kernel in sensor px)\n"
+                                  "HYBRID MERGE FACTORS: 1:0.90 2:0.90 3:0.90 4:0.50 5:0.50 6:0.50 7:0.50  average=0.671429\n";
+        NEAR(DngMetadata::mergeFrames(split), (1 + 7 * 0.671429) / 4, 1e-9);
+        NEAR(DngMetadata::mergeFrames(split + "HYBRID MERGE FACTORS: 1:0.40  average=0.400000\n"), 1.4, 1e-9);
+        const auto np = DngMetadata::noiseProfile({2e-4, 4e-7, 1.5e-4, 3e-7, 2.5e-4, 5e-7}, 0.8, 4, 5, 1);
+        NEAR(np[2], 0.8 * 1.5e-4 / 20, 1e-18);
+        NEAR(np[3], 0.8 * 3e-7 / 80, 1e-20);
+        CHECK(ShotExif::iso16(102400) == 65535);
+        auto e = ShotExif::exposureRational(1 / 852.0);
+        CHECK(e && (*e)[0] == 1 && (*e)[1] == 852);
+        e = ShotExif::exposureRational(0.3);
+        CHECK(e && (*e)[0] == 300000 && (*e)[1] == 1000000);
+        e = ShotExif::exposureRational(30);
+        CHECK(e && (*e)[0] == 30 && (*e)[1] == 1);
+        CHECK(!ShotExif::exposureRational(0) && !ShotExif::exposureRational(NAN));
+        auto r = ShotExif::rational(ShotExif::apex(1.69), 1000);
+        CHECK(r && (*r)[0] == 1514);
+        CHECK(ShotExif::focal35(6.81, 9.6, 7.2, 1) == 25 && ShotExif::focal35(6.81, 9.6, 7.2, 2) == 49 && ShotExif::focal35(6.81, 9.6, 7.2, 0) == 0);
+        CHECK(ShotExif::lensModel("vivo X200 Ultra", "back", 9.12, 1.69) == "vivo X200 Ultra back camera 9.12mm f/1.69");
+        CHECK(ShotExif::lensModel("vivo X200 Ultra", "front", 4.5, 2.0) == "vivo X200 Ultra front camera 4.5mm f/2");
+        CHECK(ShotExif::lensModel("vivo X200 Ultra", "", NAN, NAN) == "vivo X200 Ultra camera");
+        CHECK(ShotExif::uniqueCameraModel("vivo", "V2454A", 3) == "vivo V2454A camera 3");
     }
     std::printf(failures ? "develop_check: %d failure(s)\n" : "develop_check: all passed\n", failures);
     return failures ? 1 : 0;

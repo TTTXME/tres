@@ -181,8 +181,14 @@ inline DngShot readDng(const uint8_t* data, size_t size) {
     }
     for (double b : values(t, raw, 0xC61A)) s.black.push_back(float(b));
     s.white = int(first(raw, 0xC61D, 0));
-    const Entry* ops = raw.count(0xC740) ? &raw.at(0xC740) : ifd0.count(0xC740) ? &ifd0.at(0xC740) : nullptr;
-    if (ops) s.gainMaps = gainMaps(data + ops->at, ops->count);
+    // OpcodeList2 is tag 0xC741 (the camera's DNG keeps its GainMaps there); 0xC740 (OpcodeList1) as the test DNGs write it
+    const Entry* ops = nullptr;
+    for (const Ifd* ifd : {static_cast<const Ifd*>(&raw), static_cast<const Ifd*>(&ifd0)})
+        for (uint16_t tag : {uint16_t(0xC741), uint16_t(0xC740)})
+            if (!ops && ifd->count(tag)) {
+                const auto maps = gainMaps(data + ifd->at(tag).at, ifd->at(tag).count);
+                if (!maps.empty()) { ops = &ifd->at(tag); s.gainMaps = maps; }
+            }
     if (auto e = ifd0.find(0x8769); e != ifd0.end()) {
         const Ifd exif = readIfd(t, t.u32(e->second.at));
         s.iso = int(first(exif, 0x8827, 0));

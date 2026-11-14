@@ -29,11 +29,12 @@ jobs:
           python3 ios/tools/gen_parameters.py --check
           python3 ios/tools/gen_ccm_presets.py --check
           python3 ios/tools/gen_settings_ui.py --check
-      - name: The gallery developer's record and demosaic (P665)
+      - name: The gallery developer's record and demosaic (P665), the merged DNG's writer and tags (P165)
         run: |
           g++ -std=c++17 -O1 -ffp-contract=off -Iios/ScamGL/include -Iapp/src/main/cpp -Iapp/src/main/cpp/third_party/tone_port/include \
             ios/tools/develop_check.cpp -lz -pthread -o "$RUNNER_TEMP/develop_check"
           "$RUNNER_TEMP/develop_check"
+          g++ -std=c++17 -O1 -w -ffp-contract=off -Iios/ScamGL/include -Iapp/src/main/cpp -c ios/Engine/post/DngWriter.cpp -o "$RUNNER_TEMP/dng_writer.o"
       - name: Bursts
         run: |
           git fetch -q --depth 1 origin replay/p335

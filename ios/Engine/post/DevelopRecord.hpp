@@ -121,14 +121,13 @@ struct DevelopRecord {
     }
 
     /// DevelopCapture.record: params (the pipeline's Parameters as JSON), the settings and dev lines, the merge's numbers, the DNG's
-    /// headroom and size, the crops made after the pipeline; extraDng: more members of "dng" (JSON text without braces, or empty)
+    /// headroom and size, the crops made after the pipeline
     static DevelopRecord make(const std::string& paramsJson, const Settings& s, const Worker& w, float headroom, int dngW, int dngH,
-                              float zoomCrop, bool isz4x3, long long build, const std::string& extraDng = "") {
+                              float zoomCrop, bool isz4x3, long long build) {
         DevelopRecord r;
         JsonOut dng;
         dng.put("headroom", double(std::max(1.f, headroom))).put("w", dngW).put("h", dngH);
-        std::string dngText = dng.text();
-        if (!extraDng.empty()) dngText = dngText.substr(0, dngText.size() - 1) + "," + extraDng + "}";
+        const std::string dngText = dng.text();
         JsonOut crop;
         crop.put("zoom", zoomCrop > 1.005f && std::isfinite(zoomCrop) ? double(zoomCrop) : 1.0).put("isz4x3", isz4x3);
         JsonOut m;

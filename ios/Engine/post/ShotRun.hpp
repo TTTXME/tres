@@ -8,6 +8,7 @@
 #include "../ScamMergeCore.hpp"
 #include "DevelopRecord.hpp"
 #include "DngShot.hpp"
+#include "DngWriter.hpp"
 #include "HybridOutput.hpp"
 #include "HybridTuning.hpp"
 #include "PostPipelineRun.hpp"
@@ -37,56 +38,71 @@ struct ShotOutput {
     double mergeMs = 0, postMs = 0;
     /// the pipeline's photo size before the crop after it (ScamProcessor's tail), for the host check against the Android lab
     int pipelineWidth = 0, pipelineHeight = 0;
-    /// P665: the gallery developer's record for the shot's DNG (DevelopCapture.take), none when it could not be made
+    /// P165: the merged DNG (dng::writeMergedDng's file; empty: none written - not asked, the merge gave no mosaic, or it failed)
+    std::vector<uint8_t> dng;
+    /// P665: the gallery developer's record for the merged DNG (DevelopCapture.take), none without the DNG or when it could not be made
     std::optional<DevelopRecord> develop;
 };
 
-/// P665 DevelopCapture.take for the iPhone's DNG. Android appends the record to its merged DNG (the merge's RGB as a mosaic over
-/// its headroom); the iPhone saves the camera's DNG of the series' first frame, so the record describes that frame's RGB: the
-/// shot's Parameters on the DNG's whole grid (its own lens shading map, the photo's final size and faces on that grid), the shot's
-/// settings and dev lines, the merge's numbers of one frame (one N frame, no Bento, no effective-frame or clip map: the merge's
-/// maps are not this frame's), the base highlight mask only when the base frame is the DNG's frame on its grid, headroom 1, the
-/// digital zoom's crop after the pipeline.
-inline std::optional<DevelopRecord> developRecord(const Parameters& par, const DngShot& dng, const std::optional<std::vector<float>>& fullGainMap,
-                                                  const std::vector<float>& fullFaces, int frameW, int frameH, bool window, bool dngFrameBase,
-                                                  const MergeInfo& merge, float zoom, long long build,
-                                                  const std::function<void(const std::string&)>& log) {
+/// P665 DevelopCapture.take: the record of the shot about to be processed - its Parameters, the settings and dev lines now, the
+/// merge's numbers, copies of the merge's maps when the output is at most DevelopRecord.MAP_MAX_PIXELS, the merged DNG's headroom
+/// and size, the crop made after the pipeline (the digital zoom's; none for a Sabre window: the DNG holds the window). Only for a
+/// shot whose merged DNG was written (ScamProcessor's developTarget).
+inline std::optional<DevelopRecord> developRecord(const Parameters& par, const MergeInfo& merge, int dngW, int dngH, float zoomCrop,
+                                                  long long build, const std::function<void(const std::string&)>& log) {
     try {
         const auto t0 = std::chrono::steady_clock::now();
-        if (dng.width <= 0 || dng.height <= 0) throw std::runtime_error("the DNG has no size");
-        Parameters p = par;
-        p.rawSize = Point{dng.width, dng.height};
-        p.outputScale = 1.f;
-        p.gainMap = fullGainMap;
-        if (p.portraitEnabled) p.portraitFaces = fullFaces;
-        if (window || !par.hybridFinalSize || frameW <= 0) p.hybridFinalSize.reset();
-        else {
-            const double k = double(par.hybridFinalSize->x) / (double(frameW) * std::max(1.f, par.outputScale));
-            p.hybridFinalSize = Point{int(std::floor(dng.width * k + 0.5)) & ~1, int(std::floor(dng.height * k + 0.5)) & ~1};
-        }
         DevelopRecord::Worker w;
-        DevelopRecord r = DevelopRecord::make(p.toJson(), Settings::current(), w, 1.f, dng.width, dng.height, zoom, false, build,
-                                              "\"frame\":\"reference\"");
-        if (dngFrameBase && !window && merge.lastHlMask && merge.lastHlMask->width * 2 == frameW && merge.lastHlMask->height * 2 == frameH
-            && frameW == dng.width && frameH == dng.height && (long long)frameW * frameH <= DevelopRecord::MAP_MAX_PIXELS) {
-            const MergeInfo::HlMask& m = *merge.lastHlMask;
-            r.hlMask.resize(m.halves.size() * 2);
-            for (size_t i = 0; i < m.halves.size(); i++) {
-                r.hlMask[2 * i] = uint8_t(m.halves[i] & 0xFF);
-                r.hlMask[2 * i + 1] = uint8_t(m.halves[i] >> 8);
+        w.bentoApplied = merge.lastBentoApplied;
+        w.bentoFactor = merge.lastBentoFactor;
+        w.bentoUsClipped = merge.lastBentoUsClipped;
+        w.effectiveMedian = merge.lastEffectiveMedian;
+        w.noiseFactor = merge.lastNoiseFactor;
+        w.normals = merge.lastNormals;
+        w.report = merge.lastReport;
+        DevelopRecord r = DevelopRecord::make(par.toJson(), Settings::current(), w, merge.lastMergedDngHeadroom, dngW, dngH, zoomCrop, false, build);
+        const long long pixels = par.rawSize ? (long long)par.rawSize->x * par.rawSize->y : 0;
+        if (pixels > 0 && pixels <= DevelopRecord::MAP_MAX_PIXELS) {
+            if (merge.lastClipFlags && (long long)merge.lastClipFlags->size() >= pixels) {
+                r.clipFlags.assign(merge.lastClipFlags->begin(), merge.lastClipFlags->begin() + pixels);
+                r.clipW = par.rawSize->x;
+                r.clipH = par.rawSize->y;
             }
-            r.hlW = m.width;
-            r.hlH = m.height;
+            if (merge.lastEffectiveFrames && (long long)merge.lastEffectiveFrames->size() >= pixels) {
+                r.frames.assign(merge.lastEffectiveFrames->begin(), merge.lastEffectiveFrames->begin() + pixels);
+                r.framesW = par.rawSize->x;
+                r.framesH = par.rawSize->y;
+            }
+            if (merge.lastHlMask && !merge.lastHlMask->halves.empty()) {
+                const MergeInfo::HlMask& m = *merge.lastHlMask;
+                r.hlMask.resize(m.halves.size() * 2);
+                for (size_t i = 0; i < m.halves.size(); i++) {
+                    r.hlMask[2 * i] = uint8_t(m.halves[i] & 0xFF);
+                    r.hlMask[2 * i + 1] = uint8_t(m.halves[i] >> 8);
+                }
+                r.hlW = m.width;
+                r.hlH = m.height;
+            }
         }
         log("develop record taken in " + std::to_string(int(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count()))
-            + " ms (the DNG's frame " + std::to_string(dng.width) + "x" + std::to_string(dng.height) + ", highlight mask "
-            + (r.hlMask.empty() ? "false" : "true") + ")");
+            + " ms (maps: clip " + (r.clipFlags.empty() ? "false" : "true") + ", frames " + (r.frames.empty() ? "false" : "true")
+            + ", highlight mask " + (r.hlMask.empty() ? "false" : "true") + ")");
         return r;
     } catch (const std::exception& e) {
         log(std::string("develop record not taken: ") + e.what());
         return std::nullopt;
     }
 }
+
+/// P165: what the app gives the merged DNG beside the shot's Parameters - the facts of its files (dng::DngFacts: make, model, the
+/// app's Software, the time as text, the lens where the iPhone's Parameters lack it, «DNG без потерь») and the description's
+/// values (Parameters.multiFrameCount, cameraID, filmRecipe, physicalID of Android's shot).
+struct DngRequest {
+    dng::DngFacts facts;
+    int frames = 0;
+    std::string cameraID, filmRecipe;
+    int physicalId = -1;
+};
 
 /// What the shot does after its pipeline (ScamProcessor): the window's remaining crop and its photo size, or the digital zoom's
 /// centre crop brought back to the photo size (P226 / P576)
@@ -170,7 +186,8 @@ struct ShotFaces {
 inline ShotOutput runShot(const std::string& nchPath, const std::vector<uint8_t>& dngBytes, const std::string& jobDir, const std::string& shaders,
                           const std::function<void(const std::string&)>& log, const std::function<void()>& makeContext,
                           int gpuMaxSide = 16384, const ShotFaces& faces = {}, bool tail = true,
-                          const std::function<void(Parameters&)>& labParameters = {}, long long build = 0) {
+                          const std::function<void(Parameters&)>& labParameters = {}, long long build = 0,
+                          const DngRequest* dngRequest = nullptr) {
     Settings& s = Settings::current();
     const DngShot dng = readDng(dngBytes.data(), dngBytes.size());
     const ShotFacts facts = readShotFacts(nchPath + ".json");
@@ -232,7 +249,8 @@ inline ShotOutput runShot(const std::string& nchPath, const std::vector<uint8_t>
         std::fstream f(mergePath, std::ios::in | std::ios::out | std::ios::binary);
         if (!f) throw std::runtime_error("no burst " + mergePath);
         const bool clipFlags = s.hybridSwitch("clip_flags", true) && s.hybridValue("highlight_recovery", 100.f) > 0.f;
-        const uint32_t flags = (clipFlags ? 4u : 0u) | (plan.strictTwoX ? 8u : 0u) | (plan.effectiveMap() ? 0u : 16u);
+        // P165: header flag 2, the merged Bayer RAW for the DNG (ScamHybridBurst.mergedDng: RAW saving on)
+        const uint32_t flags = (dngRequest ? 2u : 0u) | (clipFlags ? 4u : 0u) | (plan.strictTwoX ? 8u : 0u) | (plan.effectiveMap() ? 0u : 16u);
         const std::array<int, 2> sabre = plan.words();
         const uint32_t grid = uint32_t(plan.grid()), sabreW = uint32_t(sabre[0]), sabreH = uint32_t(sabre[1]);
         f.seekp(44);
@@ -261,7 +279,10 @@ inline ShotOutput runShot(const std::string& nchPath, const std::vector<uint8_t>
 
     std::string report;
     auto worker = [&](const std::string& line) { report += line + "\n"; log("merge: " + line); };
-    const scam_ios::MergeResult merged = scam_ios::mergeBurst(jobDir, mergePath, worker);
+    scam_ios::MergeResult merged = scam_ios::mergeBurst(jobDir, mergePath, worker);
+    // ScamNeuralClient: the merged RAW trailer goes to the DNG (ScamHybridBurst.lastMergedDng), the rest is the pipeline's
+    std::vector<uint16_t> mergedMosaic;
+    mergedMosaic.swap(merged.mergedDng);
     if (mergePath != nchPath) std::remove(mergePath.c_str());
     ShotOutput out;
     out.mergeMs = merged.ms;
@@ -278,7 +299,6 @@ inline ShotOutput runShot(const std::string& nchPath, const std::vector<uint8_t>
                                  + std::to_string(plan.outWidth) + "x" + std::to_string(plan.outHeight));
     p.mParameters = shotParameters(dng, merged.width, merged.height, log);
     Parameters& par = p.mParameters;
-    const std::optional<std::vector<float>> fullGainMap = par.gainMap;
     // P118 «16:9»: the frames are the capture's centred 16:9 rows (BayerBurst), the DNG's map covers the whole frame: its rows of
     // the crop only (Parameters.fillFromFrame; the full frame's rows as the capture recorded them, else from the DNG's size
     // as Android takes them from the active array)
@@ -350,9 +370,36 @@ inline ShotOutput runShot(const std::string& nchPath, const std::vector<uint8_t>
     if (labParameters) labParameters(par);
     p.scamRgb = readWorkerOutput(p.merge, bytes, report, merged.width, merged.height, w, h, merged.rgbHalf, effectiveMap, clipFlags,
                                  highlightMask);
-    // P665: the record right before the pipeline (DevelopCapture.take's moment), from copies
-    out.develop = developRecord(par, dng, fullGainMap, PortraitFaces::crop(faces.boxes, 0.f, 0.f, 1.f, 1.f), frameW, frameH,
-                                window.has_value(), picked && picked->base == 0, p.merge, zoom, build, log);
+    // P165 ScamProcessor: the merged DNG before the pipeline - the shot's Parameters on the merge's sensor grid (the window, the
+    // frames' rows), 16 bit over the headroom; P27: the DNG is optional, the photo is not
+    if (dngRequest && !mergedMosaic.empty()) {
+        try {
+            Parameters d = par;
+            d.rawSize = Point{w, h};
+            d.multiFrameCount = dngRequest->frames;
+            d.cameraID = dngRequest->cameraID;
+            d.filmRecipe = dngRequest->filmRecipe;
+            d.physicalID = dngRequest->physicalId;
+            const double mergeFrames = dng::DngMetadata::mergeFrames(report);
+            dng::dngLog() = log;
+            dng::DngFacts facts = dngRequest->facts;
+            facts.lossless = s.getBoolean("pref_dng_lossless", false); // PreferenceKeys.isDngLossless
+            // FocalLengthIn35mmFilm of the DNG's field (Parameters.dngFieldZoom): the photo's over the zoom's crop, a window's as the photo's
+            if (!window && zoom > 1.005f && facts.focal35 > 0) facts.focal35 = int(std::floor(facts.focal35 / double(zoom) + 0.5));
+            struct LogReset { ~LogReset() { dng::dngLog() = [](const std::string&) {}; } } logReset;
+            out.dng = dng::writeMergedDng(d, facts, mergedMosaic, p.merge.lastMergedDngHeadroom, mergeFrames, p.merge.lastNoiseFactor, s, log);
+            log("DNG: " + std::to_string(out.dng.size()) + " bytes, " + std::to_string(w) + "x" + std::to_string(h)
+                + (facts.lossless ? " (lossless JPEG when it fits)" : " (uncompressed)"));
+        } catch (const std::exception& e) {
+            out.dng.clear();
+            log(std::string("DNG not saved: ") + e.what());
+        }
+    } else if (dngRequest) {
+        log("DNG: the merge gave no merged RAW: the reference frame's DNG is kept");
+    }
+    std::vector<uint16_t>().swap(mergedMosaic);
+    // P665: the record right before the pipeline (DevelopCapture.take's moment), from copies; only beside a merged DNG
+    if (!out.dng.empty()) out.develop = developRecord(par, p.merge, w, h, window ? 1.f : zoom, build, log);
     out.photo = runPostPipeline(p);
     out.gainMap = std::move(out.photo.gainMap);
     out.photo.gainMap.reset();

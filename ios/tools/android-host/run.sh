@@ -15,6 +15,9 @@ gcc -shared -fPIC -O1 -Wall -Wno-unused-parameter -I"$jni" -I"$jni/linux" "$out/
 # the app's own native buffers (Allocator) built for the host
 g++ -shared -fPIC -O2 -std=c++17 -I"$root/tools/host-include" -I"$jni" -I"$jni/linux" "$root/app/src/main/cpp/allocator.cpp" "$here/host_alloc_stubs.cpp" \
     -o "$out/lib/liballocator.so"
+# P165: the DNG writer (library dngCreator, processing.DngCreator) built for the host
+g++ -shared -fPIC -O2 -std=c++17 -w -I"$root/tools/host-include" -I"$jni" -I"$jni/linux" -I"$root/app/src/main/cpp" \
+    "$root/app/src/main/cpp/dngCreator.cpp" -o "$out/lib/libdngCreator.so"
 # «Oldstyle»: the owner's tone-port module behind its JNI (library scameraTone, OldstyleNative.load: System.loadLibrary from
 # java.library.path), built as the app's CMake builds it (-O3 -ffp-contract=off)
 tp="$root/app/src/main/cpp/third_party/tone_port"

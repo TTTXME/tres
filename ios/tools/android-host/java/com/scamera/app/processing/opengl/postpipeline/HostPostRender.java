@@ -49,6 +49,9 @@ import java.util.Map;
  * Ultra HDR (the shot's pref_ultrahdr_key with a JPEG, Settings.ultraHdr): ScamProcessor.s RunHDRGainMap + GainMapComputer after
  * develop - gainmap.rgba (SCR8 header + the map's RGBA8 rows) and gainmap.txt (GainMapMin, GainMapMax, HDRCapacityMax as the floats'
  * raw bits in hex, then as Float.toString, then normalisedMax).
+ * P165 (SCAM_HOST_DNG=1): the burst merged with the merged-RAW request (header flag 2, as a shot with RAW saving), the photo of
+ * that merge, the worker's merged mosaic (mosaic.u16) and the DNG ScamProcessor writes of it (android.dng with the shot's «DNG
+ * без потерь», android_lj92.dng compressed) from the shot's Parameters on the sensor grid, with the facts it used (dng_facts.txt).
  */
 @RunWith(RobolectricTestRunner.class)
 @Config(sdk = 35, application = Application.class, shadows = {scam.host.ShadowGLES20.class, scam.host.ShadowGLES30.class,
@@ -127,6 +130,19 @@ public class HostPostRender {
         Files.write(new File(out, "tuning.txt").toPath(), tuning.getBytes(StandardCharsets.UTF_8));
         final File transport = new File(out, "transport.nch");
         burst.write(transport);
+        final boolean dng = "1".equals(System.getenv("SCAM_HOST_DNG"));
+        if (dng) {
+            // ScamHybridBurst.header: flag 2, the merged Bayer RAW for the DNG
+            try (RandomAccessFile f = new RandomAccessFile(transport, "rw")) {
+                final ByteBuffer word = ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN);
+                f.seek(44);
+                f.readFully(word.array());
+                final int flags = word.getInt(0) | 2;
+                word.putInt(0, flags);
+                f.seek(44);
+                f.write(word.array());
+            }
+        }
 
         final File mergeF32 = new File(out, "merge.f32"), workerOut = new File(out, "worker.out"), reportFile = new File(out, "report.txt");
         final long m0 = System.nanoTime();
@@ -136,7 +152,8 @@ public class HostPostRender {
         final String report = new String(Files.readAllBytes(reportFile.toPath()), StandardCharsets.UTF_8);
         System.out.println("HOST POST: merge " + (System.nanoTime() - m0) / 1_000_000 + " ms, transport deleted: " + transport.delete());
 
-        final ByteBuffer rgb = readWorkerOutput(burst, workerOut, report);
+        final ByteBuffer rgb = readWorkerOutput(burst, workerOut, report, dng, out);
+        if (dng) writeAndroidDng(meta, burst, out);
         ScamHybridBurst.lastNormals = meta.optInt("normals", 1);
         final Parameters params = ScamLabRun.parameters(shot, null, burst);
         params.scamRgb = rgb;
@@ -173,7 +190,7 @@ public class HostPostRender {
     }
 
     /** ScamNeuralClient.processScamBurst's read of the worker output: the RGB, the trailers and the report's numbers. */
-    private static ByteBuffer readWorkerOutput(ScamLabBurst burst, File file, String rep) throws IOException {
+    private static ByteBuffer readWorkerOutput(ScamLabBurst burst, File file, String rep, boolean dng, File out) throws IOException {
         // P501 Sabre 1.5x: the worker returns the size of header words 15 / 16 (ScamHybridBurst.sabreWords), as the app's
         // ScamNeuralClient reads it (ScamHybridBurst.outputWidth); ScamLabBurst's own size is the whole grid's
         final int[] sabre = sabreWords(burst.file);
@@ -182,14 +199,14 @@ public class HostPostRender {
         final long rgbBytes = (long) ow * oh * (rgbHalf ? 6 : 12);
         final long outputBytes = file.length();
         final boolean map = burst.effectiveMap();
-        long[] layout = ScamNeuralClient.trailers(outputBytes, rgbBytes, burst.mergedRawPixels() * 2, (long) ow * oh, burst.mergedDng(), map,
+        long[] layout = ScamNeuralClient.trailers(outputBytes, rgbBytes, (long) burst.width() * burst.height() * 2, (long) ow * oh, burst.mergedDng() || dng, map,
                 burst.clipFlags(), burst.highlightMask() ? ScamNeuralClient.highlightMaskBytes(burst.width(), burst.height()) : 0L);
         ByteBuffer hlMask = null;
         if (layout != null && layout[3] > 0) {
             hlMask = read(file, outputBytes - layout[3], (int) layout[3]);
             if (!ScamNeuralClient.highlightMaskOk(hlMask, burst.width(), burst.height())) {
                 hlMask = null;
-                final long[] l = ScamNeuralClient.trailers(outputBytes, rgbBytes, burst.mergedRawPixels() * 2, (long) ow * oh, burst.mergedDng(), map,
+                final long[] l = ScamNeuralClient.trailers(outputBytes, rgbBytes, (long) burst.width() * burst.height() * 2, (long) ow * oh, burst.mergedDng() || dng, map,
                         burst.clipFlags());
                 layout = l == null ? null : new long[]{l[0], l[1], l[2], 0};
             }
@@ -230,9 +247,76 @@ public class HostPostRender {
             ScamRgb.keepNativeClipFlags(clip);
         }
         if (effBytes > 0) ScamHybridBurst.lastEffectiveFrames = read(file, rgbBytes + dngBytes, (int) effBytes);
+        if (dngBytes > 0) {
+            final ByteBuffer mosaic = read(file, rgbBytes, (int) dngBytes);
+            ScamHybridBurst.lastMergedDng = mosaic;
+            try (FileOutputStream f = new FileOutputStream(new File(out, "mosaic.u16"))) {
+                final byte[] all = new byte[mosaic.remaining()];
+                mosaic.duplicate().get(all);
+                f.write(all);
+            }
+        }
         System.out.println("HOST POST: worker output " + outputBytes + " B: RGB " + rgbBytes + (rgbHalf ? " (halves)" : "") + ", effective map "
                 + effBytes + ", clip flags " + clipBytes + ", highlight mask " + (hlMask != null ? layout[3] : 0) + ", median frames " + effMedian);
         return result;
+    }
+
+    /**
+     * P165: ScamProcessor's merged DNG of the merge's mosaic (its merged branch, as the shot writes it before the pipeline): the
+     * levels scaled to 65535, BaselineExposure log2(headroom), the NoiseProfile of the merged level, the JPEG's colour, then
+     * ImageSaver.Util.saveStackedRaw - from the shot's Parameters (ScamLabParams) on the burst's sensor grid.
+     */
+    private static void writeAndroidDng(JSONObject meta, ScamLabBurst burst, File out) throws Exception {
+        final ByteBuffer mosaic = ScamHybridBurst.lastMergedDng;
+        if (mosaic == null) throw new IOException("the merge gave no merged RAW");
+        final Parameters p = ScamLabParams.fromJson(meta.getJSONObject("params"));
+        p.rawSize = new android.graphics.Point(burst.width(), burst.height());
+        // the shot's time (a lab shot without one would take the clock at each file: one fixed moment for both files and the facts)
+        if (p.captureTimeMs <= 0) p.captureTimeMs = 1763092800123L;
+        if ((PreferenceKeys.scamDevSwitch("dng_colour_jpeg", true) || !p.dngColourMatrices()) && p.colorTransform != null)
+            p.dngColour = com.scamera.app.processing.color.DngColour.jpegProfile(p.cameraToProPhoto, p.colorTransform.matrix, p.asShotNeutral,
+                    p.sceneCct);
+        final float[] black = p.cfaBlack.clone();
+        final int white = p.whiteLevel;
+        final float k = 65535f / white;
+        final float headroom = Math.max(1f, ScamHybridBurst.lastMergedDngHeadroom);
+        for (int i = 0; i < 4; i++) p.cfaBlack[i] = Math.round(black[i] * k);
+        p.whiteLevel = 65535;
+        p.dngBaselineExposure = headroom > 1.0001f ? (float) (Math.log(headroom) / Math.log(2)) : 0f;
+        final double mergeFrames = ScamHybridBurst.lastMergeFrames;
+        final boolean framesKnown = Double.isFinite(mergeFrames) && mergeFrames >= 1;
+        final com.scamera.app.processing.render.NoiseModeler nm = p.noiseModel;
+        final double[] camera = nm == null ? null : com.scamera.app.processing.DngMetadata.planes(framesKnown ? nm.rawModel : nm.stackModel);
+        if (camera != null) p.dngNoiseProfile = com.scamera.app.processing.DngMetadata.noiseProfile(camera, ScamHybridBurst.lastNoiseFactor,
+                headroom, framesKnown ? mergeFrames : 1, 1);
+        p.dngMosaicBlock = 1;
+        p.dngMerged = true;
+        final ByteBuffer samples = ByteBuffer.allocateDirect(mosaic.remaining()).order(ByteOrder.nativeOrder());
+        samples.put(mosaic.duplicate());
+        samples.clear();
+        if (!com.scamera.app.processing.ImageSaver.Util.saveStackedRaw(new File(out, "android.dng").toPath(), samples, p))
+            throw new IOException("android.dng not written");
+        final com.scamera.app.processing.DngCreator lj92 = new com.scamera.app.processing.DngCreator();
+        try (FileOutputStream f = new FileOutputStream(new File(out, "android_lj92.dng"))) {
+            lj92.setParameters(p);
+            lj92.setCompression(true);
+            lj92.writeBuffer(f, samples, p.rawSize.x, p.rawSize.y);
+        } finally {
+            lj92.close();
+        }
+        final com.scamera.app.processing.ShotExif.Facts f = com.scamera.app.processing.ShotExif.of(p, p.dngFieldZoom,
+                com.scamera.app.util.DeviceName.make(), com.scamera.app.util.DeviceName.model());
+        final StringBuilder b = new StringBuilder();
+        b.append("make=").append(f.make).append('\n').append("model=").append(com.scamera.app.util.DeviceName.model()).append('\n')
+                .append("device=").append(f.device == null ? "" : f.device).append('\n').append("buildModel=").append(android.os.Build.MODEL).append('\n')
+                .append("software=").append(com.scamera.app.processing.DngMetadata.software()).append('\n')
+                .append("dateTime=").append(f.dateTime()).append('\n').append("subSec=").append(f.subSec()).append('\n')
+                .append("offset=").append(f.offset()).append('\n').append("lossless=").append(PreferenceKeys.isDngLossless()).append('\n')
+                .append("headroom=").append(headroom).append('\n').append("mergeFrames=").append(mergeFrames).append('\n')
+                .append("noiseFactor=").append(ScamHybridBurst.lastNoiseFactor).append('\n');
+        Files.write(new File(out, "dng_facts.txt").toPath(), b.toString().getBytes(StandardCharsets.UTF_8));
+        System.out.println("HOST POST: android.dng " + new File(out, "android.dng").length() + " B, android_lj92.dng "
+                + new File(out, "android_lj92.dng").length() + " B, headroom " + headroom + ", frames " + mergeFrames);
     }
 
     /** Header words 15 / 16 of an NCH burst (0, 0: the result is the grid's own size). */

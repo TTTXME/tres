@@ -2,6 +2,7 @@
 // lab burst with its DNG (tools/make_test_dng.py) and its prefs; against the Android photo of that burst when given (the app's
 // burst tuning adds the shot's own lines, so the merge is not the lab's: a PSNR, not identity).
 //   shot_run_check <shaders> <meta.json> <burst.nch (a copy: its header flags are set)> <dng> [photo.rgba of the Android run]
+//   SCAM_SHOT_DNG=<file>: with RAW saving - the merged DNG (P165) written there, its develop record (P665) reported
 // The burst's sidecar <burst.nch>.json (ShotTransport.hpp: the zoom, the captured frames' roles and exposures) is read as the app
 // reads it: {"zoom": 2} makes a digital zoom shot (SabreCrop's window, the photo's crop after the pipeline). With
 // SCAM_SHOT_NO_TAIL=1 the photo is the pipeline's, before that crop (the Android lab renders the pipeline alone). SCAM_SHOT_LAB_PARAMS=1
@@ -160,10 +161,28 @@ int main(int argc, char** argv) {
                 p.finishSnr = lab.finishSnr;
                 p.effectiveStackSamples = lab.effectiveStackSamples;
             };
+        // SCAM_SHOT_DNG=<file>: the shot with RAW saving (P165: the merged DNG and its develop record, written to <file>)
+        const char* dngOut = std::getenv("SCAM_SHOT_DNG");
+        DngRequest dngRequest;
+        dngRequest.facts.make = "Apple";
+        dngRequest.facts.model = "iPhone";
+        dngRequest.facts.device = "Apple iPhone";
+        dngRequest.facts.buildModel = "iPhone17,1";
+        dngRequest.facts.software = "SCAMERA iOS host";
+        dngRequest.facts.dateTime = "2026:11:14 12:00:00";
+        dngRequest.facts.subSec = "000";
+        dngRequest.facts.offset = "+00:00";
         const ShotOutput out = runShot(argv[3], readAll(argv[4]), job, argv[1], [&](const std::string& l) {
             lines++;
             if (l.rfind("merge: ", 0) != 0) std::printf("%s\n", l.c_str());
-        }, makeContext, 16384, {}, !(noTail && std::string(noTail) == "1"), labHook);
+        }, makeContext, 16384, {}, !(noTail && std::string(noTail) == "1"), labHook, 0, dngOut ? &dngRequest : nullptr);
+        if (dngOut) {
+            std::ofstream(dngOut, std::ios::binary).write(reinterpret_cast<const char*>(out.dng.data()), std::streamsize(out.dng.size()));
+            std::printf("merged DNG: %zu bytes, develop record %s (%zu B of JSON, maps: clip %d, frames %d, highlight mask %d)\n",
+                        out.dng.size(), out.develop ? "taken" : "none", out.develop ? out.develop->metaText.size() : 0,
+                        out.develop && !out.develop->clipFlags.empty(), out.develop && !out.develop->frames.empty(),
+                        out.develop && !out.develop->hlMask.empty());
+        }
         std::printf("shot: merge %.0f ms, post %.0f ms, pipeline %dx%d, photo %dx%d, %zu log lines\n", out.mergeMs, out.postMs,
                     out.pipelineWidth, out.pipelineHeight, out.photo.width, out.photo.height, lines);
         if (const char* save = std::getenv("SCAM_SHOT_SAVE")) {
