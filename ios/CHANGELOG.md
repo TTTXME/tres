@@ -4,6 +4,7 @@
 - Noise reduction keeps shadow texture; tone V1 noise, detail and colour as tone V2; V2 without glow beside dark objects.
 - Night merge handles moving objects better.
 - Gallery editor: the «Develop» tab develops SCAMERA DNGs again with every processing setting of the camera.
+- Settings as on Android: search, help on a long press, exact values, layout, accent, photo names, modules, developer page, LUT previews.
 
 ## 0.2 — the Android photo processing
 - SHDR photos are processed exactly as on Android: the same merge, denoise, sharpening and «Why» tone.
