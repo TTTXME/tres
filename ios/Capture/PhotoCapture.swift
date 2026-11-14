@@ -79,8 +79,14 @@ final class PhotoCapture {
         var result: [(AVCapturePhotoSettings, String)] = []
         for (type, label) in raws {
             let settings = AVCapturePhotoSettings(rawPixelFormatType: type, processedFormat: processed)
-            configure(settings, request: request, priority: .balanced)
-            result.append((settings, "\(label) + \(codec.rawValue)"))
+            // ProRAW: the least of Apple's own processing (no multi-frame fusion, the lightest denoise the camera allows)
+            let proraw = AVCapturePhotoOutput.isAppleProRAWPixelFormat(type)
+            configure(settings, request: request, priority: proraw ? .speed : .balanced)
+            if proraw {
+                settings.isAutoRedEyeReductionEnabled = false
+                if output.isContentAwareDistortionCorrectionSupported { settings.isAutoContentAwareDistortionCorrectionEnabled = false }
+            }
+            result.append((settings, "\(label) + \(codec.rawValue) priority=\(settings.photoQualityPrioritization.rawValue)"))
         }
         let plain = AVCapturePhotoSettings(format: processed)
         configure(plain, request: request, priority: .quality)
