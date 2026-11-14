@@ -150,6 +150,7 @@ struct GallerySearchPage: View {
     // ---------------------------------------------------------------- results
 
     private var results: some View {
+        _ = OcrIndex.shared.version // P504: the photos read since add their text
         let found = GallerySearch.find(all, query, kinds: library.kinds, now: Date())
         let columns = Array(repeating: GridItem(.flexible(), spacing: 2), count: 4)
         return VStack(alignment: .leading, spacing: 0) {

@@ -57,8 +57,15 @@ struct GalleryView: View {
             if selection == nil, library.access == .granted { tabBar }
         }
         .preferredColorScheme(.dark)
-        .task { await library.start() }
-        .onDisappear { library.stop() }
+        .task {
+            await library.start()
+            indexText()
+        }
+        .onChange(of: library.version) { _, _ in indexText() }
+        .onDisappear {
+            library.stop()
+            OcrIndex.shared.stop() // P504: the text index reads only while the gallery is open
+        }
         .fullScreenCover(item: $viewer) { start in
             PhotoViewer(library: library, start: start)
         }
@@ -118,6 +125,13 @@ struct GalleryView: View {
                 }
             }
         }
+    }
+
+    /// P504 / P617: the text index reads the library's photos, the newest first
+    private func indexText() {
+        guard library.access == .granted else { return }
+        let list = library.prefs.oldestFirst ? Array(library.assets.reversed()) : library.assets
+        OcrIndex.shared.start(list, kinds: library.kinds)
     }
 
     /// GalleryUi.shots: «1 снимок», «3 снимка», «5 снимков»
@@ -377,8 +391,11 @@ struct GalleryFilterSheet: View {
 
 // ---------------------------------------------------------------- the viewer
 
-/// ImageViewerFragment + ViewerChrome: the photos paged, pinch / double-tap zoom, a tap hides the chrome; the top discs (back,
-/// favourite, more), the bottom bar (share, edit, compare, delete, details).
+/// ImageViewerFragment + ViewerChrome (SIMPLE_UI §5, P579): the photos paged, pinch / double-tap zoom with the original decoded
+/// where the zoom needs it, a tap hides the chrome. Over a dark gradient at the top the back disc and two lines - when («Сегодня,
+/// 11:17») and with what («24 мм · 12 Мп · JPEG») - an Ultra HDR photo's «HDR: вкл. / выкл.» pill, the heart and «Ещё» (slideshow,
+/// text in the photo, open in another app); at the bottom one capsule of «Поделиться · Изменить · Сравнить · Удалить · Сведения»
+/// (a long press on «Изменить»: another app's editor).
 @MainActor
 struct PhotoViewer: View {
     let library: GalleryLibrary
@@ -393,11 +410,18 @@ struct PhotoViewer: View {
     @State private var compare: GalleryView.CompareStart?
     @State private var toast: String?
     @State private var video: VideoStart?
+    @State private var textSheet: TextStart?
+    @State private var slideshow = false
+    @State private var facts = ViewerFacts.shared
     @Environment(\.dismiss) private var dismiss
 
     struct EditorStart: Identifiable { let id = UUID(); let asset: PHAsset; let raw: Bool }
     /// The player on the list's videos (previous / next), at the shown one
     struct VideoStart: Identifiable { let id = UUID(); let items: [PHAsset]; let index: Int }
+    struct TextStart: Identifiable { let id = UUID(); let asset: PHAsset }
+
+    /// ImageViewerFragment.SLIDE_MS
+    static let slideSeconds: UInt64 = 3
 
     init(library: GalleryLibrary, start: GalleryView.ViewerStart) {
         self.library = library
@@ -413,13 +437,16 @@ struct PhotoViewer: View {
             Color.black.ignoresSafeArea()
             TabView(selection: $index) {
                 ForEach(Array(items.enumerated()), id: \.element.localIdentifier) { i, a in
-                    ViewerPage(library: library, asset: a, play: { playVideo(a) }) { withAnimation(.easeOut(duration: 0.2)) { chrome.toggle() } }
+                    ViewerPage(library: library, asset: a, play: { playVideo(a) }) { tapped() }
                         .tag(i)
                 }
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
             .ignoresSafeArea()
-            if chrome { topBar; bottomBar }
+            if chrome {
+                topBar.transition(.move(edge: .top).combined(with: .opacity))
+                bottomBar.transition(.move(edge: .bottom).combined(with: .opacity))
+            }
             if let toast {
                 VStack { Spacer(); GalleryPill(text: toast).padding(.bottom, 110) }
                     .transition(.opacity)
@@ -431,10 +458,14 @@ struct PhotoViewer: View {
         }
         .preferredColorScheme(.dark)
         .statusBarHidden(!chrome)
+        .animation(.spring(response: 0.42, dampingFraction: 0.86), value: chrome)
         .onChange(of: library.version) { _, _ in refresh() }
         .onChange(of: library.prefs) { _, _ in refresh() }
+        .onDisappear { stopSlideshow() }
+        .task(id: slideshow) { await runSlideshow() }
         .sheet(item: $details) { d in DetailsSheet(details: d).presentationDetents([.medium, .large]) }
         .sheet(item: $share) { s in ActivitySheet(items: s.urls) }
+        .sheet(item: $textSheet) { t in TextSheet(asset: t.asset).presentationDetents([.medium, .large]) }
         .fullScreenCover(item: $editor) { e in PhotoEditorView(asset: e.asset, raw: e.raw) }
         .fullScreenCover(item: $compare) { c in CompareView(library: library, first: c.first, second: c.second) }
         .fullScreenCover(item: $video) { v in VideoPlayerView(library: library, items: v.items, index: v.index) }
@@ -463,78 +494,154 @@ struct PhotoViewer: View {
         if let current, let i = items.firstIndex(where: { $0.localIdentifier == current }) { index = i } else { index = Swift.min(index, items.count - 1) }
     }
 
+    /// A tap on the photo: the chrome goes or comes back; during the slideshow it stops it (and the chrome comes back).
+    private func tapped() {
+        if slideshow {
+            stopSlideshow()
+            chrome = true
+            return
+        }
+        chrome.toggle()
+    }
+
+    // ---------------------------------------------------------------- ViewerChrome
+
     private var topBar: some View {
-        VStack {
-            HStack(spacing: 10) {
-                RoundIconButton(icon: "ui_ic_back", label: L("gallery.back_grid"), background: GalleryStyle.bar) { dismiss() }
-                if let a = asset, let d = a.creationDate {
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(d.formatted(date: .abbreviated, time: .omitted)).font(.app(15, 600)).foregroundStyle(.white)
-                        Text(d.formatted(date: .omitted, time: .shortened)).font(.app(12)).foregroundStyle(GalleryStyle.muted)
-                    }
-                    .padding(.horizontal, 12).padding(.vertical, 4).background(GalleryStyle.bar, in: Capsule())
-                }
-                Spacer()
+        VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                disc("ui_ic_back", L("gallery.back_grid"), size: 40) { dismiss() }
                 if let a = asset {
-                    RoundIconButton(icon: a.isFavorite ? "ui_ic_heart_on" : "ui_ic_heart",
-                                    label: a.isFavorite ? L("gallery.unfavourite") : L("gallery.favourite"), background: GalleryStyle.bar) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(a.creationDate.map { PhotoDetails.dayTime($0, now: Date()) } ?? "").font(.app(15, 600)).foregroundStyle(.white)
+                            .lineLimit(1).minimumScaleFactor(0.7).shadow(color: .black.opacity(0.4), radius: 3)
+                        Text(facts.facts[a.localIdentifier]?.sub ?? " ").font(.app(13)).foregroundStyle(.white.opacity(0.7))
+                            .lineLimit(1).minimumScaleFactor(0.7).shadow(color: .black.opacity(0.4), radius: 3)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.leading, 12)
+                    .accessibilityElement(children: .combine)
+                    if facts.facts[a.localIdentifier]?.hdr ?? false { hdrPill(a) }
+                    disc(a.isFavorite ? "ui_ic_heart_on" : "ui_ic_heart", a.isFavorite ? L("gallery.unfavourite") : L("gallery.favourite"),
+                         size: 36, tint: a.isFavorite ? GalleryStyle.favourite : .white) {
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
                         Task { await library.toggleFavourite(a) }
                     }
-                    Menu {
-                        if a.mediaType == .video {
-                            Button(L("video.play")) { playVideo(a) }
-                        } else {
-                            Button(L("gallery.edit")) { editor = EditorStart(asset: a, raw: false) }
-                        }
-                        if a.mediaType != .video, GalleryLibrary.resources(a).raw != nil, GalleryLibrary.resources(a).photo != nil {
-                            Button(L("gallery.edit_raw")) { editor = EditorStart(asset: a, raw: true) }
-                        }
-                        Button(L("gallery.share")) { shareCurrent() }
-                    } label: {
-                        GalleryIcon(name: "ui_ic_more", size: 22).frame(width: 40, height: 40).background(GalleryStyle.bar, in: Circle())
-                    }
-                    .accessibilityLabel(L("gallery.more"))
+                    .padding(.leading, 6)
+                    moreMenu(a).padding(.leading, 6)
+                } else {
+                    Spacer()
                 }
             }
-            .padding(.horizontal, 12).padding(.top, 6)
+            .padding(.horizontal, 12).padding(.top, 14).padding(.bottom, 24)
+            .background(LinearGradient(colors: [Color.black.opacity(0.6), .clear], startPoint: .top, endPoint: .bottom)
+                .ignoresSafeArea(edges: .top))
             Spacer()
         }
     }
 
-    private var bottomBar: some View {
-        VStack {
-            Spacer()
-            HStack(spacing: 0) {
-                barButton("kb_ui_ic_share_rest", L("gallery.share")) { shareCurrent() }
-                // ViewerChrome.setVideo: a video page has no «Изменить» (the editor takes photos)
-                if asset?.mediaType != .video {
-                    barButton("kb_ui_ic_edit_rest", L("gallery.edit")) {
-                        if let a = asset { editor = EditorStart(asset: a, raw: GalleryLibrary.resources(a).photo == nil) }
-                    }
-                }
-                barButton("kb_ui_ic_compare_rest", L("gallery.compare"), enabled: items.count > 1 && asset?.mediaType != .video) { compareWithNext() }
-                barButton("kb_ui_ic_trash_rest", L("gallery.delete"), color: GalleryStyle.warn) { confirmDelete = true }
-                barButton("kb_ui_ic_info_rest", L("gallery.details")) { showDetails() }
-            }
-            .padding(.vertical, 8).padding(.horizontal, 8)
-            .background(GalleryStyle.bar, in: RoundedRectangle(cornerRadius: 24))
-            .padding(.horizontal, 16).padding(.bottom, 10)
+    /// «HDR: вкл. / выкл.»: the accent while the HDR rendition shows, 70 % white when it is off.
+    private func hdrPill(_ a: PHAsset) -> some View {
+        let id = a.localIdentifier
+        let on = facts.hdrOn(id)
+        return Button {
+            UISelectionFeedbackGenerator().selectionChanged()
+            if on { facts.hdrOff.insert(id) } else { facts.hdrOff.remove(id) }
+        } label: {
+            Text(on ? L("viewer.hdr_on") : L("viewer.hdr_off")).font(.app(12.5, 600))
+                .foregroundStyle(on ? GalleryStyle.accent : .white.opacity(0.7))
+                .padding(.horizontal, 12).frame(minHeight: 36)
+                .background(GalleryStyle.bar, in: Capsule())
+                .overlay(Capsule().strokeBorder(Color.white.opacity(0.12), lineWidth: 0.5))
+                .contentTransition(.opacity)
         }
+        .buttonStyle(PressScaleStyle())
+        .padding(.leading, 8)
+        .accessibilityLabel("Ultra HDR")
+        .accessibilityValue(on ? L("viewer.on") : L("viewer.off"))
     }
 
-    private func barButton(_ icon: String, _ label: String, color: Color = .white, enabled: Bool = true, action: @escaping () -> Void) -> some View {
+    /// P498 «Ещё»: slideshow (several photos), the text in the photo (photos), open in another app. Android's «Установить как…»
+    /// is left out: iOS gives apps no way to set the wallpaper.
+    private func moreMenu(_ a: PHAsset) -> some View {
+        Menu {
+            if items.count > 1 {
+                Button { startSlideshow() } label: { Label(L("viewer.slideshow"), image: "ui_ic_play") }
+            }
+            if a.mediaType == .image, OcrIndex.indexable(a, kind: library.kinds[a.localIdentifier]) {
+                Button { textSheet = TextStart(asset: a) } label: { Label(L("ocr.title"), image: "ui_ic_text") }
+            }
+            Button { openElsewhere(a) } label: { Label(L("viewer.open_in"), image: "kb_ui_ic_open_rest") }
+        } label: {
+            GalleryIcon(name: "ui_ic_more", size: 22).frame(width: 36, height: 36)
+                .background(GalleryStyle.bar, in: Circle())
+                .overlay(Circle().strokeBorder(Color.white.opacity(0.12), lineWidth: 0.5))
+        }
+        .accessibilityLabel(L("gallery.more"))
+    }
+
+    /// ViewerChrome.disc: a round dark bar (its light edge) with a white line icon.
+    private func disc(_ icon: String, _ label: String, size: CGFloat, tint: Color = .white, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            VStack(spacing: 3) {
-                GalleryIcon(name: icon, size: 24, color: color)
-                Text(label).font(.app(11, 500)).foregroundStyle(color).lineLimit(1).minimumScaleFactor(0.7)
-            }
-            .frame(maxWidth: .infinity, minHeight: 48)
+            GalleryIcon(name: icon, size: 22, color: tint)
+                .frame(width: size, height: size)
+                .background(GalleryStyle.bar, in: Circle())
+                .overlay(Circle().strokeBorder(Color.white.opacity(0.12), lineWidth: 0.5))
         }
-        .buttonStyle(.plain)
-        .opacity(enabled ? 1 : 0.35)
-        .disabled(!enabled)
+        .buttonStyle(PressScaleStyle())
         .accessibilityLabel(label)
     }
+
+    /// The bottom capsule of five 56..72pt buttons (owner, 2026-11-05: compact in both orientations), «Удалить» in the red.
+    private var bottomBar: some View {
+        let each = Swift.max(56, Swift.min(72, (UIScreen.main.bounds.width - 24) / 5))
+        let isVideo = asset?.mediaType == .video
+        return VStack {
+            Spacer()
+            HStack(spacing: 0) {
+                barButton("kb_ui_ic_share_rest", L("gallery.share"), width: each) { shareCurrent() }
+                // ViewerChrome.setVideo: a video page has no «Изменить» (the editor takes photos)
+                if !isVideo {
+                    barButton("kb_ui_ic_edit_rest", L("gallery.edit"), width: each) {
+                        if let a = asset { editor = EditorStart(asset: a, raw: GalleryLibrary.resources(a).photo == nil) }
+                    } long: {
+                        if let a = asset { openElsewhere(a) }
+                    }
+                }
+                barButton("kb_ui_ic_compare_rest", L("gallery.compare"), width: each, enabled: items.count > 1 && !isVideo) { compareWithNext() }
+                barButton("kb_ui_ic_trash_rest", L("gallery.delete"), width: each, color: GalleryStyle.warn) { confirmDelete = true }
+                barButton("kb_ui_ic_info_rest", L("gallery.details"), width: each) { showDetails() }
+            }
+            .padding(4)
+            .background(GalleryStyle.bar, in: RoundedRectangle(cornerRadius: 26))
+            .overlay(RoundedRectangle(cornerRadius: 26).strokeBorder(Color.white.opacity(0.12), lineWidth: 0.5))
+            .padding(.horizontal, 6).padding(.bottom, 16)
+        }
+    }
+
+    private func barButton(_ icon: String, _ label: String, width: CGFloat, color: Color = .white, enabled: Bool = true,
+                           action: @escaping () -> Void, long: (() -> Void)? = nil) -> some View {
+        VStack(spacing: 3) {
+            GalleryIcon(name: icon, size: 22, color: color)
+            Text(label).font(.app(10.5)).foregroundStyle(color == .white ? Color.white.opacity(0.7) : color).lineLimit(1).minimumScaleFactor(0.7)
+        }
+        .padding(.vertical, 8)
+        .frame(width: width)
+        .contentShape(RoundedRectangle(cornerRadius: 22))
+        .onTapGesture { if enabled { action() } }
+        .onLongPressGesture(minimumDuration: 0.5) {
+            guard enabled, let long else { return }
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            long()
+        }
+        .opacity(enabled ? 1 : 0.35)
+        .accessibilityElement()
+        .accessibilityLabel(label)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction { if enabled { action() } }
+        .accessibilityAction(named: Text(L("viewer.edit_elsewhere"))) { long?() }
+    }
+
+    // ---------------------------------------------------------------- actions
 
     /// ImageViewerFragment.openVideo: the shown video in the gallery's player; the other videos of the list are its previous / next
     private func playVideo(_ a: PHAsset) {
@@ -570,97 +677,45 @@ struct PhotoViewer: View {
         guard let a = asset else { return }
         Task { details = await PhotoDetails.of(a) }
     }
-}
 
-/// One page: the photo at screen size, pinch and double tap to zoom (a UIScrollView), a tap toggles the chrome.
-@MainActor
-private struct ViewerPage: View {
-    let library: GalleryLibrary
-    let asset: PHAsset
-    var play: () -> Void = {}
-    let tap: () -> Void
-    @State private var image: UIImage?
-    @Environment(\.displayScale) private var scale
-
-    var body: some View {
-        GeometryReader { geo in
-            ZoomImage(image: image, tap: tap)
-                .frame(width: geo.size.width, height: geo.size.height)
-                .overlay {
-                    // P498: a video page is its poster frame with the play button
-                    if asset.mediaType == .video {
-                        Button(action: play) {
-                            GalleryIcon(name: "ui_ic_play", size: 34)
-                                .frame(width: 76, height: 76)
-                                .background(GalleryStyle.bar, in: Circle())
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(L("video.play_video"))
-                    }
-                }
-                .task(id: asset.localIdentifier) {
-                    image = await library.display(asset, side: max(geo.size.width, geo.size.height) * scale * 1.5)
-                }
-        }
-    }
-}
-
-private struct ZoomImage: UIViewRepresentable {
-    let image: UIImage?
-    let tap: () -> Void
-
-    func makeCoordinator() -> Coordinator { Coordinator(tap: tap) }
-
-    func makeUIView(context: Context) -> UIScrollView {
-        let s = UIScrollView()
-        s.delegate = context.coordinator
-        s.minimumZoomScale = 1
-        s.maximumZoomScale = 8
-        s.showsVerticalScrollIndicator = false
-        s.showsHorizontalScrollIndicator = false
-        s.backgroundColor = .black
-        s.contentInsetAdjustmentBehavior = .never
-        let v = UIImageView()
-        v.contentMode = .scaleAspectFit
-        v.isUserInteractionEnabled = true
-        s.addSubview(v)
-        context.coordinator.imageView = v
-        let double = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.doubleTap(_:)))
-        double.numberOfTapsRequired = 2
-        s.addGestureRecognizer(double)
-        let single = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.singleTap))
-        single.require(toFail: double)
-        s.addGestureRecognizer(single)
-        return s
-    }
-
-    func updateUIView(_ s: UIScrollView, context: Context) {
-        context.coordinator.tap = tap
-        guard let v = context.coordinator.imageView else { return }
-        if v.image !== image {
-            v.image = image
-            s.zoomScale = 1
-        }
-        if v.frame.size != s.bounds.size, s.zoomScale == 1 { v.frame = s.bounds }
-        DispatchQueue.main.async { if s.zoomScale == 1 { v.frame = s.bounds; s.contentSize = s.bounds.size } }
-    }
-
-    final class Coordinator: NSObject, UIScrollViewDelegate {
-        var tap: () -> Void
-        weak var imageView: UIImageView?
-        init(tap: @escaping () -> Void) { self.tap = tap }
-        func viewForZooming(in scrollView: UIScrollView) -> UIView? { imageView }
-        @objc func singleTap() { tap() }
-        @objc func doubleTap(_ g: UITapGestureRecognizer) {
-            guard let s = g.view as? UIScrollView else { return }
-            if s.zoomScale > 1.01 {
-                s.setZoomScale(1, animated: true)
-            } else {
-                let p = g.location(in: imageView)
-                let k: CGFloat = 3
-                let size = CGSize(width: s.bounds.width / k, height: s.bounds.height / k)
-                s.zoom(to: CGRect(x: p.x - size.width / 2, y: p.y - size.height / 2, width: size.width, height: size.height), animated: true)
+    /// ExternalEdit / sendTo(ACTION_VIEW): the photo's file to another app («Нет подходящего приложения» when none takes it).
+    private func openElsewhere(_ a: PHAsset) {
+        Task {
+            guard let url = await GalleryLibrary.shareFiles([a]).first else {
+                toast = L("viewer.no_app")
+                return
             }
+            if !OpenInApp.shared.open(url) { toast = L("viewer.no_app") }
+        }
+    }
+
+    // ---------------------------------------------------------------- P498 slideshow
+
+    private func startSlideshow() {
+        guard items.count > 1 else { return }
+        chrome = false
+        slideshow = true
+        toast = L("viewer.slideshow_toast")
+    }
+
+    private func stopSlideshow() {
+        slideshow = false
+        UIApplication.shared.isIdleTimerDisabled = false
+    }
+
+    /// 3 s a photo, the screen kept on; at the last photo it stops and the chrome comes back.
+    private func runSlideshow() async {
+        guard slideshow else { return }
+        UIApplication.shared.isIdleTimerDisabled = true
+        while slideshow, !Task.isCancelled {
+            try? await Task.sleep(nanoseconds: Self.slideSeconds * 1_000_000_000)
+            guard slideshow, !Task.isCancelled else { return }
+            if index + 1 >= items.count {
+                stopSlideshow()
+                chrome = true
+                return
+            }
+            withAnimation(.easeInOut(duration: 0.45)) { index += 1 }
         }
     }
 }
@@ -721,7 +776,7 @@ struct PhotoDetails: Identifiable {
               let src = CGImageSourceCreateWithData(data as CFData, nil),
               let p = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any] else { return d }
         if d.bytes == 0 { d.bytes = Int64(data.count) }
-        d.ultraHdr = data.range(of: Data("hdrgm:Version".utf8)) != nil
+        d.ultraHdr = ViewerFacts.hasGainMap(data.prefix(1 << 20))
         let exif = p[kCGImagePropertyExifDictionary] as? [CFString: Any] ?? [:]
         let tiff = p[kCGImagePropertyTIFFDictionary] as? [CFString: Any] ?? [:]
         let gps = p[kCGImagePropertyGPSDictionary] as? [CFString: Any] ?? [:]

@@ -583,3 +583,38 @@
 "gallery.size_mb" = "%@ МБ";
 "gallery.size_kb" = "%d КБ";
 "gallery.size_b" = "%d Б";
+
+// P504 «Текст на фото» (Vision) and the search by the text on the photos
+"ocr.title" = "Текст на фото";
+"ocr.language" = "Язык";
+"ocr.auto" = "Авто";
+"ocr.reading" = "Распознаю…";
+"ocr.failed" = "Не удалось прочитать снимок.";
+"ocr.none" = "Текст не найден. Попробуйте выбрать язык.";
+"ocr.ready" = "Выделите часть текста или скопируйте весь.";
+"ocr.copy_all" = "Копировать всё";
+"ocr.copied" = "Текст скопирован";
+"ocr.lang.eng" = "Английский";
+"ocr.lang.rus" = "Русский";
+"ocr.lang.deu" = "Немецкий";
+"ocr.lang.fra" = "Французский";
+"ocr.lang.spa" = "Испанский";
+"ocr.lang.ita" = "Итальянский";
+"ocr.lang.por" = "Португальский";
+"ocr.lang.chi_sim" = "Китайский";
+"ocr.lang.jpn" = "Японский";
+"ocr.lang.kor" = "Корейский";
+"ocr.lang.ara" = "Арабский";
+"ocr.lang.hin" = "Хинди";
+
+// the viewer's chrome (ViewerChrome): the meta line, the HDR pill, «Ещё», the slideshow, another app
+"viewer.video" = "Видео";
+"viewer.hdr_on" = "HDR: вкл.";
+"viewer.hdr_off" = "HDR: выкл.";
+"viewer.on" = "включено";
+"viewer.off" = "выключено";
+"viewer.slideshow" = "Слайд-шоу";
+"viewer.slideshow_toast" = "Слайд-шоу: касание останавливает";
+"viewer.open_in" = "Открыть в другом приложении";
+"viewer.edit_elsewhere" = "Изменить в другом приложении";
+"viewer.no_app" = "Нет подходящего приложения";

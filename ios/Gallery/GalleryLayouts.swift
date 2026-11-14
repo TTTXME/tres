@@ -199,8 +199,7 @@ final class RowMeta {
         if let n = r.value(forKey: "fileSize") as? NSNumber { info.bytes = n.int64Value }
         if asset.mediaType == .video { return info }
         let head = await headData(r, limit: 512 * 1024)
-        info.ultraHdr = head.range(of: Data("hdrgm:Version".utf8)) != nil
-            || head.range(of: Data("urn:com:apple:photo:2020:aux:hdrgainmap".utf8)) != nil
+        info.ultraHdr = ViewerFacts.hasGainMap(head)
         if let src = CGImageSourceCreateWithData(head as CFData, nil),
            let p = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any],
            let tiff = p[kCGImagePropertyTIFFDictionary] as? [CFString: Any],

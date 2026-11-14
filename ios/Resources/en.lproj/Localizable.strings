@@ -583,3 +583,38 @@
 "gallery.size_mb" = "%@ MB";
 "gallery.size_kb" = "%d KB";
 "gallery.size_b" = "%d B";
+
+// P504 «Текст на фото» (Vision) and the search by the text on the photos
+"ocr.title" = "Text in the photo";
+"ocr.language" = "Language";
+"ocr.auto" = "Auto";
+"ocr.reading" = "Reading…";
+"ocr.failed" = "Could not read the photo.";
+"ocr.none" = "No text found. Try picking the language.";
+"ocr.ready" = "Select a part of the text or copy all of it.";
+"ocr.copy_all" = "Copy all";
+"ocr.copied" = "Text copied";
+"ocr.lang.eng" = "English";
+"ocr.lang.rus" = "Russian";
+"ocr.lang.deu" = "German";
+"ocr.lang.fra" = "French";
+"ocr.lang.spa" = "Spanish";
+"ocr.lang.ita" = "Italian";
+"ocr.lang.por" = "Portuguese";
+"ocr.lang.chi_sim" = "Chinese";
+"ocr.lang.jpn" = "Japanese";
+"ocr.lang.kor" = "Korean";
+"ocr.lang.ara" = "Arabic";
+"ocr.lang.hin" = "Hindi";
+
+// the viewer's chrome (ViewerChrome): the meta line, the HDR pill, «Ещё», the slideshow, another app
+"viewer.video" = "Video";
+"viewer.hdr_on" = "HDR: on";
+"viewer.hdr_off" = "HDR: off";
+"viewer.on" = "on";
+"viewer.off" = "off";
+"viewer.slideshow" = "Slideshow";
+"viewer.slideshow_toast" = "Slideshow: tap to stop";
+"viewer.open_in" = "Open in another app";
+"viewer.edit_elsewhere" = "Edit in another app";
+"viewer.no_app" = "No app for this";

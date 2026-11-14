@@ -504,8 +504,8 @@ struct GalleryPrefs: Equatable {
 
 /// GallerySearch (P502): the gallery's search without an on-device recogniser - every word of the query must appear in what is
 /// known of a photo: its file name, its kind (raw / dng, heic, jpeg / jpg, скриншот / screenshot, избранное / favourite, фото /
-/// photo) and its date (the year, the month in ru / en, «сегодня» / «вчера», the day «31»). Case and «ё» do not matter. The text
-/// read on the photos (Android's OcrIndex, P504) is not ported.
+/// photo), its date (the year, the month in ru / en, «сегодня» / «вчера», the day «31») and the text read on it (P504 OcrIndex, by
+/// Vision). Case and «ё» do not matter.
 enum GallerySearch {
     private static let ruMonths = ["январь января", "февраль февраля", "март марта", "апрель апреля", "май мая", "июнь июня", "июль июля",
                                    "август августа", "сентябрь сентября", "октябрь октября", "ноябрь ноября", "декабрь декабря"]
@@ -543,11 +543,13 @@ enum GallerySearch {
     }
 
     /// The photos of `all` whose text has every word of `query` (all of them for an empty query), in their order.
-    static func find(_ all: [PHAsset], _ query: String, kinds: [String: GalleryLibrary.AssetKind], now: Date) -> [PHAsset] {
+    @MainActor static func find(_ all: [PHAsset], _ query: String, kinds: [String: GalleryLibrary.AssetKind], now: Date) -> [PHAsset] {
         let w = words(query)
         if w.isEmpty { return all }
         return all.filter { a in
-            let text = haystack(a, kind: kinds[a.localIdentifier], now: now)
+            var text = haystack(a, kind: kinds[a.localIdentifier], now: now)
+            // P504: the text read on the photo (OcrIndex)
+            if let onPhoto = OcrIndex.shared.searchText(a), !onPhoto.isEmpty { text += " " + onPhoto }
             return w.allSatisfy { text.contains($0) }
         }
     }

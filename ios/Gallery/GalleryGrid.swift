@@ -938,6 +938,7 @@ final class GridScroll {
 
     /// FastScroller: the thumb shows while the list moves and fades 1.2 s after it stops (only for a list of over two screens).
     func touchScroller() {
+        OcrIndex.shared.touch() // P617: the text index waits while the grid moves
         guard contentHeight > viewport.height * 2 else { return }
         lastMove = Date()
         if !scrollerVisible { withAnimation(.easeOut(duration: 0.16)) { scrollerVisible = true } }
