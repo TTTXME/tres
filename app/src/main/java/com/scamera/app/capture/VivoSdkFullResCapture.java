@@ -74,6 +74,20 @@ final class VivoSdkFullResCapture {
     private double usFactor;
     private long usMinNs;
     private int usMinIso;
+    /** P684: the 200 MP mode key on every still of the still-only route (StillOnly200's variants with it). */
+    private boolean modeKeyOnStills;
+    /** P684: the X300 Ultra stock camera's full-size keys of this variant (X300FullSize); null: none. */
+    @androidx.annotation.Nullable private StillOnly200.Variant fullSize;
+    /** P684: the decision frame repeated before the stills (null: the repeating request just stops). */
+    @androidx.annotation.Nullable private CaptureRequest decision;
+    /** P684: the seamlessMode a still in the full-size mode reports (0: not checked). */
+    private int expectedSeamless;
+    /** P684: the per-still ids' millisecond stamp (one more per still). */
+    private long stillStamp;
+    private boolean fullSizeLogged;
+    /** P684: the colour block the stills' pixels proved (-1: none confident) and the last seamlessMode reported (null: none). */
+    private volatile int deliveredBlock = -1;
+    @androidx.annotation.Nullable private volatile Long seamlessSeen;
 
     VivoSdkFullResCapture(CameraDevice device, CameraCaptureSession session, VivoSdkRawSession sdk,
                          Surface raw, Surface jpeg, ImageSaver saver, Handler handler,
@@ -144,14 +158,27 @@ final class VivoSdkFullResCapture {
                     return;
                 }
                 // P194: a native Bayer row (the HAL's hardware remosaic) fails on a confident Quad / Tetra still the same way
-                if (profile.nativeRoute()) {
-                    final boolean[] mosaic = mosaicCheck(profile, plane.getBuffer(), image.getWidth(), image.getHeight(), plane.getRowStride());
-                    if (mosaic[1]) {
+                // P684: a still-only still holding the binned readout in a corner of its buffer: the HAL never switched the sensor
+                if (profile.stillOnly) {
+                    final int corner = X300FullSize.binnedCorner(plane.getBuffer(), image.getWidth(), image.getHeight(), plane.getRowStride());
+                    if (corner > 1) {
                         image.close();
+                        serial.fail("binned image in a corner (1/" + corner + " of the buffer, the rest zero): the HAL did not switch the sensor");
+                        return;
+                    }
+                }
+                if (profile.nativeRoute()) {
+                    final MosaicBlockDetector.Result mosaic = MosaicBlockDetector.detect(plane.getBuffer(), image.getWidth(), image.getHeight(),
+                            plane.getRowStride(), 64, 1023, 64);
+                    if (mosaic.confident) deliveredBlock = mosaic.block;
+                    if (mosaic.confident && mosaic.block != profile.nativeBlock) {
+                        image.close();
+                        com.scamera.app.util.Log.w("SCAM_CAPTURE", "native FULLRES still: block " + mosaic.block + ", the profile's "
+                                + profile.nativeBlock + (fullSize != null ? " (" + fullSize + ", P684)" : ""));
                         serial.fail("Native FULLRES mosaic does not match its sensor profile");
                         return;
                     }
-                    nativeMosaicVerified |= mosaic[0];
+                    nativeMosaicVerified |= mosaic.confident && mosaic.block == profile.nativeBlock;
                 }
                 saver.initProcess(image);
                 serial.raw(timestamp);
@@ -163,6 +190,11 @@ final class VivoSdkFullResCapture {
     }
 
     void start() {
+        // P684: the stock full-size recipe: the decision frame first, then the repeating request stops and the stills go
+        if (fullSize != null) {
+            startFullSize();
+            return;
+        }
         // P179: a 200 MP series stops the repeating preview at the shutter, so its stills follow the requests the HAL already
         // holds instead of a queue of ~13 preview frames (2.7 fps at 200 MP: ~5 s); the camera closes for the merge right after
         if (stopsPreview(profile)) {
@@ -173,6 +205,62 @@ final class VivoSdkFullResCapture {
             }
         }
         serial.start();
+    }
+
+    /**
+     * P684: the X300 Ultra stock camera's full-size stills of {@code variant} (X300FullSize): {@code decision} (null: none) repeats
+     * until its result is in (at most X300FullSize.DECISION_MS), then the repeating request stops and the stills go; each still
+     * checked against {@code expectedSeamless} (0: not checked). Before {@link #start}.
+     */
+    void fullSize(@androidx.annotation.Nullable StillOnly200.Variant variant, @androidx.annotation.Nullable CaptureRequest decision,
+                  int expectedSeamless) {
+        if (variant == null || !variant.recipe || !profile.nativeRoute() || !profile.stillOnly) return;
+        fullSize = variant;
+        this.decision = decision;
+        this.expectedSeamless = expectedSeamless;
+        stillStamp = System.currentTimeMillis();
+    }
+
+    /** P684: the colour block the stills proved (-1: none confident). */
+    int deliveredBlock() { return deliveredBlock; }
+
+    /** P684: the last seamlessMode a still reported (null: none). */
+    @androidx.annotation.Nullable Long seamlessSeen() { return seamlessSeen; }
+
+    private void startFullSize() {
+        final long start = android.os.SystemClock.elapsedRealtime();
+        final boolean[] gone = {false};
+        final java.util.function.Consumer<String> proceed = how -> {
+            if (gone[0] || stopped) return;
+            gone[0] = true;
+            com.scamera.app.util.Log.i("SCAM_CAPTURE", "200 MP full-size decision frame: " + how + " after "
+                    + (android.os.SystemClock.elapsedRealtime() - start) + " ms; the repeating request stops, " + count + " stills go (P684)");
+            try {
+                session.stopRepeating();
+            } catch (Exception e) {
+                android.util.Log.w("SCAM_CAPTURE", "200 MP: the repeating request did not stop for the stills: " + e);
+            }
+            serial.start();
+        };
+        final CaptureRequest frame = decision;
+        if (frame == null) {
+            proceed.accept("none built");
+            return;
+        }
+        try {
+            session.setRepeatingRequest(frame, new CameraCaptureSession.CaptureCallback() {
+                @Override public void onCaptureCompleted(CameraCaptureSession s, CaptureRequest r, TotalCaptureResult result) {
+                    if (r == frame) handler.post(() -> proceed.accept("seen (" + X300FullSize.probes(result) + ")"));
+                }
+                @Override public void onCaptureFailed(CameraCaptureSession s, CaptureRequest r, CaptureFailure failure) {
+                    if (r == frame) handler.post(() -> proceed.accept("failed (" + failure.getReason() + ")"));
+                }
+            }, handler);
+        } catch (Exception e) {
+            proceed.accept("not sent (" + e.getMessage() + ")");
+            return;
+        }
+        handler.postDelayed(() -> proceed.accept("no result (timeout)"), X300FullSize.DECISION_MS);
     }
 
     /** P179: a native RAW-only series above 100 MP stops the preview while it runs. */
@@ -363,6 +451,19 @@ final class VivoSdkFullResCapture {
     }
 
     /**
+     * P684 (StillOnly200's KEY variant): every still of P208's still-only route carries the 200 MP mode key (vivo.control
+     * .forceSensorMode = the profile's row); the session and the viewfinder stay in the normal mode. Before {@link #start}.
+     */
+    void modeKeyOnStills(boolean on) {
+        modeKeyOnStills = on && profile.nativeRoute() && profile.stillOnly;
+    }
+
+    /** P684: a still of {@code profile} carries the mode key - the still-only route's, by its variant or scam_dev «vivo_fullres200_force». */
+    static boolean modeKeyOnStill(VivoSdkFullRes.Profile profile, boolean variant, boolean dev) {
+        return profile != null && profile.nativeRoute() && profile.stillOnly && (variant || dev);
+    }
+
+    /**
      * P201: the N stills of a series after the shutter at a hand-set exposure (the ultrashort / bracketed ones keep theirs).
      * Before {@link #start}.
      */
@@ -446,11 +547,12 @@ final class VivoSdkFullResCapture {
             for (CaptureRequest.Key<?> key : sessionKeys) copySessionKey(builder, key);
             if (profile.nativeRoute()) {
                 VivoPd2454NativeRaw.applyFullRes(builder, profile);
-                if (profile.stillOnly && VivoNativeFullRes.forceOnStills()) VivoPd2454NativeRaw.forceMode(builder, profile);
+                if (modeKeyOnStill(profile, modeKeyOnStills, VivoNativeFullRes.forceOnStills())) VivoPd2454NativeRaw.forceMode(builder, profile);
                 builder.set(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION,
                         preview.get(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION));
                 builder.set(CaptureRequest.CONTROL_AE_REGIONS, preview.get(CaptureRequest.CONTROL_AE_REGIONS));
             }
+            if (fullSize != null) applyFullSize(builder);
             copyManual(builder);
             // P212h (A7 phase 1a): the automatic N stills hold the exposure the viewfinder AE converged to
             if (lockNormals && roles[index] == ImageFrame.CaptureRole.NORMAL && manualNs[index] <= 0)
@@ -484,7 +586,22 @@ final class VivoSdkFullResCapture {
                     Long exposure = result.get(CaptureResult.SENSOR_EXPOSURE_TIME);
                     Integer iso = result.get(CaptureResult.SENSOR_SENSITIVITY);
                     int[] mode = result.get(new CaptureResult.Key<>("com.qti.sensorbps.mode_index", int[].class));
-                    if (!modeMatches(profile, mode)) {
+                    if (fullSize != null) {
+                        // P684: the full-size mode the HAL reports, logged with the other probes on the first still
+                        final Long seamless = X300FullSize.number(result, X300FullSize.SEAMLESS);
+                        if (seamless != null) seamlessSeen = seamless;
+                        if (!fullSizeLogged) {
+                            fullSizeLogged = true;
+                            com.scamera.app.util.Log.i("SCAM_CAPTURE", "200 MP full-size still 0 (" + fullSize + "): " + X300FullSize.probes(result)
+                                    + " mode_index=" + (mode == null || mode.length == 0 ? "-" : String.valueOf(mode[0])) + " (P684)");
+                        }
+                        if (X300FullSize.seamlessWrong(seamless, expectedSeamless)) {
+                            serial.fail("full-size still not in the full-size mode: seamlessMode " + seamless + ", expected " + expectedSeamless);
+                            return;
+                        }
+                    }
+                    // P684: the HAL's remosaic variant runs its own full-size use case (its mode index is not the Tetra row)
+                    if (!(fullSize != null && fullSize.halRemosaic) && !modeMatches(profile, mode)) {
                         serial.fail("SDK FULLRES50 sensor mode is not active");
                         return;
                     }
@@ -543,6 +660,20 @@ final class VivoSdkFullResCapture {
                 nNs / 1e6, nIso, usFactor, us[0] / 1e6, us[1], manualNs[index] / 1e6, manualIso[index]));
         manualNs[index] = us[0];
         manualIso[index] = (int) us[1];
+    }
+
+    /**
+     * P684: a still of the stock full-size recipe: the request keys, the still keys of the variant with this still's ids, and the
+     * viewfinder's OIS and AF (mode, regions) on the fresh still template.
+     */
+    private void applyFullSize(CaptureRequest.Builder builder) {
+        final java.util.List<String> failed = X300FullSize.applyRequest(builder);
+        failed.addAll(X300FullSize.applyStill(builder, fullSize, stillStamp++));
+        copyKey(builder, CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE);
+        copyKey(builder, CaptureRequest.CONTROL_AF_MODE);
+        copyKey(builder, CaptureRequest.CONTROL_AF_REGIONS);
+        if (!failed.isEmpty() && !fullSizeLogged)
+            com.scamera.app.util.Log.w("SCAM_CAPTURE", "200 MP full-size still keys this firmware does not know (skipped): " + failed + " (P684)");
     }
 
     /**
