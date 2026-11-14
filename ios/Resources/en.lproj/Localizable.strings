@@ -1049,3 +1049,4 @@
 "video.pip_on_home" = "Picture-in-picture on leaving";
 "video.pip_unavailable" = "Picture-in-picture is not available now";
 "video.boost" = "Volume boost";
+"shdr.no_raw" = "This camera gives no Bayer RAW: the camera's own photo is saved, without the SHDR merge.";

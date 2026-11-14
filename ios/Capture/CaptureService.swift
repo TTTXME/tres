@@ -223,6 +223,9 @@ actor CaptureService {
 
     /// The SHDR series: `count` N frames, then the plan's ultrashort / bracketed frames (HybridPlan). It carries the press's digital
     /// zoom (ZoomController's residual: SabreCrop's window and the photo's crop, BurstProcessor).
+    /// Whether the photo output gives Bayer RAW (an iPad / a lens without RAW: none)
+    var hasBayerRaw: Bool { photoCapture.output.availableRawPhotoPixelFormatTypes.contains { AVCapturePhotoOutput.isBayerRAWPixelFormat($0) } }
+
     func captureBayerBurst(count: Int) async throws -> BayerBurst {
         guard let device = activeInput?.device else { throw CameraError.videoDeviceUnavailable }
         let zoom = residual * (activeModule?.crop ?? 1) // a copy's crop (ModuleSettings) on top of the residual

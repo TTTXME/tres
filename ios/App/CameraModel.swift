@@ -360,16 +360,25 @@ final class CameraModel {
     /// SHDR: Bayer series → NCH → the Android merge on the GPU → white balance / colour → «Why» V2 → HEIC (+ the merged DNG).
     /// A flash shot is one fresh frame with the flash (FlashMode.Shot), merged as a one-frame shot. The capture ends when the frames
     /// are handed to the processing queue: the camera takes the next shot while this one is merged, processed and saved.
+    /// the «no Bayer RAW» note once per launch
+    @ObservationIgnored private var noRawNoted = false
+
     private func captureShdr(started: Date, facts: ShotExif, flash: Bool) async {
         capturingShdr = true
         do {
             let burst: BayerBurst
             if flash, let one = try await captureService.captureFlashFrame() {
                 burst = one
-            } else if flash {
-                // no RAW frame with the flash on this lens: the camera's own flash photo
-                SessionLog.w("SHDR", "flash shot without a RAW frame: the camera's photo")
-                var photo = try await captureService.capturePhoto(PhotoRequest(raw: raw, fullResolution: fullResolution, flash: .on, exif: facts))
+            } else if flash || !(await captureService.hasBayerRaw) {
+                // no RAW frame (the flash on this lens, or a camera without Bayer RAW): the camera's own photo
+                if flash {
+                    SessionLog.w("SHDR", "flash shot without a RAW frame: the camera's photo")
+                } else {
+                    SessionLog.w("SHDR", "no Bayer RAW on this camera: the camera's photo, no merge")
+                    if !noRawNoted { noRawNoted = true; say(L("shdr.no_raw")) }
+                }
+                var photo = try await captureService.capturePhoto(PhotoRequest(raw: raw, fullResolution: fullResolution,
+                                                                               flash: flash ? .on : .off, exif: facts))
                 photo.report.forEach { SessionLog.i("Shot", $0) }
                 activity = .saving
                 if rawSaving == 2, photo.rawFile != nil { photo.processed = nil } // «Только RAW»: the camera's DNG alone
