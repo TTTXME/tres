@@ -41,8 +41,8 @@ import java.util.TimeZone;
  * P618 (owner, 2026-11-11: «Перепроверь exif данные которые записываются в dng, у нас там всё ещё остались старые хвосты от
  * Photon Camera»): the shot's DNG and photo record the same facts - the time the shot was named with its milliseconds and zone,
  * the ISO above 65535, the APEX ApertureValue, the lens of the camera the RAW came from (no placeholder), the 35 mm focal length
- * where the field of view is known - and nothing of PhotonCamera's (its settings list in the description, its
- * "MODEL-BRAND-MANUFACTURER" UniqueCameraModel, a Copyright of the app's name). tools/check_dng_metadata.cpp checks the native
+ * where the field of view is known - and nothing of PhotonCamera's (its settings list in the description, a Copyright of the
+ * app's name). The UniqueCameraModel stays "MODEL-BRAND-MANUFACTURER" (P696: the key of the phone's DCP profiles). tools/check_dng_metadata.cpp checks the native
  * writer lays these tags out in the file.
  */
 @RunWith(RobolectricTestRunner.class)
@@ -135,7 +135,10 @@ public class ShotExifTest {
         assertEquals("back", ShotExif.facing(1));
         assertEquals("front", ShotExif.facing(0));
         assertNull(ShotExif.facing(null));
-        assertEquals("vivo V2454A camera 5", ShotExif.uniqueCameraModel("vivo", "V2454A", 5));
+        // P696: the key the phone's DCP profiles are bound to, as every DNG before P647
+        assertEquals("V2454A-vivo-vivo", ShotExif.uniqueCameraModel("V2454A", "vivo", "vivo"));
+        assertEquals("PHY110-OPPO-OPPO", ShotExif.uniqueCameraModel(" PHY110 ", "OPPO", "OPPO"));
+        assertEquals("Android-Android-Android", ShotExif.uniqueCameraModel(null, "", " "));
         assertArrayEquals(new double[]{6.7, 9.12, 1.69, 1.69},
                 ShotExif.lensSpecification(new float[]{9.12f, 6.7f}, new float[]{2.2f, 1.69f}), 1e-6);
         assertNull(ShotExif.lensSpecification(null, new float[]{1.69f}));

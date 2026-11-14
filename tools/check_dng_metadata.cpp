@@ -100,7 +100,7 @@ unsigned char *build(bool full, const std::vector<unsigned short> &raw, size_t &
     }
     c.setMake("vivo");
     c.setModel("vivo X200 Ultra");
-    c.setUniqueCameraModel(full ? "vivo V2454A camera 5" : "V2454A-vivo-vivo");
+    c.setUniqueCameraModel("V2454A-vivo-vivo");
     if (!full) {
         // the writer before P618: the exposure and lens in IFD 0 (ISO 102400 cast to a short: 36864)
         c.setIso(36864);
@@ -158,7 +158,7 @@ int main(int argc, char **argv) {
     expect(ascii(t0[270]) == "SCAMERA\n Frames=8\n Camera=5\n RAW=merged burst\n Route=SHDR", "ImageDescription: the last one set");
     expect(ascii(t0[305]) == "SCAMERA 0.98 (31200) 0123abcd", "Software");
     expect(ascii(t0[271]) == "vivo" && ascii(t0[272]) == "vivo X200 Ultra", "Make / Model");
-    expect(ascii(t0[50708]) == "vivo V2454A camera 5", "UniqueCameraModel");
+    expect(ascii(t0[50708]) == "V2454A-vivo-vivo", "UniqueCameraModel (P696: the DCP key)");
     expect(ascii(t0[306]) == "2026:11:11 14:03:07", "DateTime");
     expect(t0.count(36864) == 0, "no ExifVersion in IFD 0");
     expect(t0.count(296) && le(t0[296].data.data(), 2) == 2, "ResolutionUnit 2 (inch, as before)");

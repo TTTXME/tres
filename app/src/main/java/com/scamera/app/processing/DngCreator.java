@@ -307,11 +307,11 @@ public class DngCreator {
         final double[] noise = noiseProfile(p);
         if (noise != null) setNoiseProfile(noise);
 
-        // P196 / P618: Make / Model as the shot's other files (DeviceName); UniqueCameraModel is the build model and the
-        // physical camera (the colour profile's identity). ExposureTime, FNumber, ISO and FocalLength are in the Exif IFD only.
+        // P196 / P618: Make / Model as the shot's other files (DeviceName); P696: UniqueCameraModel the phone's DCP key
+        // (ShotExif.uniqueCameraModel). ExposureTime, FNumber, ISO and FocalLength are in the Exif IFD only.
         setMake(facts.make);
         setModel(DeviceName.model());
-        setUniqueCameraModel(ShotExif.uniqueCameraModel(facts.make, Build.MODEL, p.physicalID));
+        setUniqueCameraModel(ShotExif.uniqueCameraModel(Build.MODEL, Build.BRAND, Build.MANUFACTURER));
 
         final short[] black = new short[4];
         for (int i = 0; i < 4; i++) black[i] = (short) p.cfaBlack[i];

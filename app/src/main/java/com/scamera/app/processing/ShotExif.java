@@ -25,8 +25,7 @@ import java.util.TimeZone;
  * <li>ApertureValue is the APEX 2 log2(N); the photo wrote the f-number there.</li>
  * <li>The lens: LensMake / LensModel of the camera the RAW came from and LensSpecification / LensInfo of its declared focal
  * lengths and apertures; FocalLengthIn35mmFilm only where the image's field of view is known.</li>
- * <li>UniqueCameraModel: the phone and the physical camera (every camera of a phone is a sensor of its own colour) instead of
- * PhotonCamera's "MODEL-BRAND-MANUFACTURER".</li>
+ * <li>UniqueCameraModel: "MODEL-BRAND-MANUFACTURER" as every earlier DNG of the phone, the key DCP profiles are bound to.</li>
  * </ul>
  */
 public final class ShotExif {
@@ -145,16 +144,17 @@ public final class ShotExif {
     }
 
     /**
-     * UniqueCameraModel: "<make> <Build.MODEL> camera <physical id>" - "vivo V2454A camera 3". The DNG spec's identity of the
-     * camera a colour profile belongs to: the build model (not the market name, which an update can change) and the physical
-     * camera, each a sensor with its own matrices.
+     * UniqueCameraModel: "<Build.MODEL>-<Build.BRAND>-<Build.MANUFACTURER>" - "V2454A-vivo-vivo". P696 (owner, 2026-11-14:
+     * «нет возможности выбирать свои DCP профили в лайтруме»): Lightroom / ACR and other developers offer a DCP only to the
+     * raws whose UniqueCameraModel is the profile's; P647's "vivo V2454A camera 3" hid every profile made for the phone's
+     * DNGs, so the key is the one they were made for, the same for every camera of the phone.
      */
-    public static String uniqueCameraModel(@Nullable String make, @Nullable String buildModel, int physicalId) {
-        StringBuilder b = new StringBuilder();
-        if (make != null && !make.trim().isEmpty()) b.append(make.trim()).append(' ');
-        b.append(buildModel == null || buildModel.trim().isEmpty() ? "Android" : buildModel.trim());
-        if (physicalId >= 0) b.append(" camera ").append(physicalId);
-        return ascii(b.toString());
+    public static String uniqueCameraModel(@Nullable String buildModel, @Nullable String brand, @Nullable String manufacturer) {
+        return ascii(part(buildModel, "Android") + "-" + part(brand, "Android") + "-" + part(manufacturer, "Android"));
+    }
+
+    private static String part(@Nullable String s, String fallback) {
+        return s == null || s.trim().isEmpty() ? fallback : s.trim();
     }
 
     /** "back" / "front" / "external" of a CameraCharacteristics.LENS_FACING value, null for none. */

@@ -130,7 +130,7 @@ public class DngCreatorExifTagsTest {
         assertTrue(given.toString(), given.contains("Exif 36881=+03:00"));
         assertTrue(given.toString(), given.contains("Exif 42036=vivo X200 Ultra back camera 9.12mm f/1.69"));
         verify(dng).setDateTime("2026:11:11 14:03:07");
-        verify(dng).setUniqueCameraModel("vivo V2454A camera 5");
+        verify(dng).setUniqueCameraModel("V2454A-vivo-vivo"); // P696: the DCP key
         verify(dng).setMake("vivo");
         verify(dng).setModel("vivo X200 Ultra");
         final ArgumentCaptor<String> desc = ArgumentCaptor.forClass(String.class);
