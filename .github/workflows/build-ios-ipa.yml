@@ -162,6 +162,8 @@ jobs:
             echo "=== fast route $v (d<n>: <n> donors; direct: the plain upload): Metal vs Mesa"
             python3 ios/tools/replay_bursts.py compare "$RUNNER_TEMP/reference/fast_$v" "$RUNNER_TEMP/metal/fast_$v" --max-psnr-drop 70 || true
           done
+          echo "=== how Metal differs on the base frame alone (d0)"
+          python3 ios/tools/replay_bursts.py detail "$RUNNER_TEMP/reference/fast_d0" "$RUNNER_TEMP/metal/fast_d0" || true
           # where the two GPUs part on the fast route: the merge reports without their timings
           for f in "$RUNNER_TEMP/metal/fast/"*.log; do
             n=$(basename "$f"); echo "=== fast $n: Mesa < > Metal"

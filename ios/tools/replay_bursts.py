@@ -97,7 +97,38 @@ def compare(ref_dir, cand_dir, limit, off_share=1.0):
     return 1 if worst or not lines else 0
 
 
+def detail(ref_dir, cand_dir):
+    """How two runs differ: per channel means and the fit cand = a x ref + b, the exactly equal share, and the mean difference
+    over a 12 x 8 grid of the frame (a pattern of tiles, rows or a global gain)."""
+    for ref_path in sorted(ref_dir.glob('*.f32')):
+        cand_path = cand_dir / ref_path.name
+        if not cand_path.exists():
+            continue
+        ref, cand = read_result(ref_path).astype(np.float64), read_result(cand_path).astype(np.float64)
+        if ref.shape != cand.shape:
+            continue
+        print(f'--- {ref_path.stem} {ref.shape[1]}x{ref.shape[0]}x{ref.shape[2]}: equal {np.mean(ref == cand):.4f}')
+        for c in range(ref.shape[2]):
+            r, k = ref[..., c].ravel(), cand[..., c].ravel()
+            a, b = np.polyfit(r, k, 1) if r.std() > 0 else (float('nan'), float('nan'))
+            print(f'  ch{c}: mean ref {r.mean():.6f} cand {k.mean():.6f} fit cand = {a:.5f} x ref + {b:+.6f}'
+                  f'  corr {np.corrcoef(r, k)[0, 1]:.5f}')
+        h, w = ref.shape[:2]
+        d = (cand - ref).mean(axis=2)
+        scale = float(np.percentile(ref, 99.9)) or 1.0
+        print('  mean (cand - ref) / p99.9 x 1000 over a 12 x 8 grid (rows top-down):')
+        for gy in range(8):
+            row = []
+            for gx in range(12):
+                cell = d[gy * h // 8:(gy + 1) * h // 8, gx * w // 12:(gx + 1) * w // 12]
+                row.append(f'{1000 * cell.mean() / scale:+6.1f}')
+            print('   ' + ' '.join(row))
+
+
 if __name__ == '__main__':
+    if len(sys.argv) >= 4 and sys.argv[1] == 'detail':
+        detail(Path(sys.argv[2]), Path(sys.argv[3]))
+        sys.exit(0)
     if len(sys.argv) >= 5 and sys.argv[1] == 'run':
         sys.exit(run(Path(sys.argv[2]), Path(sys.argv[3]), Path(sys.argv[4]), sys.argv[5] if len(sys.argv) > 5 else None))
     if len(sys.argv) >= 4 and sys.argv[1] == 'compare':
