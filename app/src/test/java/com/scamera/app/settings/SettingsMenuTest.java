@@ -2258,7 +2258,7 @@ public class SettingsMenuTest {
         keys.remove("oismode");
         // P654: the sensor mode, the camera keys and «Добавить ключ» first (no sensor table here: no sensor mode row)
         assertEquals(Arrays.asList("add_tunablekey","blackleveloverride","whiteleveloverride","sessiontype","ispsurface","rawfps","rawviewfinder",
-                "ae_engine","ae_method","ae_min_iso","ae_max_iso","ae_fast_den","ae_slow_den","yuvmerge","recipe","fpsprobe",
+                "ae_engine","ae_method","ae_min_iso","ae_max_iso","ae_fast_den","ae_slow_den","yuvmerge","yuvmerge10","recipe","fpsprobe",
                 "pref_reset_sensor_config_settings_back1"),keys);
         assertFalse(((androidx.preference.SwitchPreferenceCompat)category.findPreference("pref_sensorconfig_back1_recipe")).isChecked());
         androidx.preference.ListPreference ae=category.findPreference("pref_sensorconfig_back1_ae_engine");

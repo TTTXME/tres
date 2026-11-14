@@ -71,14 +71,16 @@ public final class YuvMergeRows {
         final java.util.Map<String, ?> values = prefs.getAll();
         final boolean ten = YuvMergeRoute.tenOn(values, slot, camera, x200Pro);
         final boolean eight = !ten && YuvMergeRoute.eightOn(values, slot, camera, x200Pro);
-        final SwitchPreferenceCompat toggle8 = row(context, category, YuvMergeRoute.key(slot), title(context), help(context), ORDER);
-        final SwitchPreferenceCompat toggle10 = row(context, category, YuvMergeRoute.key10(slot), title10(context), help10(context), ORDER + 1);
-        toggle8.setDefaultValue(byDefault);
-        toggle8.setChecked(eight);
-        toggle10.setDefaultValue(false);
-        toggle10.setChecked(ten);
+        // the value and default are set before the row joins the page: a switch set after it would store its state (the module
+        // then counts as customised)
+        final SwitchPreferenceCompat toggle8 = row(context, YuvMergeRoute.key(slot), title(context), help(context), ORDER, byDefault, eight);
+        final SwitchPreferenceCompat toggle10 = row(context, YuvMergeRoute.key10(slot), title10(context), help10(context), ORDER + 1, false, ten);
         toggle8.setSummary(state(context, eight, byDefault && !prefs.contains(YuvMergeRoute.key(slot))));
         toggle10.setSummary(state10(context, ten));
+        com.scamera.app.ui.settings.SettingsStyle.style(toggle8, category);
+        category.addPreference(toggle8);
+        com.scamera.app.ui.settings.SettingsStyle.style(toggle10, category);
+        category.addPreference(toggle10);
         toggle8.setOnPreferenceChangeListener((p, value) -> {
             final boolean on = Boolean.TRUE.equals(value);
             if (on && toggle10.isChecked()) {
@@ -107,16 +109,16 @@ public final class YuvMergeRows {
                 : Lang.t(c, "Выключено", "Off");
     }
 
-    private static SwitchPreferenceCompat row(Context context, PreferenceCategory category, String key, String title, String help, int order) {
+    private static SwitchPreferenceCompat row(Context context, String key, String title, String help, int order, boolean byDefault, boolean on) {
         final SwitchPreferenceCompat toggle = new SwitchPreferenceCompat(context);
         toggle.setKey(key);
         toggle.setTitle(title);
+        toggle.setDefaultValue(byDefault);
+        toggle.setChecked(on);
         toggle.setIcon(com.scamera.app.R.drawable.settings_ic_sensor);
         toggle.setOrder(order);
         SettingHelp.describe(toggle, help);
         SettingHelp.summaryIsState(toggle);
-        com.scamera.app.ui.settings.SettingsStyle.style(toggle, category);
-        category.addPreference(toggle);
         return toggle;
     }
 }
