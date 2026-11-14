@@ -350,7 +350,9 @@ final class TripodDetector {
     static let shared = TripodDetector()
     private(set) var onTripod = false
     @ObservationIgnored private let manager = CMMotionManager()
-    @ObservationIgnored private var smoothed = -1.0, peak = 0.0, count = 0
+    @ObservationIgnored private var smoothed = -1.0
+    @ObservationIgnored private var peak = 0.0
+    @ObservationIgnored private var count = 0
 
     func setActive(_ on: Bool) {
         if on {

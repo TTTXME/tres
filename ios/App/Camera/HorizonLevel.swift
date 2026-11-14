@@ -81,7 +81,8 @@ final class HorizonMotion {
     private(set) var level = false
     @ObservationIgnored var turn: Double = DeviceTurn.shared.degrees
     @ObservationIgnored private let manager = CMMotionManager()
-    @ObservationIgnored private var gx: [Double] = [], gy: [Double] = []
+    @ObservationIgnored private var gx: [Double] = []
+    @ObservationIgnored private var gy: [Double] = []
 
     func start() {
         guard manager.isDeviceMotionAvailable, !manager.isDeviceMotionActive else { return }

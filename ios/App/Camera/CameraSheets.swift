@@ -35,7 +35,7 @@ struct FormatSizeSheet: View {
         .presentationDragIndicator(.hidden)
         .preferredColorScheme(.dark)
         .sheet(isPresented: Binding(get: { help != nil }, set: { if !$0 { help = nil } })) {
-            if let help { SettingHelpSheet(title: help.0, text: help.1) }
+            if let help { CameraHelpSheet(title: help.0, text: help.1) }
         }
     }
 
@@ -113,7 +113,7 @@ struct FormatSizeSheet: View {
 }
 
 /// SettingHelp's sheet: a parameter's title and what it does
-struct SettingHelpSheet: View {
+struct CameraHelpSheet: View {
     let title: String
     let text: String
 
