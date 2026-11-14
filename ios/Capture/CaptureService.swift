@@ -80,7 +80,6 @@ actor CaptureService {
                 let faces = FaceBoxes.shared.output
                 if session.canAddOutput(faces) {
                     session.addOutput(faces)
-                    FaceBoxes.shared.configure()
                 } else {
                     SessionLog.w("Capture", "face metadata output refused: no face boxes")
                 }
@@ -506,6 +505,8 @@ actor CaptureService {
         // «Информация на экране» (pref_show_afdata_key): the HUD follows this lens (Capture/CameraHud)
         hudMonitor.observe(device, layer: layer)
         FaceBoxes.shared.attach(layer)
+        // the face type is offered only once the output has a lens's connection
+        FaceBoxes.shared.configure()
         rotationObservation = coordinator.observe(\.videoRotationAngleForHorizonLevelCapture, options: .new) { [weak self] _, change in
             guard let self, let angle = change.newValue else { return }
             Task { await self.updateCaptureRotation(angle) }
