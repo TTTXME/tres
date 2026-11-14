@@ -176,18 +176,34 @@ final class RowMeta {
     static let shared = RowMeta()
     private(set) var infos: [String: Info] = [:]
     @ObservationIgnored private var asked: Set<String> = []
+    /// the photos asked for and not read yet: one read at a time, the latest asked (the ones on screen) first
+    @ObservationIgnored private var pending: [PHAsset] = []
+    @ObservationIgnored private var worker: Task<Void, Never>?
+
+    nonisolated init() {}
 
     func info(_ asset: PHAsset) -> Info? {
         let id = asset.localIdentifier
         if let i = infos[id] { return i }
         if !asked.contains(id) {
             asked.insert(id)
-            Task.detached(priority: .utility) {
-                let i = await RowMeta.read(asset)
-                await MainActor.run { RowMeta.shared.infos[id] = i }
+            pending.append(asset)
+            if pending.count > 400 { // scrolled past long ago: asked again when shown
+                let dropped = pending.count - 400
+                for a in pending.prefix(dropped) { asked.remove(a.localIdentifier) }
+                pending.removeFirst(dropped)
             }
+            if worker == nil { worker = Task { await drain() } }
         }
         return nil
+    }
+
+    private func drain() async {
+        while let a = pending.popLast() {
+            let i = await Task.detached(priority: .utility) { await RowMeta.read(a) }.value
+            infos[a.localIdentifier] = i
+        }
+        worker = nil
     }
 
     /// The first 512 KB of the file (where a JPEG's EXIF and XMP and a HEIC's item properties sit): the route, Ultra HDR.

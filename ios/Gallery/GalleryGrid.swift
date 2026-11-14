@@ -724,43 +724,6 @@ struct TagFlow: View {
     }
 }
 
-/// RowViews.FlowRow: views in a row that wraps when the next one does not fit.
-struct FlowLayout: Layout {
-    var spacing: CGFloat = 5
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let maxW = proposal.width ?? .infinity
-        var x: CGFloat = 0, y: CGFloat = 0, line: CGFloat = 0, widest: CGFloat = 0
-        for s in subviews {
-            let size = s.sizeThatFits(.unspecified)
-            if x > 0, x + size.width > maxW {
-                y += line + spacing
-                x = 0
-                line = 0
-            }
-            x += size.width + spacing
-            line = max(line, size.height)
-            widest = max(widest, x - spacing)
-        }
-        return CGSize(width: proposal.width ?? widest, height: subviews.isEmpty ? 0 : y + line)
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        var x: CGFloat = 0, y: CGFloat = 0, line: CGFloat = 0
-        for s in subviews {
-            let size = s.sizeThatFits(.unspecified)
-            if x > 0, x + size.width > bounds.width {
-                y += line + spacing
-                x = 0
-                line = 0
-            }
-            s.place(at: CGPoint(x: bounds.minX + x, y: bounds.minY + y), proposal: ProposedViewSize(size))
-            x += size.width + spacing
-            line = max(line, size.height)
-        }
-    }
-}
-
 /// RowViews.check: a light ring on a dark disc while selecting, the accent disc with the tick when chosen (it pops).
 struct SelectCheck: View {
     let on: Bool
