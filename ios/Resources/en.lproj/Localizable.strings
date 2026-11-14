@@ -975,3 +975,74 @@
 "set.search.none" = "Nothing found";
 "set.search.found" = "Found: %d";
 "set.search.root" = "Settings";
+// P622 the gallery's views (Сетка / Список / Лента), the fast scroller, the list's rows
+"gallery.mode.grid" = "Grid";
+"gallery.mode.list" = "List";
+"gallery.mode.timeline" = "Timeline";
+"gallery.level.years" = "Years";
+"gallery.level.months" = "Months";
+"gallery.level.all" = "All photos";
+"gallery.view_mode" = "View";
+"gallery.view_hint" = "Grid: cards by day. List: rows with the name, size and tags. Timeline: edge-to-edge tiles by month; pinch or the control below for years, months, all photos.";
+"gallery.timeline_zoom" = "Timeline zoom";
+"gallery.fast_scroll" = "Fast scroll";
+"gallery.select_day" = "select the day";
+"gallery.open" = "Open";
+"gallery.actions" = "Actions:";
+"gallery.open_month" = "open the month's photos";
+"gallery.open_months" = "open the months";
+"gallery.empty_counts" = "Empty";
+"gallery.n_photo" = "%d photo";
+"gallery.n_photos" = "%d photos";
+"gallery.n_video" = "%d video";
+"gallery.n_videos" = "%d videos";
+"gallery.size_mb" = "%@ MB";
+"gallery.size_kb" = "%d KB";
+"gallery.size_b" = "%d B";
+
+// P504 «Текст на фото» (Vision) and the search by the text on the photos
+"ocr.title" = "Text in the photo";
+"ocr.language" = "Language";
+"ocr.auto" = "Auto";
+"ocr.reading" = "Reading…";
+"ocr.failed" = "Could not read the photo.";
+"ocr.none" = "No text found. Try picking the language.";
+"ocr.ready" = "Select a part of the text or copy all of it.";
+"ocr.copy_all" = "Copy all";
+"ocr.copied" = "Text copied";
+"ocr.lang.eng" = "English";
+"ocr.lang.rus" = "Russian";
+"ocr.lang.deu" = "German";
+"ocr.lang.fra" = "French";
+"ocr.lang.spa" = "Spanish";
+"ocr.lang.ita" = "Italian";
+"ocr.lang.por" = "Portuguese";
+"ocr.lang.chi_sim" = "Chinese";
+"ocr.lang.jpn" = "Japanese";
+"ocr.lang.kor" = "Korean";
+"ocr.lang.ara" = "Arabic";
+"ocr.lang.hin" = "Hindi";
+
+// the viewer's chrome (ViewerChrome): the meta line, the HDR pill, «Ещё», the slideshow, another app
+"viewer.video" = "Video";
+"viewer.hdr_on" = "HDR: on";
+"viewer.hdr_off" = "HDR: off";
+"viewer.on" = "on";
+"viewer.off" = "off";
+"viewer.slideshow" = "Slideshow";
+"viewer.slideshow_toast" = "Slideshow: tap to stop";
+"viewer.open_in" = "Open in another app";
+"viewer.edit_elsewhere" = "Edit in another app";
+"viewer.no_app" = "No app for this";
+
+// P499 the player: background play, picture in picture, auto-rotate, the volume boost
+"video.rotate_sensor" = "Auto-rotate";
+"video.background_quick" = "Background";
+"video.background_quick_on" = "Background: on";
+"video.background_on" = "Background play";
+"video.background_off" = "No background play";
+"video.background_hint" = "The sound goes on when you leave";
+"video.pip" = "Picture-in-picture";
+"video.pip_on_home" = "Picture-in-picture on leaving";
+"video.pip_unavailable" = "Picture-in-picture is not available now";
+"video.boost" = "Volume boost";

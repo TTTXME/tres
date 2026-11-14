@@ -93,6 +93,18 @@ struct Plan {
         imgToSrcUv = CropMath::orientationToDisplay(orientation).inverse();
         outToSrcPx = outToBase.then(baseToImg).then(imgToSrcUv).then(CropMath::Affine::scale(sw, sh));
     }
+    /// EditZoom: the displayed crop as an output of w x h px (the view's zoom instead of the copy's size)
+    Plan(const EditState& state, int sw, int sh, int orientation, int w, int h) {
+        const bool swap = CropMath::swapsSides(orientation);
+        ow = swap ? sh : sw;
+        oh = swap ? sw : sh;
+        W = std::max(1, w);
+        H = std::max(1, h);
+        outToBase = CropMath::Affine::scale(1.0 / W, 1.0 / H).then(CropMath::cropToBase(state));
+        baseToImg = CropMath::baseToOriented(state, ow, oh);
+        imgToSrcUv = CropMath::orientationToDisplay(orientation).inverse();
+        outToSrcPx = outToBase.then(baseToImg).then(imgToSrcUv).then(CropMath::Affine::scale(sw, sh));
+    }
     int longSide() const { return std::max(W, H); }
     float latticeAspect() const { return float(W) / float(H); }
 };
@@ -297,6 +309,66 @@ inline ExportResult renderCopy(EditRenderer& r, const PreviewSource& preview, Re
                 std::memcpy(res.rgba.data() + (size_t(oy + j) * size_t(plan.W) + size_t(ox)) * 4, pixels.data() + size_t(j) * size_t(tw) * 4, size_t(tw) * 4);
             done++;
             if (progress) progress(0.05f + 0.8f * float(done) / float(tilesX * tilesY));
+        }
+    }
+    tile.release();
+    r.setLook(std::nullopt);
+    return res;
+}
+
+/// P367 EditZoomLoader: the window (wx, wy, ww x wh, output px) of the displayed crop rendered as a W x H output from the
+/// reader's picture - the export's chain (the preview's proxy, the source region with its overlap, the finish at the window's
+/// origin), so the zoom shows the pixels «Сохранить копию» makes at that size. RGBA8 rows top-down, ww x wh.
+inline ExportResult renderWindow(EditRenderer& r, const PreviewSource& preview, Reader& reader, const EditState& state, int orientation,
+                                 int W, int H, int wx, int wy, int ww, int wh) {
+    bool owned = false;
+    const GLuint previewTex = preview.upload(r, owned);
+    r.setProxySource(previewTex, preview.width, preview.height);
+    if (owned) EditGl::deleteTexture(previewTex);
+    r.updateProxy(EditMath::Uniforms::of(state, *preview.colour));
+    const int sw = reader.width(), sh = reader.height();
+    const Plan plan(state, sw, sh, orientation, W, H);
+    const int x0 = std::max(0, std::min(plan.W, wx)), y0 = std::max(0, std::min(plan.H, wy));
+    const int x1 = std::max(x0, std::min(plan.W, wx + ww)), y1 = std::max(y0, std::min(plan.H, wy + wh));
+    ExportResult res;
+    res.W = x1 - x0;
+    res.H = y1 - y0;
+    if (res.W <= 0 || res.H <= 0) return res;
+    res.rgba.assign(size_t(res.W) * size_t(res.H) * 4, 0);
+    const int overlap = EditLook::overlap(state, float(std::max(sw, sh))) + 2;
+    r.setLook(EditLook::on(state) ? EditLook::applied(state, EditLook::blocking(state)) : std::nullopt);
+    EditRenderer::Target tile;
+    std::vector<uint8_t> pixels(size_t(TILE) * TILE * 4);
+    for (int oy = y0; oy < y1; oy += TILE) {
+        for (int ox = x0; ox < x1; ox += TILE) {
+            const int tw = std::min(TILE, x1 - ox), th = std::min(TILE, y1 - oy);
+            const auto reg = region(plan.outToSrcPx, ox, oy, tw, th, overlap, sw, sh, reader.evenAligned());
+            const GLuint src = reader.upload(r, reg[0], reg[1], reg[2], reg[3]);
+            const EditMath::Uniforms u = EditMath::Uniforms::of(state, reader.colour());
+            const CropMath::Affine texToSrcUv = CropMath::Affine::scale(reg[2], reg[3]).then(CropMath::Affine::translate(reg[0], reg[1]))
+                .then(CropMath::Affine::scale(1.0 / sw, 1.0 / sh));
+            r.renderSource(src, reg[2], reg[3], float(std::max(sw, sh)), texToSrcUv, u, false);
+            if (!reader.ownsTextures()) EditGl::deleteTexture(src);
+            tile.ensure(tw, th, GL_RGBA8, false, 1);
+            EditRenderer::Finish f;
+            f.fbo = tile.fbo;
+            f.w = tw;
+            f.h = th;
+            f.originX = float(ox);
+            f.originY = float(oy);
+            f.swap = false;
+            f.mode = 0;
+            f.outToBase = plan.outToBase;
+            f.baseToImg = plan.baseToImg;
+            f.imgToTex = plan.imgToSrcUv.then(texToSrcUv.inverse());
+            f.outLongSide = float(plan.longSide());
+            r.latticeAspect = plan.latticeAspect();
+            r.finish(f, state, u);
+            glPixelStorei(GL_PACK_ALIGNMENT, 4);
+            glReadPixels(0, 0, tw, th, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+            for (int j = 0; j < th; j++)
+                std::memcpy(res.rgba.data() + (size_t(oy - y0 + j) * size_t(res.W) + size_t(ox - x0)) * 4, pixels.data() + size_t(j) * size_t(tw) * 4,
+                            size_t(tw) * 4);
         }
     }
     tile.release();

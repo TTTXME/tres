@@ -975,3 +975,74 @@
 "set.search.none" = "Ничего не найдено";
 "set.search.found" = "Найдено: %d";
 "set.search.root" = "Настройки";
+// P622 the gallery's views (Сетка / Список / Лента), the fast scroller, the list's rows
+"gallery.mode.grid" = "Сетка";
+"gallery.mode.list" = "Список";
+"gallery.mode.timeline" = "Лента";
+"gallery.level.years" = "Годы";
+"gallery.level.months" = "Месяцы";
+"gallery.level.all" = "Все фото";
+"gallery.view_mode" = "Вид";
+"gallery.view_hint" = "Сетка - карточки по дням. Список - строки с именем, размером и метками. Лента - плитки во всю ширину по месяцам; щипок и переключатель внизу - годы, месяцы, все фото.";
+"gallery.timeline_zoom" = "Масштаб ленты";
+"gallery.fast_scroll" = "Быстрая прокрутка";
+"gallery.select_day" = "выбрать день";
+"gallery.open" = "Открыть";
+"gallery.actions" = "Действия:";
+"gallery.open_month" = "открыть фото месяца";
+"gallery.open_months" = "открыть месяцы";
+"gallery.empty_counts" = "Пусто";
+"gallery.n_photo" = "%d фото";
+"gallery.n_photos" = "%d фото";
+"gallery.n_video" = "%d видео";
+"gallery.n_videos" = "%d видео";
+"gallery.size_mb" = "%@ МБ";
+"gallery.size_kb" = "%d КБ";
+"gallery.size_b" = "%d Б";
+
+// P504 «Текст на фото» (Vision) and the search by the text on the photos
+"ocr.title" = "Текст на фото";
+"ocr.language" = "Язык";
+"ocr.auto" = "Авто";
+"ocr.reading" = "Распознаю…";
+"ocr.failed" = "Не удалось прочитать снимок.";
+"ocr.none" = "Текст не найден. Попробуйте выбрать язык.";
+"ocr.ready" = "Выделите часть текста или скопируйте весь.";
+"ocr.copy_all" = "Копировать всё";
+"ocr.copied" = "Текст скопирован";
+"ocr.lang.eng" = "Английский";
+"ocr.lang.rus" = "Русский";
+"ocr.lang.deu" = "Немецкий";
+"ocr.lang.fra" = "Французский";
+"ocr.lang.spa" = "Испанский";
+"ocr.lang.ita" = "Итальянский";
+"ocr.lang.por" = "Португальский";
+"ocr.lang.chi_sim" = "Китайский";
+"ocr.lang.jpn" = "Японский";
+"ocr.lang.kor" = "Корейский";
+"ocr.lang.ara" = "Арабский";
+"ocr.lang.hin" = "Хинди";
+
+// the viewer's chrome (ViewerChrome): the meta line, the HDR pill, «Ещё», the slideshow, another app
+"viewer.video" = "Видео";
+"viewer.hdr_on" = "HDR: вкл.";
+"viewer.hdr_off" = "HDR: выкл.";
+"viewer.on" = "включено";
+"viewer.off" = "выключено";
+"viewer.slideshow" = "Слайд-шоу";
+"viewer.slideshow_toast" = "Слайд-шоу: касание останавливает";
+"viewer.open_in" = "Открыть в другом приложении";
+"viewer.edit_elsewhere" = "Изменить в другом приложении";
+"viewer.no_app" = "Нет подходящего приложения";
+
+// P499 the player: background play, picture in picture, auto-rotate, the volume boost
+"video.rotate_sensor" = "Автоповорот";
+"video.background_quick" = "В фоне";
+"video.background_quick_on" = "В фоне: вкл.";
+"video.background_on" = "Фоновое воспроизведение";
+"video.background_off" = "Без фона";
+"video.background_hint" = "Звук продолжится, когда вы выйдете";
+"video.pip" = "Картинка в картинке";
+"video.pip_on_home" = "Картинка в картинке при выходе";
+"video.pip_unavailable" = "Картинка в картинке сейчас недоступна";
+"video.boost" = "Усиление звука";

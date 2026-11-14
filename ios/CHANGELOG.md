@@ -7,6 +7,7 @@
 - RAW saved with an SHDR shot is now the merged burst DNG, as on Android, with the photo as its preview.
 - Camera screen as on Android: LUT tray and swipe, quick settings, inline Pro panel, editable top row, face and subject tracking.
 - Settings as on Android: search, help on a long press, exact values, layout, accent, photo names, modules, developer page, LUT previews.
+- Gallery as on Android: Grid / List / Timeline, search by the text on photos, full-resolution zoom, HDR, background and picture-in-picture video, Roboto Flex.
 
 ## 0.2 — the Android photo processing
 - SHDR photos are processed exactly as on Android: the same merge, denoise, sharpening and «Why» tone.

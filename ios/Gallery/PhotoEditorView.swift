@@ -10,6 +10,14 @@ import UIKit
 struct PhotoEditorView: View {
     @State private var model: EditorModel
     @State private var confirmLeave = false
+    /// P360 EditMotion: the arrival, the panel's side of travel, its rows' clock, the new tab's icon bounce
+    @State private var arrived = false
+    @State private var panelDirection = 0
+    @State private var stagger = StaggerClock()
+    @State private var iconScale: [Int: CGFloat] = [:]
+    /// P367: the pinch's and the pan's last values (the zoom takes their steps)
+    @State private var pinchLast: CGFloat?
+    @State private var panLast: CGSize?
     @GestureState private var holding = false
     @Environment(\.dismiss) private var dismiss
     @Environment(\.displayScale) private var displayScale
@@ -24,14 +32,17 @@ struct PhotoEditorView: View {
             VStack(spacing: 0) {
                 topBar
                 imageArea
-                panel
-                tabBar
+                panel.modifier(EditorArrival(arrived: arrived, order: 0))
+                tabBar.modifier(EditorArrival(arrived: arrived, order: 1))
             }
-            if model.exporting { exportOverlay }
+            if model.exporting { exportOverlay.transition(.opacity.animation(EditMotion.move())) }
         }
         .preferredColorScheme(.dark)
         .statusBarHidden(true)
-        .task { await model.open(scale: displayScale) }
+        .task {
+            await model.open(scale: displayScale)
+            arrived = true
+        }
         .onDisappear { model.close() }
         .onChange(of: holding) { _, on in model.before = on && model.tab != .crop }
         .alert(L("editor.leave_title"), isPresented: $confirmLeave) {
@@ -49,13 +60,13 @@ struct PhotoEditorView: View {
 
     private var topBar: some View {
         HStack(spacing: 6) {
-            RoundIconButton(icon: "ui_ic_close", label: L("editor.close")) {
+            RoundIconButton(icon: "ui_ic_close", label: L("editor.close"), pressScale: 0.9) {
                 if model.hasChanges { confirmLeave = true } else { dismiss() }
             }
-            Text(model.name).font(.system(size: 13)).foregroundStyle(GalleryStyle.muted).lineLimit(1).truncationMode(.middle)
+            Text(model.name).font(.app(13)).foregroundStyle(GalleryStyle.muted).lineLimit(1).truncationMode(.middle)
                 .frame(maxWidth: .infinity).padding(.horizontal, 2)
-            RoundIconButton(icon: "kb_ui_ic_undo_rest", label: L("editor.undo"), enabled: model.history.canUndo) { model.undo() }
-            RoundIconButton(icon: "kb_ui_ic_redo_rest", label: L("editor.redo"), enabled: model.history.canRedo) { model.redo() }
+            RoundIconButton(icon: "kb_ui_ic_undo_rest", label: L("editor.undo"), enabled: model.history.canUndo, pressScale: 0.9) { model.undo() }
+            RoundIconButton(icon: "kb_ui_ic_redo_rest", label: L("editor.redo"), enabled: model.history.canRedo, pressScale: 0.9) { model.redo() }
             Menu {
                 Button { model.resetAll() } label: { Label(L("editor.reset_all"), image: "kb_ui_ic_backup_rest") }
                 Button { model.copySettings() } label: { Label(L("editor.copy_settings"), image: "kb_ui_ic_layers_rest") }
@@ -66,7 +77,7 @@ struct PhotoEditorView: View {
             }
             .accessibilityLabel(L("gallery.more"))
             Button { Task { await model.save() } } label: {
-                Text(L("editor.save_copy")).font(.system(size: 14, weight: .semibold)).foregroundStyle(GalleryStyle.ink)
+                Text(L("editor.save_copy")).font(.app(14, 600)).foregroundStyle(GalleryStyle.ink)
                     .padding(.horizontal, 14).frame(minHeight: 40).background(GalleryStyle.accent, in: Capsule())
             }
             .buttonStyle(.plain)
@@ -84,6 +95,14 @@ struct PhotoEditorView: View {
                 if let picture = model.picture {
                     Image(uiImage: picture).resizable().frame(width: geo.size.width, height: geo.size.height)
                 }
+                // P367: past the preview's resolution, the visible part from the original
+                if let detail = model.zoomDetail, model.tab != .crop {
+                    Image(uiImage: detail).resizable().interpolation(.none)
+                        .frame(width: model.zoomDetailRect.width, height: model.zoomDetailRect.height)
+                        .position(x: model.zoomDetailRect.midX, y: model.zoomDetailRect.midY)
+                        .allowsHitTesting(false)
+                        .transition(.opacity.animation(EditMotion.move(EditMotion.short)))
+                }
                 // P633: the watermark's live preview over the picture (WatermarkOverlayView)
                 if let overlay = model.watermarkOverlay {
                     Image(uiImage: overlay).resizable()
@@ -97,16 +116,18 @@ struct PhotoEditorView: View {
                 }
                 VStack {
                     HStack(alignment: .top) {
-                        if model.before { GalleryPill(text: L("editor.original")).transition(.opacity) }
+                        if model.before { GalleryPill(text: L("editor.original")).transition(EditMotion.show(dy: -6)) }
                         Spacer()
                         if model.tab != .crop, let h = model.histogram {
-                            HistogramView(counts: h).frame(width: 132, height: 60)
+                            HistogramView(counts: h).frame(width: 132, height: 60).transition(EditMotion.show(dy: 0))
                         }
                     }
                     .padding(12)
+                    .animation(EditMotion.enter(), value: model.before)
+                    .animation(EditMotion.enter(), value: model.tab == .crop)
                     Spacer()
                     if let notice = model.notice {
-                        Text(notice).font(.system(size: 13, weight: .semibold)).foregroundStyle(.white).multilineTextAlignment(.center)
+                        Text(notice).font(.app(13, 600)).foregroundStyle(.white).multilineTextAlignment(.center)
                             .padding(.horizontal, 14).padding(.vertical, 8)
                             .background(GalleryStyle.bar, in: RoundedRectangle(cornerRadius: 16))
                             .padding(.horizontal, 16).padding(.bottom, 12)
@@ -115,11 +136,23 @@ struct PhotoEditorView: View {
                                 try? await Task.sleep(nanoseconds: 4_000_000_000)
                                 if model.notice == notice { model.notice = nil }
                             }
-                    } else if let note = model.note { GalleryPill(text: note).padding(.bottom, 12) }
+                    } else if let note = model.note { GalleryPill(text: note).padding(.bottom, 12).transition(EditMotion.show(dy: 12)) }
                 }
+                // P367 the zoom pill («100 %»)
+                VStack {
+                    if let p = model.zoomPercent {
+                        GalleryPill(text: p).padding(.top, 12).transition(EditMotion.show(dy: -6))
+                    }
+                    Spacer()
+                }
+                .animation(EditMotion.enter(), value: model.zoomPercent != nil)
+                .allowsHitTesting(false)
+                // EditMotion.enter: the cover the picture is revealed from
+                Color.black.opacity(arrived ? 0 : 1).allowsHitTesting(false)
+                    .animation(EditMotion.on ? EditMotion.move(EditMotion.long + 0.08) : nil, value: arrived)
                 if model.loading { ProgressView().tint(.white).scaleEffect(1.4) }
                 if let f = model.failure {
-                    Text(f).font(.system(size: 15)).foregroundStyle(GalleryStyle.muted).multilineTextAlignment(.center).padding(24)
+                    Text(f).font(.app(15)).foregroundStyle(GalleryStyle.muted).multilineTextAlignment(.center).padding(24)
                 }
             }
             .contentShape(Rectangle())
@@ -127,6 +160,23 @@ struct PhotoEditorView: View {
                 .updating($holding) { value, state, _ in
                     if case .second(true, _) = value { state = true }
                 }, including: model.tab == .crop ? .subviews : .all)
+            // P367 EditorView's zoom: pinch about the fingers, one finger pans the zoomed picture, a double tap toggles fit / 100 %
+            .simultaneousGesture(MagnifyGesture()
+                .onChanged { v in
+                    let last = pinchLast ?? 1
+                    pinchLast = v.magnification
+                    model.zoomPinch(Double(v.magnification / max(0.01, last)), at: v.startLocation)
+                }
+                .onEnded { _ in pinchLast = nil }, including: model.tab == .crop ? .subviews : .all)
+            .simultaneousGesture(DragGesture(minimumDistance: 8)
+                .onChanged { v in
+                    let last = panLast ?? .zero
+                    panLast = v.translation
+                    model.zoomPan(Double(v.translation.width - last.width), Double(v.translation.height - last.height))
+                }
+                .onEnded { _ in panLast = nil }, including: model.tab == .crop || !model.zoom.isZoomed ? .subviews : .all)
+            .simultaneousGesture(SpatialTapGesture(count: 2).onEnded { v in model.zoomDoubleTap(at: v.location) },
+                                 including: model.tab == .crop ? .subviews : .all)
             .onAppear {
                 model.setViewPoints(geo.size)
                 model.setViewSize(geo.size, scale: displayScale)
@@ -140,9 +190,15 @@ struct PhotoEditorView: View {
 
     // ---------------------------------------------------------------- the panels
 
+    /// PhotoEditorFragment.showPanel: the tab's panel slides in from the side of travel, its rows one after another.
     private var panel: some View {
         ScrollView {
-            EditorPanels(model: model).padding(.top, 8).padding(.bottom, 8)
+            ZStack(alignment: .top) {
+                EditorPanels(model: model).padding(.top, 8).padding(.bottom, 8)
+                    .id(model.tab)
+                    .transition(EditMotion.on ? EditMotion.panel(panelDirection) : .identity)
+            }
+            .environment(\.editStagger, stagger)
         }
         .frame(height: min(300, UIScreen.main.bounds.height * 0.36))
         .background(GalleryStyle.page)
@@ -159,22 +215,39 @@ struct PhotoEditorView: View {
             ForEach(EditorModel.Tab.allCases, id: \.rawValue) { t in
                 let on = t == model.tab
                 Button {
-                    withAnimation(.easeOut(duration: 0.2)) { model.tab = t }
+                    select(t)
                 } label: {
                     VStack(spacing: 3) {
                         GalleryIcon(name: icons[t.rawValue], size: 22, color: on ? GalleryStyle.accent : GalleryStyle.muted)
-                        Text(names[t.rawValue]).font(.system(size: 10.5, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.7)
+                            .scaleEffect(iconScale[t.rawValue] ?? 1)
+                        Text(names[t.rawValue]).font(.app(10.5, 600)).lineLimit(1).minimumScaleFactor(0.7)
                             .foregroundStyle(on ? GalleryStyle.accent : GalleryStyle.muted)
                     }
                     .frame(maxWidth: .infinity).padding(.top, 8).padding(.bottom, 6)
-                    .background(on ? GalleryStyle.thumb : Color.clear, in: RoundedRectangle(cornerRadius: 18))
+                    .background(GalleryStyle.thumb.opacity(on ? 1 : 0), in: RoundedRectangle(cornerRadius: 18))
+                    .animation(EditMotion.move(), value: on)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(names[t.rawValue])
+                .accessibilityAddTraits(on ? .isSelected : [])
             }
         }
         .padding(.horizontal, 8).padding(.top, 6).padding(.bottom, 14)
         .background(GalleryStyle.page)
+    }
+
+    /// PhotoEditorFragment.animateTabs + showPanel: the old tab fades to plain, the new one takes the pill and the accent with a
+    /// small bounce of its icon; the panel travels to the new tab's side.
+    private func select(_ t: EditorModel.Tab) {
+        guard t != model.tab else { return }
+        panelDirection = t.rawValue > model.tab.rawValue ? 1 : -1
+        stagger.reset()
+        withAnimation(EditMotion.on ? EditMotion.move() : nil) { model.tab = t }
+        guard EditMotion.on else { return }
+        var still = Transaction()
+        still.disablesAnimations = true
+        withTransaction(still) { iconScale[t.rawValue] = 0.8 }
+        DispatchQueue.main.async { withAnimation(EditMotion.bounce) { iconScale[t.rawValue] = 1 } }
     }
 
     private var exportOverlay: some View {
@@ -182,7 +255,7 @@ struct PhotoEditorView: View {
             Color.black.opacity(0.8).ignoresSafeArea()
             VStack(spacing: 12) {
                 Text(L("editor.saving") + " \(Int((model.exportProgress * 100).rounded())) %")
-                    .font(.system(size: 16, weight: .semibold)).foregroundStyle(.white)
+                    .font(.app(16, 600)).foregroundStyle(.white)
                 ProgressView(value: Double(model.exportProgress)).tint(GalleryStyle.accent)
             }
             .padding(20)
@@ -317,7 +390,7 @@ private struct EditorPanels: View {
     }
 
     private func hint(_ text: String) -> some View {
-        Text(text).font(.system(size: 12)).foregroundStyle(GalleryStyle.muted)
+        Text(text).font(.app(12)).foregroundStyle(GalleryStyle.muted)
             .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 18).padding(.top, 4).padding(.bottom, 8)
     }
 
@@ -362,7 +435,7 @@ private struct EditorPanels: View {
         Button(action: action) {
             VStack(spacing: 6) {
                 GalleryIcon(name: icon, size: 24)
-                Text(label).font(.system(size: 12, weight: .medium)).foregroundStyle(.white).lineLimit(1).minimumScaleFactor(0.7)
+                Text(label).font(.app(12, 500)).foregroundStyle(.white).lineLimit(1).minimumScaleFactor(0.7)
             }
             .frame(maxWidth: .infinity, minHeight: 64)
             .background(GalleryStyle.card, in: RoundedRectangle(cornerRadius: 16))
@@ -435,7 +508,7 @@ private struct EditorPanels: View {
                                 if let image = model.lookThumbs[card.2] { Image(uiImage: image).resizable().scaledToFill() }
                             }
                             .frame(width: 53, height: 53).clipShape(RoundedRectangle(cornerRadius: 14))
-                            Text(card.1).font(.system(size: 11, weight: .semibold)).foregroundStyle(.white).lineLimit(2)
+                            Text(card.1).font(.app(11, 600)).foregroundStyle(.white).lineLimit(2)
                                 .multilineTextAlignment(.center).frame(width: 64)
                         }
                         .padding(5)

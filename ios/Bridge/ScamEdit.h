@@ -98,6 +98,27 @@ NS_ASSUME_NONNULL_BEGIN
 - (BOOL)setWatermarkRecord:(nullable SCAMWatermarkRecord *)record NS_SWIFT_NAME(setWatermarkRecord(_:));
 @property (nonatomic, readonly) BOOL hasWatermarkRecord;
 
+/// P367 EditZoom: the view zoomed - the crop drawn at left, top, displayWidth x displayHeight (view px, reaching past the view) in a
+/// view of width x height, from the preview's chain (EditorView's canvas in place of the fit).
+- (nullable SCAMEditImage *)renderZoom:(NSString *)json width:(NSInteger)width height:(NSInteger)height left:(double)left top:(double)top
+                          displayWidth:(double)displayWidth displayHeight:(double)displayHeight before:(BOOL)before
+                            background:(NSArray<NSNumber *> *)background
+    NS_SWIFT_NAME(renderZoom(_:width:height:left:top:displayWidth:displayHeight:before:background:));
+/// EditZoomLoader's source: the original decoded (a photo's picture as stored, RGBA8, the preview's colour space) kept for the
+/// zoom's full-resolution windows; NO when it is not one.
+- (BOOL)setZoomPicture:(NSData *)rgba width:(NSInteger)width height:(NSInteger)height NS_SWIFT_NAME(setZoomPicture(_:width:height:));
+/// The same for a RAW session: the DNG decoded again (2x2 binned over the RAW limit or budget / 6 bytes).
+- (BOOL)setZoomDNG:(NSData *)dng budget:(long long)budget NS_SWIFT_NAME(setZoomDNG(_:budget:));
+@property (nonatomic, readonly) BOOL hasZoomSource;
+/// EditZoomLoader: the part x, y, w x h (view px, inside the view and the displayed crop) of the crop displayed at left, top,
+/// displayWidth x displayHeight, from the original through the export's chain at that size; nil without a zoom source.
+- (nullable SCAMEditImage *)renderZoomWindow:(NSString *)json left:(double)left top:(double)top displayWidth:(double)displayWidth
+                               displayHeight:(double)displayHeight x:(NSInteger)x y:(NSInteger)y width:(NSInteger)width
+                                      height:(NSInteger)height
+    NS_SWIFT_NAME(renderZoomWindow(_:left:top:displayWidth:displayHeight:x:y:width:height:));
+/// The zoom's source and renderer go (the view back at the fit, the editor closing).
+- (void)releaseZoom;
+
 /// EditExporter.outMax: the copy's pixel limit for budget bytes of free memory.
 + (long long)outMaxForBudget:(long long)budget NS_SWIFT_NAME(outMax(forBudget:));
 /// EditSource.PREVIEW_SIDE

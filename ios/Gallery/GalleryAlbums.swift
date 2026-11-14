@@ -23,7 +23,7 @@ struct AlbumsPage: View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
                 RoundIconButton(icon: "ui_ic_back", label: L("gallery.back")) { back() }
-                Text(L("gallery.albums")).font(.system(size: 28, weight: .bold)).foregroundStyle(.white)
+                Text(L("gallery.albums")).font(.app(28, 700)).foregroundStyle(.white)
                 Spacer()
             }
             .padding(.horizontal, 16).padding(.top, 8).padding(.bottom, 4)
@@ -80,7 +80,7 @@ struct AlbumsPage: View {
                     }
                 } label: {
                     HStack(spacing: 6) {
-                        Text(title).font(.system(size: 20, weight: .bold)).foregroundStyle(.white)
+                        Text(title).font(.app(20, 700)).foregroundStyle(.white)
                         GalleryIcon(name: "cs_chevron", size: 14, color: GalleryStyle.section).rotationEffect(.degrees(folded ? 0 : 90))
                     }
                 }
@@ -93,7 +93,7 @@ struct AlbumsPage: View {
                             if expanded.contains(key) { expanded.remove(key) } else { expanded.insert(key) }
                         }
                     }
-                    .font(.system(size: 15, weight: .semibold)).foregroundStyle(GalleryStyle.accent)
+                    .font(.app(15, 600)).foregroundStyle(GalleryStyle.accent)
                 }
             }
             .padding(.top, 18)
@@ -108,8 +108,8 @@ struct AlbumsPage: View {
                 AlbumCover(library: library, asset: a.assets.first, icon: a.icon)
                     .aspectRatio(1, contentMode: .fit)
                     .clipShape(RoundedRectangle(cornerRadius: 16))
-                Text(a.title).font(.system(size: small ? 13 : 15, weight: .semibold)).foregroundStyle(.white).lineLimit(1)
-                Text("\(a.count)").font(.system(size: 12)).foregroundStyle(GalleryStyle.muted)
+                Text(a.title).font(.app(small ? 13 : 15, 600)).foregroundStyle(.white).lineLimit(1)
+                Text("\(a.count)").font(.app(12)).foregroundStyle(GalleryStyle.muted)
             }
         }
         .buttonStyle(.plain)
@@ -123,9 +123,9 @@ struct AlbumsPage: View {
                 Button(action: list[i].3) {
                     HStack(spacing: 14) {
                         GalleryIcon(name: list[i].0, size: 22, color: GalleryStyle.accent)
-                        Text(list[i].1).font(.system(size: 16)).foregroundStyle(.white)
+                        Text(list[i].1).font(.app(16)).foregroundStyle(.white)
                         Spacer()
-                        Text(list[i].2).font(.system(size: 15)).foregroundStyle(GalleryStyle.muted)
+                        Text(list[i].2).font(.app(15)).foregroundStyle(GalleryStyle.muted)
                         GalleryIcon(name: "cs_chevron", size: 14, color: GalleryStyle.section)
                     }
                     .padding(.horizontal, 16).frame(minHeight: 52)
@@ -178,8 +178,8 @@ struct AlbumGridPage: View {
                 HStack(spacing: 10) {
                     RoundIconButton(icon: "ui_ic_back", label: L("gallery.back")) { dismiss() }
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(album.title).font(.system(size: 24, weight: .bold)).foregroundStyle(.white).lineLimit(1)
-                        Text(GalleryView.countText(assets.count)).font(.system(size: 13)).foregroundStyle(GalleryStyle.muted)
+                        Text(album.title).font(.app(24, 700)).foregroundStyle(.white).lineLimit(1)
+                        Text(GalleryView.countText(assets.count)).font(.app(13)).foregroundStyle(GalleryStyle.muted)
                     }
                     Spacer()
                     RoundIconButton(icon: "kb_ui_ic_select_all_rest", label: L("gallery.select")) { selection = [] }
@@ -187,10 +187,10 @@ struct AlbumGridPage: View {
                 .padding(.horizontal, 16).padding(.vertical, 8)
                 if assets.isEmpty {
                     Spacer()
-                    Text(L("gallery.empty")).font(.system(size: 15)).foregroundStyle(GalleryStyle.muted)
+                    Text(L("gallery.empty")).font(.app(15)).foregroundStyle(GalleryStyle.muted)
                     Spacer()
                 } else {
-                    SelectableGrid(library: library, assets: assets, selection: $selection,
+                    SelectableGrid(library: library, assets: assets, selection: $selection, levelBottom: 16,
                                    open: { i in viewer = GalleryView.ViewerStart(assets: assets, index: i) },
                                    compare: { a, b in compare = GalleryView.CompareStart(first: a, second: b) })
                 }

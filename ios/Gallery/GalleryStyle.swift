@@ -14,6 +14,8 @@ enum GalleryStyle {
     static let warn = Color(red: 0xFF / 255, green: 0x45 / 255, blue: 0x3A / 255)
     static let bar = Color(red: 0x14 / 255, green: 0x14 / 255, blue: 0x16 / 255).opacity(0.9)
     static let thumb = Color(red: 0x76 / 255, green: 0x76 / 255, blue: 0x80 / 255).opacity(0.32)
+    /// ViewerChrome.FAV: the favourites' pink (the hearts on the cells)
+    static let favourite = Color(red: 1, green: 0x6B / 255, blue: 0x81 / 255)
     static let hairline = Color(red: 0x54 / 255, green: 0x54 / 255, blue: 0x58 / 255).opacity(0.65)
 }
 
@@ -33,6 +35,8 @@ struct RoundIconButton: View {
     let label: String
     var enabled = true
     var background: Color = GalleryStyle.card
+    /// Motion.press (0.94) / EditMotion.press (0.9): the press shrinks it, the release springs it back
+    var pressScale: CGFloat = 0.94
     let action: () -> Void
     var body: some View {
         Button(action: action) {
@@ -40,7 +44,7 @@ struct RoundIconButton: View {
                 .frame(width: 40, height: 40)
                 .background(background, in: Circle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PressScaleStyle(scale: pressScale))
         .opacity(enabled ? 1 : 0.35)
         .disabled(!enabled)
         .accessibilityLabel(label)
@@ -51,7 +55,7 @@ struct RoundIconButton: View {
 struct GalleryPill: View {
     let text: String
     var body: some View {
-        Text(text).font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
+        Text(text).font(.app(13, 600)).foregroundStyle(.white)
             .padding(.horizontal, 12).padding(.vertical, 6)
             .background(GalleryStyle.bar, in: Capsule())
     }
@@ -64,7 +68,7 @@ struct GalleryChip: View {
     let action: () -> Void
     var body: some View {
         Button(action: action) {
-            Text(text).font(.system(size: 14, weight: .medium)).foregroundStyle(on ? GalleryStyle.ink : GalleryStyle.text)
+            Text(text).font(.app(14, 500)).foregroundStyle(on ? GalleryStyle.ink : GalleryStyle.text)
                 .padding(.horizontal, 14).frame(minHeight: 36)
                 .background(on ? GalleryStyle.accent : GalleryStyle.card, in: Capsule())
         }
@@ -81,7 +85,7 @@ struct GallerySegments: View {
         HStack(spacing: 2) {
             ForEach(names.indices, id: \.self) { i in
                 Button { pick(i) } label: {
-                    Text(names[i]).font(.system(size: 13, weight: i == selected ? .semibold : .regular)).lineLimit(1).minimumScaleFactor(0.7)
+                    Text(names[i]).font(.app(13, i == selected ? 600 : 400)).lineLimit(1).minimumScaleFactor(0.7)
                         .foregroundStyle(.white).frame(maxWidth: .infinity).frame(height: 30)
                         .background(i == selected ? Color(white: 0.39) : Color.clear, in: RoundedRectangle(cornerRadius: 7))
                 }
@@ -99,7 +103,7 @@ struct GallerySegments: View {
 struct GallerySection: View {
     let text: String
     var body: some View {
-        Text(text.uppercased()).font(.system(size: 12, weight: .semibold)).foregroundStyle(GalleryStyle.section)
+        Text(text.uppercased()).font(.app(12, 600)).foregroundStyle(GalleryStyle.section)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 18).padding(.top, 12).padding(.bottom, 2)
     }
@@ -133,9 +137,9 @@ struct EditSliderRow: View {
     var body: some View {
         VStack(spacing: 4) {
             HStack {
-                Text(label).font(.system(size: 15)).foregroundStyle(GalleryStyle.text).lineLimit(1)
+                Text(label).font(.app(15)).foregroundStyle(GalleryStyle.text).lineLimit(1)
                 Spacer(minLength: 8)
-                Text(format(value)).font(.system(size: 14, weight: .bold).monospacedDigit())
+                Text(format(value)).font(.app(14, 700).monospacedDigit())
                     .foregroundStyle(value != def ? GalleryStyle.ink : GalleryStyle.accent)
                     .padding(.horizontal, 11).frame(minWidth: 44, minHeight: 24)
                     .background(value != def ? GalleryStyle.accent : GalleryStyle.accent.opacity(0.16), in: Capsule())
@@ -181,6 +185,7 @@ struct EditSliderRow: View {
             .frame(height: 28)
         }
         .padding(.horizontal, 18).padding(.top, 8).padding(.bottom, 2)
+        .modifier(StaggerIn())
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(label)
         .accessibilityValue(format(value))

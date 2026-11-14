@@ -102,10 +102,10 @@ struct ShotExif: Sendable {
         return ascii(b)
     }
 
-    /// DngMetadata.software: the app, its version and build, the commit
+    /// DngMetadata.software as Android writes it: «SCAMERA <version> (<build>) <commit's 8 characters>» (BuildIdentity.shortSha)
     static var software: String {
         let sha = BuildInfo.sha.trimmingCharacters(in: .whitespaces)
-        return "SCAMERA iOS \(BuildInfo.version) (\(BuildInfo.build)) \(sha.isEmpty ? "unknown" : String(sha.prefix(8)))"
+        return "SCAMERA \(BuildInfo.version) (\(BuildInfo.build)) \(sha.isEmpty ? "unknown" : String(sha.prefix(8)))"
     }
 
     /// Parameters.description + ParseExif.routeLine: «SCAMERA», « Frames=», « Camera=», « Film=», « Route=SHDR» lines
@@ -154,6 +154,9 @@ struct ShotExif: Sendable {
         if (exif[kCGImagePropertyExifFocalLenIn35mmFilm as String] as? NSNumber)?.intValue ?? 0 <= 0, focal35 > 0 {
             exif[kCGImagePropertyExifFocalLenIn35mmFilm as String] = focal35
         }
+        // ParseExif: Make / Model as DeviceName names the phone when the camera's metadata has none
+        if (tiff[kCGImagePropertyTIFFMake as String] as? String ?? "").isEmpty { tiff[kCGImagePropertyTIFFMake as String] = DeviceName.make }
+        if (tiff[kCGImagePropertyTIFFModel as String] as? String ?? "").isEmpty { tiff[kCGImagePropertyTIFFModel as String] = DeviceName.model }
         let make = tiff[kCGImagePropertyTIFFMake as String] as? String
         let model = tiff[kCGImagePropertyTIFFModel as String] as? String
         if let make, !make.isEmpty { exif[kCGImagePropertyExifLensMake as String] = Self.ascii(make) }

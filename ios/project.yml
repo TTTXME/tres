@@ -56,6 +56,17 @@ targets:
         buildPhase: resources
       - path: ../app/src/main/res/raw/sound_timer.mp3
         buildPhase: resources
+      # the Android app's interface font, Roboto Flex (circularbarlib res/font, static instances 400 .. 800), taken as it is (AppFont)
+      - path: ../circularbarlib/src/main/res/font/roboto_flex_400.ttf
+        buildPhase: resources
+      - path: ../circularbarlib/src/main/res/font/roboto_flex_500.ttf
+        buildPhase: resources
+      - path: ../circularbarlib/src/main/res/font/roboto_flex_600.ttf
+        buildPhase: resources
+      - path: ../circularbarlib/src/main/res/font/roboto_flex_700.ttf
+        buildPhase: resources
+      - path: ../circularbarlib/src/main/res/font/roboto_flex_800.ttf
+        buildPhase: resources
       # the Android app's shaders: the post pipeline (Engine/post) loads them as the app's assets
       - path: ../app/src/main/assets/shaders
         type: folder
@@ -110,6 +121,10 @@ targets:
           - UIApplicationShortcutItemType: com.scamera.ios.settings
             UIApplicationShortcutItemTitle: shortcut_settings_short
             UIApplicationShortcutItemIconSymbolName: gearshape
+        # the five Roboto Flex files share one PostScript name: the 400 one is registered, AppFont makes every weight from its file
+        UIAppFonts: [roboto_flex_400.ttf]
+        # the gallery's video player: «Фоновое воспроизведение» and picture in picture (VideoPlayerModel)
+        UIBackgroundModes: [audio]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.scamera.ios

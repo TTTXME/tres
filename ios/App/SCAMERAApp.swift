@@ -12,6 +12,8 @@ struct SCAMERAApp: App {
                 .statusBarHidden(true)
                 .preferredColorScheme(.dark)
                 .modifier(AccentTint())
+                .font(.app(17))
+                .onAppear { AppFont.applyToUIKit() } // Android Fonts: Roboto Flex everywhere, UIKit's bars too
                 .task {
                     DeviceTurn.shared.start()
                     await camera.start()

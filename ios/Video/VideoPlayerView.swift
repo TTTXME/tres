@@ -33,8 +33,9 @@ struct VideoPlayerView: View {
             let turned = model.landscape
             content
                 .frame(width: turned ? geo.size.height : geo.size.width, height: turned ? geo.size.width : geo.size.height)
-                .rotationEffect(.degrees(turned ? 90 : 0))
+                .rotationEffect(.degrees(model.turnDegrees))
                 .frame(width: geo.size.width, height: geo.size.height)
+                .animation(.spring(response: 0.42, dampingFraction: 0.86), value: model.turnDegrees)
         }
         .background(Color.black.ignoresSafeArea())
         .preferredColorScheme(.dark)
@@ -71,11 +72,12 @@ struct VideoPlayerView: View {
                          onDoubleTap: { model.doubleTap(at: $0) },
                          onDrag: { kind, dx, dy, ended in model.drag(kind, dx: dx, dy: dy, ended: ended) },
                          onPinch: { f, d, ended in model.pinch(f, delta: d, ended: ended) },
-                         onHold: { model.hold($0) })
+                         onHold: { model.hold($0) },
+                         onLayer: { model.attach($0) })
             if let text = model.subtitle {
                 VStack {
                     Spacer()
-                    Text(text).font(.system(size: model.subtitlePoints, weight: .medium)).foregroundStyle(.white)
+                    Text(text).font(.app(model.subtitlePoints, 500)).foregroundStyle(.white)
                         .multilineTextAlignment(.center)
                         .shadow(color: .black, radius: 2, x: 0, y: 1)
                         .padding(.horizontal, 10).padding(.vertical, 4)
@@ -102,10 +104,10 @@ struct VideoPlayerView: View {
                 VStack {
                     Spacer()
                     HStack(spacing: 10) {
-                        Text(pill.text).font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
+                        Text(pill.text).font(.app(13, 600)).foregroundStyle(.white)
                         if let action = pill.action {
                             Button(action) { model.pillAction() }
-                                .font(.system(size: 13, weight: .bold)).foregroundStyle(GalleryStyle.accent)
+                                .font(.app(13, 700)).foregroundStyle(GalleryStyle.accent)
                         }
                     }
                     .padding(.horizontal, 14).padding(.vertical, 8)
@@ -123,9 +125,9 @@ struct VideoPlayerView: View {
     private func hudView(_ hud: VideoPlayerModel.Hud) -> some View {
         VStack(spacing: 6) {
             GalleryIcon(name: hud.icon, size: 30)
-            Text(hud.title).font(.system(size: 22, weight: .semibold).monospacedDigit()).foregroundStyle(.white)
+            Text(hud.title).font(.app(22, 600).monospacedDigit()).foregroundStyle(.white)
             if let detail = hud.detail {
-                Text(detail).font(.system(size: 13)).foregroundStyle(GalleryStyle.muted).multilineTextAlignment(.center)
+                Text(detail).font(.app(13)).foregroundStyle(GalleryStyle.muted).multilineTextAlignment(.center)
             }
             if let level = hud.level {
                 GeometryReader { g in
@@ -164,9 +166,9 @@ struct VideoPlayerView: View {
         HStack(spacing: 10) {
             RoundIconButton(icon: "ui_ic_back", label: L("video.back"), background: GalleryStyle.bar) { dismiss() }
             VStack(alignment: .leading, spacing: 1) {
-                Text(model.title).font(.system(size: 15, weight: .semibold)).foregroundStyle(.white).lineLimit(1)
+                Text(model.title).font(.app(15, 600)).foregroundStyle(.white).lineLimit(1)
                 if model.items.count > 1 {
-                    Text("\(model.index + 1) / \(model.items.count)").font(.system(size: 12)).foregroundStyle(GalleryStyle.muted)
+                    Text("\(model.index + 1) / \(model.items.count)").font(.app(12)).foregroundStyle(GalleryStyle.muted)
                 }
             }
             .padding(.horizontal, 12).padding(.vertical, 4).background(GalleryStyle.bar, in: Capsule())
@@ -186,6 +188,8 @@ struct VideoPlayerView: View {
                 quickText(VideoPlayerModel.speedLabel(model.speed), label: L("video.speed"), on: model.speed != 1) { panel = .speed }
                 quick("kb_ui_ic_screenshot_rest", L("video.screenshot"), on: false) { model.screenshot() }
                 quick("kb_ui_ic_rotate_rest", model.rotateName, on: model.rotate != .video) { model.cycleRotate() }
+                quick("kb_ui_ic_headphones_rest", model.background ? L("video.background_quick_on") : L("video.background_quick"),
+                      on: model.background) { model.toggleBackground() }
                 quick("ui_ic_moon", model.sleepLabel, on: model.sleepAt != nil || model.sleepAtEnd) { panel = .sleep }
                 quick(model.muted ? "kb_ui_ic_mute_rest" : "kb_ui_ic_sound_rest", model.muted ? L("video.muted") : L("video.sound"),
                       on: model.muted) { model.toggleMute() }
@@ -198,7 +202,7 @@ struct VideoPlayerView: View {
         Button(action: action) {
             HStack(spacing: 6) {
                 GalleryIcon(name: icon, size: 18, color: on ? GalleryStyle.ink : .white)
-                Text(label).font(.system(size: 12, weight: .semibold)).foregroundStyle(on ? GalleryStyle.ink : .white).lineLimit(1)
+                Text(label).font(.app(12, 600)).foregroundStyle(on ? GalleryStyle.ink : .white).lineLimit(1)
             }
             .padding(.horizontal, 12).frame(height: 34)
             .background(on ? GalleryStyle.accent : GalleryStyle.bar, in: Capsule())
@@ -209,7 +213,7 @@ struct VideoPlayerView: View {
 
     private func quickText(_ text: String, label: String, on: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Text(text).font(.system(size: 13, weight: .bold).monospacedDigit()).foregroundStyle(on ? GalleryStyle.ink : .white)
+            Text(text).font(.app(13, 700).monospacedDigit()).foregroundStyle(on ? GalleryStyle.ink : .white)
                 .padding(.horizontal, 12).frame(height: 34)
                 .background(on ? GalleryStyle.accent : GalleryStyle.bar, in: Capsule())
         }
@@ -220,7 +224,7 @@ struct VideoPlayerView: View {
     private var bottomBar: some View {
         VStack(spacing: 10) {
             HStack(spacing: 10) {
-                Text(VideoResume.clock(Int64(model.position * 1000))).font(.system(size: 12, weight: .semibold).monospacedDigit())
+                Text(VideoResume.clock(Int64(model.position * 1000))).font(.app(12, 600).monospacedDigit())
                     .foregroundStyle(.white).frame(minWidth: 44, alignment: .leading)
                 Slider(value: Binding(get: { min(model.position, max(model.duration, 0.01)) }, set: { model.scrub(to: $0) }),
                        in: 0...max(model.duration, 0.01),
@@ -233,7 +237,7 @@ struct VideoPlayerView: View {
                 } label: {
                     Text(model.showRemaining ? "-" + VideoResume.clock(Int64(max(0, model.duration - model.position) * 1000))
                          : VideoResume.clock(Int64(model.duration * 1000)))
-                        .font(.system(size: 12, weight: .semibold).monospacedDigit()).foregroundStyle(.white)
+                        .font(.app(12, 600).monospacedDigit()).foregroundStyle(.white)
                         .frame(minWidth: 44, alignment: .trailing)
                 }
                 .buttonStyle(.plain)
@@ -254,6 +258,10 @@ struct VideoPlayerView: View {
                 RoundIconButton(icon: "ui_ic_next", label: L("video.next"), enabled: model.hasNext, background: GalleryStyle.bar) { model.next() }
                 Spacer()
                 RoundIconButton(icon: "kb_ui_ic_aspect_rest", label: L("video.fit"), background: GalleryStyle.bar) { model.cycleFit() }
+                if model.pipSupported {
+                    RoundIconButton(icon: "kb_ui_ic_pip_rest", label: L("video.pip"), background: GalleryStyle.bar) { model.startPip() }
+                        .padding(.leading, 8)
+                }
             }
         }
         .padding(.horizontal, 16).padding(.bottom, 14)
@@ -299,7 +307,7 @@ struct VideoPlayerView: View {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(text).foregroundStyle(.white)
-                    if let sub { Text(sub).font(.footnote).foregroundStyle(GalleryStyle.muted) }
+                    if let sub { Text(sub).font(.app(13)).foregroundStyle(GalleryStyle.muted) }
                 }
                 Spacer()
                 if chosen { GalleryIcon(name: "ui_ic_check", size: 18, color: GalleryStyle.accent) }
@@ -325,7 +333,7 @@ struct VideoPlayerView: View {
             HStack {
                 RoundIconButton(icon: "ui_ic_minus", label: L("video.slower")) { model.setSpeed(model.speed - 0.05) }
                 Spacer()
-                Text(VideoPlayerModel.speedLabel(model.speed)).font(.system(size: 26, weight: .semibold).monospacedDigit())
+                Text(VideoPlayerModel.speedLabel(model.speed)).font(.app(26, 600).monospacedDigit())
                 Spacer()
                 RoundIconButton(icon: "ui_ic_plus", label: L("video.faster")) { model.setSpeed(model.speed + 0.05) }
             }
@@ -421,12 +429,19 @@ struct VideoPlayerView: View {
             .pickerStyle(.segmented)
             .listRowBackground(GalleryStyle.card)
         }
+        if model.pipSupported {
+            Section {
+                Toggle(L("video.pip_on_home"), isOn: Binding(get: { model.pipOnHome }, set: { model.setPipOnHome($0) }))
+                    .tint(GalleryStyle.accent)
+                    .listRowBackground(GalleryStyle.card)
+            }
+        }
     }
 
     @ViewBuilder private var detailsPanel: some View {
         ForEach(Array(detailRows.enumerated()), id: \.offset) { _, row in
             VStack(alignment: .leading, spacing: 2) {
-                Text(row.0).font(.footnote).foregroundStyle(GalleryStyle.muted)
+                Text(row.0).font(.app(13)).foregroundStyle(GalleryStyle.muted)
                 Text(row.1).foregroundStyle(.white).textSelection(.enabled)
             }
             .listRowBackground(GalleryStyle.card)

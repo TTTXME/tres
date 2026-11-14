@@ -349,10 +349,10 @@ change: `scam-crash.h` keeps only the stage marks on Apple.
   flash, metering, digital zoom, colour space, rotation, location, software; the route note; the RGB histogram). Favourites are
   PhotoKit's (Android keeps its own list only because MediaStore asks per file). Formats are read from PHAssetResource in the
   background (GalleryLibrary.kinds).
-- Not done: the full-resolution zoom regions (P367: the preview zooms as a picture); ScamGL editor output not compared with Mesa
-  (needs the macOS runner); out of scope or not portable: the video filters / «Записи экрана», «Недавно
-  удаленные» (PhotoKit hides the trash), the text read on photos (OCR, P504), day cards / list / timeline layouts (the grid
-  stays by month), undo of a delete (PhotoKit asks itself). Swift not compiled here (no Mac): the «Знак» tab, the gallery pages and
+- Not done: ScamGL editor output not compared with Mesa (needs the macOS runner); out of scope or not portable: the video
+  filters / «Записи экрана», «Недавно удаленные» (PhotoKit hides the trash), undo of a delete (PhotoKit asks itself). Done
+  2026-11-14 («Gallery views, text, viewer, zoom, player, fonts»): the full-resolution zoom regions, the text on photos, the day
+  cards / list / timeline views. Swift not compiled here (no Mac): the «Знак» tab, the gallery pages and
   the record's Swift side need the CI build and a phone check; that Photos keeps the bytes after a JPEG's EOI / a HEIC's last box
   (PHAssetResourceManager returns the original) is to be seen on the phone.
 
@@ -369,7 +369,7 @@ change: `scam-crash.h` keeps only the stage marks on Apple.
 - Applied in `BurstProcessor` after SCAMShot and before the encoder (the camera's HEIC properties first, the DNG's EXIF for
   what they lack, the shot's start time when neither has a date), and in `ShotProcessor.process` (upright CIRAWFilter route).
   The Ultra HDR gain map is not watermarked (as ScamProcessor: the map is made before the watermark, the base alone is drawn on).
-- Fonts: Roboto Flex is a third-party font the Android app bundles, so «SCAM» is SF Pro; «Узкий» SF Pro condensed, «Засечки»
+- Fonts: «SCAM» is Roboto Flex as on Android (2026-11-14: AppFont, circularbarlib's res/font); «Узкий» SF Pro condensed, «Засечки»
   New York, «Моно» SF Mono (500 / 600). Geometry, text and colours follow Android exactly; glyph pixels cannot match Skia.
   Shadow: Skia's sigma (0.57735 r + 0.5) with CoreGraphics blur = 2 sigma (approximate).
 - Check: `tools/watermark_host/run.sh` compiles the Android Java (Spec, Text, Painter.plan, Area, the preference readers) on
@@ -385,9 +385,8 @@ change: `scam-crash.h` keeps only the stage marks on Apple.
   and before the drawing (WatermarkPainter.drawOn's hook); `BurstProcessor` appends it to the encoded JPEG / HEIC
   (`appendRecord`). The iPhone writes 8-bit sRGB records with the predictive code (no WebP encoder); the rows' fourth byte is
   recorded as 255 (Android's photo is opaque). Checked against Android: «Gallery and editor» above.
-- Not done: `ShotProcessor.process` (the upright CIRAWFilter route) still calls `apply` without the record (the file is outside
-  this port's files: switch it to `applyRecorded` + `appendRecord` as BurstProcessor); the preview names the phone «Apple iPhone»
-  (iOS has no public model name; the shot uses the EXIF Model).
+- 2026-11-14: `ShotProcessor.encode` (the upright route) keeps the record as BurstProcessor; the preview names the phone by
+  DeviceName (the market name), see «Gallery views, text, viewer, zoom, player, fonts».
 
 ## Settings (2026-11-13)
 - `App/SettingsView.swift` renders `Resources/android_settings.json` (gen_settings_ui.py; it now also carries an `<intent>`'s
@@ -516,9 +515,9 @@ viewfinder stream). Display P3 acts on the SHDR photo only (the camera's own HEI
   fps / codec, bit rate, sound tracks), share, delete; gestures: double tap ∓step at the sides (adds up, step 5..60 s in
   «Настройки плеера»), pause in the middle, sideways drag seeks (≤ 90 s across), vertical drag brightness (left) / volume
   (right), long press 2x.
-- Not on the iPhone: HW / HW+ / SW decoders, the volume boost over 100 %, background play and picture-in-picture (need the
-  audio background mode in Info.plist, not added), auto-rotate by the sensor, hidden quick buttons, a subtitle file beside the
-  video (no folders in PhotoKit), the in-file text tracks read as cues (AVPlayer draws them itself).
+- Not on the iPhone: HW / HW+ / SW decoders, hidden quick buttons, a subtitle file beside the video (no folders in PhotoKit), the
+  in-file text tracks read as cues (AVPlayer draws them itself). The volume boost, background play, picture-in-picture and
+  auto-rotate: done 2026-11-14 («Gallery views, text, viewer, zoom, player, fonts»).
 - HUD (pref_show_afdata_key, the settings row already exists): `Capture/CameraHud` — DeviceHudMonitor key-value observes the open
   lens (exposure duration, ISO, lens position, focus / exposure / white-balance modes and their adjusting flags, EV bias and
   metering offset, gains, zoom, points of interest, torch), publishes at most every 150 ms; mode 1/2 draws updateViewfinderHud's
@@ -752,3 +751,84 @@ camera_screen: the top row (64 pt) with its grabber, the 3:4 viewfinder from the
   (it has to skip the processed photo); the settings row «Последние сообщения» (scam_recent_messages) can now open
   MessageHistorySheet. Swift not compiled here: CI must build it; check on a phone the wipe's snapshot (snapshotView of the
   preview layer), the shade's paging and drag reorder, the face boxes' mapping and the tracking.
+## Gallery views, text, viewer, zoom, player, fonts (2026-11-14)
+- Views (P622 GalleryLayout / ListRows / TimelineRows / GalleryViews, `Gallery/GalleryLayouts.swift`, `GalleryGrid.swift`):
+  «Вид» first in «Вид галереи» (Сетка / Список / Лента, the hint; «gallery_ui» view_mode, timeline_level, timeline_columns,
+  last_opened). «Сетка» is LibraryAdapter's: cards by day (14pt corners, 6pt apart, 12pt from the edges), the day caption in
+  12pt semibold capitals with «N фото · M видео», a tap on it selects the day while selecting; the cell's heart at the top left,
+  the check at the top right (the chosen one framed in the accent, its picture sunk to 0.88), the badges at the bottom left
+  (video length, RAW, Ultra HDR), the watched part of a video. «Список»: the day's card of rows (20pt outer corners, hairlines
+  from the text), the 104 x 78 thumbnail, the name (2 lines), «Сегодня, 11:17 · 12,6 Мп · 12,4 МБ», the tags (format, big
+  megapixels, SHDR, Ultra HDR; ItemMeta's facts as `RowMeta` from the first 512 KB of the file), the «⋮» (open, share, favourite,
+  select, delete), the photo opened last tinted. «Лента»: the 20 %-ours tokens (2pt gaps, 2.8pt tiles, 12.8pt cards, 18.4pt month
+  titles with the year in grey), month and year cards (0.62 / 0.78, the fade, 26 / 34pt titles, the counts), the floating
+  «Годы · Месяцы · Все фото» control over the tab bar (hidden while selecting), the month capsule pinned over the photos (pushed
+  by the next title), the pinch walking the columns 3..7 and the levels (zoomStep). The list and the timeline collapse the large
+  title as they scroll. A switch of view keeps the photo on screen (the page dips and comes back on the entry spring; Android's
+  flying thumbnail is not drawn). Not ported: the albums page's list / covers per view (AlbumViews), the «new since» badge.
+- FastScroller (P498): the accent pill at the right edge while the list moves (1.2 s after), dragged it moves the list by its share
+  and the bubble names the day / month there (a tick per new label). Drag selection (DragSelectionItemTouchListener): a long press
+  selects and the drag takes every photo from the pressed one to the one under the finger (rows and columns alike) over the
+  selection before; the list scrolls a row at a time near the top / bottom edge. «Лента папок над сеткой»: Android has none any
+  more (P502: «the folder chips are gone: the albums replace them»; GallerySheets.folders is called without the chips row), so
+  there is nothing to port; the «Фото» tab's folder stays the «Камера / Все» choice above the grid and in «Альбомы → Другое».
+- «Текст на фото» and the search by text (P504 TextSheet / OcrIndex / OcrPace, `Gallery/GalleryOcr.swift`): Vision
+  VNRecognizeTextRequest (accurate, language correction; «Авто» = en-US + ru-RU + the phone's language when Vision reads it;
+  the menu offers OcrEngine.LANGUAGES that this iPhone's Vision supports, each with English), 2600 px for the sheet, 1600 px
+  for the index; the text selectable in part (a read-only UITextView), «Копировать всё», «Поделиться»; a read in «Авто» goes
+  into the index. The index (Application Support/gallery_ocr.json: id → modification time + text) reads the library's photos
+  newest first while the gallery is open: 6 s after the open, 2.5 s after the grid last moved, not while the phone is hot
+  (thermal state serious / critical), resting as long as a photo took (≥ 250 ms) and 5 s after every 20, paused under 25 %
+  battery when not charging, 5 Vision failures in a row stop it until the next visit; GallerySearch adds the text. Not ported:
+  waiting for a shot in processing (no shared busy flag between the camera and the gallery here).
+- Viewer chrome (ViewerChrome, `Gallery/GalleryViewer.swift`): the top gradient, the back disc, «Сегодня, 11:17» and «24 мм ·
+  12 Мп · JPEG» (35 mm focal else the focal length, whole megapixels, GalleryFormat's label; a video: «Видео · 0:42 · MP4»), the
+  «HDR: вкл. / выкл.» pill for a gain-map photo (Ultra HDR XMP, Apple's HDR gain map, ISO 21496-1) when the screen has headroom,
+  the heart, «Ещё»; the bottom capsule of five 56..72pt buttons. HDR: iOS 17 Core Image (CIImage .expandToHDR) renders the
+  gain-map rendition into a half-float extended linear Display P3 picture shown with preferredImageDynamicRange .high; the
+  pill turns it off / on per photo (on by default as Android's). Ultra HDR JPEGs and ISO maps expand where the system reads them.
+  Not ported: the histogram switch (P492) and the filmstrip (hidden on Android too).
+- Full-resolution zoom (FdRegionDecoder P620, `ZoomPhotoView` / `ViewerSource`): the page is a UIScrollView up to twice the
+  original's pixels on the screen's (at least 4x the fit), double tap 2.5x; once the screen picture is coarser than the screen,
+  the visible part is decoded from the original when the zoom / pan settles - CGImageSource with the subsample factor 2 / 4 / 8
+  the screen does not need, else the full decode, kept per page while zoomed (released at the fit and when the page goes); with
+  HDR on, the region comes from the gain-map rendition. iOS has no public region decoder: a full decode is ~4 B a pixel while
+  zoomed (192 MB at 48 MP).
+- Editor zoom (P367 EditZoom, `Gallery/EditZoom.swift`, EditorModel's zoom section): pinch about the fingers, pan, double tap
+  fit ↔ 100 % (the copy's 1:1 when it has the crop's pixels, `placement` snapped to whole px), up to 400 %, the «N %» pill; the
+  zoomed frame from the preview chain with the crop as the canvas (`renderZoom`), and past the preview's resolution the visible
+  window from the original through the export's chain at the zoom's output size (`Editor/EditExport.hpp` renderWindow,
+  `SCAMEditSession renderZoomWindow`, the decoded original kept while zoomed when memory allows; a RAW's DNG decoded again;
+  a developed DNG zooms its preview). Check (`tools/zoom_window_check.cpp`, Mesa): windows on the copy's 1024 px tile grid equal
+  the copy byte for byte (3 states incl. turn / straighten / crop, 0 of all values); windows cut elsewhere differ by up to 30
+  levels with NR / clarity (each region's own guided filters and noise reduction, as Android's EditZoomLoader regions differ from
+  the export's tiles). The watermark's live overlay is hidden while zoomed.
+- «Ещё» (P498): «Слайд-шоу» (3 s a photo, the screen kept on, a tap stops it, the chrome back at the end), «Текст на фото»,
+  «Открыть в другом приложении» (UIDocumentInteractionController's open-in menu on the file); a long press on «Изменить» is
+  «Изменить в другом приложении» through the same menu (iOS has no edit chooser like ACTION_EDIT). «Установить как…» is left out:
+  iOS has no API for apps to set the wallpaper (as Android hides an item it cannot serve).
+- Player (P499): «В фоне» quick button (VideoPlaybackService: the sound goes on when the app is left - the player's layer lets go
+  of the player as iOS pauses a layer-bound player in the background - with the lock screen's card and its play / pause),
+  picture in picture (AVPictureInPictureController on the player's layer: the button after the fit, «Картинка в картинке при
+  выходе» in «Настройки плеера» as canStartPictureInPictureAutomaticallyFromInline), the playback audio session while the player
+  is open (the camera's own restored after), «Автоповорот» (Rotate VIDEO → SENSOR → LANDSCAPE → PORTRAIT; the phone's way from
+  UIDevice orientation, the picture turned ±90°; the stored values of before keep their meaning), the volume over 100 % up to
+  200 % (the right side's drag; an MTAudioProcessingTap multiplies the samples, up to +10 dB as LoudnessEnhancer, clipped at full
+  scale; «Усиление звука»). project.yml: UIBackgroundModes audio.
+- Editor motion (P360 EditMotion, `Gallery/EditMotion.swift`): the arrival (the cover fades over LONG + 80 ms, the panel and the
+  tab bar rise 24pt, 60 / 100 ms), the panel travelling to the new tab's side (28pt in, 60 % out on the exit curve), its slider
+  rows one after another (25 ms, at most 12), the new tab's icon from 0.8 with an overshoot, the pills and the histogram, the
+  pressed buttons (0.9; the gallery's discs 0.94); Reduce Motion turns them off.
+- Roboto Flex (Fonts / UiFonts, `Support/AppFont.swift`): circularbarlib's res/font roboto_flex_400..800.ttf referenced by
+  project.yml (not copied), `Font.app(size, weight)` = the instance nearest the weight at a fixed size (the phone's text size does
+  not scale it, P582), UIKit's bars too; the gallery, viewer, editor, player and the watermark's «SCAM» use it. The five static
+  instances share one PostScript name («RobotoFlex-Regular»), so UIAppFonts registers only the 400 one and every weight is made
+  from its own file (CGFont, not registered). `tools/app_fonts.py` rewrites `.system(size:…)` and the text styles of the given
+  Swift files to `.app(…)`: run on the camera screen and settings files once their own work is merged (not touched here).
+- Watermark: `DeviceName` (Android DeviceName: Make «Apple», Model the market name from utsname.machine's table, iPhone XS ..
+  17 Pro Max / Air, else «iPhone»): the settings' preview and the shots whose metadata lacks Make / Model; the upright route
+  (`ShotProcessor.encode`) keeps the watermark's record (applyRecorded + appendRecord) so «Убрать» works; EXIF Software as
+  Android writes it («SCAMERA <version> (<build>) <sha8>», DngMetadata.software) on the shots and the editor's copies.
+- Swift not compiled here (no Mac): risky spots for the CI build - MTAudioProcessingTapCreate's tap out-parameter type, the
+  long-press-then-drag cell gesture inside the ScrollView (scrolling must still work), MagnifyGesture.Value.startLocation,
+  UIImageView.preferredImageDynamicRange / CIImage .expandToHDR (iOS 17), UIFont from CTFont by toll-free bridging.

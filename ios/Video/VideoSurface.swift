@@ -68,6 +68,8 @@ struct VideoSurface: UIViewRepresentable {
     var onDrag: (DragKind, CGFloat, CGFloat, Bool) -> Void
     var onPinch: (CGFloat, CGSize, Bool) -> Void
     var onHold: (Bool) -> Void
+    /// the picture's layer once made (picture in picture goes over it)
+    var onLayer: (AVPlayerLayer) -> Void = { _ in }
 
     enum DragKind { case seek, brightness, volume }
 
@@ -91,6 +93,8 @@ struct VideoSurface: UIViewRepresentable {
         let hold = UILongPressGestureRecognizer(target: c, action: #selector(Coordinator.hold(_:)))
         hold.minimumPressDuration = 0.5
         v.addGestureRecognizer(hold)
+        let layer = v.playerLayer
+        DispatchQueue.main.async { onLayer(layer) }
         return v
     }
 

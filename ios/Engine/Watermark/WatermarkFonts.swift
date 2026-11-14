@@ -2,11 +2,11 @@ import CoreGraphics
 import CoreText
 import UIKit
 
-/// The watermark's fonts on iOS (Android WatermarkFonts.java). Android draws «SCAM» in Roboto Flex, a third-party font the app
-/// bundles (not its own file), and the others in the system's condensed sans, serif and monospace; here every one is the iOS system
-/// family closest to it: «SCAM» SF Pro, «Узкий» SF Pro condensed, «Засечки» New York, «Моно» SF Mono, at the weight asked
-/// (500 medium, 600 semibold). The measures are CoreText's (UIFont ascender / descender as Paint's FontMetrics ascent / descent,
-/// the typographic width of the line with the letter spacing as kerning, as Paint.measureText with setLetterSpacing).
+/// The watermark's fonts on iOS (Android WatermarkFonts.java). «SCAM» is the app's own Roboto Flex (AppFont: circularbarlib's
+/// res/font bundled as it is, UiFonts.of's instance at the weight asked), the others the system families closest to Android's
+/// condensed sans, serif and monospace: «Узкий» SF Pro condensed, «Засечки» New York, «Моно» SF Mono (500 medium, 600 semibold).
+/// The measures are CoreText's (UIFont ascender / descender as Paint's FontMetrics ascent / descent, the typographic width of the
+/// line with the letter spacing as kerning, as Paint.measureText with setLetterSpacing).
 final class WatermarkFonts: WatermarkFontSource {
     static let shared = WatermarkFonts()
 
@@ -22,7 +22,7 @@ final class WatermarkFonts: WatermarkFontSource {
         let made: UIFont
         switch font {
         case .scam:
-            made = UIFont.systemFont(ofSize: s, weight: w)
+            made = AppFont.uiFont(size: s, weight: weight)
         case .condensed:
             made = UIFont.systemFont(ofSize: s, weight: w, width: .condensed)
         case .serif:

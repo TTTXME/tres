@@ -85,11 +85,9 @@ struct WatermarkPreview: View {
                        shouldInterpolate: true, intent: .defaultIntent)
     }
 
-    /// The phone the page runs on as the photo's EXIF would name it: iOS gives no public model name ("iPhone 16 Pro"), so
-    /// «Apple iPhone» (Make «Apple», UIDevice's model).
-    static var sampleDevice: String {
-        WatermarkExif.device(make: "Apple", model: UIDevice.current.model) ?? "Apple iPhone"
-    }
+    /// WatermarkPreviewPreference.sampleDevice: the phone the page runs on as the photo's EXIF names it («Apple iPhone 16 Pro»,
+    /// DeviceName's market name).
+    static var sampleDevice: String { DeviceName.device }
 }
 
 /// The settings' drawn landscape (Android LutSamples.scene, the concept's drawScene(seed, zoom)): sky, sun, two ridges, water with
