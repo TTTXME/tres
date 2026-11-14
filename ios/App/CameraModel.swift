@@ -367,9 +367,10 @@ final class CameraModel {
         capturingShdr = true
         do {
             let burst: BayerBurst
+            let hasBayerRaw = await captureService.hasBayerRaw
             if flash, let one = try await captureService.captureFlashFrame() {
                 burst = one
-            } else if flash || !(await captureService.hasBayerRaw) {
+            } else if flash || !hasBayerRaw {
                 // no RAW frame (the flash on this lens, or a camera without Bayer RAW): the camera's own photo
                 if flash {
                     SessionLog.w("SHDR", "flash shot without a RAW frame: the camera's photo")
