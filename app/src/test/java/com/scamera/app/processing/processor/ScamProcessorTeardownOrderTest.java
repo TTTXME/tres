@@ -65,13 +65,16 @@ public class ScamProcessorTeardownOrderTest {
         final String burst = method(source(), "private void processBurst()");
         final int handoff = burst.indexOf("ByteBuffer output=ref.buffer;ref.buffer=null;");
         assertTrue("the reference handoff", handoff > 0);
-        assertTrue("tracked at the handoff and after outOfArena", burst.substring(handoff).startsWith(
-                "ByteBuffer output=ref.buffer;ref.buffer=null;\n        referenceRaw = output;\n"
-                        + "        if ((long) width * height > 16_000_000L) output = outOfArena(output);\n        referenceRaw = output;\n"));
+        assertTrue("tracked at the handoff", burst.substring(handoff).startsWith(
+                "ByteBuffer output=ref.buffer;ref.buffer=null;\n        referenceRaw = output;\n"));
+        // P681: tracked after outOfArena as well
+        assertTrue("tracked after outOfArena", burst.substring(handoff).contains(
+                "        if ((long) width * height > 16_000_000L) output = outOfArena(output);\n        referenceRaw = output;\n"));
         final String after = burst.substring(handoff);
         final int tail = after.indexOf("final ByteBuffer freeInput = jpegInput");
         assertTrue("the tail free", tail > 0);
-        // the RAW-only return and the hybrid free above 16 MP: each one directly after its own clear
+        // P681's free of an unread reference above 16 MP (no copy out of the arena), the RAW-only return and the hybrid free above
+        // 16 MP: each one directly after its own clear
         int frees = 0, last = 0;
         for (int at = after.indexOf("Allocator.free(output);"); at >= 0 && at < tail; at = after.indexOf("Allocator.free(output);", at + 1)) {
             final int clear = after.lastIndexOf("referenceRaw = null;", at);
@@ -81,7 +84,7 @@ public class ScamProcessorTeardownOrderTest {
             last = at;
             frees++;
         }
-        assertEquals("the RAW-only free and the hybrid free above 16 MP", 2, frees);
+        assertEquals("the unread reference's free, the RAW-only free and the hybrid free above 16 MP", 3, frees);
         // the tail: one clear after those two, before both its branches
         assertTrue("the tail free after those two", tail > last);
         final int clear = after.lastIndexOf("referenceRaw = null;", tail);

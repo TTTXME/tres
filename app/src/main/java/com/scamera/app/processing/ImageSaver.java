@@ -366,6 +366,64 @@ public class ImageSaver {
             }
         }
 
+        /** P681: one thread writes the DNGs taken off the post's path, in order (never two at once: one file's memory). */
+        private static final java.util.concurrent.ExecutorService DNG_WRITE = java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
+            final Thread t = new Thread(r, "scam-dng-write");
+            t.setPriority(Thread.NORM_PRIORITY - 1);
+            t.setDaemon(true);
+            return t;
+        });
+
+        /** P681: a DNG written on {@link #DNG_WRITE}: whether it was saved, when its write ended (elapsedRealtimeNanos). */
+        public static final class DngJob {
+            public final java.util.concurrent.Future<Boolean> saved;
+            public volatile long endedNanos;
+
+            DngJob(java.util.concurrent.Future<Boolean> saved) {
+                this.saved = saved;
+            }
+        }
+
+        /**
+         * P681: {@link #saveSingleRaw} with the file written on its own thread, beside the post pipeline: everything the file says is
+         * taken from {@code parameters} here (the native writer copies each value as it is set), so the caller may change them
+         * at once; {@code buffer} must stay unchanged until {@code done} runs on that thread after the write (it frees it there).
+         * A failure to take the metadata throws here (nothing was queued, {@code done} has not run).
+         */
+        public static DngJob saveSingleRawAsync(Path dngFilePath, ByteBuffer buffer, Parameters parameters, boolean uncompressed,
+                                                Runnable done) {
+            final DngCreator creator = new DngCreator();
+            try {
+                creator.setParameters(parameters);
+                creator.setCompression(!uncompressed && PreferenceKeys.isDngLossless());
+            } catch (RuntimeException | Error e) {
+                creator.close();
+                throw e;
+            }
+            final int w = parameters.rawSize.x, h = parameters.rawSize.y;
+            final java.util.concurrent.CompletableFuture<Boolean> result = new java.util.concurrent.CompletableFuture<>();
+            final DngJob out = new DngJob(result);
+            try {
+                DNG_WRITE.execute(() -> {
+                    boolean ok = false;
+                    try {
+                        ok = writeDng(dngFilePath, stream -> creator.writeBuffer(stream, buffer, w, h), "DNG");
+                    } catch (Throwable t) {
+                        Log.e(TAG, "DNG save failed: " + Log.getStackTraceString(new RuntimeException(t)));
+                    } finally {
+                        creator.close();
+                        try { done.run(); } catch (RuntimeException e) { Log.e(TAG, "DNG buffer release: " + e); }
+                        out.endedNanos = android.os.SystemClock.elapsedRealtimeNanos();
+                        result.complete(ok);
+                    }
+                });
+            } catch (java.util.concurrent.RejectedExecutionException e) {
+                creator.close();
+                throw e;
+            }
+            return out;
+        }
+
         /** Writes one DNG's bytes (the stream is the caller's file). */
         interface DngWrite {
             void to(OutputStream out) throws IOException;
@@ -378,7 +436,10 @@ public class ImageSaver {
         static boolean writeDng(Path dngFilePath, DngWrite write, String what) {
             boolean complete = false;
             try {
-                try (OutputStream out = Files.newOutputStream(dngFilePath)) {
+                // P681: a channel the DNG's strip goes to from native memory (Files.newOutputStream's options)
+                try (OutputStream out = new DngCreator.ChannelSink(java.nio.channels.FileChannel.open(dngFilePath,
+                        java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.TRUNCATE_EXISTING,
+                        java.nio.file.StandardOpenOption.WRITE))) {
                     write.to(out);
                 }
                 complete = true;

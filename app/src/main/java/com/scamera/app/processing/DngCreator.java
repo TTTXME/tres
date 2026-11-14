@@ -20,8 +20,8 @@ import java.util.Arrays;
  */
 public class DngCreator {
     private static final String LOG = "DngCreator";
-    /** P27: the file goes out in pieces of this size instead of one heap copy (100 MB at 50 MP uncompressed). */
-    private static final int STREAM_PIECE = 4 << 20;
+    /** P27: a strip goes to a plain stream in pieces of this size (P681: a file channel takes it in place). */
+    private static final int STREAM_PIECE = 1 << 20;
 
     // Field ids of the native setters (dngCreator.cpp NumberField / VectorField / TextField / TagKind)
     private static final int NUMBER_ORIENTATION = 0, NUMBER_WHITE = 1, NUMBER_BASELINE = 2, NUMBER_ILLUMINANT1 = 3,
@@ -46,9 +46,17 @@ public class DngCreator {
     private static native void nGainMap(long file, float[] map, int xmin, int ymin, int xmax, int ymax, int width, int height);
     private static native void nTag(long file, int ifd, int tag, int kind, String text, long[] words);
     private static native void nCrop(long file, int x, int y, int width, int height);
-    private static native ByteBuffer nBuild(long file, int width, int height, ByteBuffer mosaic);
-    /** P187: frees a buffer of nBuild (native memory); it must not be touched afterwards. */
-    private static native void nDrop(ByteBuffer built);
+    /**
+     * P681: lays the file out around the mosaic without building it (the in-memory file was ostringstream growth, two copies of
+     * it and a malloc of its size: ~290 MB beside a 50 MP shot, 1.15 GB at 200 MP): {@link #nHead} the header and metadata,
+     * {@link #nStrip} the strip in place (the mosaic itself, or the lossless JPEG; valid until {@link #nClose}), {@link #nTail}
+     * the IFD. The same bytes in the same order (tools/check_dng_stream.cpp).
+     */
+    private static native boolean nLayout(long file, int width, int height, ByteBuffer mosaic);
+    private static native byte[] nHead(long file);
+    private static native ByteBuffer nStrip(long file);
+    private static native byte[] nTail(long file);
+    private static native boolean nLossless(long file);
 
     static {
         System.loadLibrary("dngCreator");
@@ -160,23 +168,74 @@ public class DngCreator {
         nGainMap(file, map, xmin, ymin, xmax, ymax, width, height);
     }
 
-    /** Builds the file around {@code mosaic} (a direct buffer of width x height 16-bit samples) and streams it to {@code out}. */
+    /** P681: the bytes of the last {@link #writeBuffer} (0 before), for the PERF line of the save. */
+    public long writtenBytes;
+
+    /**
+     * Lays out the file around {@code mosaic} (a direct buffer of width x height 16-bit samples, unchanged until this returns)
+     * and streams it to {@code out}: the header and metadata, the strip from where it is (P681: no copy of the file in memory; a
+     * {@link ChannelSink} takes it straight from the native memory), the IFD.
+     */
     public void writeBuffer(OutputStream out, ByteBuffer mosaic, int width, int height) {
-        final ByteBuffer built = nBuild(file, width, height, mosaic);
-        if (built == null) throw new RuntimeException("DNG layout failed");
+        final long t0 = System.nanoTime();
+        if (!nLayout(file, width, height, mosaic)) throw new RuntimeException("DNG layout failed");
+        final byte[] head = nHead(file), tail = nTail(file);
+        final ByteBuffer strip = nStrip(file);
+        if (head == null || tail == null || strip == null) throw new RuntimeException("DNG layout incomplete");
+        final long t1 = System.nanoTime();
         try {
-            final ByteBuffer view = built.duplicate();
-            view.clear();
+            writeParts(out, head, strip, tail);
+        } catch (java.io.IOException | RuntimeException e) {
+            throw new RuntimeException("DNG not written to the stream", e);
+        }
+        writtenBytes = (long) head.length + strip.capacity() + tail.length;
+        Log.i("PERF", "DNG written: " + (writtenBytes >> 10) + " KB, " + width + "x" + height + (nLossless(file) ? " lossless JPEG" : " 16-bit")
+                + ", layout " + (t1 - t0) / 1_000_000 + " ms, write " + (System.nanoTime() - t1) / 1_000_000 + " ms, streamed (no file in memory)");
+    }
+
+    /** P681: the three parts of a laid-out file, in order; the strip in place through a {@link ChannelSink}, else in pieces. */
+    static void writeParts(OutputStream out, byte[] head, ByteBuffer strip, byte[] tail) throws java.io.IOException {
+        out.write(head);
+        final ByteBuffer view = strip.duplicate();
+        view.clear();
+        if (out instanceof ChannelSink) {
+            final java.nio.channels.WritableByteChannel channel = ((ChannelSink) out).channel;
+            while (view.hasRemaining()) channel.write(view);
+        } else {
             final byte[] piece = new byte[Math.min(STREAM_PIECE, Math.max(1, view.remaining()))];
             for (int n; (n = Math.min(piece.length, view.remaining())) > 0; ) {
                 view.get(piece, 0, n);
                 out.write(piece, 0, n);
             }
-        } catch (java.io.IOException | RuntimeException e) {
-            throw new RuntimeException("DNG not written to the stream", e);
-        } finally {
-            // P187: the whole file in native memory (401 MB at 200 MP) goes now, not never
-            nDrop(built);
+        }
+        out.write(tail);
+    }
+
+    /**
+     * P681: an unbuffered stream over a file channel whose strip writes go to the channel from the native buffer itself (no Java
+     * copy of it). Closing it closes the channel.
+     */
+    public static final class ChannelSink extends OutputStream {
+        final java.nio.channels.WritableByteChannel channel;
+
+        public ChannelSink(java.nio.channels.WritableByteChannel channel) {
+            this.channel = channel;
+        }
+
+        @Override
+        public void write(int b) throws java.io.IOException {
+            write(new byte[]{(byte) b}, 0, 1);
+        }
+
+        @Override
+        public void write(byte[] b, int off, int len) throws java.io.IOException {
+            final ByteBuffer bytes = ByteBuffer.wrap(b, off, len);
+            while (bytes.hasRemaining()) channel.write(bytes);
+        }
+
+        @Override
+        public void close() throws java.io.IOException {
+            channel.close();
         }
     }
 

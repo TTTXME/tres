@@ -91,6 +91,37 @@ public class JpegStreamSaveTest {
         image.recycle();
     }
 
+    /**
+     * P681: the sink's file collected in chunks (StreamedJpegSink: ChunkedBytes instead of a ByteArrayOutputStream and its
+     * toByteArray) is saved as the same file as the array of the same bytes, the EXIF block inserted the same way.
+     */
+    @Test public void chunkedFileEqualsTheArraysFile() throws Exception {
+        final int w = 640, h = 480;
+        final Bitmap image = picture(w, h);
+        final ParseExif.ExifData e = exif();
+        e.compression = ParseExif.COMPRESSION_JPEG;
+        final byte[] app1 = ExifBlock.app1Segment(e, w, h);
+        final ByteArrayOutputStream plain = new ByteArrayOutputStream();
+        JpegliEncoder.compressFallback(image, 97, plain);
+        final byte[] jpeg = plain.toByteArray();
+        final ByteArrayOutputStream array = new ByteArrayOutputStream();
+        final ChunkedBytes chunks = new ChunkedBytes();
+        final OutputStream toArray = IccEmbed.jpegInserting(array, app1, null), toChunks = IccEmbed.jpegInserting(chunks, app1, null);
+        for (int at = 0; at < jpeg.length; at += 4093) {
+            toArray.write(jpeg, at, Math.min(4093, jpeg.length - at));
+            toChunks.write(jpeg, at, Math.min(4093, jpeg.length - at));
+        }
+        toArray.close();
+        toChunks.close();
+        assertEquals(array.size(), chunks.size());
+        final PhotoOutput.Result fromArray = PhotoOutput.saveStreamedJpeg(tmp.getRoot().toPath().resolve("array"), array.toByteArray(), e, true, null);
+        final PhotoOutput.Result fromChunks = PhotoOutput.saveStreamedJpeg(tmp.getRoot().toPath().resolve("chunks"), chunks, e, true, null);
+        assertEquals(1, fromArray.files.size());
+        assertEquals(1, fromChunks.files.size());
+        assertArrayEquals("the same file", Files.readAllBytes(fromArray.files.get(0)), Files.readAllBytes(fromChunks.files.get(0)));
+        image.recycle();
+    }
+
     @Test public void writeAllKeepsEveryByte() throws Exception {
         final byte[] data = new byte[(3 << 20) + 12345];
         for (int i = 0; i < data.length; i++) data[i] = (byte) (i * 31);

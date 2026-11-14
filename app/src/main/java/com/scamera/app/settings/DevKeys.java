@@ -52,7 +52,7 @@ public final class DevKeys {
      * matrix of the Parameters, hybrid_clip_flags: a flag of the burst); or only the DNG reads them; or nothing does any more.
      */
     static final Set<String> NOT_IN_LAB = Collections.unmodifiableSet(new HashSet<>(Arrays.asList(
-            "post_priority", "gpu_low_priority", "post_gpu_pace", "post_band_ms", "jpeg_threads", "rgba_upload", "gl_warm_up", "release_async", "worker_watchdog",
+            "post_priority", "gpu_low_priority", "post_gpu_pace", "post_band_ms", "jpeg_threads", "rgba_upload", "gl_warm_up", "release_async", "dng_async", "worker_watchdog",
             "gl_warm_up_recipes", "ok_read", "worker_nice", "worker_prespawn", "worker_keep_ready", "thermal_async", "black_scan_bulk", "zero_copy_read", // P371: speed only
             "raw_crop_in_place", "prep_warm", // P625: speed only (the same samples)
             "oldstyle_threads", "oldstyle_read16", "exif_beside_encode", // P636: speed only (the same bytes)
@@ -886,6 +886,9 @@ public final class DevKeys {
         // P236: the shot's frames closed off the critical path after the merge (ScamProcessor.releaseFrames)
         k.add(s(post, "release_async", true, Lang.t("После склейки кадры снимка освобождаются в фоне, обработка начинается сразу (не для 200 Мп). Выкл — сначала освобождение (~0.4 с на 50 Мп), как до P236",
                 "After the merge the shot's frames are freed in the background and the processing starts at once (not for 200 MP). Off: freed first (~0.4 s at 50 MP), as before P236")));
+        // P681: the merged DNG written on its own thread beside the post pipeline (ScamProcessor, DngReport.offPostPath)
+        k.add(s(post, "dng_async", true, Lang.t("Склеенный DNG пишется в отдельном потоке параллельно с обработкой фото (только больше 8 ГБ памяти и до 100 Мп; файл тот же). Выкл — DNG записывается до обработки, как до P681",
+                "The merged DNG is written on its own thread beside the photo's processing (only above 8 GB of RAM and up to 100 MP; the same file). Off: the DNG is written before the processing, as before P681")));
         // P625: the RAW crop moves the kept rows inside the frames' own slots; the burst preparation's Java loop compiled ahead
         k.add(s(post, "raw_crop_in_place", true, Lang.t("Обрезка RAW (X200 Pro, ручные поля, кроп зума) на месте: строки сдвигаются в своём буфере кадра, без нового буфера на все кадры, воркер, запущенный при нажатии, остаётся в деле. Выкл — копия в новый буфер, как до P625",
                 "The RAW crop (X200 Pro, manual margins, the zoom's crop) in place: the rows move inside each frame's own buffer, no new buffer for the whole burst, the worker started at the press stays usable. Off: copied into a new buffer, as before P625")));

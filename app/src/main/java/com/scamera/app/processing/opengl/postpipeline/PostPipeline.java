@@ -171,7 +171,7 @@ public class PostPipeline extends GLBasePipeline {
     public boolean captureDemosaic;
     private final SceneGainMap gainMapPass = new SceneGainMap();
     /** P483: the JPEG {@link #streamJpeg} asked for, when Run returned null; else null. */
-    public byte[] streamedJpeg;
+    public com.scamera.app.processing.ChunkedBytes streamedJpeg;
     private int jpegQuality = -1;
     private JpegPlan jpegPlan;
     private boolean teardownPending;

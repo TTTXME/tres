@@ -326,6 +326,22 @@ public final class PhotoOutput {
      */
     public static Result saveStreamedJpeg(Path base, byte[] jpeg, ParseExif.ExifData exif, boolean exifInStream,
                                           @androidx.annotation.Nullable com.scamera.app.processing.watermark.WatermarkPatch.Pending watermark) {
+        return saveStreamed(base, out -> writeAll(out, jpeg), exif, exifInStream, watermark);
+    }
+
+    /** P681: as above, the file collected in chunks by the encoder (no single array of it): the same bytes written. */
+    public static Result saveStreamedJpeg(Path base, ChunkedBytes jpeg, ParseExif.ExifData exif, boolean exifInStream,
+                                          @androidx.annotation.Nullable com.scamera.app.processing.watermark.WatermarkPatch.Pending watermark) {
+        return saveStreamed(base, jpeg::writeTo, exif, exifInStream, watermark);
+    }
+
+    /** P681: the streamed file's bytes into the save's stream. */
+    interface StreamedBytes {
+        void writeTo(OutputStream out) throws IOException;
+    }
+
+    private static Result saveStreamed(Path base, StreamedBytes jpeg, ParseExif.ExifData exif, boolean exifInStream,
+                                       @androidx.annotation.Nullable com.scamera.app.processing.watermark.WatermarkPatch.Pending watermark) {
         final Result result = new Result();
         final Path file = PhotoFormat.JPEG.fileFor(base);
         final long start = System.nanoTime();
@@ -333,7 +349,7 @@ public final class PhotoOutput {
         SavingFiles.begin(file); // P89: the gallery waits for it
         try {
             try (OutputStream out = new java.io.BufferedOutputStream(Files.newOutputStream(file), ImageSaver.Util.SAVE_BUFFER_BYTES)) {
-                writeAll(out, jpeg);
+                jpeg.writeTo(out);
                 out.flush();
                 ok = true;
             } catch (IOException | RuntimeException e) {

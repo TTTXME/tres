@@ -154,7 +154,7 @@ public final class YuvBurst {
         com.scamera.app.processing.opengl.postpipeline.ScamHybridBurst.lastDcgNoise = null;
         com.scamera.app.processing.opengl.postpipeline.ScamHybridBurst.lastMergeFrames = Double.NaN;
         com.scamera.app.processing.opengl.postpipeline.ScamHybridBurst.lastHlMask = null;
-        com.scamera.app.processing.opengl.postpipeline.ScamHybridBurst.lastMergedDng = null;
+        com.scamera.app.processing.opengl.postpipeline.ScamHybridBurst.dropMergedDng(); // P681: freed, not dropped
         com.scamera.app.processing.opengl.postpipeline.ScamHybridBurst.lastDngMosaic = 1;
         com.scamera.app.processing.opengl.postpipeline.ScamHybridBurst.lastMergeTier = "yuv";
         com.scamera.app.processing.opengl.postpipeline.ScamRgb.dropClipFlags(

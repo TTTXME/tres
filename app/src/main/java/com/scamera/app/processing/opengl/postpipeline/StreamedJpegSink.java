@@ -7,7 +7,6 @@ import com.scamera.app.processing.opengl.GLCoreBlockProcessing;
 import com.scamera.app.processing.watermark.PhotoWatermark;
 import com.scamera.app.util.Log;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.ByteBuffer;
@@ -22,8 +21,8 @@ final class StreamedJpegSink implements GLCoreBlockProcessing.RgbaSink {
     private final int quality;
     private final PostPipeline.JpegPlan plan;
     private final boolean draws;
-    /** The encoded file once {@link #accept} took the pixels; null otherwise. */
-    byte[] jpeg;
+    /** The encoded file once {@link #accept} took the pixels; null otherwise (P681: in chunks, no single array of it). */
+    com.scamera.app.processing.ChunkedBytes jpeg;
 
     StreamedJpegSink(GLCoreBlockProcessing processing, int quality, PostPipeline.JpegPlan plan) {
         this.processing = processing;
@@ -39,7 +38,7 @@ final class StreamedJpegSink implements GLCoreBlockProcessing.RgbaSink {
             Log.i(TAG, "streamed JPEG: the readback could not be mapped for the watermark, the bitmap path");
             return false;
         }
-        final ByteArrayOutputStream file = new ByteArrayOutputStream(8 << 20);
+        final com.scamera.app.processing.ChunkedBytes file = new com.scamera.app.processing.ChunkedBytes();
         final int stride = 4 * width;
         Runnable undo = null;
         try {
@@ -57,7 +56,7 @@ final class StreamedJpegSink implements GLCoreBlockProcessing.RgbaSink {
             final OutputStream sink = plan != null ? plan.wrap(file, w, h, pixels, stride) : file;
             JpegliEncoder.compress(pixels, w, h, stride, quality, sink);
             if (sink != file) sink.close();
-            jpeg = file.toByteArray();
+            jpeg = file;
             return true;
         } catch (IOException | RuntimeException e) {
             final String why = e instanceof PhotoWatermark.NotStreamed ? "not taken (" + e.getMessage() + ")" : "failed (" + e + ")";
