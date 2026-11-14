@@ -92,6 +92,24 @@ public class OplusIszTest {
         assertFalse("fake off", SensorModePick.ispStreamOff(3, null, false, false));
     }
 
+    /** Owner, 2026-11-13: the X7 Ultra's 50 MP focuses only with «Поток ISP» fake off - its Auto reads so; other phones unchanged. */
+    @Test public void x7UltraAutoIsFakeOffWhereTheStreamWouldGo() {
+        final SensorModePick.Pick plain = new SensorModePick.Pick(8, 8192, 6144);
+        final SensorModePick.Pick dcg = new SensorModePick.Pick(28, 4080, 3072, false, 0, SensorModePick.DCG);
+        final SensorModePick.Pick isz = new SensorModePick.Pick(11, 4080, 3072, false, 2, SensorModePick.ISZ);
+        assertEquals("X7U, full size, Auto", 3, SensorModePick.ispSurfaceFor(0, null, false, true, true));
+        assertEquals("X7U, a module's pick, Auto", 3, SensorModePick.ispSurfaceFor(0, plain, false, false, true));
+        assertEquals("X7U, a forced mode, Auto", 3, SensorModePick.ispSurfaceFor(0, null, true, false, true));
+        assertEquals("X7U, DCG, Auto: keeps the stream", 0, SensorModePick.ispSurfaceFor(0, dcg, false, false, true));
+        assertEquals("X7U, nothing forced, Auto", 0, SensorModePick.ispSurfaceFor(0, null, false, false, true));
+        assertEquals("X7U, an ISZ row: its own rule", 0, SensorModePick.ispSurfaceFor(0, isz, false, false, true));
+        for (int set = 1; set <= 3; set++)
+            assertEquals("X7U, the user's " + set, set, SensorModePick.ispSurfaceFor(set, plain, true, true, true));
+        assertEquals("another phone, full size, Auto", 0, SensorModePick.ispSurfaceFor(0, plain, true, true, false));
+        assertFalse("fake off keeps the stream in the session", SensorModePick.ispStreamOff(
+                SensorModePick.ispSurfaceFor(0, plain, false, true, true), plain, false, false));
+    }
+
     /** The sessions' reported mode: an ISZ row's 11 runs, a native FULLRES session is watched as such, the normal one logs its own. */
     @Test public void theSessionsWatchTheirReportedMode() {
         final NubiaFullRes.ModeWatch w = new NubiaFullRes.ModeWatch("OPPO family (oplus ISZ)", "2", 11);

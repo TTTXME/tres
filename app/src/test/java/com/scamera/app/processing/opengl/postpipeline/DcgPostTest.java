@@ -278,12 +278,14 @@ public class DcgPostTest {
         assertEquals(WhyAe.finish(st, plain, 400, 6400).describe(), WhyAe.finish(st, dcg, 400, 6400).describe());
     }
 
-    @Test public void bracketDenoiseLeavesADcgFramesOwnHighlights() {
-        assertEquals("a plain shot: the setting", 1f, WhyFusion.bracketStrength(1f, false, false, false), 0f);
-        assertEquals(0.4f, WhyFusion.bracketStrength(0.4f, false, true, false), 0f);
-        assertEquals("DCG without Bento: off", 0f, WhyFusion.bracketStrength(1f, true, false, false), 0f);
-        assertEquals("DCG with Bento ultrashorts: the gained range is real", 1f, WhyFusion.bracketStrength(1f, true, true, false), 0f);
-        assertEquals("the old run of post_ab: the setting", 1f, WhyFusion.bracketStrength(1f, true, false, true), 0f);
+    @Test public void bracketDenoiseTakesTheToneV2Rule() {
+        // P672 (owner: «у V1 сделай его таким же как у V2»): V1's bracket_denoise runs as V2's (WhyV2Highlights.bracketOn) - the
+        // data ceiling above 1.05 and the strength above 0.001, a DCG frame included (P320's exception gone: V2 has none)
+        assertEquals("short frames merged: the setting", 1f, WhyFusion.bracketDenoise(8f, 1f), 0f);
+        assertEquals(0.4f, WhyFusion.bracketDenoise(1.06f, 0.4f), 0f);
+        assertEquals("no headroom: off", 0f, WhyFusion.bracketDenoise(1.05f, 1f), 0f);
+        assertEquals("the setting 0: off", 0f, WhyFusion.bracketDenoise(8f, 0f), 0f);
+        assertEquals(0f, WhyFusion.bracketDenoise(8f, 0.0005f), 0f);
     }
 
     private static File src(String path) {

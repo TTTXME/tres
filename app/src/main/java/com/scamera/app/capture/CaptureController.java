@@ -882,6 +882,11 @@ public class CaptureController {
                 logSensorModeIndex(result);
                 VivoQcomModes.onResult(result, physicalID);
                 if (mDcgOperationMode != 0 && XiaomiDcg.device()) XiaomiDcg.onResult(result, mCameraCharacteristics, physicalID); // P230: the mode the HAL runs
+                // P679: a LOFIC session's results: kept for the pairs of their timestamp, and its setup's checks
+                if (XiaomiLofic.sessionActive() && session == mCaptureSession) {
+                    if (sensorTs != null) mLoficPairs.result(result, sensorTs);
+                    if (XiaomiLofic.onResult(result) == XiaomiLofic.Verdict.FAILED) loficNextSetup();
+                }
                 // P641: the Xiaomi 17 Ultra's dual-gain variant: what the HAL reports, the depth it shows, the verdict once
                 if (XiaomiDualGain.sessionActive() && session == mCaptureSession
                         && XiaomiDualGain.onResult(result, mCameraCharacteristics) == XiaomiDualGain.Verdict.FAILED) dualGainNextVariant();
@@ -1066,6 +1071,12 @@ public class CaptureController {
             // P635: a camera error in a recipe session fails the profile (the documents' device error 4 of a wrong field set):
             // the camera reopens with its normal session
             if (retryWithoutRecipe(null, "camera error " + error)) return;
+            // P679: a camera error in a LOFIC session fails its setup; the camera reopens with the next one (or the normal session)
+            if (XiaomiLofic.sessionActive()) {
+                XiaomiLofic.sessionFailed("died with camera error " + error);
+                mDcgOperationMode = 0;
+                mDcgRequestKeys = false;
+            }
             // P641: a camera error in a session of a dual-gain variant fails that variant; the camera reopens with the next one
             if (XiaomiDualGain.sessionFailed("died with camera error " + error)) {
                 mDcgOperationMode = 0;
@@ -2150,6 +2161,7 @@ public class CaptureController {
                         closeReader(view);
                         closeReader(companion);
                         closeLoficReader(); // P641d
+                        closeLoficSession(); // P679
                     }
                     if (recorder != null) recorder.release();
                     if (viewSurface != null) viewSurface.release();
@@ -2564,6 +2576,13 @@ public class CaptureController {
                 + " frameMs=" + mPreviewFrameMs + " restartsInARow=" + mStallRestarts);
         // P635: a recipe session without a viewfinder frame: the profile fails, the normal session opens (never a black viewfinder)
         if (mRecipe != null && retryWithoutRecipe(mCaptureSession, "no preview frame for " + noFrame + " ms ("
+                + (mLastPreviewResultMs == 0 ? "none since the session started" : "frames stopped") + ")")) {
+            mPreviewSessionStartMs = 0;
+            handler.removeCallbacks(mStallCheck);
+            return;
+        }
+        // P679: a LOFIC session without viewfinder frames: its setup failed, the next one (or the normal session) opens
+        if (XiaomiLofic.sessionActive() && retryWithoutLofic(mCaptureSession, "no preview frame for " + noFrame + " ms ("
                 + (mLastPreviewResultMs == 0 ? "none since the session started" : "frames stopped") + ")")) {
             mPreviewSessionStartMs = 0;
             handler.removeCallbacks(mStallCheck);
@@ -3668,6 +3687,7 @@ public class CaptureController {
     private void sessionRefused(CameraCaptureSession refused, CameraDevice device) {
         mRetryDevice = device;
         mFallbackUndo = null;
+        if (retryWithoutLofic(refused, "session configuration failed")) return; // P679
         if (retryWithoutRecipe(refused, "session configuration failed")) return; // P635
         if (retryWithoutDcgRoute(refused, "session configuration failed")) return; // P230
         if (retryWithoutVendorMode(refused)) return; // P211
@@ -3725,6 +3745,29 @@ public class CaptureController {
             Log.d(TAG, "live viewfinder CFA: " + mLiveCfaPattern + " (physical " + physicalID + ")");
             // the ISP stream's buffers at the stream size (the texture is sensor-oriented: long side first)
             texture.setDefaultBufferSize(mBufferSize.getHeight(), mBufferSize.getWidth());
+            // P679: the Xiaomi 17 Ultra's LOFIC pair (the «DCG+LOFIC» switch on its main camera opened directly): a setup of the
+            // recipe or, with none left, the normal session; the viewfinder stream at the setup's own size
+            final boolean loficWanted = !isBurstSession && !recordingVideo && !sdkFullRes && !mFullResSession && mRecipePlan == null
+                    && (ScameraApp.getSettings().mode == CameraMode.PHOTO || ScameraApp.getSettings().mode == CameraMode.NIGHT)
+                    && !(mXiaomiRouted && !Objects.equals(physicalID, logicalID)) && Objects.equals(physicalID, logicalID)
+                    && XiaomiLofic.wanted(physicalID, isRawFormat(mTargetFormat));
+            final String[] loficNote = {null};
+            closeLoficSession();
+            final XiaomiLofic.Setup lofic = XiaomiLofic.sessionStart(loficWanted, loficNote);
+            if (lofic != null && !openLoficSession(lofic)) {
+                XiaomiLofic.sessionFailed("its readers could not be made");
+                loficNote[0] = Lang.t("DCG+LOFIC: потоки не созданы — обычный режим", "DCG+LOFIC: no streams - the normal mode");
+            }
+            final XiaomiLofic.Setup loficSetup = XiaomiLofic.setup();
+            if (loficSetup != null) texture.setDefaultBufferSize(loficSetup.previewW, loficSetup.previewH);
+            // the viewfinder's shape follows the stream (16:9 for the 16:10 setup), and back after a LOFIC session
+            if ((loficSetup != null || mLoficAspect) && mViewfinder != null) {
+                final Size lens = mPreviewSize;
+                final int aw = loficSetup != null ? loficSetup.previewH : lens != null ? lens.getHeight() : 0;
+                final int ah = loficSetup != null ? loficSetup.previewW : lens != null ? lens.getWidth() : 0;
+                mLoficAspect = loficSetup != null;
+                if (aw > 0 && ah > 0) activity.runOnUiThread(() -> mViewfinder.setAspectRatio(aw, ah));
+            }
             if (surface == null) surface = new Surface(texture);
             // P27: the routing of a shot in flight stays (its post-shutter RAWs would be closed as preview frames).
             if (!shotInFlight()) mLiveRawRouter.clear();
@@ -3764,11 +3807,16 @@ public class CaptureController {
             // P223: «ISP-превью в FULLRES и ISZ» off - such a session shows the RAW viewfinder, the only stream it repeats
             // P223 / P266: the module's «Поток ISP» Off in FULLRES / ISZ (the old global «ISP-превью в FULLRES и ISZ» is this now)
             // P276 «Фиктивное откл.» (WhyCam's fake off): the ISP stream stays in the session, no request targets it
-            mIspPreviewOff = photoMode && (ispSurface == 2 && (mFullResSession || IszCapturePolicy.mosaicModule(
-                    com.scamera.app.settings.ModuleRegistry.active())) || ispSurface == 3);
             // P266: the ISP stream out of the session (the module's «Поток ISP»; Auto: a module that forces a sensor mode)
             final boolean forcedMode = vivoQcomIsz
                     || com.scamera.app.settings.ModuleRegistry.sensorMode(com.scamera.app.settings.ModuleRegistry.active()) > 0;
+            // owner, 2026-11-13: the X7 Ultra's 50 MP focuses only with the ISP stream as fake off - its Auto reads so there
+            final int ispSurface = SensorModePick.ispSurfaceFor(this.ispSurface, SensorModePick.session(), forcedMode,
+                    mFullResSession, com.scamera.app.settings.DeviceDefaults.findX7Ultra());
+            if (ispSurface != this.ispSurface)
+                Log.i("SCAM_CAPTURE", "camera " + physicalID + ": «Поток ISP» Auto -> fake off (the X7 Ultra's focus in 50 MP)");
+            mIspPreviewOff = photoMode && (ispSurface == 2 && (mFullResSession || IszCapturePolicy.mosaicModule(
+                    com.scamera.app.settings.ModuleRegistry.active())) || ispSurface == 3);
             // P575 (owner: «Фулрез на Нубии работает при ... отключении ISP превью»): a nubia row runs without it; P586 (owner:
             // «При съемке без ремозаика isp превью у него должно отключаться»): an OPPO-family ISZ row whatever «Поток ISP», while
             // its DCG / DAG row keeps the setting (SensorModePick.ispStreamOff)
@@ -3794,6 +3842,10 @@ public class CaptureController {
                 mIspSurfaceOff = !mRecipePlan.ispStream();
                 mIspPreviewOff = mIspSurfaceOff;
             }
+            if (loficSetup != null) { // P679: the recipe's viewfinder is its PRIVATE stream (output 1)
+                mIspSurfaceOff = false;
+                mIspPreviewOff = false;
+            }
             final boolean rawDisplaySession = nativeIsz || nativeVivoFullRes() || PreferenceKeys.isLiveViewfinderRawEnabled()
                     || mFullResSession || mIspPreviewOff;
             final boolean liveRawWanted = photoMode && !isBurstSession && !recordingVideo && !mLiveRawRejected && (!sdkFullRes || nativeVivoFullRes())
@@ -3802,6 +3854,7 @@ public class CaptureController {
             // P626: the per-shot way's RAW is no repeating stream; P635: a recipe's RAW viewfinder is its binned RAW stream's
             mLiveRawSession = mRecipePlan != null ? liveRawWanted && mRecipePlan.rawViewfinder() && mImageReaderRawView != null
                     : NubiaMaxResPlan.liveRaw(nubiaPerShot(), liveRawWanted);
+            if (loficSetup != null) mLiveRawSession = false; // P679: the RAW streams are the pair's, not the viewfinder's
             // P653: a recipe's binned RAW viewfinder waits for results that run a few frames late; every other session: the default
             mLiveMetadata.imageLimit(mRecipePlan != null && mLiveRawSession && mRecipePlan.viewfinderImagesKept() > 0
                     ? mRecipePlan.viewfinderImagesKept() : PreviewFrameMatcher.DEFAULT_IMAGES);
@@ -3840,7 +3893,7 @@ public class CaptureController {
             } catch (RuntimeException e) {
                 Log.w(TAG, "Hybrid GPU prewarm skipped: " + e);
             }
-            mMosaicPreview = mMosaicMeasure && !mLiveRawSession && photoMode && !isBurstSession && !recordingVideo && isZslMode()
+            mMosaicPreview = loficSetup == null && mMosaicMeasure && !mLiveRawSession && photoMode && !isBurstSession && !recordingVideo && isZslMode()
                     && isRawFormat(mTargetFormat) && com.scamera.app.processing.MosaicStream.block() > 1;
             if (mMosaicPreview) LiveRawFrame.setEnabled(true);
             LiveRawFrame.setMosaicPreview(mMosaicPreview);
@@ -3849,9 +3902,11 @@ public class CaptureController {
             XiaomiTeleZoom.startSession(xiaomiLogical, PreferenceKeys.scamDevSwitch("xiaomi_tele_fallback", false));
             // P641: the Xiaomi 17 Ultra's dual-gain route (DCG, DCG + LOFIC, the ultra wide's DSG) chooses this session's
             // variant before anything asks for its keys or its streams; a kind with nothing left steps down here and says so
+            // P679: a LOFIC session (or one whose LOFIC setups are all gone: the normal session) runs no dual-gain variant
             final boolean dualGainWanted = !xiaomiLogical && !sdkFullRes && !mFullResSession && mRecipePlan == null
-                    && !recordingVideo && XiaomiDualGain.device() && Dcg14Mode.active(mCameraCharacteristics);
+                    && !recordingVideo && XiaomiDualGain.device() && Dcg14Mode.active(mCameraCharacteristics) && !loficWanted;
             String dualGainNote = XiaomiDualGain.sessionStart(physicalID, mCameraCharacteristics, dualGainWanted);
+            if (loficNote[0] != null) dualGainNote = loficNote[0];
             // P641d: the «lofic-pair» variant needs its second stream's reader; without one that variant failed, the next runs
             if (XiaomiDualGain.pairWanted()) {
                 if (!openLoficReader() && XiaomiDualGain.sessionFailed("has no reader for the overflow stream (RAW10 needs Android 13)")) {
@@ -3870,7 +3925,7 @@ public class CaptureController {
                 if (!mLiveRawSession) LiveRawFrame.setEnabled(false);
             }
 
-            List<Surface> surfaces = sessionOutputs(isBurstSession);
+            List<Surface> surfaces = loficSetup != null ? loficSurfaces() : sessionOutputs(isBurstSession); // P679: the recipe's six
             final Surface loficSurface = mLoficReader == null ? null : mLoficReader.getSurface(); // P641d
             if (loficSurface != null) {
                 surfaces = new ArrayList<>(surfaces);
@@ -3968,7 +4023,7 @@ public class CaptureController {
                 final int dcgOperationMode = dcgRoute ? Dcg14Mode.operationMode(mCameraCharacteristics) : 0;
                 mDcgOperationMode = dcgOperationMode;
                 mDcgRequestKeys = dcgRoute;
-                SensorModeBand.sessionStart(dcgRoute, mCameraCharacteristics, XiaomiDualGain.sessionActive() ? XiaomiDualGain.askedRow()
+                SensorModeBand.sessionStart(dcgRoute && loficSetup == null, mCameraCharacteristics, XiaomiDualGain.sessionActive() ? XiaomiDualGain.askedRow()
                         : dcgOperationMode != 0 ? XiaomiDcg.dcgMode() : -1);
                 XiaomiDcg.newSession();
                 mVendorOperationMode = xiaomiLogical || dcgOperationMode != 0 ? 0 : vendorMode;
@@ -4022,8 +4077,18 @@ public class CaptureController {
                         com.scamera.app.processing.RawLevels.staticBlack(mCameraCharacteristics),
                         com.scamera.app.processing.RawLevels.staticWhite(mCameraCharacteristics),
                         Dcg14Mode.knownBits(mCameraCharacteristics), "Xiaomi DCG session");
+                // P679: the Long stream is 14 bit (black 1024, white 16383) whatever the metadata says
+                if (loficSetup != null) com.scamera.app.processing.RawLevels.noteKnownBits(
+                        com.scamera.app.processing.RawLevels.staticBlack(mCameraCharacteristics),
+                        com.scamera.app.processing.RawLevels.staticWhite(mCameraCharacteristics), 14, "Xiaomi LOFIC Long stream");
                 VivoQcomIsz.sessionStart(); // P274: the session's forceSensorMode is known once its parameters are built
-                if (sdkFullRes) {
+                if (loficSetup != null) {
+                    // P679: the recipe's session parameters: TEMPLATE_RECORD, CONTROL_MODE_AUTO, the exact AE range and the vendor keys
+                    final CaptureRequest.Builder loficSession = sessionDevice.createCaptureRequest(CameraDevice.TEMPLATE_RECORD);
+                    Log.i("SCAM_CAPTURE", "XIAOMI LOFIC camera " + physicalID + " session parameters (type 0x"
+                            + Integer.toHexString(loficSetup.sessionType) + "): " + XiaomiLofic.apply(loficSession, loficSetup, true) + " (P679)");
+                    configuration.setSessionParameters(loficSession.build());
+                } else if (sdkFullRes) {
                     CaptureRequest.Builder sdkSession = sessionDevice.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
                     if (nativeVivoFullRes()) applyVivoSdkPreview(sdkSession);
                     else {
@@ -4093,6 +4158,7 @@ public class CaptureController {
             }
         } catch (Exception e) {
             Log.e(TAG, Log.getStackTraceString(e));
+            if (retryWithoutLofic(null, "session: " + e.getMessage())) return; // P679
             if (retryWithoutRecipe(null, "session: " + e.getMessage())) return; // P635
             if (retryWithoutDcgRoute(null, "session: " + e.getMessage())) return; // P230
             if (retryWithoutVendorMode(null)) return; // P211
@@ -4900,6 +4966,187 @@ public class CaptureController {
                 + rung + ", session ratio " + String.format(Locale.ROOT, "%.3f", sessionRatio) + ", " + missing + " without a frame of their"
                 + " timestamp; overflow ring " + mLoficRing.describe() + "; P641d)");
     }
+    // ---------------------------------------------------------------- P679: the Xiaomi 17 Ultra's LOFIC pair (XiaomiLofic)
+
+    /** The recipe's readers of a LOFIC session (null in any other): the dummy RAW, the video stream, the JPEG, RAW A and RAW B. */
+    private volatile ImageReader mLoficDummy, mLoficVideo, mLoficJpeg, mLoficRawA, mLoficRawB;
+    /** The session's newest pairs (copies of the used bytes). */
+    private final XiaomiLofic.Ring mLoficPairs = new XiaomiLofic.Ring(XiaomiLofic.PAIRS);
+    /** Images measured exactly (the used length) at the session's start; later ones by the quick test. */
+    private int mLoficExact;
+    /** The last kept timestamp: at 60 fps every second frame is kept (the copies' cost). */
+    private long mLoficKeptTs;
+
+    private static void closeQuietly(@Nullable ImageReader r) {
+        if (r != null) try { r.close(); } catch (RuntimeException ignored) { }
+    }
+
+    /** The LOFIC readers and pairs go (the session ended, or the next one is not a LOFIC one). */
+    private void closeLoficSession() {
+        final ImageReader[] readers = {mLoficDummy, mLoficVideo, mLoficJpeg, mLoficRawA, mLoficRawB};
+        mLoficDummy = mLoficVideo = mLoficJpeg = mLoficRawA = mLoficRawB = null;
+        for (ImageReader r : readers) closeQuietly(r);
+        mLoficPairs.clear();
+    }
+
+    /** The recipe's readers for {@code s}; false when one cannot be made here. */
+    private boolean openLoficSession(XiaomiLofic.Setup s) {
+        closeLoficSession();
+        if (Build.VERSION.SDK_INT < 29 || mBackgroundHandler == null) return false;
+        try {
+            mLoficDummy = ImageReader.newInstance(XiaomiLofic.RAW_W, XiaomiLofic.RAW_H, ImageFormat.RAW_SENSOR, 2);
+            mLoficVideo = ImageReader.newInstance(s.videoW, s.videoH, ImageFormat.PRIVATE, 3,
+                    android.hardware.HardwareBuffer.USAGE_VIDEO_ENCODE);
+            mLoficJpeg = ImageReader.newInstance(s.jpegW, s.jpegH, ImageFormat.JPEG, 1);
+            mLoficRawA = ImageReader.newInstance(XiaomiLofic.RAW_W, XiaomiLofic.RAW_H, ImageFormat.RAW_SENSOR, 4);
+            mLoficRawB = ImageReader.newInstance(XiaomiLofic.RAW_W, XiaomiLofic.RAW_H, ImageFormat.RAW_SENSOR, 4);
+            mLoficVideo.setOnImageAvailableListener(r -> {
+                try { final Image i = r.acquireLatestImage(); if (i != null) i.close(); } catch (RuntimeException ignored) { }
+            }, mBackgroundHandler);
+            mLoficRawA.setOnImageAvailableListener(this::onLoficRaw, mBackgroundHandler);
+            mLoficRawB.setOnImageAvailableListener(this::onLoficRaw, mBackgroundHandler);
+            mLoficPairs.capacity(XiaomiLofic.pairsWanted() + 2);
+            mLoficExact = 0;
+            mLoficKeptTs = 0;
+            return true;
+        } catch (RuntimeException e) {
+            Log.w("SCAM_CAPTURE", "XIAOMI LOFIC: readers not made: " + e + " (P679)");
+            closeLoficSession();
+            return false;
+        }
+    }
+
+    /** The six outputs of the recipe in its order (XiaomiLofic.outputs). */
+    private List<Surface> loficSurfaces() {
+        return Arrays.asList(mLoficDummy.getSurface(), surface, mLoficVideo.getSurface(), mLoficJpeg.getSurface(),
+                mLoficRawA.getSurface(), mLoficRawB.getSurface());
+    }
+
+    /**
+     * An image of RAW A or RAW B: classified by its used length (exactly for the session's first images, which also prove the
+     * setup's rows; then by the quick test), its used bytes copied into the ring of pairs, the reader's buffer given back at once.
+     */
+    private void onLoficRaw(ImageReader reader) {
+        Image img = null;
+        try {
+            img = reader.acquireNextImage();
+            final XiaomiLofic.Setup s = XiaomiLofic.setup();
+            if (img == null || s == null || mClosedForProcessing) return;
+            final java.nio.ByteBuffer b = img.getPlanes()[0].getBuffer();
+            final long ts = img.getTimestamp();
+            final boolean exact = mLoficExact < 8 || !XiaomiLofic.proven();
+            final XiaomiLofic.Stream stream;
+            final int used;
+            if (exact) {
+                mLoficExact++;
+                used = XiaomiLofic.usedBytes(b);
+                stream = XiaomiLofic.classify(used);
+                if (mLoficExact <= 4) Log.i("SCAM_CAPTURE", "XIAOMI LOFIC " + s.label + ": " + (reader == mLoficRawA ? "RAW A" : "RAW B")
+                        + " image " + img.getWidth() + "x" + img.getHeight() + " stride " + img.getPlanes()[0].getRowStride()
+                        + ", used " + used + " B -> " + stream + " " + XiaomiLofic.rows(used, stream) + " rows (P679)");
+            } else {
+                stream = XiaomiLofic.quick(b, s.rows);
+                used = stream == XiaomiLofic.Stream.LONG ? s.longBytes() : stream == XiaomiLofic.Stream.SHORT ? s.shortBytes() : 0;
+            }
+            // at 60 fps every second exposure is kept (both of its images: the second one finds the pair begun)
+            final long gap = s.fps >= 50 ? 25_000_000L : 0L;
+            if (!exact && gap > 0 && !mLoficPairs.has(ts) && ts - mLoficKeptTs < gap) return;
+            final XiaomiLofic.Pair done = mLoficPairs.store(stream, ts, b, used);
+            if (done == null && stream != XiaomiLofic.Stream.NONE) mLoficKeptTs = ts;
+            if (done != null && exact && XiaomiLofic.onPair(done.longImage.rows, done.shortImage.rows, ts) == XiaomiLofic.Verdict.FAILED)
+                loficNextSetup();
+        } catch (RuntimeException e) {
+            Log.w("SCAM_CAPTURE", "XIAOMI LOFIC: image not read: " + e + " (P679)");
+        } finally {
+            if (img != null) img.close();
+        }
+    }
+
+    /** A LOFIC setup failed its checks (XiaomiLofic logged which): the session opens again with the next setup or the normal one. */
+    private void loficNextSetup() {
+        final Handler handler = mBackgroundHandler;
+        if (handler == null) return;
+        final int generation = mSessionGeneration.get();
+        final String why = XiaomiLofic.lastFailure();
+        handler.post(() -> {
+            if (!isCameraResumed || generation != mSessionGeneration.get() || mCaptureSession == null || !XiaomiLofic.sessionActive()) return;
+            XiaomiLofic.sessionFailed(why);
+            mDcgOperationMode = 0;
+            mDcgRequestKeys = false;
+            if (shotInFlight()) { mPendingPayloadRestart = true; return; }
+            mCaptureSession.close();
+            startSession(false);
+        });
+    }
+
+    /** P679: a LOFIC session refused, or failed while being built: its setup failed, the camera reopens with the next one. */
+    private boolean retryWithoutLofic(@Nullable CameraCaptureSession session, String why) {
+        if (!XiaomiLofic.sessionActive() || mCameraDevice == null) return false;
+        mDcgOperationMode = 0;
+        mDcgRequestKeys = false;
+        XiaomiLofic.sessionFailed(why);
+        if (session != null) try { session.close(); } catch (RuntimeException ignored) { }
+        mainHandler().post(this::restartCamera);
+        return true;
+    }
+
+    /**
+     * A shot of a LOFIC session: the newest pairs before the press (ExposureCount 2: the Short read usable) as the shot's N
+     * frames, each Long frame unpacked (14 bit) with its Short read along (ImageFrame.lofic, merged by ScamProcessor before the
+     * burst merge). Without a pair of ExposureCount 2 the Long frames alone. Throws while the setup is not proven or the ring is
+     * empty (the shot is refused, as P316's empty ring).
+     */
+    private List<ImageFrame> drainLoficPairs(int requested) {
+        final XiaomiLofic.Setup s = XiaomiLofic.setup();
+        if (s == null || !XiaomiLofic.proven()) {
+            Log.w("SCAM_CAPTURE", "XIAOMI LOFIC shot refused: the setup is not proven yet (" + XiaomiLofic.lastFailure() + ") (P679)");
+            throw new IllegalStateException(Lang.t("LOFIC: камера ещё готовится. Повторите снимок.", "LOFIC: the camera is still getting ready. Take the shot again."));
+        }
+        final int want = Math.max(1, Math.min(requested > 0 ? requested : XiaomiLofic.PAIRS, XiaomiLofic.pairsWanted()));
+        mLoficPairs.freeze();
+        final String before = mLoficPairs.describe();
+        final boolean usable = mLoficPairs.usableCount() > 0;
+        final List<XiaomiLofic.Pair> pairs = usable ? mLoficPairs.take(want, scamZslShutterTimestamp)
+                : mLoficPairs.takeLongOnly(want, scamZslShutterTimestamp);
+        Log.i("SCAM_HDR", "XIAOMI LOFIC shot (" + s.label + "): " + pairs.size() + " of " + want + " pairs wanted"
+                + (usable ? " with ExposureCount 2" : " - no pair with ExposureCount 2: the Long frames ALONE") + "; ring " + before
+                + "; cutoff " + scamZslShutterTimestamp + " (P679)");
+        if (pairs.isEmpty())
+            throw new IllegalStateException(Lang.t("LOFIC: нет кадров. Повторите снимок.", "LOFIC: no frames yet. Take the shot again."));
+        Allocator.binning = false; // the Short read has the Long frame's grid
+        final List<ImageFrame> out = new ArrayList<>();
+        for (XiaomiLofic.Pair p : pairs) {
+            final XiaomiLofic.Image l = p.longImage;
+            final ImageFrame f = new ImageFrame(l.data, com.scamera.app.util.RawUnpack.RAW14, XiaomiLofic.RAW_W, XiaomiLofic.LONG_ROW, 0,
+                    l.rows * XiaomiLofic.LONG_ROW);
+            f.timestamp = l.timestamp;
+            f.fromZsl = true;
+            f.sourceFormat = ImageFormat.RAW_SENSOR;
+            f.setCaptureMetadata(p.result);
+            f.width = XiaomiLofic.RAW_W;
+            f.height = l.rows;
+            if (usable && p.shortImage != null) {
+                f.lofic = new ImageFrame.Lofic();
+                f.lofic.shortPacked = p.shortImage.data;
+                f.lofic.rows = p.shortImage.rows;
+            }
+            exposureByFrame.put(f.timestamp, f.measuredExposure > 0 && f.measuredIso > 0 ? f.measuredExposure / 1e9 * f.measuredIso : 1.0);
+            out.add(f);
+            Log.i("SCAM_HDR", "XIAOMI LOFIC pair " + l.timestamp + ": Long " + l.rows + " rows, Short "
+                    + (p.shortImage == null ? "none" : p.shortImage.rows + " rows") + ", ExposureCount " + p.exposureCount + ", exposure "
+                    + f.measuredExposure + " ns ISO " + f.measuredIso + " (P679)");
+        }
+        out.sort(java.util.Comparator.comparingLong(f -> f.timestamp));
+        final CaptureResult newest = pairs.get(0).result; // the newest pair
+        mNativeZslBase = newest instanceof TotalCaptureResult ? (TotalCaptureResult) newest : null;
+        return out;
+    }
+
+    /** The shot taking frames now is a LOFIC one (its frames carry the Short read). */
+    private volatile boolean mLoficShot;
+    /** The viewfinder runs in a LOFIC setup's shape (set back when a normal session follows). */
+    private volatile boolean mLoficAspect;
+
     private volatile FullResRecipeShot mRecipeShot;
     /** P635b: the proof still of a recipe session whose profile is not proven on this firmware: 0 none, 1 wanted, 2 sent. */
     private volatile int mRecipeProof;
@@ -4955,8 +5202,9 @@ public class CaptureController {
     private void newPreviewRequest() throws CameraAccessException {
         mPreviewRequestBuilder = null;
         mIspLightModes = null;
+        final XiaomiLofic.Setup loficSetup = mLoficRawA != null ? XiaomiLofic.setup() : null; // P679: the recipe's template
         final CaptureRequest.Builder b = mCameraDevice.createCaptureRequest(
-                recordingVideo ? CameraDevice.TEMPLATE_RECORD : CameraDevice.TEMPLATE_PREVIEW);
+                recordingVideo || loficSetup != null ? CameraDevice.TEMPLATE_RECORD : CameraDevice.TEMPLATE_PREVIEW);
         mPreviewRequestBuilder = b;
         Antibanding.apply(b, mCameraCharacteristics); // P411
         // P223: without the ISP preview (FULLRES / ISZ, the RAW viewfinder on) the repeating request carries the RAW stream only
@@ -4965,6 +5213,20 @@ public class CaptureController {
                 && (mRecipePlan == null || mRecipePlan.ispStream()); // P635: a recipe's session may have no ISP stream at all
         if (mRepeatingIsp) b.addTarget(surface);
         if (ispOff) Log.i("SCAM_CAPTURE", "camera " + physicalID + ": ISP preview off (P223), the repeating request has the RAW stream only");
+        if (loficSetup != null) {
+            // P679: the repeating request of the recipe: the viewfinder, the video stream, RAW A and RAW B (the dummy RAW and the JPEG
+            // are configured only), CONTROL_MODE_AUTO, AE on, continuous video AF, the exact AE range and the vendor keys
+            b.addTarget(mLoficVideo.getSurface());
+            b.addTarget(mLoficRawA.getSurface());
+            b.addTarget(mLoficRawB.getSurface());
+            rememberDefaultRegions(b);
+            mPreviewAFMode = CONTROL_AF_MODE_CONTINUOUS_VIDEO;
+            mPreviewAEMode = CONTROL_AE_MODE_ON;
+            b.set(CONTROL_AF_MODE, CONTROL_AF_MODE_CONTINUOUS_VIDEO);
+            Log.i("SCAM_CAPTURE", "XIAOMI LOFIC camera " + physicalID + " repeating request (TEMPLATE_RECORD): "
+                    + XiaomiLofic.apply(b, loficSetup, false) + " (P679)");
+            return;
+        }
         if (mVivoSdkRawSession != null) {
             if (nativeVivoFullRes()) b.addTarget(stillOnlyFullRes() && mImageReaderRawView != null
                     ? mImageReaderRawView.getSurface() : mImageReaderRaw.getSurface());
@@ -9775,7 +10037,10 @@ public class CaptureController {
                         ? com.scamera.app.settings.MotionMode.framesForQueue(zslWanted, sScamPending.get()) : zslWanted;
                 if (zslFrames != zslWanted) Log.i("SCAM_CAPTURE", "motion: " + sScamPending.get() + " shots wait for their merge, "
                         + zslFrames + " ring frames for this one (of " + zslWanted + ")");
-                mPendingZslNormalFrames = drainZslNormalFrames(zslFrames,stockPlan,scamZslRequested,scamHybridShot);
+                // P679: a LOFIC session's shot takes its pairs (the main RAW stream is not in its session)
+                mLoficShot = XiaomiLofic.sessionActive();
+                if (mLoficShot) mPendingZslNormalFrames = drainLoficPairs(zslFrames);
+                else mPendingZslNormalFrames = drainZslNormalFrames(zslFrames,stockPlan,scamZslRequested,scamHybridShot);
                 if (mLoficReader != null) attachLoficPartners(mPendingZslNormalFrames); // P641d: DCG + LOFIC pairs
                 if (!mPendingZslNormalFrames.isEmpty()) {
                     denoiseFrameCount = mPendingZslNormalFrames.size();
@@ -9869,7 +10134,8 @@ public class CaptureController {
                     int nIso=baseIso!=null&&baseIso>0?baseIso:stockPlan!=null?stockPlan.iso(0):0;
                     try {
                         // P113: «Движение» shoots from the ring alone, as the stock snapshot mode (no frames after the shutter)
-                        plan=com.scamera.app.settings.MotionMode.on() ? HybridPlan.zslOnly(nNs,nIso)
+                        plan=mLoficShot ? HybridPlan.zslOnly(nNs,nIso,"LOFIC pairs from the ring: the session has no other RAW stream (P679)")
+                                : com.scamera.app.settings.MotionMode.on() ? HybridPlan.zslOnly(nNs,nIso)
                                 : !SensorModePick.seriesAllowed() ? HybridPlan.zslOnly(nNs,nIso,SensorModePick.SERIES_REASON)
                                 // P646: YUV frames at the camera's curve: no bracket (its light cannot be compared)
                                 : yuvRing ? HybridPlan.zslOnly(nNs,nIso,"YUV merge from the ring, the camera's curve: no brackets (P646)")
@@ -10018,6 +10284,10 @@ public class CaptureController {
             mImageSaver.mosaicWbAtPress = mShutterMosaicWb;
             if (flash != null) mImageSaver.mosaicWbAtPress = null; // P590: the flash frame's own white balance
             mImageSaver.dcgShot = dcgShotNow();
+            // P679: a LOFIC shot is no DCG shot for the processing (its pairs are merged before the burst merge)
+            mImageSaver.loficShot = mLoficShot && hybridZsl;
+            if (mImageSaver.loficShot) mImageSaver.dcgShot = false;
+            mLoficShot = false;
             // the shot's digital-zoom crop (after the drain: rawCropOfShot is in it) and camera, read by its processing, not the
             // next press's
             mImageSaver.zoomResidual = com.scamera.app.control.ZoomController.shotResidual();

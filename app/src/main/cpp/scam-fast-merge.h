@@ -665,6 +665,28 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
     }} releaseGuard{held};
     if(std::getenv("SCAM_FM_FAIL"))throw std::runtime_error("SCAM_FM_FAIL (replay check of the fallback)");
     g.selectRejFilter(tune.fmFilterGather!=0); // P484
+    // P675 fastNightMotion (owner, 2026-11-13: moving leaves and a passing car came out wrong in night merges): the night motion
+    // test of the rejection (kFastRejection with NIGHT_MOTION) at that strength on a Bayer stream, whole at SNR keys 5 .. 10, gone at 3 and below
+    // (beyond the phones' darkest: there the statistic's tail trips on noise) and at 20 and above (by day the rejection as before,
+    // bit for bit). nmP: threshold over 1, sample step, noise factor, texture factor, the texture's noise share, relative floor, the
+    // level's factor, an aligned donor's level, the pixel SNR whole / gone, the donor level whole / gone. SCAM_FM_NM (replays): the
+    // twelve values, comma separated.
+    float nmP[12]={1.f,1.f,0.09f,0.25f,1.2f,0.03f,4.f,1.5f,16.f,32.f,2.f,3.5f};
+    if(const char* e=std::getenv("SCAM_FM_NM"))std::sscanf(e,"%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f",&nmP[0],&nmP[1],&nmP[2],&nmP[3],&nmP[4],
+        &nmP[5],&nmP[6],&nmP[7],&nmP[8],&nmP[9],&nmP[10],&nmP[11]);
+    auto ramp=[](float x,float a,float b){const float t=std::clamp((x-a)/(b-a),0.f,1.f);return t*t*(3.f-2.f*t);};
+    float nmKey[4]={3.f,5.f,10.f,20.f}; // SCAM_FM_NM_KEY (replays): the four SNR keys
+    if(const char* e=std::getenv("SCAM_FM_NM_KEY"))std::sscanf(e,"%f,%f,%f,%f",&nmKey[0],&nmKey[1],&nmKey[2],&nmKey[3]);
+    const float nmFade=ramp(snr,nmKey[0],nmKey[1])*(1.f-ramp(snr,nmKey[2],nmKey[3]));
+    // (Bayer streams: calibrated on Bayer bursts; a Quad / Tetra stream keeps the rejection as before - not measured better there)
+    const float nmGain=quad?0.f:tune.fastNightMotion*nmFade;
+    const bool nightMotion=nmGain>0.f&&g.selectReject(true);
+    if(!nightMotion)g.selectReject(false);
+    if(nightMotion){
+        char line[200];std::snprintf(line,sizeof(line),"HYBRID FAST MERGE NIGHT MOTION (P675): strength %.3f (x%.3f at SNR %.2f), threshold %.2f, step %.0f, noise x%.3f, texture x%.2f",
+            nmGain,nmFade,snr,1.f+nmP[0],nmP[1],nmP[2],nmP[3]);
+        report(line);
+    }
     GLint maxTex=0;glGetIntegerv(GL_MAX_TEXTURE_SIZE,&maxTex);
     // P627: the byte stream is a texture only with SCAM_FM_DIRECT_UPLOAD (else storage buffers: the widest texture is HALF / OUT)
     const int widest=std::getenv("SCAM_FM_DIRECT_UPLOAD")?2*W:w2;
@@ -742,6 +764,16 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
     const GLuint fFlowBg=flowPick?g.fbo({flowBg}):0;
     GLuint rejRaw=g.texture(GL_RG8,w2,h2,true),rejF=g.texture(GL_R8,w2,h2,true),rejD=g.texture(GL_R8,w2,h2,true),rejW=g.texture(GL_RG8,w2,h2,true);
     GLuint accW=g.texture(GL_R16F,w2,h2,true);
+    // P675: the night motion test's donor level (kFastRejection's level pass on a 32 x 32 grid, its mean by the mip chain)
+    constexpr int kNmLevelSize=32,kNmLevelMips=6;
+    GLuint nmLevel=0,fNmLevel=0;
+    if(nightMotion){
+        glGenTextures(1,&nmLevel);g.textures.push_back(nmLevel);
+        glBindTexture(GL_TEXTURE_2D,nmLevel);glTexStorage2D(GL_TEXTURE_2D,kNmLevelMips,GL_RG16F,kNmLevelSize,kNmLevelSize);
+        glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_NEAREST_MIPMAP_NEAREST);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,GL_CLAMP_TO_EDGE);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,GL_CLAMP_TO_EDGE);
+        fNmLevel=g.fbo({nmLevel});
+    }
     GLuint acc0=g.texture(GL_RGBA16F,OW,stripMode?stripRows:OH,true),acc1=g.texture(GL_RGBA16F,OW,stripMode?stripRows:OH,true);
     if(stripMode){ // the strips' limits: the viewport moved up by a strip spans the frame, the upload ring holds a whole frame
         GLint vp[2]={0,0},blk=0;glGetIntegerv(GL_MAX_VIEWPORT_DIMS,vp);glGetIntegerv(GL_MAX_SHADER_STORAGE_BLOCK_SIZE,&blk);
@@ -892,6 +924,7 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
         g.u4f(PG,"frame_border_padded",fb[0],fb[1],fb[2],fb[3]);
         g.u4f(PG,"covariance_parameters1",covShrink,covStretch,covClip,covBase);
         g.u4f(PG,"covariance_parameters2",covBlurred,covTrans,0.f,0.f);
+        {const auto sh=footprint.shade61();g.u4f(PG,"u_day_shade",sh[0],sh[1],sh[2],sh[3]);} // P666
         g.u4f(PG,"force_reference_color_rgb",0,0,0,0);g.u4f(PG,"debug_options",1,0,0,0);
         g.u4f(PG,"noise_texture_scale_bias",nsb[0],nsb[1],nsb[2],nsb[3]);
         g.u4f(PG,"cov_range_rg_factors",-covRangeRg[0]/covRangeRg[1],1.f/covRangeRg[1],-covRangeRg[2]/covRangeRg[3],1.f/covRangeRg[3]);
@@ -911,6 +944,10 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
         g.u1f(A::pReject,"extra_motion_robustness_boost",(tune.fastMergeSport&1)?10.f:6.f);g.u1f(A::pReject,"motion_robustness_boost_variance_threshold",25.f);
         g.u1f(A::pReject,"extra_motion_robustness_motion_threshold",1e-4f*(2016.f/float(h2)));
         g.u1i(A::pReject,"enable_photometric_correction",0);
+        if(nightMotion){ // P675
+            g.u4f(A::pReject,"u_nm",nmGain,nmP[0],nmP[1],0.f);g.u4f(A::pReject,"u_nm2",nmP[2],nmP[3],nmP[4],nmP[5]);
+            g.u4f(A::pReject,"u_nm3",nmP[6],nmP[7],float(kNmLevelMips-1),float(kNmLevelSize));g.u4f(A::pReject,"u_nm4",nmP[8],nmP[9],nmP[10],nmP[11]);
+        }
         g.u2i(A::pRejFilter,"u_size",w2,h2);g.u1i(A::pRejFilter,"u_radius",3);g.u1f(A::pRejFilter,"u_sigma_spatial",1.5f);
         g.u1f(A::pRejFilter,"u_color_sigma",0.05f);g.u1f(A::pRejFilter,"u_color_sigma_boost",2.f);g.u1i(A::pRejFilter,"u_clip_rejection",0);
         g.u1f(A::pRejFilter,"u_pixel_difference_threshold",(tune.fastMergeSport&1)?0.35f:0.5f);g.u1f(A::pRejFilter,"u_clipped_threshold",0.f);
@@ -1387,6 +1424,12 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
         g.tex(A::pReject,"noise_estimates_texture",0,noiseLut);g.tex(A::pReject,"base_frame_guide_texture",1,refColor);
         g.tex(A::pReject,"alt_frame_guide_texture",2,guideCur);g.tex(A::pReject,"alt_flow_texture",3,flowK);
         g.tex(A::pReject,"unblocker_texture",4,unblock);g.tex(A::pReject,"gain_texture",5,gainOne);g.tex(A::pReject,"offset_texture",6,offsetZero);
+        if(nightMotion){ // P675: the donor's level first (its 32 x 32 grid, the mean down the mip chain)
+            g.tex(A::pReject,"u_nm_level",7,oneScope);g.u1i(A::pReject,"u_nm_pass",1);
+            g.draw(A::pReject,fNmLevel,kNmLevelSize,kNmLevelSize);
+            glBindTexture(GL_TEXTURE_2D,nmLevel);glGenerateMipmap(GL_TEXTURE_2D);
+            g.u1i(A::pReject,"u_nm_pass",0);g.tex(A::pReject,"u_nm_level",7,nmLevel);
+        }
         g.draw(A::pReject,fRej,w2,h2,1);
         lap(9);
         // SCAM_FM_REJ_DUMP=<dir> (replays only, whole-frame merges): every donor's rejection stages at HALF to <dir>/rej_<k>.bin -

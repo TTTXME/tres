@@ -267,13 +267,28 @@ def statistics(clean, bento=False, noise=(0.0, 0.0), face=None, params=None):
     return ct, r
 
 
+class _BandApi:
+    """why_v2_bands' drawing interface on this module's Gpu."""
+    def __init__(self, g):
+        self.g = g
+
+    def target(self, w, h, comps, linear):
+        return self.g.target((w, h), comps, linear=linear)
+
+    def draw(self, name, defines, out, textures, uniforms):
+        self.g.draw(self.g.prog(name, {k: v for k, v in defines.items()} or None), out, dict(textures), uniforms)
+
+
 def render(clean, luma_s=None, bento=False, noise=(0.0, 0.0), p3=False, face=None, ae=None, keep=None, uniforms=None, fixed=None,
-           quant8=False, scale=None, params=None, lut=None, lut_strength=1.0):
+           quant8=False, scale=None, params=None, lut=None, lut_strength=1.0, jbu=None, bands=None):
     """The V2 chain on the host (see the module doc). ae: a dict to override the AE result's keys (an A/B), uniforms: of the
     tonemap pass (an A/B), keep: a dict that receives the intermediate planes (fused) when given, fixed: the statistics' result of
     another image to render with (no statistics of this one), quant8: the QUANT8 define (an 8-bit photo), scale: force level 0's
     scale (1 or 2; None: WhyV2Fusion.baseScale), params: WhyV2Ae.Params overrides (the V2 settings), lut: an N x N x N x 3
-    film LUT (FILM_LUT, its strength lut_strength)."""
+    film LUT (FILM_LUT, its strength lut_strength), jbu (P673): (guide, sigma_r, log floor) of the collapse's joint bilateral
+    upsampling (JBU <guide>: 1 the lumas, 2 the fused luma; log floor > 0: the guide in log2); None / sigma 0: JBU 0, as before;
+    bands (P677): None = BANDS 0 (as before), else the guide's noise (S', O') x AE or () for none - V1's P391 edge-aware bands
+    (why_v2_bands, WhyTone's band constants)."""
     g = gpu()
     h, w = clean.shape[:2]
     if fixed is not None:
@@ -311,11 +326,34 @@ def render(clean, luma_s=None, bento=False, noise=(0.0, 0.0), p3=False, face=Non
         for pyr in (G, W):
             g.draw(g.prog('v2_pyr_down'), pyr[i + 1], {'u_tex_src': pyr[i]},
                    {'u_texel_size': (1.0 / lv[i][0], 1.0 / lv[i][1]), 'u_dst_w': lv[i + 1][0], 'u_dst_h': lv[i + 1][1]})
-    g.draw(g.prog('v2_ef_coarsest'), F[n - 1], {'u_tex_G': G[n - 1], 'u_tex_W': W[n - 1]}, {'u_width': lv[n - 1][0], 'u_height': lv[n - 1][1]})
+    bst = None
+    if bands is not None:
+        import why_v2_bands as VB
+        pu = {'_clean': ct, 'u_width': lv[0][0], 'u_height': lv[0][1], 'u_exp_multipliers': em, 'u_layer_weights': lw,
+              'u_weight_center': r['P.weightCenter'], 'u_auto_exposure': r['ae'], 'u_blend_smoothness': r['P.blendSmoothness'],
+              'u_gamma_curve_type': int(r['P.gammaType']), 'u_gamma_inv': 1.0 / max(r['P.gamma'], 1.0), 'u_aces_toe': r['P.acesToe']}
+        if scale != 1:
+            raise ValueError('bands: level 0 at the full grid only')
+        bst = VB.passes(_BandApi(g), pu, lv, tuple(bands) or None)
+    dc, tc, uc = ({}, [], {}) if bst is None else VB.coarsest(bst, n)
+    g.draw(g.prog('v2_ef_coarsest', dc or None), F[n - 1], dict({'u_tex_G': G[n - 1], 'u_tex_W': W[n - 1]}, **dict(tc)),
+           dict({'u_width': lv[n - 1][0], 'u_height': lv[n - 1][1]}, **uc))
     for i in range(n - 2, -1, -1):
-        g.draw(g.prog('v2_ef_collapse'), F[i], {'u_tex_G_fine': G[i], 'u_tex_G_coarse': G[i + 1], 'u_tex_W_fine': W[i],
-                                                'u_tex_fused_coarse': F[i + 1]},
-               {'u_width': lv[i][0], 'u_height': lv[i][1], 'u_clarity': r['P.clarity']})
+        cu = {'u_width': lv[i][0], 'u_height': lv[i][1], 'u_clarity': r['P.clarity']}
+        on = jbu is not None and jbu[1] > 0
+        dd = {}
+        if on:
+            cu.update(u_jbu_sigma=float(jbu[1]), u_jbu_log=float(jbu[2]))
+            dd['JBU'] = int(jbu[0])
+        tx = {'u_tex_G_fine': G[i], 'u_tex_G_coarse': G[i + 1], 'u_tex_W_fine': W[i], 'u_tex_fused_coarse': F[i + 1]}
+        if bst is not None:
+            d2, t2, u2 = VB.collapse(bst, i)
+            dd.update(d2); tx.update(dict(t2)); cu.update(u2)
+        g.draw(g.prog('v2_ef_collapse', dd or None), F[i], tx, cu)
+    if bst is not None:
+        if keep is not None:
+            keep['fpp'] = g.read(bst['GF'][0], 2)[..., 1]
+        VB.release(bst)
     if keep is not None:
         keep['fused'] = g.read(F[0], 1)[..., 0]
         keep['levels'] = lv

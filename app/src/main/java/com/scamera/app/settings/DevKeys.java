@@ -52,7 +52,7 @@ public final class DevKeys {
      * matrix of the Parameters, hybrid_clip_flags: a flag of the burst); or only the DNG reads them; or nothing does any more.
      */
     static final Set<String> NOT_IN_LAB = Collections.unmodifiableSet(new HashSet<>(Arrays.asList(
-            "post_priority", "gpu_low_priority", "post_gpu_pace", "jpeg_threads", "rgba_upload", "gl_warm_up", "release_async", "worker_watchdog",
+            "post_priority", "gpu_low_priority", "post_gpu_pace", "post_band_ms", "jpeg_threads", "rgba_upload", "gl_warm_up", "release_async", "worker_watchdog",
             "gl_warm_up_recipes", "ok_read", "worker_nice", "worker_prespawn", "worker_keep_ready", "thermal_async", "black_scan_bulk", "zero_copy_read", // P371: speed only
             "raw_crop_in_place", "prep_warm", // P625: speed only (the same samples)
             "oldstyle_threads", "oldstyle_read16", "exif_beside_encode", // P636: speed only (the same bytes)
@@ -371,8 +371,13 @@ public final class DevKeys {
                 "Quad: remosaic detail - «Fast» keeps fine texture and stripes from the de-grid, a cone along the edge on moving subjects; «Quality» - the green-site structure tensor (fine stripes, facades), a narrower cone on moving subjects (1 on, 0 as before)")));
         k.add(n(merge, "hybrid_fast_flow_pick", "2", Lang.t("«Быстрый»: выравнивание кадра по блокам 4 px рядом с движущимся объектом (сдвиг соседних плиток, близкий к окружению) и кадры там, где блок совпадает с базовым в пределах шума - неподвижное лицо рядом с идущим человеком не размывается (2 вкл., 1 только выравнивание, 0 как раньше)",
                 "«Fast»: the frame's alignment per 4 px block next to a moving subject (a nearby tile's shift close to the surroundings') and its frames where the block matches the base within the noise - a static face beside a walking person stays sharp (2 on, 1 the alignment alone, 0 as before)")));
+        // P666: the shadows by day keep the merge kernel of before «Ядро по освещению» (worker kernelSnrShadow)
+        k.add(s(merge, "hybrid_kernel_snr_shadow", true, Lang.t("«Ядро по освещению» днём: в тенях ядро склейки не расширяется (кора, листва, кирпич в тени не размываются), в светлых зонах как раньше; выкл. — как раньше",
+                "«Kernel by the light» by day: the merge kernel does not widen in the shadows (bark, foliage, brick in the shade stay sharp), the lit areas as before; off: as before")));
         k.add(n(merge, "hybrid_fast_light_fill", "1", Lang.t("«Быстрый»: заполнение отвергнутых коротких кадров в светах только между двумя сторонами света и не темнее склейки - фонарь ночью без тёмных пятен и рваной звезды в ядре, края сохраняют спад яркости (1 вкл., 0 как раньше; 0..1)",
                 "«Fast»: the fill where the short frames were refused in highlights only between two sides of light and never darker than the merge - a street lamp at night without dark blotches and a ragged star in its core, its rim keeps the falloff (1 on, 0 as before; 0..1)")));
+        k.add(n(merge, "hybrid_fast_night_motion", "1", Lang.t("«Быстрый» ночью: кадр, который вокруг точки отличается от базового сильнее шума, там не склеивается - листва на ветру и проезжающая машина не просвечивают, неподвижные места очищаются как раньше; днём без изменений (1 вкл., 0 как раньше; 0..1)",
+                "«Fast» at night: a frame that differs from the base around a pixel beyond the noise is not merged there - wind-blown leaves and a passing car are no longer see-through, static areas are cleaned as before; by day unchanged (1 on, 0 as before; 0..1)")));
         k.add(n(merge, "hybrid_us_weak_hom", "1", Lang.t("«Качество», ночь: короткий кадр, у которого выравнивание нашло мало точек, начинает со своей гомографии, а не со сдвига всего кадра - фонари у края кадра на месте, без серого овала и призрачной дуги (1 вкл., 0 как раньше)",
                 "«Quality», at night: a short frame whose alignment found few points starts from its own homography, not a shift of the whole frame - lights at the frame's edge in place, no grey oval or ghost arc (1 on, 0 as before)")));
         k.add(n(merge, "hybrid_us_clip_vote", "1", Lang.t("«Качество»: цвет короткого кадра считается упёршимся в предел, где упёрлась большая часть кадров, а не все - без серого контура внутри фонаря (1 вкл., 0 как раньше)",
@@ -421,6 +426,9 @@ public final class DevKeys {
                 "The sun bloom block sums as a compute pass (the same result); off: the fragment pass as before")));
         k.add(s(post, "clipband_mask", true, Lang.t("Маска полосы пересветов двумя разделёнными проходами (тот же результат); выкл — как раньше",
                 "The clip band flag mask in two separable passes (the same result); off: as before")));
+        // P671: the clip band only in the tiles near a clipped pixel, skipped without one (bit for bit, tools/check_band_tiles.py)
+        k.add(s(post, "scamrgb_band_tiles", true, Lang.t("Полоса пересветов считается только в плитках рядом с клипнутыми пикселями, без них проход пропускается (тот же результат); выкл — по всему кадру как раньше",
+                "The clip band computed only in the tiles near clipped pixels, skipped without any (the same result); off: over the whole frame as before")));
         k.add(s(post, "post_invalidate", true, Lang.t("Сброс содержимого кадровых буферов перед перезаписью (тот же результат)",
                 "Framebuffer contents invalidated before an overwrite (the same result)")));
         k.add(s(post, "scamrgb_tail", true, Lang.t("Хвост загрузки пересветов на вспомогательном потоке (тот же результат); выкл — на основном",
@@ -460,8 +468,17 @@ public final class DevKeys {
         // P616: GpuPace (the post's GPU queue a few blocks deep, so the viewfinder's draws are not stuck behind it)
         k.add(n(post, "post_gpu_pace", null, Lang.t("Блоков обработки в очереди GPU, не больше (видоискатель не ждёт за ними): пусто — 2 на Adreno, без ограничения на других GPU; 0 — без ограничения",
                 "Processing blocks queued on the GPU at most (the viewfinder does not wait behind them): empty: 2 on Adreno, no limit on other GPUs; 0: no limit")));
+        // P668: the paced post's bands sized to this GPU time (Adreno 650: one 256-row band of the tone's combine ~80 - 140 ms)
+        k.add(n(post, "post_band_ms", null, Lang.t("Время GPU на одну полосу обработки, мс (медленные GPU делят проход на более узкие полосы, видоискатель ждёт меньше): пусто — 10; 0 — полосы по 256 строк, как раньше",
+                "GPU time of one processing band, ms (slow GPUs split a pass into narrower bands, the viewfinder waits less): empty: 10; 0: 256-row bands as before")));
         k.add(s(post, "hybrid_why_rim_support", true, Lang.t("Пропуск пустых областей защиты граней перед тонмапингом", "Skip empty light-rim support before tone mapping")));
         k.add(s(post, "hybrid_why_edge_luma_cache", true, Lang.t("Кэш исходной яркости для защиты резких границ", "Cache scene luminance for sharp-edge protection")));
+        // P671: the photo's combine reads its one-channel windows as textureGather blocks (bit for bit, tools/check_combine_gather.py)
+        // P671: WhyMsDenoise's corner filter reads its neighbours' Oklab from a per-strip cache (bit for bit, tools/check_ms_oklab_cache.py)
+        k.add(s(post, "ms_oklab_cache", true, Lang.t("Шумодав: цвет соседей в Oklab для фильтра углов кадра считается один раз на пиксель, а не 25 (тот же результат); выкл — как раньше",
+                "Denoise: the neighbours' Oklab colour of the frame-corner filter computed once a pixel instead of 25 times (the same result); off: as before")));
+        k.add(s(post, "why_gather_taps", true, Lang.t("Тон: одноканальные окна (B-сплайн яркости, удержание краёв) читаются блоками 2×2 (тот же результат, меньше выборок); выкл — по одной, как раньше",
+                "Tone: the one-channel windows (the luma B-spline, the edge hold) read in 2 x 2 blocks (the same result, fewer reads); off: one by one as before")));
         k.add(s(post, "post_shared_context", true, Lang.t("Один GPU-контекст обработки на всё время работы: программы шейдеров не загружаются заново на каждый снимок (выкл — новый контекст на каждый снимок)",
                 "One processing GPU context for the whole run: the shader programs are not loaded again for every shot (off: a new context every shot)")));
         k.add(s(post, "effmap_real", true, Lang.t("Карта числа кадров для шумоподавления — реальная (выкл — старая)", "Frame-count map for the denoise: the real one (off: the old one)")));
@@ -488,10 +505,21 @@ public final class DevKeys {
         k.add(n(post, "hybrid_resolve_strip_rows", "0", Lang.t("Шумодав: строк в полосе (0 — авто, 1 — проверка по 128 строк)", "Denoise: rows per strip (0: auto, 1: 128-row validation)")));
         // P421: the finish denoise's diagnostics out of the menu
         k.add(n(post, "hybrid_dn_snr", "0", Lang.t("Шумодав: ручная чистота кадра (SNR), 0 — авто", "Denoise: manual shot cleanness (SNR), 0: auto")));
+        // P666: «Подстройка под свет» keeps the texture of the shadows at night (scamdn/why_resolve flatShadowU)
+        k.add(n(post, "hybrid_post_snr_shadow", "1", Lang.t("Шумодав ночью: текстура в тенях (кора, листва, кирпич в тени) не считается ровной зоной и не сглаживается, ровные тени сглаживаются как раньше; 1 вкл., 0 как раньше",
+                "Night denoise: texture in the shadows (bark, foliage, brick in the shade) is not taken for a flat area and is not smoothed, flat shadows are smoothed as before; 1 on, 0 as before")));
         // P443: the SCAM 9.6 engine's rows out of the menu (the Resolve engine is the default), the JPEG and night detail lines
         k.add(s(post, "jpeg_aq", false, Lang.t("JPEG: адаптивное квантование jpegli (вкл. — как раньше: в тёмных и ровных местах стирает мелкие детали и зерно)", "JPEG: jpegli's adaptive quantisation (on: as before - it erases fine detail and grain in dark and flat areas)")));
         k.add(s(post, "jpeg_fast_tables", true, Lang.t("JPEG: сохранить полные токены DCT (выкл. — прежний путь)", "JPEG: retain complete DCT tokens (off: original path)")));
-        k.add(n(post, "hybrid_why_night_detail", "1.3", Lang.t("Детали ночью: усиление детали при SNR 15 и ниже до SNR 5 (1 — как раньше: x1 до SNR 20)", "Night detail: the detail gain from SNR 5 up to SNR 15 and beyond (1: as before, x1 up to SNR 20)")));
+        // P672: 1 by default (V1's detail transfer at night as V2's: x1 up to SNR 20); 1.3 = P443's night floor as before
+        k.add(n(post, "hybrid_why_night_detail", "1", Lang.t("Детали ночью (тон V1): усиление детали при SNR от 5 до 15 и выше; 1 — x1 до SNR 20, как в тоне V2 (по умолчанию), 1.3 — как раньше",
+                "Night detail (tone V1): the detail gain from SNR 5 up to SNR 15 and beyond; 1: x1 up to SNR 20, as tone V2 (default), 1.3: as before")));
+        // P672b: V1's detail into the photo as V2's (2), the sharpening's delta alone (1), as before P672b (0)
+        k.add(n(post, "hybrid_why_detail_split", "2", Lang.t("Детали в фото (тон V1): 2 — как в тоне V2: резкость добавляется к яркости без сжатия тона, детали снимка идут по наклону кривой (по умолчанию); 1 — только резкость как в V2; 0 — как раньше",
+                "Detail into the photo (tone V1): 2: as tone V2 - the sharpening onto the lightness without the tone's compression, the shot's own detail by the curve's slope (default); 1: only the sharpening as V2; 0: as before")));
+        // P676: V1's colour after the tone as V2's (why/combine V2_COLOUR); 0 = V1's own colour stages as before
+        k.add(n(post, "hybrid_why_v2_colour", "1", Lang.t("Цвет в фото и видоискателе (тон V1): 1 — как в тоне V2: оттенок держится только у синих, каналы обрезаются как в V2, без своих поправок V1 (поворот жёлтого, светлые тёплые тона, белый путь, бледные света в белый, насыщенность в светах AgX, цвет у затемняющих деталей); яркость остаётся от V1 (по умолчанию); 0 — свой цвет V1, как раньше",
+                "Colour of the photo and the viewfinder (tone V1): 1: as tone V2 - only blues keep their hue, the channels clip as in V2, none of V1's own colour corrections (the yellow turn, the light warm tones, the path to white, pale lights to white, AgX light-tone chroma, the colour of darkening detail); the luminance stays V1's (default); 0: V1's own colour, as before")));
         k.add(n(post, "hybrid_dn_snr_scale", "1", Lang.t("Шумодав: множитель SNR кадра (резкость и детали ночью читают его в обоих движках)", "Denoise: the shot SNR multiplier (the sharpening and the night detail read it with either engine)")));
         k.add(n(post, "hybrid_dn_model_shot", "1.2", Lang.t("Шумодав: дробовая составляющая модели шума (для SNR кадра)", "Denoise: the noise model's shot term (for the shot SNR)")));
         k.add(n(post, "hybrid_dn_model_read", "2", Lang.t("Шумодав: составляющая шума считывания модели (для SNR кадра)", "Denoise: the noise model's read term (for the shot SNR)")));
@@ -509,11 +537,11 @@ public final class DevKeys {
         k.add(n(post, "hybrid_why_fusion_edge_floor", "0.0078125", Lang.t("Тон: порог света (яркость x AE), ниже которого глубокие тени считаются одним уровнем (без доли на их шуме)", "Tone: the light floor (luminance x AE) under which the deep shadows count as one level (no share on their noise)")));
         // P391: the edge-aware bands of the WHY pyramid, its continuous depth, the noise-bound deep floor and band gain
         // P395: the orange-yellows towards yellow
-        k.add(n(post, "hybrid_why_yellow_hue", "1.0", Lang.t("Цвет (vivo): насыщенные жёлто-оранжевые (фасады, жёлтая листва, машины) поворачиваются к жёлтому до 8°, как у WhyCam; кожа, оранжевые, зелень и бледные стены как раньше; 0 — выкл. На других телефонах по умолчанию 0",
-                "Colour (vivo): saturated orange-yellows (facades, yellow foliage, cars) turn up to 8 deg towards yellow, as WhyCam's; skin, oranges, greens and pale walls as before; 0: off. Other phones: 0 by default")));
+        k.add(n(post, "hybrid_why_yellow_hue", "1.0", Lang.t("Цвет (vivo): насыщенные жёлто-оранжевые (фасады, жёлтая листва, машины) поворачиваются к жёлтому до 8°, как у WhyCam; кожа, оранжевые, зелень и бледные стены как раньше; 0 — выкл. На других телефонах по умолчанию 0. Действует только при hybrid_why_v2_colour 0.",
+                "Colour (vivo): saturated orange-yellows (facades, yellow foliage, cars) turn up to 8 deg towards yellow, as WhyCam's; skin, oranges, greens and pale walls as before; 0: off. Other phones: 0 by default. Acts only with hybrid_why_v2_colour 0.")));
         // P398: pale light tones towards white
-        k.add(n(post, "hybrid_why_hl_neutral", "1.0", Lang.t("Цвет: бледные цвета у самого белого (освещённые солнцем белые рамы, стены, плафоны) уходят в белый, а не в кремовый; голубое небо, море и насыщенные цвета как раньше; 0 — выкл.",
-                "Colour: pale colours at the very top (sunlit white frames, walls, lamps) go to white, not cream; blue sky, sea and saturated colours as before; 0: off")));
+        k.add(n(post, "hybrid_why_hl_neutral", "1.0", Lang.t("Цвет: бледные цвета у самого белого (освещённые солнцем белые рамы, стены, плафоны) уходят в белый, а не в кремовый; голубое небо, море и насыщенные цвета как раньше; 0 — выкл. Действует только при hybrid_why_v2_colour 0.",
+                "Colour: pale colours at the very top (sunlit white frames, walls, lamps) go to white, not cream; blue sky, sea and saturated colours as before; 0: off. Acts only with hybrid_why_v2_colour 0.")));
         // P394: the sharpening's overshoot held and the pixel steps smoothed along strong edges
         k.add(n(post, "hybrid_why_edge_hold", "1.0", Lang.t("Тон: на резких границах (рама окна, край лампы на фоне света) резкость сглаживается вдоль границы и не выходит за яркость соседей — без тёмной обводки и лесенки; текстура как раньше; 0 — выкл.",
                 "Tone: at strong edges (a window frame, a lamp's rim against light) the sharpening is smoothed along the edge and held within its neighbours' light - no dark outline, no pixel steps; texture as before; 0: off")));
@@ -547,6 +575,23 @@ public final class DevKeys {
                 "Tone, bands: an edge counts only beyond this many noise sigmas of its measure (taken out in quadrature; noise is no edge); 0: off")));
         k.add(n(post, "hybrid_why_fusion_depth_smooth", "1", Lang.t("Тон: глубина пирамиды без скачков по разрешению (нижняя полоса по дробной глубине, с полосами); 0 — целые уровни, как раньше",
                 "Tone: the pyramid's depth without jumps across resolutions (the lowest band by the fractional depth, with the bands); 0: whole levels, as before")));
+        // P672: V1's fusion without the noise model by default (V2's has none): the three P391 noise terms below act only with it
+        k.add(n(post, "hybrid_why_fusion_noise_model", "0", Lang.t("Тон V1: слияние учитывает модель шума кадра (пределы шума в тенях и мелких полосах, P391); 0 — нет, как в тоне V2 (по умолчанию), 1 — как раньше",
+                "Tone V1: the fusion reads the frame's noise model (the noise limits of the shadows and the fine bands, P391); 0: no, as tone V2 (default), 1: as before")));
+        k.add(n(post, "hybrid_why_fusion_jbu_sigma", "0", Lang.t("Тон: совместный билатеральный апсемплинг при сборке пирамиды, как у владельца — 4 грубых узла с весом exp(−(g_coarse − g_fine)²/2σ²), грубый уровень не переходит через контрастную границу в небо; σ в единицах ориентира (яркость дисплея, EV у логарифмического); 0 — выкл., как раньше",
+                "Tone: joint bilateral upsampling in the pyramid's collapse, the owner's formulation - 4 coarse nodes weighted by exp(-(g_coarse - g_fine)^2 / 2 sigma^2), the coarse level does not cross a contrasty edge into the sky; sigma in the guide's unit (display luma, EV with a log guide); 0: off, as before")));
+        k.add(n(post, "hybrid_why_fusion_jbu_guide", "1", Lang.t("Тон, билатеральный апсемплинг: ориентир g — 1 яркости четырёх экспозиций, 2 собираемое изображение (слитая яркость), 3 и 4 — то же в log2",
+                "Tone, bilateral upsampling: the guide g - 1 the four exposures' lumas, 2 the collapsing image (the fused luma), 3 and 4 the same in log2")));
+        k.add(n(post, "hybrid_why_v2_jbu_sigma", "0.1", Lang.t("Тон Why V2: совместный билатеральный апсемплинг при сборке пирамиды, как у владельца — 4 грубых текселя с весом exp(−(g_coarse − g_fine)²/2σ²) вместо билинейного texture(); σ в единицах ориентира; по умолчанию 0,1; 0 — выкл., как в эталоне",
+                "Why tone V2: joint bilateral upsampling in the pyramid's collapse, the owner's formulation - 4 coarse texels weighted by exp(-(g_coarse - g_fine)^2 / 2 sigma^2) instead of the bilinear texture(); sigma in the guide's unit; 0.1 by default; 0: off, as the reference")));
+        k.add(n(post, "hybrid_why_v2_jbu_guide", "1", Lang.t("Тон Why V2, билатеральный апсемплинг: ориентир g — 1 яркости четырёх экспозиций, 2 собираемое изображение (слитая яркость), 3 и 4 — то же в log2",
+                "Why tone V2, bilateral upsampling: the guide g - 1 the four exposures' lumas, 2 the collapsing image (the fused luma), 3 and 4 the same in log2")));
+        k.add(n(post, "hybrid_why_v2_edge_bands", "0", Lang.t("Тон Why V2: полосы V1 у сильных границ — рядом с контрастным краем полосы пирамиды берутся из попиксельного слияния (нет свечения в узких просветах неба, например между балкой и навесом); сила 0..1, 0 — выкл., как раньше",
+                "Why tone V2: V1's bands at strong edges - beside a contrasty edge the pyramid's bands come from the per-pixel fusion (no glow in narrow gaps of sky, e.g. between a beam and an awning); strength 0..1, 0: off, as before")));
+        k.add(n(post, "hybrid_why_v2_edge_bands_lo", "1.2", Lang.t("Тон Why V2, полосы у границ: перепад света (EV), с которого граница берёт полосы попиксельного слияния (выше — только самые резкие края, меньше потеря локального контраста)",
+                "Why tone V2, edge bands: the light step (EV) from which an edge takes the per-pixel fusion's bands (higher: only the sharpest edges, less local contrast lost)")));
+        k.add(n(post, "hybrid_why_v2_edge_bands_hi", "1.8", Lang.t("Тон Why V2, полосы у границ: перепад света (EV), с которого полосы попиксельного слияния берутся полностью",
+                "Why tone V2, edge bands: the light step (EV) from which the per-pixel fusion's bands are taken fully")));
         k.add(n(post, "hybrid_why_deep_noise", "0.008", Lang.t("Тон: глубокие тени поднимаются ярким слоем не дальше, чем позволяет шум кадра — предел шума в тенях (доля яркости слияния); 0 — выкл.",
                 "Tone: deep shadows lifted by the bright layer only as far as the frame's noise allows - the shadow noise limit (share of fused luma); 0: off")));
         k.add(n(post, "hybrid_why_noise_scale", "1.0", Lang.t("Тон: поправка модели шума к шуму whyLow (после шумодава) для пределов шума тона",
@@ -583,11 +628,11 @@ public final class DevKeys {
         k.add(n(post, "hybrid_why_macro_toe", "1", Lang.t("Тон: контраст ниже середины степенью, без сдвига чёрного (тени не обрезаются в чёрный); 0 — прямая, как раньше",
                 "Tone: contrast below the middle as a power, no black offset (shadows are not clipped to black); 0 = the line, as before")));
         // P393: the light tones of a saturated colour keep its mid-tone chroma (why/combine.glsl LIGHT_CHROMA, AgX only)
-        k.add(n(post, "hybrid_why_light_chroma", "1.0", Lang.t("Тон: насыщенные оранжево-жёлтые цвета в светах (листва на солнце) держат насыщенность полутонов, оттенок сдвигается к AgX только там, где sRGB его не удержит; кожа, зелень, синие, лампы, небо и бледные цвета как раньше; 0 — выкл., как раньше",
-                "Tone: saturated orange-yellow colours in the light tones (sunlit leaves) keep their mid-tone saturation, the hue moves towards AgX's only where sRGB cannot hold it; skin, greens, blues, lamps, the sky and pale colours as before; 0 = off, as before")));
+        k.add(n(post, "hybrid_why_light_chroma", "1.0", Lang.t("Тон: насыщенные оранжево-жёлтые цвета в светах (листва на солнце) держат насыщенность полутонов, оттенок сдвигается к AgX только там, где sRGB его не удержит; кожа, зелень, синие, лампы, небо и бледные цвета как раньше; 0 — выкл., как раньше. Действует только при hybrid_why_v2_colour 0.",
+                "Tone: saturated orange-yellow colours in the light tones (sunlit leaves) keep their mid-tone saturation, the hue moves towards AgX's only where sRGB cannot hold it; skin, greens, blues, lamps, the sky and pale colours as before; 0 = off, as before. Acts only with hybrid_why_v2_colour 0.")));
         // P506: the own curve's light orange-yellows out of the hue lock (why/combine LIGHT_WARM)
-        k.add(n(post, "hybrid_why_light_warm", "1.0", Lang.t("Тон (своя кривая): светлые оранжево-жёлтые тона (ореол солнца, дорожка на воде, фонари) берут жёлтый оттенок кривой вместо персикового; кожа, бледные и нейтральные цвета как раньше; 0 — выкл.",
-                "Tone (own curve): light orange-yellow tones (the sun's aureole, its path on the water, street lamps) take the curve's own yellow hue instead of peach; skin, pale and neutral colours as before; 0 = off")));
+        k.add(n(post, "hybrid_why_light_warm", "1.0", Lang.t("Тон (своя кривая): светлые оранжево-жёлтые тона (ореол солнца, дорожка на воде, фонари) берут жёлтый оттенок кривой вместо персикового; кожа, бледные и нейтральные цвета как раньше; 0 — выкл. Действует только при hybrid_why_v2_colour 0.",
+                "Tone (own curve): light orange-yellow tones (the sun's aureole, its path on the water, street lamps) take the curve's own yellow hue instead of peach; skin, pale and neutral colours as before; 0 = off. Acts only with hybrid_why_v2_colour 0.")));
         k.add(n(post, "hybrid_why_light_warm_chroma", "0.5", Lang.t("Тон (своя кривая): прибавка насыщенности таким тонам (0..1)",
                 "Tone (own curve): the chroma gain of those tones (0..1)")));
         // P508: detail of the light above white (why/combine HL_LOCAL)
@@ -646,6 +691,18 @@ public final class DevKeys {
         k.add(n(xiaomi, "xiaomi17_dxg_window", String.valueOf(com.scamera.app.capture.XiaomiDualGain.WINDOW), Lang.t(
                 "DCG / DSG: за сколько кадров видоискателя способ должен дать глубину больше 10 бит",
                 "DCG / DSG: the viewfinder frames a way has to show more than 10 bits in")));
+        // P679: the main camera's LOFIC pair (Long RAW14 + Short RAW10 of one moment) behind the «DCG+LOFIC» switch
+        k.add(n(xiaomi, "xiaomi17_lofic", "-1", Lang.t("LOFIC: -1 — по переключателю DCG+LOFIC, 1 — всегда на основной камере, 0 — выкл (DCG+LOFIC"
+                        + " тогда работает по-старому)",
+                "LOFIC: -1 follows the DCG+LOFIC switch, 1 always on the main camera, 0 off (DCG+LOFIC then runs the older way)")));
+        k.add(n(xiaomi, "xiaomi17_lofic_setup", "0", Lang.t("LOFIC: 0 — сначала 4:3 · 30 к/с, потом 16:10 · 60 к/с; 1 — только 16:10",
+                "LOFIC: 0 tries 4:3 · 30 fps first, then 16:10 · 60 fps; 1 runs 16:10 only")));
+        k.add(n(xiaomi, "xiaomi17_lofic_window", String.valueOf(com.scamera.app.capture.XiaomiLofic.WINDOW), Lang.t(
+                "LOFIC: за сколько кадров видоискателя режим должен пройти проверку", "LOFIC: the viewfinder frames a setup has to pass its checks in")));
+        k.add(n(xiaomi, "lofic_pairs", String.valueOf(com.scamera.app.capture.XiaomiLofic.PAIRS), Lang.t(
+                "LOFIC: пар кадров (длинный + короткий) на снимок, 1..16", "LOFIC: pairs of frames (Long + Short) a shot takes, 1..16")));
+        k.add(n(xiaomi, "lofic_blend", "0", Lang.t("LOFIC: сшивка пары — 0 по шуму (без шва), 1 — фиксированный переход 11000..14000 из исходного описания",
+                "LOFIC: the pair's merge - 0 by the noise (no seam), 1 the fixed 11000..14000 ramp of the source description")));
         k.add(s(xiaomi, "xiaomi17_row12", false, Lang.t("75 мм: слать режим сенсора 12 (4x ISZ) и со стоковым модулем сенсора — там кадр не заканчивается",
                 "75 mm: send sensor mode 12 (4x ISZ) with the stock sensor module too - the frame never ends there")));
         // Xiaomi 15 Ultra (P230)
@@ -888,8 +945,8 @@ public final class DevKeys {
         k.add(s(diag, "film_reference_dump", false, Lang.t("Сохранять вход и выход спектральной плёнки для сравнения", "Export spectral film input and output for comparison")));
         k.add(n(diag, "hybrid_film_reference_budget_mb", "0", Lang.t("Лимит памяти спектральной плёнки, МБ (0 — автоматически)", "Spectral film memory budget, MB (0: automatic)")));
         k.add(s(diag, "post_sync", false, Lang.t("Синхронные узлы обработки (замер времени)", "Synchronous processing nodes (timing)")));
-        k.add(s(diag, "post_gpu_timer", false, Lang.t("Замер времени GPU по программам обработки без синхронизации (P479b, в лог)",
-                "GPU time per processing program without the syncs (P479b, to the log)")));
+        k.add(sAuto(diag, "post_gpu_timer", Lang.t("Замер времени GPU по узлам и программам обработки без синхронизации, строки PERF в логе (P479b, P671; Авто — на Adreno)",
+                "GPU time per processing node and program without the syncs, PERF lines in the log (P479b, P671; Auto: on Adreno)")));
         k.add(s(diag, "diag_sync", false, Lang.t("Диагностика: превью этапов считаются и пишутся на потоке обработки, как до P371 (выкл — в фоне, снимок не ждёт)",
                 "Diagnostics: the stage previews are computed and written on the processing thread, as before P371 (off: in the background, the shot does not wait)")));
         k.add(s(diag, "diag_gpu_async", true, Lang.t("Диагностика: превью этапов на GPU копируются отдельным проходом и читаются позже, обработка не ждёт GPU (P602; выкл — чтение сразу после этапа, как раньше)",

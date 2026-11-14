@@ -995,16 +995,35 @@ public final class ScamRgb extends Node {
     }
 
     private static long opposedPixels(java.nio.ByteBuffer flags,OpposedWorkList work){
+        return opposedPixels(flags,work,null);
+    }
+
+    /** P671: also the clip band's flagged tiles into {@code band} (its parts: {@link #flagParts}), in the same walk. */
+    static long opposedPixels(java.nio.ByteBuffer flags,OpposedWorkList work,ClipBandTiles band){
         final java.nio.ByteBuffer f=flags.duplicate();
         final int n=f.capacity();
-        final long[] counts=new long[Math.max(1,4*ParallelWork.threads())];
+        final long[] counts=new long[flagParts()];
         final int parts=counts.length,step=((n+parts-1)/parts+7)&~7;
         ParallelWork.forEach(parts,k->{
             final int s=(int)Math.min(n,(long)k*step),e=(int)Math.min(n,(long)s+step);
             counts[k]=OpposedWorkList.countPart(f,s,e,work!=null?work.groupsX*16:0,work,k);
+            if(band!=null)band.scan(f,s,e,k);
         });
         long t=0;for(long c:counts)t+=c;
         return t;
+    }
+
+    /** The parallel parts of the flags' walk ({@link #opposedPixels}). */
+    static int flagParts(){
+        return Math.max(1,4*ParallelWork.threads());
+    }
+
+    /**
+     * P671: scam_dev scamrgb_band_tiles (default on; off or the old GL model: the clip band's two passes over every pixel as
+     * before) - the band computed only in the tiles near a flagged pixel, skipped on a shot without one (ClipBandTiles).
+     */
+    static boolean bandTilesWanted(){
+        return !com.scamera.app.processing.opengl.PostGlMode.legacy()&&PreferenceKeys.scamDevSwitch("scamrgb_band_tiles",true);
     }
 
     /** P362: per channel the sum over the groups' sums (float bits) by their counts; 0 for a channel with no pixel counted. */
@@ -1053,6 +1072,9 @@ public final class ScamRgb extends Node {
         final boolean half=big!=null&&halfInput(hybrid,ScamHybridBurst.lastRgbHalf,size.x,size.y,big.limit());
         if(hybrid)strength=Math.max(0f,Math.min(1f,PreferenceKeys.hybridValue("highlight_recovery",100f)/100f));
         final boolean sparseOpposed=PreferenceKeys.hybridSwitch("highlight_opposed_sparse",false);
+        // P671: the clip band's flagged tiles, marked by the helper in the same walk of the flags
+        final ClipBandTiles bandTiles=hybrid&&strength>0f&&flags!=null&&bandTilesWanted()
+                ?ClipBandTiles.create(size.x,size.y,flags.capacity(),flagParts()):null;
         // P479 (speed): up to 16 MP the decimated copy and the release of the big buffer follow the statistics on the helper
         // thread (the release once this thread's upload is done with it, as before), so this thread goes on with the GL work as
         // soon as the statistics are in instead of waiting for the copy and spending the release (9 - 36 ms of munmap on the
@@ -1083,8 +1105,8 @@ public final class ScamRgb extends Node {
             if(hybrid){if(!statsGpu)s.cc=channelClip(big,bento,bentoK,bentoUs,withFlags,ParallelWork.threads(),half);} else s.clip=clipLevels(big);
             if(hybrid&&flagsIn!=null){
                 final OpposedWorkList work=sparseOpposed
-                        ?OpposedWorkList.create(size.x,size.y,flagsIn.capacity(),Math.max(1,4*ParallelWork.threads())):null;
-                s.oppPixels=opposedPixels(flagsIn,work);
+                        ?OpposedWorkList.create(size.x,size.y,flagsIn.capacity(),flagParts()):null;
+                s.oppPixels=opposedPixels(flagsIn,work,bandTiles);
                 if(work!=null)s.oppGroups=work.sparseGroups();
             }
             final long t1=System.currentTimeMillis();
@@ -1200,7 +1222,7 @@ public final class ScamRgb extends Node {
         com.scamera.app.util.Log.i("SCAM_PIPELINE","scamrgb input ms: upload="+(uploadDone-uploadStart)/1000000
                 +(gpuRepack?" (half rgb, gpu repack"+HalfRgbUpload.takeNote()+")":half?" (rgba16f bands)":rgbaBands?" (rgba bands)":" (rgb)")+" stats="+stats.statMs+" decimate="+(tail?"(helper, after the statistics)":String.valueOf(stats.decimateMs))
                 +" wait="+(sideDone-uploadDone)/1000000+" free="+(System.nanoTime()-sideDone)/1000000);
-        GLTexture flagsTex=null,chromaNear=null,chromaWide=null,chromaHuge=null,purpleBound=null,oppGpu=null;
+        GLTexture flagsTex=null,chromaNear=null,chromaWide=null,chromaHuge=null,purpleBound=null,oppGpu=null,bandTileTex=null;
         try {
             if(largeTwoX)requireTextureStorage(input);
             float[] gm=p.shotParams.shadingMap;
@@ -1412,7 +1434,23 @@ public final class ScamRgb extends Node {
             // P537: the glow of a near-white clipped light takes the light's colour (Ark's white daytime running lights), in the same
             // pass (assets/shaders/scamhdr/clipband.glsl, glowU). pref_scam_hybrid_highlight_glow 0..1, on by default.
             final float glow=perChannel&&flagsTex!=null?Math.max(0f,Math.min(1f,PreferenceKeys.hybridValue("highlight_glow",1f))):0f;
-            final boolean bandPass=band>0f||glow>0f;
+            // P671: the tiles near a flagged pixel (the windows' reach widened to whole tiles); none: no pass changes a pixel
+            final int bandReach=Math.max(Math.max(3*s,2*s),glow>0f?6*s:0);
+            final byte[] bandMap=(band>0f||glow>0f)&&bandTiles!=null&&flagsTex!=null&&flagsTex.size.equals(size)
+                    ?bandTiles.activeMap(bandReach):null;
+            final boolean bandSkipped=(band>0f||glow>0f)&&bandTiles!=null&&flagsTex!=null&&flagsTex.size.equals(size)&&bandMap==null;
+            final boolean bandPass=(band>0f||glow>0f)&&!bandSkipped;
+            if(bandMap!=null){
+                try{
+                    android.opengl.GLES30.glPixelStorei(android.opengl.GLES30.GL_UNPACK_ALIGNMENT,1);
+                    bandTileTex=new GLTexture(new Point(bandTiles.tilesX,bandTiles.tilesY),new GLFormat(GLFormat.DataType.SIMPLE_8,1),
+                            java.nio.ByteBuffer.allocateDirect(bandMap.length).put(bandMap).rewind(),GL_NEAREST,GL_CLAMP_TO_EDGE);
+                }catch(RuntimeException failure){
+                    com.scamera.app.util.Log.w("SCAM_PIPELINE","clip band tiles: "+failure+", every pixel");
+                    if(bandTileTex!=null)bandTileTex.close();
+                    bandTileTex=null;
+                }
+            }
             // P187: the input (RGBA16F like a main, chanprep and scamrgb were its only readers) takes main2's place for the band
             // pass: no 1.6 GB main2 is made next to it. Its sampler becomes a main's (GL_LINEAR); the band pass writes every
             // pixel of it, as it would of a new main2.
@@ -1432,7 +1470,9 @@ public final class ScamRgb extends Node {
                         &&!com.scamera.app.processing.opengl.PostGlMode.legacy()&&PreferenceKeys.scamDevSwitch("clipband_mask",true)){
                     try{
                         bandMask=new GLTexture(flagsTex.size,new GLFormat(GLFormat.DataType.SIMPLE_8,1),null,GL_NEAREST,GL_CLAMP_TO_EDGE);
+                        if(bandTileTex!=null)shaderProg.setDefine("BAND_TILES",1);
                         shaderProg.useAssetProgram("scamhdr/clipmask",false);
+                        if(bandTileTex!=null){shaderProg.setTexture("BandTiles",bandTileTex);shaderProg.setVar("bandTileU",ClipBandTiles.TILE);}
                         shaderProg.setTexture("ClipFlags",flagsTex);
                         shaderProg.setVar("radiusU",3*s);shaderProg.setVar("zoneU",2*s);
                         shaderProg.setVar("clipHiUnflaggedU",cc.hiUnflagged?1:0);
@@ -1446,8 +1486,10 @@ public final class ScamRgb extends Node {
                 }
                 GLTexture banded=p.getMain();
                 if(bandMask!=null)shaderProg.setDefine("BAND_MASK",1);
+                if(bandTileTex!=null)shaderProg.setDefine("BAND_TILES",1);
                 shaderProg.useAssetProgram("scamhdr/clipband",false);
                 if(bandMask!=null)shaderProg.setTexture("BandMask",bandMask);
+                if(bandTileTex!=null){shaderProg.setTexture("BandTiles",bandTileTex);shaderProg.setVar("bandTileU",ClipBandTiles.TILE);}
                 shaderProg.setTexture("InputBuffer",passOut);
                 shaderProg.setTexture("ClipFlags",flagsTex);
                 shaderProg.setVar("radiusU",3*s);shaderProg.setVar("zoneU",2*s);
@@ -1456,6 +1498,7 @@ public final class ScamRgb extends Node {
                 shaderProg.setVar("glowU",glow);shaderProg.setVar("glowRadiusU",glow>0f?6*s:0);
                 shaderProg.drawBlocks(banded);shaderProg.closed=true;
                 if(bandMask!=null)bandMask.close();
+                if(bandTileTex!=null){bandTileTex.close();bandTileTex=null;}
                 unbanded=passOut;
                 passOut=banded;
             }
@@ -1489,7 +1532,9 @@ public final class ScamRgb extends Node {
             if(hybrid)com.scamera.app.util.Log.i("SCAM_PIPELINE","scamrgb input "+(signed?"signed (clamped after the noise reduction or the WHY colour averages)":"clamped per pixel (post_ab_clamp)"));
             if(perChannel)com.scamera.app.util.Log.i("SCAM_PIPELINE","highlight recovery per channel: chroma="
                     +chromaLog
-                    +" limit="+chromaLimit+" band="+band+" glow="+glow+" clipGuard k="+usWhite+(early?" early release"+(inputIsMain2?" (input as main2)":""):"")
+                    +" limit="+chromaLimit+" band="+band+" glow="+glow
+                    +(bandSkipped?" (band skipped: no flagged pixel)":bandMap!=null?String.format(java.util.Locale.ROOT," (band tiles %.1f%%)",100f*ClipBandTiles.share(bandMap)):"")
+                    +" clipGuard k="+usWhite+(early?" early release"+(inputIsMain2?" (input as main2)":""):"")
                     +" gpu ms="+(System.currentTimeMillis()-gpuStart));
         }catch(RuntimeException|Error failure){
             if(largeTwoX){
@@ -1507,6 +1552,7 @@ public final class ScamRgb extends Node {
             if(chromaHuge!=null)chromaHuge.close();
             if(purpleBound!=null)purpleBound.close();
             if(oppGpu!=null)oppGpu.close();
+            if(bandTileTex!=null)bandTileTex.close();
             if(earlyFlags!=null)earlyFlags.close();
             // P479: the helper's decimated copy (it has released the big buffer by now or does so before this returns)
             if(rest!=null)p.shotParams.scamRgb=await(rest);

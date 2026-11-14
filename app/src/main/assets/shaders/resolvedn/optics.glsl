@@ -7,6 +7,17 @@ out vec4 o_clean_rgb;
 // P479b (speed, owner 2026-11-03: <= 1 level of the JPEG): 1 = resolvedn/lab fused in - the cleaned RGB goes to Oklab here,
 // without its RGBA16F rounding in between (the same arithmetic as lab.glsl otherwise; WhyMsDenoise "ms_fuse")
 #define OUT_LAB 0
+// P671 (speed): the corner filter's 24 neighbours each took rgb_to_oklab (3 cube roots) on every pixel the lens shading lifts
+// (most of the frame); OKLAB_CACHE 1 writes rgb_to_oklab of every pixel of a strip into an RGBA32F texture (exact floats), 2
+// reads the neighbours' values from it - the same numbers, each computed once instead of 25 times (resolvedn/optics only; not
+// tiled; scam_dev ms_oklab_cache 0: as before)
+#define OKLAB_CACHE 0
+#if OKLAB_CACHE != 0
+uniform int cacheOriginU;           // the full frame's row of the cache's row 0
+#endif
+#if OKLAB_CACHE == 2
+uniform highp sampler2D OkCache;    // .rgb: rgb_to_oklab(max(rgb, 0)) of the pixel (full-frame x, row - cacheOriginU)
+#endif
 #if TILED == 1
 uniform int originDstU;
 #endif
@@ -59,8 +70,24 @@ vec3 oklab_to_rgb(float L, float a, float b) {
     );
 }
 
+#if OKLAB_CACHE == 2
+void cachedOklab(int nx, int ny, out float L, out float a, out float b) {
+    vec3 v = texelFetch(OkCache, ivec2(nx, ny - cacheOriginU), 0).rgb;
+    L = v.r; a = v.g; b = v.b;
+}
+#endif
+
 void main() {
     ivec2 coord = ivec2(gl_FragCoord.xy);
+#if OKLAB_CACHE == 1
+    {
+        ivec2 p = ivec2(coord.x, coord.y + cacheOriginU);
+        float cL, ca, cb;
+        rgb_to_oklab(max(dnFetch_u_tex_rgb( p, 0).rgb, 0.0), cL, ca, cb);
+        o_clean_rgb = vec4(cL, ca, cb, 1.0);
+        return;
+    }
+#endif
 #if TILED == 1
     coord.y += originDstU;
 #endif
@@ -86,9 +113,13 @@ void main() {
                 int ny = clamp(coord.y + dy, 0, u_height - 1);
                 for (int dx = -1; dx <= 1; dx++) {
                     int nx = clamp(coord.x + dx, 0, u_width - 1);
-                    vec3 n_rgb = max(dnFetch_u_tex_rgb( ivec2(nx, ny), 0).rgb, 0.0);
                     float n_L, n_a, n_b;
+#if OKLAB_CACHE == 2
+                    cachedOklab(nx, ny, n_L, n_a, n_b);
+#else
+                    vec3 n_rgb = max(dnFetch_u_tex_rgb( ivec2(nx, ny), 0).rgb, 0.0);
                     rgb_to_oklab(n_rgb, n_L, n_a, n_b);
+#endif
                     a_win[k] = n_a; b_win[k] = n_b; k++;
                 }
             }
@@ -122,9 +153,13 @@ void main() {
                 for (int dx = -2; dx <= 2; dx++) {
                     if (dx == 0 && dy == 0) continue;
                     int nx = clamp(coord.x + dx, 0, u_width - 1);
-                    vec3 n_rgb = max(dnFetch_u_tex_rgb( ivec2(nx, ny), 0).rgb, 0.0);
                     float n_L, n_a, n_b;
+#if OKLAB_CACHE == 2
+                    cachedOklab(nx, ny, n_L, n_a, n_b);
+#else
+                    vec3 n_rgb = max(dnFetch_u_tex_rgb( ivec2(nx, ny), 0).rgb, 0.0);
                     rgb_to_oklab(n_rgb, n_L, n_a, n_b);
+#endif
                     float dL = n_L - L;
                     float dist2 = float(dx * dx + dy * dy);
                     float w = exp(-dist2 * 0.35) * exp(-dL * dL * 250.0);

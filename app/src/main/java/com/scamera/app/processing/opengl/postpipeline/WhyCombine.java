@@ -58,8 +58,16 @@ public final class WhyCombine extends Node {
         return detailBoost(snr, NIGHT_DETAIL);
     }
 
-    /** P443: the night floor's top (scam_dev "hybrid_why_night_detail"; 1 or below = the P340 rule alone, as before). */
-    static final float NIGHT_DETAIL = 1.3f;
+    /**
+     * P443: the night floor's top (scam_dev "hybrid_why_night_detail"; 1 or below = the P340 rule alone). P672 (owner, 2026-11-13:
+     * «Убедись что шумодавы при переключении тонмапинга остаются одинаковыми», «у V1 сделай его таким же как у V2»): 1 - the floor
+     * is off by default. It lifted the small deltas - the grain the denoise leaves as much as texture - x1.3 on every shot from SNR 15
+     * to 47, where V2 transfers the sharpened luma at x1 (its tonemap_final's detail transfer); now V1 takes x1 up to SNR 20 as
+     * V2, the P340 ramp above (daylight detail, the shot's noise far below it). Host replay through the app chain (flat areas,
+     * display luma high-pass, codes): the simulated nights at SNR 16 / 13 2.40 / 3.33 -> 1.93 / 2.81 (V2 1.86 / 2.44), the day
+     * burst hc 3.08 -> 2.68; the 1 - 2 px detail of the textures -3 %. "1.3": P443 as before.
+     */
+    static final float NIGHT_DETAIL = 1f;
 
     static float detailBoost(float snr, float night) {
         final float day;
@@ -85,6 +93,16 @@ public final class WhyCombine extends Node {
         final float boost = detailBoost(snr, nightDetail());
         if (film == null) return sharpGain * boost;
         return 1f + (sharpGain * boost - 1f) * (1f - film.strength);
+    }
+
+    /**
+     * P672b: the detail gain with the detail carried as {@code split} (WhyTone.detailSplit): 2 - V2's rule, the merge's own detail at
+     * «sharp_gain» alone (V2's tonemap_final has no boost by the light; the P340 daylight ramp x1.7 of the full sharpened delta
+     * overshot V2's grain by day once the delta takes the curve's slope: lvc's shadows 12.5 - 15.0 against V2's 10.5 - 12.5,
+     * at x1 10.1 - 12.1); else {@link #detailGain}.
+     */
+    static float splitGain(int split, float sharpGain, float snr, @androidx.annotation.Nullable com.scamera.app.processing.color.FilmSim.Settings film) {
+        return split == 2 && film == null ? sharpGain : detailGain(sharpGain, snr, film);
     }
 
     /** P154 «Мягкость засветов»: where the highlight landing starts below the data ceiling (fraction 0 .. 0.9; 0 = off). */
@@ -189,7 +207,9 @@ public final class WhyCombine extends Node {
         final float sharpMul = st.sharpMul;
         // P369: the shot's film snapshot (PostPipeline.takeFilm); null: no film, every expression as before
         final com.scamera.app.processing.color.FilmSim.Settings film = pipeline.film;
-        final float detail = sharp ? detailGain(WhyTone.value("sharp_gain", 1.0f), pipeline.shotParams.finishSnr, film) : 2.0f;
+        // P672b: carried as V2 (WhyTone.detailSplit 2) the merge's own detail takes the curve's slope and no light-dependent boost
+        final int split = WhyTone.detailSplit(sharp, film != null, st.inputReleased);
+        final float detail = sharp ? splitGain(split, WhyTone.value("sharp_gain", 1.0f), pipeline.shotParams.finishSnr, film) : 2.0f;
         // P134 «Цвет»: COLOUR_LOOK only when a colour setting is off its default (else the shader before P134)
         final com.scamera.app.processing.color.ColourLook look = WhyTone.colourLook(pipeline);
         final int toneOp = WhyTone.toneOperator();
@@ -372,6 +392,7 @@ public final class WhyCombine extends Node {
             if (WhyTone.macroToe()) shaderProg.setDefine("MACRO_TOE", 1);
             // P393: a saturated colour's light tones under the AgX white keep its mid-tone chroma (0: the shader before, token for token)
             if (lightChroma > 0f) shaderProg.setDefine("LIGHT_CHROMA", 1);
+            if (WhyTone.v2Colour()) shaderProg.setDefine("V2_COLOUR", 1);   // P676: the colour after the tone as V2's
             if (WhyTone.yellowHue() > 0f) shaderProg.setDefine("YELLOW_HUE", 1);   // P395
             if (WhyTone.hlNeutral() > 0f) shaderProg.setDefine("HL_NEUTRAL", 1);   // P398
             // P506: the own curve's light orange-yellows leave the hue lock (AgX has LIGHT_CHROMA for that)
@@ -396,6 +417,7 @@ public final class WhyCombine extends Node {
             if (whyVibrance) shaderProg.setDefine("WHY_VIBRANCE", 1);   // P419: the reference app's vibrance in one gain
             if (WhyTone.edgeHold() > 0f && !st.inputReleased && !filmOnly) shaderProg.setDefine("EDGE_HOLD", 1);   // P394 (the full-size merge)
             if (WhyTone.rimSmooth()) shaderProg.setDefine("RIM_SMOOTH", 1);   // P441: the rim rules without steps along edges (photo only)
+            if (split > 0) shaderProg.setDefine("DETAIL_SPLIT", 1);   // P672b: the detail into the photo as V2's (WhyTone.detailSplit)
             shaderProg.setDefine("DITHER_TPDF", 1);   // P595: the photo's dither triangular (no 8-bit bands on a clean sky)
             skyLog = st.sky == null ? "" : " sky=" + Math.round(100f * st.skyMask.coverage) + "%" + (st.skyMask.keep < 1f
                     ? " backlit (level x" + Math.round(100f * st.skyMask.keep) / 100f + ")" : "");
@@ -416,13 +438,16 @@ public final class WhyCombine extends Node {
             passOut = pipeline.getMain();
             if (rimTiles != null) shaderProg.setDefine("RIM_SUPPORT", 1);
             if (sceneY != null) shaderProg.setDefine("EDGE_LUMA_CACHE", 1);
+            // P671 (speed): the one-channel windows as textureGather blocks (the same texels and sums; why/combine.glsl GATHER_TAPS)
+            final boolean gather = gatherTaps();
+            if (gather) shaderProg.setDefine("GATHER_TAPS", 1);
             // P497: scam_dev why_combine_stop 1..4 cuts the pass after a stage (timing on old GPUs only: the photo is wrong)
             final int stop = Math.round(PreferenceKeys.scamDevNumber("why_combine_stop", 0f));
             if (stop > 0) shaderProg.setDefine("WHY_STOP", stop);
             try {
                 shaderProg.useAssetProgram("why/combine", false);
             } catch (RuntimeException error) {
-                if (rimTiles == null && sceneY == null) throw error;
+                if (rimTiles == null && sceneY == null && !gather) throw error;
                 if (rimTiles != null) rimTiles.close();
                 rimTiles = null;
                 if (sceneY != null) sceneY.close();
@@ -431,6 +456,7 @@ public final class WhyCombine extends Node {
                 // A failed compile leaves the tone defines pending; override only the support gate.
                 shaderProg.setDefine("RIM_SUPPORT", 0);
                 shaderProg.setDefine("EDGE_LUMA_CACHE", 0);
+                shaderProg.setDefine("GATHER_TAPS", 0);
                 shaderProg.useAssetProgram("why/combine", false);
             }
             if (rimTiles != null) {
@@ -502,7 +528,7 @@ public final class WhyCombine extends Node {
             shaderProg.setVar("fU", st.factor);
             shaderProg.setVar("colourFU", colourFactor);
             shaderProg.setVar("signedColourU", pipeline.signedRgb ? 1 : 0);
-            shaderProg.setVar("signedHueU", WhyTone.signedHue() ? 1 : 0);   // P370 (B2): a colour outside sRGB keeps its hue
+            shaderProg.setVar("signedHueU", WhyTone.signedHue() && !WhyTone.v2Colour() ? 1 : 0);   // P370 (B2): a colour outside sRGB keeps its hue (P676: not with V2's colour, clamped at 0 there)
             shaderProg.setVar("aeU", r.ae);
             shaderProg.setVar("clipU", r.clip);
             if (WhyTone.insetStrength() < 0.999f) shaderProg.setVar("insetU", WhyTone.insetStrength());   // P402
@@ -538,7 +564,7 @@ public final class WhyCombine extends Node {
             }
             // P11: the Bento ceiling / roll-off only with real headroom; saturated light fades towards white in the shoulder.
             shaderProg.setVar("headroomU", ScamRgb.lastRealClip || ScamHybridBurst.lastBentoUsClipped > 0f ? 1 : 0);
-            shaderProg.setVar("hlWhiteU", Math.max(0f, Math.min(1f, WhyTone.value("hl_white", 0.15f))));
+            shaderProg.setVar("hlWhiteU", WhyTone.hlWhite());   // P676: 0 with V2's colour
             if (lightChroma > 0f) shaderProg.setVar("lightChromaU", lightChroma);
             // P154 «Мягкость засветов»: the landing of blown light on the white point starts this far below the ceiling
             if (hlB != null) shaderProg.setVar("hlSoftU", hlSoft);
@@ -568,7 +594,9 @@ public final class WhyCombine extends Node {
             shaderProg.setVar("clarityU", WhyTone.value("clarity", 0f));
             shaderProg.setVar("flatProtectU", WhyTone.value("flat_protect", 0f));
             shaderProg.setVar("detailGainU", detail);
-            shaderProg.setVar("deltaChromaU", Math.max(0f, Math.min(1f, WhyTone.value("delta_chroma", 1f))));
+            // P672b: the detail carried as V2 carries it (WhyTone.detailSplit)
+            shaderProg.setVar("detailSplitU", split);
+            shaderProg.setVar("deltaChromaU", WhyTone.deltaChroma());   // P676: 0 with V2's colour
             shaderProg.setVar("filmToeU", WhyTone.value("film_toe", 0f));
             shaderProg.setVar("agxAU", r.slope, r.sp, r.tp, r.sat);
             shaderProg.setVar("agxBU", r.minEv, r.maxEv, r.ev,
@@ -634,7 +662,7 @@ public final class WhyCombine extends Node {
             if (oppShare != null) oppShare.close();
         }
         Log.i("SCAM_PIPELINE", "WHY combine ae=" + r.ae + " clip=" + r.clip + (r.hr > 0f ? " hr=" + r.hr : "") + (measured > 0f ? " measured=" + measured + " gmax=" + r.gmax : "") + " headroom=" + (ScamRgb.lastRealClip || ScamHybridBurst.lastBentoUsClipped > 0f)
-                + " hlWhite=" + WhyTone.value("hl_white", 0.15f) + " hlSoft=" + WhyTone.value("hl_soft", 0.7f)
+                + (WhyTone.v2Colour() ? " v2Colour" : "") + " hlWhite=" + WhyTone.hlWhite() + " hlSoft=" + WhyTone.value("hl_soft", 0.7f)
                 + (lightChroma > 0f ? " lightChroma=" + lightChroma : "") + " grid=" + input.size.x + "x" + input.size.y
                 + " lowFactor=" + st.factor + (st.factor > 2 ? " colour=whyMid" : " colour=whyLow") + " detail=" + detail
                 + (sharp ? " (WhyLumaS, mul " + sharpMul + ")" : " (Sabre Y, bounded ref)")
@@ -762,5 +790,14 @@ public final class WhyCombine extends Node {
         } finally {
             ratio.close();
         }
+    }
+
+    /**
+     * P671: scam_dev why_gather_taps (default on): the photo's combine reads its one-channel windows as 2 x 2 textureGather blocks
+     * (why/combine.glsl GATHER_TAPS: the same texels, the same sums in the same order; tools/check_combine_gather.py); off or the
+     * old GL model of post_ab: the single reads as before.
+     */
+    static boolean gatherTaps() {
+        return !com.scamera.app.processing.opengl.PostGlMode.legacy() && PreferenceKeys.scamDevSwitch("why_gather_taps", true);
     }
 }

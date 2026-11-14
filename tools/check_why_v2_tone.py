@@ -433,8 +433,8 @@ def main():
     # ---- glslc: every define set compiles for GLSL ES 3.10
     glslc = find_glslc()
     if glslc:
-        sets = {'v2_clean': [{}], 'v2_stride': [{}], 'v2_ef_prep': [{}, {'MODE': '1'}, {'SCALE': '2'}, {'SCALE': '2', 'MODE': '1'}],
-                'v2_pyr_down': [{}], 'v2_ef_coarsest': [{}], 'v2_ef_collapse': [{}],
+        sets = {'v2_clean': [{}], 'v2_stride': [{}], 'v2_ef_prep': [{}, {'MODE': '1'}, {'SCALE': '2'}, {'SCALE': '2', 'MODE': '1'}, {'MODE': '2'}], 'v2_ef_bands': [{}, {'MODE': '1'}],
+                'v2_pyr_down': [{}], 'v2_ef_coarsest': [{}, {'BANDS': '1'}], 'v2_ef_collapse': [{}, {'JBU': '1'}, {'JBU': '2'}, {'BANDS': '1'}, {'JBU': '1', 'BANDS': '1'}],
                 'v2_tonemap': [{}, {'P3_OUT': '1'}, {'FILM_LUT': '1'}, {'EF_SCALED': '1'}, {'QUANT8': '1'},
                                {'P3_OUT': '1', 'FILM_LUT': '1', 'EF_SCALED': '1', 'QUANT8': '1'}],
                 'sharp_in': [{}, {'REF_LUMA': '1'}], 'v2_bracket_dn': [{}], 'v2_hr_extract': [{}], 'v2_box': [{}, {'DIR': '1'}],

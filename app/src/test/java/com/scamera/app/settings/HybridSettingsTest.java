@@ -341,6 +341,22 @@ public class HybridSettingsTest {
         for(String own:new String[]{"kernel_texture","kernel_bokeh","kernel_transition"})assertFalse(own,MotionMode.replaces(own));
     }
 
+    /** P675: the fast route's night motion test is the worker's default (no line); a stored strength off it reaches the worker, clamped. */
+    @Test public void nightMotionReachesTheWorkerOnlyOffItsDefault() {
+        String tuning=PreferenceKeys.hybridTuningText();
+        assertFalse(tuning,tuning.contains("fastNightMotion "));
+        manager.set("default_scope","pref_scam_hybrid_fast_night_motion","0");
+        tuning=PreferenceKeys.hybridTuningText();
+        assertTrue(tuning,tuning.contains("fastNightMotion 0.0\n"));
+        assertEquals(tuning,tuning.indexOf("fastNightMotion "),tuning.lastIndexOf("fastNightMotion "));
+        manager.set("default_scope","pref_scam_hybrid_fast_night_motion","0.5");
+        assertTrue(PreferenceKeys.hybridTuningText().contains("fastNightMotion 0.5\n"));
+        manager.set("default_scope","pref_scam_hybrid_fast_night_motion","-2");
+        assertTrue(PreferenceKeys.hybridTuningText().contains("fastNightMotion 0.0\n"));
+        manager.set("default_scope","pref_scam_hybrid_fast_night_motion","1");
+        assertFalse(PreferenceKeys.hybridTuningText().contains("fastNightMotion "));
+    }
+
     @Test public void roundFiveWorkerKeysReachTheTuningFile() {
         // Unset: the worker keeps its own defaults (cell clip, outlier sites, SCAM Bento checks); the Sabre 6.1 kernel has an app
         // default since P68 (always), written also when unset.
@@ -1410,6 +1426,27 @@ public class HybridSettingsTest {
         SettingsMigration.migrateScamHybrid(prefs,false);
         assertEquals("a hand-set value stays","0.3",prefs.getString("pref_scam_hybrid_fringe_net_light",""));
         assertEquals(1,prefs.getInt(SettingsMigration.FRINGE_LIGHT_REV,0));
+    }
+
+    @Test public void yuvTenBitFormerDefaultMovesOffOnce() {
+        // P667: a stored «YUV: 10 бит» on (the former XML default, written by setDefaultValues) moves once to off; switched on again
+        // after the move it stays; a stored off stays off
+        prefs.edit().clear().putString(PreferenceKeys.ROUTE_KEY,"hybrid").putInt("pref_scam_hybrid_defaults_rev",7)
+                .putInt(SettingsMigration.P68_DEFAULTS_REV,1).putInt(SettingsMigration.DETAIL_DEFAULTS_REV,1)
+                .putBoolean("pref_scam_hybrid_yuv_10bit",true).commit();
+        assertTrue(SettingsMigration.migrateScamHybrid(prefs,false));
+        assertFalse(prefs.getBoolean("pref_scam_hybrid_yuv_10bit",true));
+        assertEquals(1,prefs.getInt(SettingsMigration.YUV_TEN_BIT_REV,0));
+        assertFalse(PreferenceKeys.hybridSwitch("yuv_10bit",com.scamera.app.capture.YuvMergeRoute.TEN_BIT_DEFAULT));
+        prefs.edit().putBoolean("pref_scam_hybrid_yuv_10bit",true).commit();
+        SettingsMigration.migrateScamHybrid(prefs,false);
+        assertTrue("once: switched on by hand later it stays",prefs.getBoolean("pref_scam_hybrid_yuv_10bit",false));
+        prefs.edit().clear().putString(PreferenceKeys.ROUTE_KEY,"hybrid").putInt("pref_scam_hybrid_defaults_rev",7)
+                .putInt(SettingsMigration.P68_DEFAULTS_REV,1).putInt(SettingsMigration.DETAIL_DEFAULTS_REV,1).commit();
+        SettingsMigration.migrateScamHybrid(prefs,false);
+        assertFalse("nothing stored: the default, off",prefs.contains("pref_scam_hybrid_yuv_10bit"));
+        assertFalse(PreferenceKeys.hybridSwitch("yuv_10bit",com.scamera.app.capture.YuvMergeRoute.TEN_BIT_DEFAULT));
+        assertEquals(1,prefs.getInt(SettingsMigration.YUV_TEN_BIT_REV,0));
     }
 
     @Test public void denoiseAndMergeLayoutJoinsOnce() {

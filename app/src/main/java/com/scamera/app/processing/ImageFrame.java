@@ -50,6 +50,8 @@ public class ImageFrame {
     /** P646 «Склейка YUV»: bits of a YUV frame's packed planar samples (8, 10; 0: a RAW frame), and the session's HLG10 stream. */
     public int yuvBits;
     public boolean yuvHlg;
+    /** P667: the YCbCr range the camera's Image declares (its dataspace, Android 13): 0 not declared, 1 full, 2 limited. */
+    public int yuvRange;
     /** P646: packs a deferred YUV ring frame's three planes at its copy (null: the RAW copy of plane 0). */
     public java.util.function.Supplier<ByteBuffer> yuvPacker;
     /** SCAM: L exposure ratio for an L built from the ZSL N frames (0 = L was captured). */
@@ -115,6 +117,19 @@ public class ImageFrame {
         public double sessionRatio;
         /** The variant that ran, for the shot's log. */
         public String rung = "";
+    }
+
+    /**
+     * P679: the Short read of a Xiaomi 17 Ultra LOFIC pair travels with its Long frame (this frame) until the shot merges the pair
+     * into one frame before the burst merge (processing.LoficMerge); null on every other frame.
+     */
+    public Lofic lofic;
+
+    /** The Short image of a LOFIC pair: packed RAW10 rows back to back, its rows and the ratio the shot measured (0: not yet). */
+    public static final class Lofic {
+        public ByteBuffer shortPacked;
+        public int rows;
+        public double k;
     }
 
     /** ... and, as a frame of the burst, names that main frame: its metadata is the main frame's (one exposure, one result). */

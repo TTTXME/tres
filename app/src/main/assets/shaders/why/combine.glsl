@@ -174,6 +174,9 @@ precision highp int;
 // P441 RIM_SMOOTH 1: the P311 / P349 rim rules of the detail delta on every darkening pixel with a continuous far side (rimDelta;
 // the photo, WhyCombine); 0: the rules before P441 (lightRimDelta / rimDeltaBy, the viewfinder), token for token.
 #define RIM_SMOOTH 0
+// P672b (owner, 2026-11-13: «сделай так чтобы V1 не отличался от V2»): 1 = the full-size detail goes into the photo as «Why тон» V2's
+// tonemap_final takes it (detailSplitU; WhyCombine, WhyTone.detailSplit); 0 = the shader before P672b, token for token
+#define DETAIL_SPLIT 0
 // P395 (owner, 2026-10-29: the «Лента» facade orange-ochre beside WhyCam's yellow): 1 = the saturated orange-yellow scene hues
 // turned towards yellow (yellowHueU; 0 = the shader before)
 #define YELLOW_HUE 0
@@ -214,6 +217,16 @@ precision highp int;
 // It replaces the overall / sky / green gain (vibU's protect form), WHY_VIB and «Цвет»'s vibrance by
 // brightness and skin protection of positive gains. 0: the shader before, token for token.
 #define WHY_VIBRANCE 0
+// P676 (owner, 2026-11-13: «Да, сделай жёлтый в V1 как в V2. Причём не только в этой сцене, а везде»): 1 = the colour after the tone
+// as «Why тон» V2's tonemap_final makes it, the luminance V1's own (WhyCombine and the viewfinder set it, WhyTone.v2Colour): the hue
+// lock on blues only (V2's blue_weight; «Цвет»'s «full» lock means V2's, its «off» stays off), the per-channel clip of the graded
+// colour before and after the detail (V2's clamp, not the in-gamut chroma cut that held L and the locked hue), the colour clamped at
+// 0 in sRGB as V2's clean input (a P3 output too), the pixel's own colour on the full grid (V2's resolution) at the B-spline's
+// luminance, AgX's saturation on the graded colour as V2's, and V1's own lightness changes after the tone (the merge's detail, the
+// highlight detail and local contrast) taking the colour V2's tone gives that lightness. The V1-only colour stages (signed
+// hue, YELLOW_HUE, LIGHT_WARM, LIGHT_CHROMA, HL_NEUTRAL, the path to white, the darkening delta's chroma) are left off by WhyTone.
+// 0 = the shader before P676, token for token.
+#define V2_COLOUR 0
 #import interpolation
 uniform sampler2D InputBuffer;      // full-size white-balanced linear camera RGB (the merge after denoising)
 uniform sampler2D GainMap;          // lens shading gains
@@ -222,6 +235,27 @@ uniform sampler2D WhyColour;        // colour source (whyLow after bracket_dn, o
 uniform sampler2D WhyFused;         // fused display luma (.r), whyLow size
 uniform sampler2D WhyDetailRef;     // detailRefU 1: box mean of min(m * Y709, 1) (.r), whyLow size (why/low.glsl DETAIL_REF)
 uniform sampler2D WhyLumaS;         // sharpU 1: S(Ya) of WhyLumaSharpen (.r), output grid
+// P671 (speed, Adreno 650: the photo's combine ~70 ns a pixel): the one-channel windows of the photo (the 4 x 4 B-spline taps of
+// WhyFused and WhyDetailRef, the edge hold's 3 x 3 scene luma and 5 x 5 WhyLumaS range) read as 2 x 2 textureGather blocks - the
+// same texels (CLAMP_TO_EDGE textures of the clamped grid's size), the same sums in the same order: 61 reads become 21. The
+// photo only (WhyCombine; scam_dev why_gather_taps 0: the single reads as before; the viewfinder never sets it).
+#define GATHER_TAPS 0
+#if GATHER_TAPS == 1
+// the 2 x 2 block whose top-left texel is p: .w (p), .z (p + (1, 0)), .x (p + (0, 1)), .y (p + (1, 1)) - out-of-range texels are
+// the edge's (CLAMP_TO_EDGE), as texelFetch at the clamped position
+vec4 gather2(sampler2D t, ivec2 p) {
+    return textureGather(t, (vec2(p) + 1.0) / vec2(textureSize(t, 0)));
+}
+// the 4 x 4 window from p - 1: v[row * 4 + col]
+void gather4x4(sampler2D t, ivec2 p, out float v[16]) {
+    for (int j = 0; j < 2; j++)
+        for (int i = 0; i < 2; i++) {
+            vec4 g = gather2(t, p + ivec2(2 * i - 1, 2 * j - 1));
+            int k = 8 * j + 2 * i;
+            v[k] = g.w; v[k + 1] = g.z; v[k + 4] = g.x; v[k + 5] = g.y;
+        }
+}
+#endif
 uniform mat3 sensorToIntermediate;
 uniform mat3 intermediateToSRGB;
 uniform vec3 neutralPointU;         // unset -> 1
@@ -252,6 +286,9 @@ uniform float chromaDnU;            // chroma denoise of strongly lifted pixels 
 uniform float clarityU;             // delta * (1 + clarity)
 uniform float flatProtectU;         // flat-area protection of the delta (0 = off)
 uniform float detailGainU;          // why_detail_gain; 0 (unset) = no detail
+#if DETAIL_SPLIT == 1
+uniform int detailSplitU;           // P672b: 1 = the sharpening's own delta as V2 adds it (sharpDelta), 2 = and the merge's detail by the curve's slope
+#endif
 uniform int detailRefU;             // 1: bounded, compression-scaled delta against WhyDetailRef; unset -> unbounded delta
 uniform int sharpU;                 // 1: the delta's luminance is WhyLumaS; unset -> the full-size merge
 uniform int fullInputU;             // P349: 1 = InputBuffer is the full-size image (not given back above 100 MP); 0 / unset: it may not be
@@ -725,12 +762,32 @@ float trenchAt(ivec2 xy, ivec2 size) {
 float edgeHold(float yD, ivec2 xy, ivec2 size, float m) {
     if (fullInputU != 1 || edgeHoldU <= 0.0) return yD;
     float lo = 2.0, hi = 0.0;   // (min(m * Y, 1): never above 1)
+#if GATHER_TAPS == 1
+#if EDGE_LUMA_CACHE == 1
+    float sy[16];               // the 3 x 3 scene luma at sy[(dy + 1) * 4 + dx + 1] (the cache is the merge's size)
+    gather4x4(WhySceneY, xy, sy);
+    for (int dy = -1; dy <= 1; dy++)
+        for (int dx = -1; dx <= 1; dx++) {
+            float v = min(sy[(dy + 1) * 4 + dx + 1] * m, 1.0);
+            lo = min(lo, v);
+            hi = max(hi, v);
+        }
+#else
     for (int dy = -1; dy <= 1; dy++)
         for (int dx = -1; dx <= 1; dx++) {
             float v = min(sceneY(xy + ivec2(dx, dy), size) * m, 1.0);
             lo = min(lo, v);
             hi = max(hi, v);
         }
+#endif
+#else
+    for (int dy = -1; dy <= 1; dy++)
+        for (int dx = -1; dx <= 1; dx++) {
+            float v = min(sceneY(xy + ivec2(dx, dy), size) * m, 1.0);
+            lo = min(lo, v);
+            hi = max(hi, v);
+        }
+#endif
     float w = edgeHoldU * smoothstep(0.10, 0.25, cbrtp(hi) - cbrtp(lo));
     // P623 round 7 (owner, 2026-11-11, 140521: the rear-window sticker «1941-1945» still mushy - strokes merging, the digits' holes
     // filled): the average along the tangent ran over every strong edge, and on small text (2 px strokes, a 1 - 2 px hole in a 9) the
@@ -745,8 +802,18 @@ float edgeHold(float yD, ivec2 xy, ivec2 size, float m) {
     float gx = 0.0, gy = 0.0;
     for (int k = -1; k <= 1; k++) {
         float c = k == 0 ? 2.0 : 1.0;
+#if GATHER_TAPS == 1
+#if EDGE_LUMA_CACHE == 1
+        gx += c * (sy[(k + 1) * 4 + 2] - sy[(k + 1) * 4]);
+        gy += c * (sy[8 + k + 1] - sy[k + 1]);
+#else
         gx += c * (sceneY(xy + ivec2(1, k), size) - sceneY(xy + ivec2(-1, k), size));
         gy += c * (sceneY(xy + ivec2(k, 1), size) - sceneY(xy + ivec2(k, -1), size));
+#endif
+#else
+        gx += c * (sceneY(xy + ivec2(1, k), size) - sceneY(xy + ivec2(-1, k), size));
+        gy += c * (sceneY(xy + ivec2(k, 1), size) - sceneY(xy + ivec2(k, -1), size));
+#endif
     }
     float gl = length(vec2(gx, gy));
     float ys = yD;
@@ -773,12 +840,25 @@ float edgeHold(float yD, ivec2 xy, ivec2 size, float m) {
 vec2 lumaSRange(ivec2 xy) {
     ivec2 last = textureSize(WhyLumaS, 0) - ivec2(1);
     float lo = 2.0, hi = 0.0;
+#if GATHER_TAPS == 1
+    for (int j = 0; j < 3; j++)
+        for (int i = 0; i < 3; i++) {
+            vec4 g = gather2(WhyLumaS, xy + ivec2(2 * i - 2, 2 * j - 2));
+            // the 2 x 2 block at (2i - 2, 2j - 2): its right column and bottom row lie outside the 5 x 5 window for i or j = 2
+            float a = max(g.w, 0.0), b = max(g.z, 0.0), c = max(g.x, 0.0), d = max(g.y, 0.0);
+            lo = min(lo, a); hi = max(hi, a);
+            if (i < 2) { lo = min(lo, b); hi = max(hi, b); }
+            if (j < 2) { lo = min(lo, c); hi = max(hi, c); }
+            if (i < 2 && j < 2) { lo = min(lo, d); hi = max(hi, d); }
+        }
+#else
     for (int dy = -2; dy <= 2; dy++)
         for (int dx = -2; dx <= 2; dx++) {
             float v = max(texelFetch(WhyLumaS, clamp(xy + ivec2(dx, dy), ivec2(0), last), 0).r, 0.0);
             lo = min(lo, v);
             hi = max(hi, v);
         }
+#endif
     return vec2(lo, hi);
 }
 #endif
@@ -847,6 +927,25 @@ float toneCurve(float x) {
     int i = min(int(f), 254);
     return mix(curveSample(i), curveSample(i + 1), f - float(i));
 }
+#if DETAIL_SPLIT == 1
+// P672b: the own curve's OKLab lightness of a grey at the curve's coordinate n (graded cur^2.4, L = cur^0.8), and its slope
+// dL / dln Y where it gives the lightness L (n by bisection; the curve rises): V2's tone scale of a pixel's own detail
+float toneLn(float n) {
+    float c = toneCurve(n);
+    if (curveBoostU > 0.0001) c = clamp(c + curveContrast(n) * curveBoostU, 0.0, 1.0);
+    return pow(max(c, 0.0), 0.8);
+}
+float toneSlopeAt(float L) {
+    float lo = 0.0, hi = 1.0;
+    for (int i = 0; i < 14; i++) {
+        float m = 0.5 * (lo + hi);
+        if (toneLn(m) < L) lo = m; else hi = m;
+    }
+    float n = 0.5 * (lo + hi);
+    float a = max(n - 0.01, 0.0), b = min(n + 0.01, 1.0);
+    return (toneLn(b) - toneLn(a)) / max(b - a, 0.000001) * 0.1 / 0.6931472;
+}
+#endif
 #endif
 
 // Exact quadratic inverse of the kernel's ACES curve, pre-gain 1.5, a 2.51, d 0.59 [:987-1004].
@@ -1147,6 +1246,52 @@ float tpdf(ivec2 p) {
 }
 #endif
 
+#if V2_COLOUR == 1
+// P676: the graded colour of the tone below (the inset, the curve / ACES / Uchimura / AgX per channel, the outset, AgX's saturation,
+// the per-channel clip) of a scene colour: V2's colour of the light V1's own lightness stands for (see main)
+vec3 v2Graded(vec3 scene, vec4 agxA, vec4 agxB, int look) {
+    vec3 ins = max(vec3(0.842479062253094 * scene.r + 0.0784335999999992 * scene.g + 0.0792237451477643 * scene.b,
+                        0.0423282422610123 * scene.r + 0.8784686364697720 * scene.g + 0.0791661274605434 * scene.b,
+                        0.0423756549057051 * scene.r + 0.0784336000000000 * scene.g + 0.8791429737931040 * scene.b), vec3(0.0));
+#if AGX_INSET == 1
+    ins = max(insetA() * scene, vec3(0.0));
+#endif
+    vec3 d;
+#if TONE_OP == 1
+    if (toneOpU == 3) {
+        vec3 nx = clamp(vec3(0.5) + log2(max(ins, vec3(0.0000001)) / 0.18) * 0.1, 0.0, 1.0);
+        vec3 c = vec3(toneCurve(nx.r), toneCurve(nx.g), toneCurve(nx.b));
+        if (curveBoostU > 0.0001) c = clamp(c + vec3(curveContrast(nx.r), curveContrast(nx.g), curveContrast(nx.b)) * curveBoostU, 0.0, 1.0);
+        d = pow(max(c, vec3(0.0)), vec3(2.4));
+    } else {
+        d = clamp(toneOpU == 2 ? vec3(toneUchimura(ins.r), toneUchimura(ins.g), toneUchimura(ins.b))
+                               : vec3(toneAces(ins.r), toneAces(ins.g), toneAces(ins.b)), 0.0, 1.0);
+    }
+#else
+    float range = max(agxB.y + max(agxB.z, 0.0) - agxB.x, 1.0);
+    float px = clamp(-agxB.x / range, 0.05, 0.95);
+    vec3 lg = clamp((log2(max(ins, vec3(0.0000001)) / 0.18) + agxB.z - agxB.x) / range, 0.0, 1.0);
+    vec3 cur = vec3(agxTonescale(lg.r, agxA.x, agxA.y, agxA.z, px), agxTonescale(lg.g, agxA.x, agxA.y, agxA.z, px),
+                    agxTonescale(lg.b, agxA.x, agxA.y, agxA.z, px));
+    if (look == 3) {
+        cur.r = pow(max(cur.r, 0.0), 0.96);
+        cur.b = pow(max(cur.b, 0.0), 1.04);
+    }
+    d = pow(max(cur, vec3(0.0)), vec3(2.4));
+#endif
+    vec3 g = vec3(1.19687902425835 * d.r - 0.09802088114013 * d.g - 0.09902975707567 * d.b,
+                  -0.05289685400450 * d.r + 1.15190312998791 * d.g - 0.09896117934484 * d.b,
+                  -0.05297163539640 * d.r - 0.09804337634422 * d.g + 1.15107253721836 * d.b);
+#if AGX_INSET == 1
+    g = insetFix(g);
+#endif
+#if TONE_OP == 0
+    if (abs(agxA.w - 1.0) > 0.001) g = vec3(dot(g, LUMA)) + (g - vec3(dot(g, LUMA))) * agxA.w;
+#endif
+    return clamp(g, 0.0, 1.0);
+}
+#endif
+
 void main() {
 #if RAW_SOURCE == 1
     // P365: the tone grid is the viewport (drawn on the screen at its origin, or into the tone target at 0, 0); the frame
@@ -1279,6 +1424,26 @@ void main() {
         vec4 wx = bsplineWeights(fx), wy = bsplineWeights(fy);
         ivec2 lastLow = textureSize(WhyLow, 0) - ivec2(1);
         ivec2 lastFused = textureSize(WhyFused, 0) - ivec2(1);
+#if GATHER_TAPS == 1
+        // P671: the same loop, WhyFused and WhyDetailRef from four textureGather blocks each
+        float fusedT[16], refT[16];
+        gather4x4(WhyFused, ivec2(bx, by), fusedT);
+        if (bounded) gather4x4(WhyDetailRef, ivec2(bx, by), refT);
+        for (int dy = -1; dy <= 2; dy++) {
+            for (int dx = -1; dx <= 2; dx++) {
+                float w = wx[dx + 1] * wy[dy + 1];
+                ivec2 p = ivec2(bx + dx, by + dy);
+                fused += max(fusedT[(dy + 1) * 4 + dx + 1], 0.0) * w;
+                vec3 lowTap = texelFetch(WhyLow, clamp(p, ivec2(0), lastLow), 0).rgb;
+                yLow += max(dot(lowTap, LUMA), 0.000001) * w;
+                if (bounded) {
+                    yRef += max(refT[(dy + 1) * 4 + dx + 1], 0.000001) * w;
+                    lightW += lightShare(lowTap, refDomain) * w;
+                }
+                if (bounded) brightMax = max(brightMax, dot(max(lowTap, vec3(0.0)), LUMA) * ae);   // (as below)
+            }
+        }
+#else
         for (int dy = -1; dy <= 2; dy++) {
             for (int dx = -1; dx <= 2; dx++) {
                 float w = wx[dx + 1] * wy[dy + 1];
@@ -1293,6 +1458,7 @@ void main() {
                 if (bounded) brightMax = max(brightMax, dot(max(lowTap, vec3(0.0)), LUMA) * ae);
             }
         }
+#endif
         gridPos(xy.x, fc, bx, fx);
         gridPos(xy.y, fc, by, fy);
         wx = bsplineWeights(fx);
@@ -1317,6 +1483,24 @@ void main() {
 #endif
     }
 
+#if V2_COLOUR == 1
+    // P676: V2's colour resolution - the pixel's own colour (why/v2_clean: max(0, CCM x camera RGB) on the full grid) at the
+    // luminance of the B-spline colour, the base the tone's gain is taken against (V1's lightness as before); the B-spline colour
+    // stays where the two lie 8 .. 16 x apart (a lone dark pixel by a light). The 4 x 4 B-spline of whyLow rendered a textured
+    // area's mean colour at its mean light: grass x1.03 - 1.05 of V2's chroma at the same lightness.
+    if (f != 1 && fullInputU == 1) {
+        vec3 own = max(sceneLinear(xy, size), vec3(0.0));
+        float yOwn = dot(own, LUMA), yBase = max(dot(orig, LUMA), 0.0);
+        if (yOwn > 1.0e-7 && yBase > 1.0e-7) {
+            float r = yBase / yOwn;
+            orig = mix(orig, own * r, 1.0 - smoothstep(8.0, 16.0, max(r, 1.0 / r)));
+            origS = orig;
+        }
+    }
+#if P3_OUT == 1
+    orig = max(origS, vec3(0.0));   // P676: V2's clean input (max(0, CCM x camera RGB)), not the P3 gamut's clamp
+#endif
+#endif
 #if WHY_STOP == 1
     Output = vec4(clamp(orig, 0.0, 1.0), 1.0); return;   // P497: diagnostic cut (scam_dev why_combine_stop)
 #endif
@@ -1477,6 +1661,14 @@ void main() {
 
     // === 3. detail of the full-size merge (delta), applied after the tone ===
     float delta = 0.0;
+#if DETAIL_SPLIT == 1
+    // P672b: the detail split as «Why тон» V2's tonemap_final carries it - the merge's own full-size detail (the unsharpened luma
+    // against the fused base) through the tone below, and what the sharpening added (cbrt of the sharpened luma - cbrt of the
+    // unsharpened, V2's clamp -min(0.035, L / 4) .. 0.05) onto the lightness as it is: no compression, no gain, V2's highlight fade.
+    // Before it the whole sharpened delta took the tone's compression (its square on brightening): the sharpening - and the grain
+    // it lifts - in the shadows a half to a third of V2's at the same lightness.
+    float sharpDelta = 0.0;
+#endif
 #if FILM_SIM == 1
     float filmDelta = 0.0;
 #endif
@@ -1484,6 +1676,9 @@ void main() {
     float sharpTone = sharpU == 1 && sharpToneU > 0.0 ? sharpToneU : 1.0;
     if (detailGainU != 0.0) {
         float yS = sharpU == 1 ? max(texelFetch(WhyLumaS, xy, 0).r, 0.0) : 0.0;
+#if DETAIL_SPLIT == 1
+        float yS0 = yS;
+#endif
 #if EDGE_HOLD == 1
         if (sharpU == 1 && bounded) yS = edgeHold(yS, xy, size, refDomain);   // P394
 #endif
@@ -1495,6 +1690,15 @@ void main() {
         } else if (bounded) {
             // bounded like the kernel's a3: min(m * Y, 1) (or its sharpened S) against the B-spline of its box mean
             lRef = cbrtp(max(yRef, 0.000001));
+#if DETAIL_SPLIT == 1
+            if (detailSplitU >= 1 && sharpU == 1 && fullInputU == 1) {
+                // the unsharpened luma in WhyLumaS's domain (why/sharp_in: min(m Y, 1)) carries the merge's own detail
+                float yU = clamp(dot(sceneLinear(xy, size), LUMA) * refDomain, 0.0, 1.0);
+                float lU = cbrtp(max(yU, 0.000001));
+                sharpDelta = clamp(cbrtp(max(yS0, 0.000001)) - lU, -min(0.035, lU * 0.25), 0.050);
+                yS = yU;
+            }
+#endif
             float yD = sharpU == 1 ? yS : min(yFull * ae, 1.0);
             delta = cbrtp(max(yD, 0.000001)) - lRef;
             // P311: beside a clipped light, against the side of the neighbourhood that is not the light
@@ -1841,6 +2045,9 @@ void main() {
 #else
     vec3 scene = max(fromOklab(lab), vec3(0.0));
 #endif
+#if V2_COLOUR == 1
+    scene = max(fromOklab(lab), vec3(0.0));   // P676: V2's rgb_scene, max(0) in sRGB (a P3 output too)
+#endif
 #if COLOUR_LOOK == 1
     if (gamutU > 0.0) {
 #if P3_OUT == 1
@@ -1952,6 +2159,9 @@ void main() {
 #if AGX_INSET == 1
     ins = max(insetA() * scene, vec3(0.0));
 #endif
+#if V2_COLOUR == 1
+    vec3 sceneT = scene;   // P676: the tone's input, for the colour of V1's own lightness below
+#endif
 #if TONE_OP == 1
     vec3 graded;
     if (toneOpU == 3) {
@@ -1993,6 +2203,10 @@ void main() {
 #if AGX_INSET == 1
     graded = insetFix(graded);
 #endif
+#if V2_COLOUR == 1
+    // P676: V2's AgX saturation, on the outset colour before its clip (tonemap_final eff_sat)
+    if (abs(agxA.w - 1.0) > 0.001) graded = vec3(dot(graded, LUMA)) + (graded - vec3(dot(graded, LUMA))) * agxA.w;
+#else
 #if WHY_VIBRANCE == 0
     if (abs(agxA.w - 1.0) > 0.001) {
         float ol = dot(graded, LUMA);
@@ -2006,13 +2220,19 @@ void main() {
     }
 #endif
 #endif
+#endif
     // In gamut by chroma, not per channel: a channel of a saturated light over 1 would otherwise stop its brightening.
+#if V2_COLOUR == 1
+    // P676: per channel, as V2's graded_lin = clamp(rgb_out, 0, 1) (the in-gamut cut held L and turned a saturated yellow's hue)
+    graded = clamp(graded, 0.0, 1.0);
+#else
 #if P3_OUT == 1
     vec3 gradedLab = toOklab(max(graded, vec3(0.0)));
     gradedLab.yz *= chromaBack;
     graded = signedW > 0.0 ? fromOklabInGamutP3Soft(gradedLab, signedW) : fromOklabInGamutP3(gradedLab);
 #else
     graded = signedW > 0.0 ? fromOklabInGamutSoft(toOklab(max(graded, vec3(0.0))), signedW) : fromOklabInGamut(toOklab(max(graded, vec3(0.0))));
+#endif
 #endif
 
     // === hue lock and post-tone detail [:1763-1802] ===
@@ -2121,7 +2341,11 @@ void main() {
 #if LIGHT_WARM == 1
         if (hueLockU == 0) locked = lightWarm(post, hueDir, xy, size);
 #endif
+#if V2_COLOUR == 1
+        post.yz = mix(post.yz, locked, clamp(-hueDir.y, 0.0, 1.0));   // P676: V2's lock (blues only) for «full» and «blues»
+#else
         post.yz = hueLockU == 1 ? mix(post.yz, locked, clamp(-hueDir.y, 0.0, 1.0)) : locked;
+#endif
     }
     // grading: OKLab offsets of shadows / mid-tones / highlights by display lightness (zones around 0.5 - balance / 4)
     if (gradeAU != vec4(0.0) || gradeBU.xy != vec2(0.0)) {
@@ -2133,20 +2357,41 @@ void main() {
         post.yz += (gradeAU.xy * wSh + gradeAU.zw * wMid + gradeBU.xy * wHl) * (1.0 - skinU.x * skinW);
     }
 #else
+#if V2_COLOUR == 1
+    // P676: V2's hue lock - the scene's hue kept by its blue share (blue_weight = -b / C), the other hues as the tone turns them
+    if (look != 3 && inChroma > 0.000001) post.yz = mix(post.yz, length(post.yz) * hueDir, clamp(-hueDir.y, 0.0, 1.0));
+#else
 #if LIGHT_WARM == 1
     if (look != 3 && inChroma > 0.000001) post.yz = lightWarm(post, hueDir, xy, size);
 #else
     if (look != 3 && inChroma > 0.000001) post.yz = length(post.yz) * hueDir;
 #endif
 #endif
+#endif
     if (lRef > 0.0) {
         // Where the tone compresses (Bento roll-off, fusion darkening, AgX shoulder: L_base below the cube-root
         // reference) the delta is scaled down with it; lifted shadows and mid-tones (ratio >= 1) keep the full delta.
         float compression = min(1.0, post.x / (lRef * (sharpTone != 1.0 ? cbrtp(sharpTone) : 1.0)));
+#if DETAIL_SPLIT == 1
+        if (detailSplitU == 2) {
+            // P672b: V2's scale of the merge's own detail - tonemap_final multiplies the full-size pixel by the tone's gain and runs
+            // it through the curve, so its detail takes the curve's slope at the toned level both ways: dL = dL/dlnY x 3 d(cbrt Y)
+            // / cbrt Y (no cap at 1, the same for darkening and brightening); with ACES / Uchimura / AgX the lift alone
+            float scale = post.x / (lRef * (sharpTone != 1.0 ? cbrtp(sharpTone) : 1.0));
+#if TONE_OP == 1
+            if (toneOpU == 3) scale = 3.0 * toneSlopeAt(post.x) / max(lRef, 0.0001);
+#endif
+            compression = clamp(scale, 0.0, 8.0);
+        }
+#endif
         // P341 (owner, 2026-10-26: «на 31148 есть ступенька, а на новой нет»): a darkening delta scales with the compression, not
         // its square. A ladder rung 10 x darker than the sun's glow around it (2 - 4 x white, compressed ~0.3) kept 9 % of its
         // detail and read as glow; the fused base carries it only at half size. Brightening detail keeps the square (no
         // white rims around lights).
+#if DETAIL_SPLIT == 1
+        if (detailSplitU == 2) delta *= compression;
+        else
+#endif
 #if SKY == 1
         // P378 (M1): in the clear sky brightening detail scales with the compression as darkening detail does (no light there to
         // draw a white rim round)
@@ -2159,11 +2404,29 @@ void main() {
     delta *= max(1.0 - faceBU.y * faceM, 0.0) * (1.0 + faceBU.z * faceM);   // P512: the skin's smoothing and detail
 #endif
     float lBefore = post.x;
+#if V2_COLOUR == 1
+    // P676: the tone's own lightness and colour (after the hue lock): V1's lightness changes below take V2's colour of the light
+    vec3 postT = post;
+    float sharpL = 0.0;   // the sharpening's share of the lightness: V2 adds it after its tone, the colour unchanged
+#endif
+#if DETAIL_SPLIT == 1
+    // P672b: the sharpening's own delta with V2's highlight fade (1 - smoothstep(0.75, 1.0, L) x 0.5, of the lightness before it)
+    float sharpFade = sharpDelta * (1.0 - smoothstep(0.75, 1.0, post.x) * 0.5);
+#endif
 #if SKY == 1
     // P378 (M1): the clear sky's detail is not halved towards white (the clouds' tops: 1.8x flatter than the reference's)
     post.x = clamp(post.x + delta * (1.0 - smoothstep(0.75, 1.0, post.x) * 0.5 * (1.0 - skyModel)), 0.0001, 1.0);
 #else
     post.x = clamp(post.x + delta * (1.0 - smoothstep(0.75, 1.0, post.x) * 0.5), 0.0001, 1.0);
+#endif
+#if DETAIL_SPLIT == 1
+#if V2_COLOUR == 1
+    sharpL = post.x;
+#endif
+    post.x = clamp(post.x + sharpFade, 0.0001, 1.0);
+#if V2_COLOUR == 1
+    sharpL = post.x - sharpL;
+#endif
 #endif
 #if HEADROOM_WIDE == 1
     // P216: the bounded reference (min(ae Y, 1)) gives no detail above white, and the colour / fusion grid is the 2 x 2 box:
@@ -2282,6 +2545,29 @@ void main() {
     }
 #endif
     if (deltaChromaU > 0.0 && post.x < lBefore) post.yz *= mix(1.0, post.x / max(lBefore, 0.0001), clamp(deltaChromaU, 0.0, 1.0));
+#if V2_COLOUR == 1
+    // P676: V2 carries the merge's own detail through its tone (the pixel's own light, per channel), V1 adds it to the lightness after
+    // the tone (its local contrast and highlight detail as well): a pixel V1 makes darker kept the chroma of its brighter base (dark
+    // texture x1.1 of V2's chroma at the same lightness), one it makes lighter that of its darker base. Here the colour follows the
+    // lightness as V2's tone renders it: the tone at the light that gives V1's lightness (without the sharpening's share, which V2
+    // adds after its tone with the colour unchanged) - a secant step on the exposure from the cube law - its chroma scaled to that
+    // lightness, the change against the tone's own colour added (the look's offsets kept)
+    {
+        float lT = clamp(post.x - sharpL, 0.0001, 1.0);
+        if (inChroma > 0.000001 && abs(lT - postT.x) > 0.0005 && postT.x > 0.0005) {
+            float x1 = clamp(3.0 * log(lT / postT.x), -3.0, 3.0);
+            vec3 g1 = toOklab(v2Graded(sceneT * exp(x1), agxA, agxB, look));
+            float x2 = abs(g1.x - postT.x) > 0.0001 ? clamp(x1 * (lT - postT.x) / (g1.x - postT.x), -4.0, 4.0) : x1;
+            vec3 g2 = toOklab(v2Graded(sceneT * exp(x2), agxA, agxB, look));
+            float lockW = look != 3 ? clamp(-hueDir.y, 0.0, 1.0) : 0.0;
+#if COLOUR_LOOK == 1
+            if (hueLockU == 2) lockW = 0.0;
+#endif
+            vec2 ab = mix(g2.yz, length(g2.yz) * hueDir, lockW) * clamp(lT / max(g2.x, 0.0001), 0.5, 2.0);
+            post.yz += ab - postT.yz;
+        }
+    }
+#endif
 #if FACE_MASK == 1
     // P512: the face's own tone and colour: exposure in L (~Y^(1/3)), contrast round L 0.62 (skin's place), saturation, warmth (b) and
     // tint (a) in proportion to L; the mask shown in red on demand
@@ -2314,10 +2600,14 @@ void main() {
         }
     }
 #endif
+#if V2_COLOUR == 1
+    graded = clamp(fromOklab(post), 0.0, 1.0);   // P676: V2's final_graded, per channel
+#else
 #if P3_OUT == 1
     graded = signedW > 0.0 ? fromOklabInGamutP3Soft(post, signedW) : fromOklabInGamutP3(post);
 #else
     graded = signedW > 0.0 ? fromOklabInGamutSoft(post, signedW) : fromOklabInGamut(post);
+#endif
 #endif
 #if HL_NEUTRAL == 1
     if (neutralW > 0.0) graded = mix(graded, vec3(max(graded.r, max(graded.g, graded.b))), neutralW);   // P398
@@ -2465,6 +2755,7 @@ void main() {
         }
     }
 #endif
+#if V2_COLOUR == 0
 #if WHY_VIBRANCE == 1
 #if TONE_OP == 0
     // Apply the control once, including the landing's colour. RGB extrapolation before the gamut cut lifted lightness
@@ -2511,6 +2802,7 @@ void main() {
         outRgb = encG(max(satLin, vec3(0.0)));
 #endif
     }
+#endif
 #endif
 #endif
 #if HL_MEASURED == 1

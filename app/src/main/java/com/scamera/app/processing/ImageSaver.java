@@ -68,6 +68,8 @@ public class ImageSaver {
     public int fullResSeries, fullResRequested;
     /** P320: the shot's frames come from a DCG sensor mode (Dcg14Mode.active at the press). */
     public boolean dcgShot;
+    /** P679: the shot's frames are Xiaomi 17 Ultra LOFIC pairs (each Long frame carries its Short read, ImageFrame.lofic). */
+    public boolean loficShot;
     /** P212f (W2 = M3): the hand-set white balance's gains at the press (null: automatic). */
     public RggbChannelVector manualWbAtPress;
     /** P212g (W6 = M6): the mosaic white balance's route at the press (MosaicNeutralResolver; null: none). */
@@ -129,6 +131,7 @@ public class ImageSaver {
         saver.ownedFullResSeries = fullResSeries;
         saver.ownedFullResRequested = fullResRequested;
         saver.ownedDcgShot = dcgShot;
+        saver.ownedLoficShot = loficShot;
         saver.ownedManualWb = manualWbAtPress;
         saver.ownedMosaicWb = mosaicWbAtPress;
         saver.ownedZoomResidual = zoomResidual;

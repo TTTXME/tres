@@ -186,6 +186,8 @@ uniform float green_clipping_point;
 uniform vec4 frame_border_padded;
 uniform vec4 covariance_parameters1;
 uniform vec4 covariance_parameters2;
+uniform vec4 u_day_shade; // P666: the day transition (x) / blurred (y) factors the shadows undo over the guide's luma z .. w (x 0: off)
+float g_shade = 0.0;      // P666: this pixel's share of that undo (0 lit .. 1 deep shade)
 uniform vec4 force_reference_color_rgb;
 uniform vec4 debug_options;
 uniform vec4 noise_texture_scale_bias;
@@ -286,6 +288,7 @@ void AnalyzeStructureTensor(in vec3 cov_m,
 float ComputeGradientBlurring(in float strength, in float green_differences) {
   float gradient_clip = covariance_parameters1.z;
   float gradient_transition = covariance_parameters2.y;
+  if (g_shade > 0.0) { float t = mix(1.0, u_day_shade.x, g_shade); gradient_clip /= t; gradient_transition *= t; }
   float dominant_feature = max(strength, green_differences);
   dominant_feature -= gradient_clip;
   float lerp_to_radial = clamp(1.0 - dominant_feature * gradient_transition, 0.0, 1.0);
@@ -301,6 +304,7 @@ vec3 ConstructGaussianCovariance(in vec2 eigenvector1, in vec2 eigenvector2,
   float shrinked_sigma = covariance_parameters1.x;
   float stretched_sigma = covariance_parameters1.y;
   float blurred_sigma = covariance_parameters2.x;
+  if (g_shade > 0.0) blurred_sigma *= mix(1.0, u_day_shade.y, g_shade);
 
   float anisotropic_shrinking = mix(base_sigma, shrinked_sigma, min(coherence, strength * 5.0));
   float singular_value1 = mix(anisotropic_shrinking, blurred_sigma, gradient_blurring);
@@ -419,6 +423,7 @@ void main() {
 
   vec2 eigenvector1, eigenvector2;
   float strength, coherence;
+  if (u_day_shade.x > 0.0) g_shade = 1.0 - smoothstep(u_day_shade.z, u_day_shade.w, mean.x); // P666
   AnalyzeStructureTensor(covariance, noise_params.y, eigenvector1, eigenvector2, strength, coherence);
 
   vec3 gauss_covariance = ConstructGaussianCovariance(eigenvector1, eigenvector2, strength, coherence, green_differences);
@@ -2095,6 +2100,22 @@ uniform sampler2D alt_flow_texture;
 uniform sampler2D unblocker_texture;
 uniform sampler2D gain_texture;
 uniform sampler2D offset_texture;
+#ifdef NIGHT_MOTION
+// P675 (fastNightMotion; kFastRejection compiled with NIGHT_MOTION): the night motion test. ComputeFrameRejection measures a
+// difference against max(the guide's local deviation, the noise): at night that deviation is the noise of single sites, ~5x the
+// noise of a guide difference, and the boost needs a deviation 25x the floor, so a mover within a few sigma passes in every donor
+// and the donors' weights add up. Here the luma differences of the 3 x 3 guide pixels around (the donor's at the pixel's flow) are
+// each taken over the noise of a guide difference at their level (u_nm2.x x the base model) + u_nm2.y x the base's texture (its
+// local variance above u_nm2.z x the noise) + (u_nm2.w x the level)^2 (a slow brightness drift); their mean without the largest
+// is ~0.5 on a static area. Above the threshold 1 + u_nm.y (+ u_nm3.x x the donor's own level above u_nm3.y) the excess x u_nm.x
+// is a rejection distance (the larger of the two counts).
+uniform vec4 u_nm;  // x: strength, y: threshold over 1, z: sample step (HALF px)
+uniform vec4 u_nm2; // x: noise factor, y: texture factor, z: the noise share of the texture, w: relative floor
+uniform vec4 u_nm3; // x: the level's factor, y: the level of an aligned donor, z: the level texture's last mip, w: its size
+uniform vec4 u_nm4; // the pixel SNR where the test is whole (x) and gone (y), the donor level where it is whole (z) and gone (w)
+uniform int u_nm_pass; // 1: the level pass (min(statistic, 8) on a u_nm3.w x u_nm3.w grid over the frame)
+uniform sampler2D u_nm_level;
+#endif
 
 vec2 MirrorUVs(in vec2 sampl_uv) {
   if (sampl_uv.x <= frame_border_padded.x) {
@@ -2143,6 +2164,56 @@ vec4 SampleBicubicAbsolute(in sampler2D tex, in vec2 uv, in vec4 texelSize) {
   return g0.y * (g0.x * abs(texture(tex, p0)) + g1.x * abs(texture(tex, p1))) +
          g1.y * (g0.x * abs(texture(tex, p2)) + g1.x * abs(texture(tex, p3)));
 }
+
+#ifdef NIGHT_MOTION
+// the statistic at HALF pixel p, the donor sampled around warped_uv (its flow, not mirrored); a sample whose base pixel or donor
+// position is outside the frame (no mirrored content) or clipped (the guide's forced 10000, or a donor sample blended with it) is
+// left out; fewer than 5: 0
+float NightMotionStat(in ivec2 p, in vec2 warped_uv) {
+  ivec2 mx = ivec2(tex_size.xy) - ivec2(1);
+  float t = 0.0, tmax = 0.0, n = 0.0;
+  for (int j = -1; j <= 1; ++j) {
+    for (int i = -1; i <= 1; ++i) {
+      ivec2 o = ivec2(vec2(float(i), float(j)) * u_nm.z);
+      ivec2 q = p + o;
+      vec2 u = warped_uv + vec2(o) * tex_size.zw;
+      if (any(lessThan(q, ivec2(0))) || any(greaterThan(q, mx)) || any(lessThan(u, frame_border_padded.xy)) ||
+          any(greaterThan(u, frame_border_padded.zw))) continue;
+      vec4 r = texelFetch(base_frame_guide_texture, q, 0);
+      float a = abs(texture(alt_frame_guide_texture, u).x);
+      float l = abs(r.x);
+      if (l > 100.0 || a > 100.0) continue;
+      // the variance of a square root near black (sqrt(max(0, x)) of a level within a few sigma): var / (4 I) above ~2 sigma,
+      // about sigma / 3.6 below
+      float vl = texture(noise_estimates_texture, vec2(l, 0.0) * noise_texture_scale_bias.xy + noise_texture_scale_bias.zw).x;
+      float sl = sqrt(max(vl, 1.0e-12));
+      float v = vl / max(4.0 * l * l - 2.0 * sl, 3.6 * sl);
+      float tex2 = max(r.w * r.w - u_nm2.z * v, 0.0);
+      float nv = max(u_nm2.x * v + u_nm2.y * tex2 + u_nm2.w * u_nm2.w * l * l, 1.0e-9);
+      float d = a - l;
+      float e = d * d / nv;
+      t += e; tmax = max(tmax, e); n += 1.0;
+    }
+  }
+  // (the largest sample left out: one noise spike does not make a mover)
+  return n < 4.5 ? 0.0 : (t - tmax) / (n - 1.0);
+}
+vec2 g_nm_uv = vec2(0.0); // the pixel's donor position before the mirror (main)
+float NightMotionDistance() {
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  // the donor's own level over the frame (the mean of min(statistic, 8) on a coarse grid, the level pass): a donor that differs
+  // from the base everywhere (a drifting frame the alignment misses, the scene's later frames) is held to that level and, from
+  // u_nm4.z to u_nm4.w, left to the rejection above alone - at night it still lowers the noise of the static areas
+  float level = textureLod(u_nm_level, vec2(0.5), u_nm3.z).x;
+  float thr = 1.0 + u_nm.y + u_nm3.x * max(level - u_nm3.y, 0.0);
+  // the pixel's own SNR (its linear level over the noise there): a bright light at night keeps ComputeFrameRejection's
+  float lc = abs(texelFetch(base_frame_guide_texture, p, 0).x);
+  float vc = texture(noise_estimates_texture, vec2(lc, 0.0) * noise_texture_scale_bias.xy + noise_texture_scale_bias.zw).x;
+  float gate = (1.0 - smoothstep(u_nm4.x, u_nm4.y, lc * lc / sqrt(max(vc, 1.0e-12)))) * (1.0 - smoothstep(u_nm4.z, u_nm4.w, level));
+  if (gate <= 0.0) return 0.0;
+  return gate * u_nm.x * max(NightMotionStat(p, g_nm_uv) - thr, 0.0);
+}
+#endif
 
 void ComputeFrameRejection(in vec2 reference_uv,
                             in vec2 current_uv,
@@ -2207,6 +2278,9 @@ void ComputeFrameRejection(in vec2 reference_uv,
   vec3 normalized_diff = excess_diff_sq / denom_var;
 
   float distance = dot(normalized_diff, vec3(1.0 / 3.0)) * kDistanceMultiplier * robustness_boost;
+#ifdef NIGHT_MOTION
+  if (!is_long_donor) distance = max(distance, NightMotionDistance());
+#endif
 
   frame_weight = exp2(min(-distance + kRejectionThreshold, 0.0));
   pixel_diff = exp2(min(-distance, 0.0));
@@ -2235,6 +2309,16 @@ void main() {
     rejection_motion_prior_region_detected = true;
   }
 
+#ifdef NIGHT_MOTION
+  if (u_nm_pass == 1) {
+    ivec2 lp = ivec2(gl_FragCoord.xy * tex_size.xy / u_nm3.w);
+    vec2 ltc = (vec2(lp) + 0.5) * tex_size.zw;
+    vec4 lflow = texture(alt_flow_texture, ltc * flow_scale_offset.xy + flow_scale_offset.zw);
+    o_rejection_and_diff = vec2(min(NightMotionStat(lp, ltc + lflow.xy), 8.0), 0.0);
+    return;
+  }
+  g_nm_uv = tex_coord + flow.xy;
+#endif
   float frame_weight;
   float pixel_diff;
   ComputeFrameRejection(tex_coord, warped_uv, rejection_motion_prior_region_detected, frame_weight, pixel_diff);
@@ -4444,6 +4528,8 @@ uniform float green_clipping_point;
 uniform vec4 frame_border_padded;
 uniform vec4 covariance_parameters1;
 uniform vec4 covariance_parameters2;
+uniform vec4 u_day_shade; // P666: the day transition (x) / blurred (y) factors the shadows undo over the guide's luma z .. w (x 0: off)
+float g_shade = 0.0;      // P666: this pixel's share of that undo (0 lit .. 1 deep shade)
 uniform vec4 force_reference_color_rgb;
 uniform vec4 debug_options;
 uniform vec4 noise_texture_scale_bias;
@@ -4539,6 +4625,7 @@ void AnalyzeStructureTensor(in vec3 cov_m,
 float ComputeGradientBlurring(in float strength, in float green_differences) {
   float gradient_clip = covariance_parameters1.z;
   float gradient_transition = covariance_parameters2.y;
+  if (g_shade > 0.0) { float t = mix(1.0, u_day_shade.x, g_shade); gradient_clip /= t; gradient_transition *= t; }
   float dominant_feature = max(strength, green_differences);
   dominant_feature -= gradient_clip;
   float lerp_to_radial = clamp(1.0 - dominant_feature * gradient_transition, 0.0, 1.0);
@@ -4554,6 +4641,7 @@ vec3 ConstructGaussianCovariance(in vec2 eigenvector1, in vec2 eigenvector2,
   float shrinked_sigma = covariance_parameters1.x;
   float stretched_sigma = covariance_parameters1.y;
   float blurred_sigma = covariance_parameters2.x;
+  if (g_shade > 0.0) blurred_sigma *= mix(1.0, u_day_shade.y, g_shade);
 
   float anisotropic_shrinking = mix(base_sigma, shrinked_sigma, min(coherence, strength * 5.0));
   float singular_value1 = mix(anisotropic_shrinking, blurred_sigma, gradient_blurring);
@@ -4774,6 +4862,7 @@ void main() {
 
   vec2 eigenvector1, eigenvector2;
   float strength, coherence;
+  if (u_day_shade.x > 0.0) g_shade = 1.0 - smoothstep(u_day_shade.z, u_day_shade.w, mean.x); // P666
   AnalyzeStructureTensor(covariance, noise_params.y, eigenvector1, eigenvector2, strength, coherence);
 
   vec3 gauss_covariance = ConstructGaussianCovariance(eigenvector1, eigenvector2, strength, coherence, green_differences);

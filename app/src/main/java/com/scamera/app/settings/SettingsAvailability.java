@@ -37,6 +37,11 @@ public final class SettingsAvailability {
     /** P646: the current module's lens merges YUV frames (capture.YuvMergeRoute: its «Склейка YUV» switch in the lens settings). */
     private boolean yuvMerge;
     private boolean rawViewfinder = true;
+    /**
+     * P676: «Why тон» V1 renders its colour by V2's rule (WhyTone.v2Colour; scam_dev.txt "hybrid_why_v2_colour 0": its own); a fact
+     * of the scam_dev file DeviceAvailability reads (this class alone: not told, the rows as before).
+     */
+    private boolean v1V2Colour;
     public SettingsAvailability(Map<String, ?> values) { this.values = values; }
     public SettingsAvailability rawViewfinder(boolean supported) { rawViewfinder = supported; return this; }
     /** The device fact behind «HEIC 10 бит»: the reason it is unavailable here (Android version, no Main10 / P010 encoder) or null. */
@@ -58,6 +63,8 @@ public final class SettingsAvailability {
     public SettingsAvailability mosaicStreams(boolean seen) { mosaicStreams = seen; return this; }
     /** The fact behind «Кадры светов: ширина ядра»: the highlight frames are blended after the merge (not with scam_dev bento_blend 0). */
     public SettingsAvailability bentoBlend(boolean on) { bentoBlend = on; return this; }
+    /** The fact behind «Путь к белому» / the darkening detail's chroma: V1 takes V2's colour rule (P676), which has neither. */
+    public SettingsAvailability v1V2Colour(boolean on) { v1V2Colour = on; return this; }
     public SettingsAvailability dcg(boolean on) { dcg = on; return this; }
     /** P646: the fact behind the YUV rows of «Шумоподавление и склейка»: the current module's lens has «Склейка YUV» on. */
     public SettingsAvailability yuvMerge(boolean on) { yuvMerge = on; return this; }
@@ -357,6 +364,10 @@ public final class SettingsAvailability {
         // P614: a row of the other «Why тон» version first (whatever else holds, it does not act on this one)
         final String version = toneVersionReason(key);
         if (version != null) return version;
+        // P676: V1's colour by V2's rule has no path to white and no chroma of the darkening detail
+        if (!toneV2() && v1V2Colour && any(key, WHY + "hl_white", WHY + "delta_chroma"))
+            return Lang.t("Тон V1 берёт цвет по правилу тона V2, где этого нет (scam_dev hybrid_why_v2_colour 0 — свой цвет V1, как раньше).",
+                    "Tone V1 takes its colour by tone V2's rule, which has none of this (scam_dev hybrid_why_v2_colour 0: V1's own colour, as before).");
         final String oldstyle = oldstyleRowReason(key);
         if (oldstyle != null) return oldstyle;
         // P646: a row of «Шумоподавление и склейка» the current lens's route (YUV or RAW) does not read

@@ -339,6 +339,14 @@ struct HybridTuning {
     // plain merge only. 0.5: the lamp crop (hand-held, leaves in the wind) -0.14 -> +0.07 % detail with its zipper within 2 % (1:
     // +0.35 % but the zipper +4 %)
     float kernelSnrWiden=0.5f;
+    // P666 (owner, 2026-11-13: «он сильно мылит тени»): the day side's wider bokeh and later texture / bokeh transition read the
+    // gradient of the sqrt-domain guide, which a shadow compresses (a texture's gradient ~ its contrast x sqrt(level)): in the
+    // shade by day they took bark, foliage, brick and fabric for flat. kernelSnrShadow 1: those two day factors fade back to 1 under
+    // the guide's quad luma kernelSnrShadowHi (sqrt units of white: 0.14 = 2 % of white), fully 1 at kernelSnrShadowLo (0.06 =
+    // 0.36 %); texture / across-edge factors, the night side and kernelSnr 0 as before. 0 = P647b's day factors everywhere (0.08 / 0.2
+    // kept the same shadows and gave back the lit half of a shade scene less of P647's detail)
+    int kernelSnrShadow=1;
+    float kernelSnrShadowLo=0.06f,kernelSnrShadowHi=0.14f;
     float widenBelow=4.f;        // base-frame kernel widening below this accumulated donor weight (6.1: 4.0)
     float widenMul=1.826f;       // 6.1: covariance x0.3 = sigma x1.826
     float kernelFloor=0.00005f;  // 6.1 kEpsilon: no hole where the kernel is narrower than the lattice
@@ -1237,6 +1245,9 @@ struct HybridTuning {
     // (kFastOutput fill, P497) only between two sides of recovered light (two opposite rays found it, or one and the frame's edge
     // the other) and never darker than the merged light; 0 = the fill everywhere it ran, as before
     float fastLightFill=1.f;
+    // P675 (owner, 2026-11-13: moving leaves and cars at night come out wrong in the merge): the fast route's night motion test
+    // (kFastRejection with NIGHT_MOTION; Bayer streams at SNR keys below 20) at this strength; 0 = the rejection as before
+    float fastNightMotion=1.f;
     // fastMergeSelect: the fast merge's frame selector (base frame by sharpness, donors vetted by translation / sharpness); 0 = frames[0]
     // the base, every normal frame a donor
     int fastMergeSelect=1;
@@ -1486,6 +1497,11 @@ struct HybridKernelFootprint {
     float texture=1.f,bokeh=1.f,transition=1.f;
     float edge=1.f; // P647: the kernel across edges (Sabre 6.1 k61a[0] / the fast route's shrink: p / edge; round 4: shrunk x edge)
     float lift=1.f; // P647: the fast route's packing range of the kernel precisions x lift (1 = the reference's range)
+    // P666: the automatic day transition / bokeh factors the shadows undo (HybridTuning::kernelSnrShadow; 1 = none) and the guide's
+    // quad luma over which they fade in (sqrt units)
+    float shadeT=1.f,shadeB=1.f,shadeLo=0.f,shadeHi=0.f;
+    bool shade()const{return (shadeT>1.f||shadeB>1.f)&&shadeHi>shadeLo;}
+    std::array<float,4> shade61()const{return shade()?std::array<float,4>{shadeT,shadeB,shadeLo,shadeHi}:std::array<float,4>{};}
     bool active()const{return texture!=1.f||bokeh!=1.f||transition!=1.f||edge!=1.f||lift!=1.f;}
     void apply61(std::array<float,4>& a,std::array<float,4>& b)const{
         if(edge!=1.f)a[0]/=edge;
@@ -1554,6 +1570,11 @@ inline HybridKernelFootprint hybridSnrFactors(const HybridTuning& t,float key,in
             f.texture=m(f.texture);f.bokeh=m(f.bokeh);f.transition=m(f.transition);f.edge=m(f.edge);f.lift=m(f.lift);
         }
     }
+    // P666: on the day side the shadows undo the wider transition / bokeh (the guide's quad luma under kernelSnrShadowHi)
+    if(t.kernelSnrShadow&&std::isfinite(k)&&k>t.kernelSnrPivot&&t.kernelSnrShadowHi>t.kernelSnrShadowLo&&(f.transition>1.f||f.bokeh>1.f)){
+        f.shadeT=std::max(f.transition,1.f);f.shadeB=std::max(f.bokeh,1.f);
+        f.shadeLo=std::max(t.kernelSnrShadowLo,0.f);f.shadeHi=t.kernelSnrShadowHi;
+    }
     return f;
 }
 // P647: the footprints a shot merges with: the user's (hybridKernelFootprint) x the automatic factors of its key with kernelSnr
@@ -1571,11 +1592,16 @@ inline HybridKernelFootprint hybridKernelFootprintSnr(const HybridTuning& t,floa
     HybridKernelFootprint f{std::clamp(u.texture*a.texture,0.25f,4.f),std::clamp(u.bokeh*a.bokeh,0.25f,4.f),std::clamp(u.transition*a.transition,0.25f,16.f)};
     f.edge=std::clamp(a.edge,0.25f,4.f);
     f.lift=a.lift;
+    f.shadeT=a.shadeT;f.shadeB=a.shadeB;f.shadeLo=a.shadeLo;f.shadeHi=a.shadeHi; // P666
     if(line){
         std::snprintf(buf,sizeof(buf),"SNR footprints: key %.2f (site %.2f x block %d%s, %d frames): texture x%.3f, bokeh x%.3f, transition x%.3f, across edges x%.3f%s (auto %.3f / %.3f / %.3f, user %.3f / %.3f / %.3f)",
                       key,siteKey,block==2||block==4?block:1,block==4?", Tetra: day side only":"",frames,f.texture,f.bokeh,f.transition,f.edge,
                       fast?(", packing range x"+std::to_string(f.lift).substr(0,5)).c_str():"",a.texture,a.bokeh,a.transition,u.texture,u.bokeh,u.transition);
         *line=buf;
+        if(f.shade()){
+            std::snprintf(buf,sizeof(buf),"; the shadows undo transition x%.3f / bokeh x%.3f under the guide's luma %.3f (none from %.3f)",f.shadeT,f.shadeB,f.shadeLo,f.shadeHi);
+            *line+=buf;
+        }
     }
     return f;
 }
@@ -1616,7 +1642,7 @@ inline HybridTuning loadHybridTuning(const std::string& jobDir,const std::functi
             ||set("filterVariance",&t.filterVariance)||set("dilateOffset",&t.dilateOffset)||set("dilateScale",&t.dilateScale)||set("dilateFloor",&t.dilateFloor)
             ||set("clipLevel",&t.clipLevel)||set("fwe",&t.fwe)||set("weightCap",&t.weightCap)||set("lutLo",&t.lutLo)||set("lutHi",&t.lutHi)
             ||set("lutHiSigma",&t.lutHiSigma)||set("kernelScale",&t.kernelScale)||set("kernelTexture",&t.kernelTexture)||set("kernelBokeh",&t.kernelBokeh)||set("kernelTransition",&t.kernelTransition)
-            ||set("kernelSnr",nullptr,&t.kernelSnr)||set("kernelSnrNight",&t.kernelSnrNight)||set("kernelSnrPivot",&t.kernelSnrPivot)||set("kernelSnrDay",&t.kernelSnrDay) // P647
+            ||set("kernelSnr",nullptr,&t.kernelSnr)||set("kernelSnrShadow",nullptr,&t.kernelSnrShadow)||set("kernelSnrShadowLo",&t.kernelSnrShadowLo)||set("kernelSnrShadowHi",&t.kernelSnrShadowHi)||set("kernelSnrNight",&t.kernelSnrNight)||set("kernelSnrPivot",&t.kernelSnrPivot)||set("kernelSnrDay",&t.kernelSnrDay) // P647
             ||set("kernelSnrDayTexture",&t.kernelSnrDayTexture)||set("kernelSnrDayBokeh",&t.kernelSnrDayBokeh)||set("kernelSnrDayTransition",&t.kernelSnrDayTransition)
             ||set("kernelSnrNightTexture",&t.kernelSnrNightTexture)||set("kernelSnrNightBokeh",&t.kernelSnrNightBokeh)||set("kernelSnrNightTransition",&t.kernelSnrNightTransition)
             ||set("kernelSnrFastNight",&t.kernelSnrFastNight)||set("kernelSnrDayEdge",&t.kernelSnrDayEdge)||set("kernelSnrDayTextureBayer",&t.kernelSnrDayTextureBayer)||set("kernelSnrDayTextureQuad",&t.kernelSnrDayTextureQuad)||set("kernelSnrDayTextureQuadFast",&t.kernelSnrDayTextureQuadFast)||set("kernelSnrDayEdgeQuadFast",&t.kernelSnrDayEdgeQuadFast)||set("kernelSnrDayTransitionBayer",&t.kernelSnrDayTransitionBayer)||set("kernelSnrDayEdgeBayerFast",&t.kernelSnrDayEdgeBayerFast)||set("kernelSnrDayFastLiftBayer",&t.kernelSnrDayFastLiftBayer)||set("kernelSnrFastBayerFrom",&t.kernelSnrFastBayerFrom)||set("kernelSnrFastBayerTo",&t.kernelSnrFastBayerTo)||set("kernelSnrDayFramesLo",&t.kernelSnrDayFramesLo)||set("kernelSnrDayFramesHi",&t.kernelSnrDayFramesHi)||set("kernelSnrWiden",&t.kernelSnrWiden)||set("widenBelow",&t.widenBelow)||set("widenMul",&t.widenMul)
@@ -1692,6 +1718,7 @@ inline HybridTuning loadHybridTuning(const std::string& jobDir,const std::functi
             ||set("mosaicQuadTextureNight",&t.mosaicQuadTextureNight) // P647
             ||set("fastFlowPick",nullptr,&t.fastFlowPick) // P601
             ||set("fastLightFill",&t.fastLightFill) // P607
+            ||set("fastNightMotion",&t.fastNightMotion) // P675
             ||set("fmFilterGather",nullptr,&t.fmFilterGather)||set("fmMergeBatch",nullptr,&t.fmMergeBatch)
             ||set("fastMergeSport",nullptr,&t.fastMergeSport)||set("rejPixDiff",&t.rejPixDiff)||set("donorShiftMax",&t.donorShiftMax) // P488
             ||set("denoise",nullptr,&t.denoise); // P600
@@ -1873,6 +1900,7 @@ float laMotionAt(int f,int x,int y){
 uniform vec4 k61aU; // covariance_parameters1: f5/f0 (shrunk), 1/(f0 f4) (stretched), f2 (gradient clip), 1/f0 (base); w = 0: off
 uniform vec4 k61bU; // 1/(f0 f1) (blurred), 1/f3 (transition), 1/kernelScale^2, tensor noise multiplier
 uniform vec4 k61cU; // x: green difference noise multiplier, y: > 0 the fine (green site) tensor, its noise x16 x this (P332)
+uniform vec4 k61dU; // P666: the day transition (x) / bokeh (y) factors the shadows undo, fading in over the quad luma z .. w (x 0: off)
 // P76: quad luma Y and |sqrt g1 - sqrt g2| of quad (i,j) of frame f; kHybCells keeps them in shared memory for the 3x3 cells around.
 vec2 sabreQuad61(int f,int i,int j){
     float g=fParam[f].x;int X=2*i,Z=2*j;
@@ -1943,9 +1971,14 @@ vec3 sabreCov61Q(int f,float Y[9],float gd,float lum,vec3 fine){
     float l1w=max(l1,0.0);l1w*=l1w/(l1w+nTensor+1.0e-20);
     float strength=sqrt(l1w),coh=(sv1-sv2)/(sv1+sv2+1.0e-6);
     gd*=gd/(gd+nGd+1.0e-20);
-    float blur=clamp(1.0-(max(strength,gd)-k61aU.z)*k61bU.y,0.0,1.0);
+    float clip=k61aU.z,slope=k61bU.y,blurred=k61bU.x;
+    if(k61dU.x>0.0){ // P666: in the shade the day transition / bokeh back to 1 (a shadow's texture has a small sqrt-domain gradient)
+        float d=1.0-smoothstep(k61dU.z,k61dU.w,lum),t=mix(1.0,k61dU.x,d);
+        clip/=t;slope*=t;blurred*=mix(1.0,k61dU.y,d);
+    }
+    float blur=clamp(1.0-(max(strength,gd)-clip)*slope,0.0,1.0);
     float an=mix(k61aU.w,k61aU.x,min(coh,strength*5.0));
-    float s1=mix(an,k61bU.x,blur),s2=mix(mix(k61aU.w,k61aU.y,coh),k61bU.x,blur);
+    float s1=mix(an,blurred,blur),s2=mix(mix(k61aU.w,k61aU.y,coh),blurred,blur);
     mat2 R=mat2(e1,e2);mat2 rr=transpose(R)*mat2(s1*s1,0.0,0.0,s2*s2)*R;
     return vec3(rr[0].x,rr[1].y,rr[0].y)*(0.693147*(k61bU.z>0.0?k61bU.z:1.0));
 }
@@ -8086,6 +8119,7 @@ public:
                                                         // P364: their cell rows [0, n) (n >= h / 2: all of it)
         std::vector<int> hotList;                       // normal frames of the fixed-pattern outlier test (base first); empty = off
         std::array<float,4> k61a{},k61b{},k61c{};      // Sabre 6.1 kernel uniforms (k61a[3] = 0: round-4 kernel)
+        std::array<float,4> k61d{};                     // P666: the shadows' undo of the day transition / bokeh (0: off)
         float quadTexture=0.f;                          // P647: the Quad texture factor the shot took (0: mosaicQuadTexture, P596)
         int mergeMode=0;                                // 1 per-frame 6.1 covariance, 2 6.1 window, 4 6.1 base widening
         bool noBase=false;                              // split-half diagnostics: the base is not accumulated
@@ -8850,6 +8884,7 @@ public:
             glUniform4f(loc(program,"k61aU"),in.k61a[0],in.k61a[1],in.k61a[2],in.k61a[3]);
             glUniform4f(loc(program,"k61bU"),in.k61b[0],in.k61b[1],in.k61b[2],in.k61b[3]);
             glUniform4f(loc(program,"k61cU"),in.k61c[0],in.k61c[1],in.k61c[2],in.k61c[3]);
+            glUniform4f(loc(program,"k61dU"),in.k61d[0],in.k61d[1],in.k61d[2],in.k61d[3]);
             if(localAlign){
                 glUniform4i(loc(program,"laU"),in.laMode,in.laNx,in.laNy,0);
                 glUniform4f(loc(program,"laG"),in.laOx,in.laOy,in.laStride,1.f/std::max(in.laStride,1e-3f));
@@ -14701,7 +14736,7 @@ inline std::vector<float> hybridReconstruct(const HybridInput& input,const Hybri
     if(native&&native->block==2&&tune.mosaicQuadTexture>0.f&&tune.mosaicQuadTexture<1.f&&tune.mosaicQuadTextureFrames>0.f) // P596 round 5
         report("HYBRID KERNEL: Quad texture kernel back to the user's below "+std::to_string(tune.mosaicQuadTextureFrames)+" accepted donor frames");
     if(tune.isoKernel){kernel.shrunk=kernel.stretched=kernel.base;if(tune.isoKernel>=2)kernel.flat=kernel.base;}
-    std::array<float,4> k61a{},k61b{},k61c{};
+    std::array<float,4> k61a{},k61b{},k61c{},k61d{};
     if(hybridDcgZones(input))report("HYBRID DCG: two noise zones (knee "+std::to_string(base.dcgKnee)+", offset "+std::to_string(baseOffset)+" / "
         +std::to_string(base.dcgOffsetLcg)+"): the GPU programs take the offset of each level's zone (blended over 0.9 .. 1.1 x the knee); Sabre key "
         +std::to_string(key61)+" snr "+std::to_string(snr)+" from the offset at 0.18 (LCG share "+std::to_string(dcgShare)+")");
@@ -14778,6 +14813,7 @@ inline std::vector<float> hybridReconstruct(const HybridInput& input,const Hybri
         k61c={gn>0?gn:1.f,tune.s61Fine>0.f?tune.s61Fine:0.f,0,0};
         if(native&&native->block==2&&!(tune.s61Fine>0.f)&&tune.mosaicQuadFine>0.f)k61c={k61c[0],std::clamp(tune.mosaicQuadFine,0.1f,64.f),1,1}; // P596 (z: the stronger of the two tensors, w: Quad's own)
         footprint.apply61(k61a,k61b); // P587
+        k61d=footprint.shade61(); // P666
         auto sigma=[&](float p){return std::to_string(ks/(p*std::sqrt(std::log(2.f))));};
         report("HYBRID KERNEL: Sabre 6.1 baseNoise slope="+std::to_string(baseSlope)+" offset="+std::to_string(baseOffset)+" key="+std::to_string(key)
             +" f0="+std::to_string(f0)+" f1="+std::to_string(f1)+" f2="+std::to_string(f2)+" f3="+std::to_string(f3)
@@ -15694,7 +15730,7 @@ inline std::vector<float> hybridReconstruct(const HybridInput& input,const Hybri
         for(int f:index)in.nativeFrames.push_back(f<int(native->frames.size())?native->frames[f]:nullptr);
         for(int f:index)in.nativeRowFix.push_back(native->fixesRows(f)?f:-1); // P197
     }
-    in.k61a=k61a;in.k61b=k61b;in.k61c=k61c;in.quadTexture=quadTexture;
+    in.k61a=k61a;in.k61b=k61b;in.k61c=k61c;in.k61d=k61d;in.quadTexture=quadTexture;
     in.mergeMode=sabre61?(tune.s61Mode&7):0;
     if(tune.dezipper>0.f)in.dezipWb=hybridBlendWb(input,tune); // P480: the gains the reference merges with (wbR / wbB, else grey world)
     HybridCa caModel;
@@ -15716,7 +15752,7 @@ inline std::vector<float> hybridReconstruct(const HybridInput& input,const Hybri
     // the GPU cannot use it, the round-4 kernel instead.
     auto dropDay61=[&](const char* why){
         if(!(sabre61&&tune.sabre61==2&&!night61))return;
-        in.k61a={};in.k61b={};in.k61c={};in.mergeMode=0;
+        in.k61a={};in.k61b={};in.k61c={};in.k61d={};in.mergeMode=0;
         report(std::string("HYBRID KERNEL: Sabre 6.1 kernel off (")+why+")");
     };
     if(tune.localAlign>0&&!laOn)dropDay61("it was chosen for the local alignment, which gave no field");

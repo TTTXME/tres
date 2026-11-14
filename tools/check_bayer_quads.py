@@ -16,6 +16,20 @@ def dezip_main(text):
     # P480: hybridDezipMain (the merge's per-colour weight sums stored for kHybDzPass)
     out='        outRgb[o]=col.x;outRgb[o+1]=col.y;outRgb[o+2]=col.z;\n';assert text.count(out)==1
     return text.replace(out,out+'#ifndef DZ_NODEN\n        dzDen[o]=a.den.x;dzDen[o+1]=a.den.y;dzDen[o+2]=a.den.z;\n#endif\n')
+# P666: by day the shadows undo the day transition / bokeh (k61dU; a no-op while k61dU.x is 0: kernelSnrShadow off, the night side,
+# kernelSnr 0): its uniform and its block put back to the ramp of before for the frozen identities (tools/check_hybrid_dezipper.py the same)
+P666=(('uniform vec4 k61dU; // P666: the day transition (x) / bokeh (y) factors the shadows undo, fading in over the quad luma z .. w (x 0: off)\n',''),
+      ('    float clip=k61aU.z,slope=k61bU.y,blurred=k61bU.x;\n    if(k61dU.x>0.0){ // P666: in the shade the day transition / bokeh back to 1 (a shadow\'s texture has a small sqrt-domain gradient)\n'
+       '        float d=1.0-smoothstep(k61dU.z,k61dU.w,lum),t=mix(1.0,k61dU.x,d);\n        clip/=t;slope*=t;blurred*=mix(1.0,k61dU.y,d);\n    }\n'
+       '    float blur=clamp(1.0-(max(strength,gd)-clip)*slope,0.0,1.0);\n    float an=mix(k61aU.w,k61aU.x,min(coh,strength*5.0));\n'
+       '    float s1=mix(an,blurred,blur),s2=mix(mix(k61aU.w,k61aU.y,coh),blurred,blur);\n',
+       '    float blur=clamp(1.0-(max(strength,gd)-k61aU.z)*k61bU.y,0.0,1.0);\n    float an=mix(k61aU.w,k61aU.x,min(coh,strength*5.0));\n'
+       '    float s1=mix(an,k61bU.x,blur),s2=mix(mix(k61aU.w,k61aU.y,coh),k61bU.x,blur);\n'))
+def strip666(text):
+    for new,old in P666:
+        assert text.count(new)==1,'P666: the shadows\' day transition / bokeh undo, once'
+        text=text.replace(new,old)
+    return text
 def main():
     parser=argparse.ArgumentParser();parser.add_argument('--glslc');parser.add_argument('--output',type=Path)
     args=parser.parse_args();compiler=args.glslc or find_glslc()
@@ -40,7 +54,7 @@ def main():
         prefix=common+''.join('#define '+name+' 1\n'for name,on in [('LOCAL_ALIGN',local),('JSR_LCA',jsr)]if on)+helpers
         plain=literal(quads,'kHybQzQuadPlain','QZ')
         body=prefix+(dezip_source(plain,base)+dezip_main(qmain)if dezip else plain+qmain)
-        digest=hashlib.sha256(body.encode()).hexdigest()
+        digest=hashlib.sha256(strip666(body).encode()).hexdigest()
         assert digest==expected[index],('Validated quad program changed',local,dezip,jsr,digest)
         programs.append(('quads-'+str(index),body));rows.append(dict(local=local,dezip=dezip,jsr=jsr,sha256=digest))
     for fine in [False,True]:

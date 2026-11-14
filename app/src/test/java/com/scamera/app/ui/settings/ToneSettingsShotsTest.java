@@ -179,7 +179,8 @@ public class ToneSettingsShotsTest {
             }
             // V1's highlight softness / detail-colour combine, V2's highlight colour; both read the shoulder and the short frames' denoise
             assertEquals(!v2, enabled(group.findPreference("pref_scam_hybrid_why_hl_soft")));
-            assertEquals(!v2, enabled(group.findPreference("pref_scam_hybrid_why_delta_chroma")));
+            // P676: V1 takes V2's colour rule by default (scam_dev hybrid_why_v2_colour), which has no chroma of the darkening detail
+            assertFalse(enabled(group.findPreference("pref_scam_hybrid_why_delta_chroma")));
             assertEquals(v2, enabled(group.findPreference("pref_scam_hybrid_why_v2_hr_amount")));
             assertTrue(enabled(group.findPreference("pref_scam_hybrid_why_hr_room")));
             assertTrue(enabled(group.findPreference("pref_scam_hybrid_why_bracket_denoise")));

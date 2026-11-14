@@ -20,6 +20,14 @@ python3 tools/check_glsl_loop_shadow.py --dump /tmp/scam-glsl-dump
 python3 -m venv /tmp/tetra-gpu-check
 /tmp/tetra-gpu-check/bin/pip install moderngl==5.12.0 numpy==2.3.5
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_post_pbo.py
+# P668: every post fragment program drawn in bands of 16 / 48 / 112 rows equals one draw bit for bit (the paced post's band sizing)
+LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_post_bands.py
+# P671: the clip band in the flagged tiles only equals the band over every pixel, bit for bit (and no tile without a flag)
+LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_band_tiles.py
+# P671: the photo's combine with its one-channel windows read as textureGather blocks equals the single reads, bit for bit
+LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_combine_gather.py
+# P671: the denoise's optics with its per-strip Oklab cache equals the inline conversions, bit for bit
+LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_ms_oklab_cache.py
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_noise_quantile.py
 python3 tools/check_gpu_readback.py
 python3 tools/check_film_tiling.py
@@ -42,6 +50,10 @@ LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_why_pyramid.
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_why_pyramid_edge.py
 # P391: the pyramid's edge-aware bands and continuous depth; the noise-bound deep floor and band cap
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_why_pyramid_bands.py
+# P673: the owner's joint bilateral upsampling in the V1 / V2 pyramids' collapse (off by default; the off path token for token)
+LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_why_jbu_owner.py
+# P677: V1's edge-aware bands on V2's pyramid (off by default; the off path token for token)
+LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_why_v2_bands.py
 # P596: the photo's local contrast on the fused luma (why/localcontrast.glsl)
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_why_local_contrast.py
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_why_noise.py
