@@ -1,6 +1,7 @@
 # SCAMERA iOS
 
 ## 0.3 — Android updates of 2026-11-14
+- iPad: a native iPad app - full-screen camera, wider gallery grids, settings and editor sized for the tablet.
 - Noise reduction keeps shadow texture; tone V1 noise, detail and colour as tone V2; V2 without glow beside dark objects.
 - Night merge handles moving objects better.
 - Gallery editor: the «Develop» tab develops SCAMERA DNGs again with every processing setting of the camera.

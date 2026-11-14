@@ -838,3 +838,32 @@ camera_screen: the top row (64 pt) with its grabber, the 3:4 viewfinder from the
 - Swift not compiled here (no Mac): risky spots for the CI build - MTAudioProcessingTapCreate's tap out-parameter type, the
   long-press-then-drag cell gesture inside the ScrollView (scrolling must still work), MagnifyGesture.Value.startLocation,
   UIImageView.preferredImageDynamicRange / CIImage .expandToHDR (iOS 17), UIFont from CTFont by toll-free bridging.
+
+## iPad layout (2026-11-14)
+- Cause of the owner's screenshots (iPad13,16, iPad Air 5: 820 x 1180 pt, 1640 x 2360 px): `TARGETED_DEVICE_FAMILY` was "1",
+  so iPadOS ran the iPhone app in a phone-sized window. Now "1,2" (a native iPad app); `UIRequiresFullScreen` stays (a camera:
+  no Split View / Slide Over, which also keeps AVCaptureSession from multitasking interruptions) and
+  `UISupportedInterfaceOrientations~ipad` is portrait alone, as Android's CameraActivity locks portrait on every device
+  (`SCREEN_ORIENTATION_PORTRAIT`, no tablet override). The gallery's and the player's turns stay drawn by the app (DeviceTurn,
+  VideoPlayerModel) in the portrait window, so nothing turns twice.
+- What Android does on a tablet, mirrored (`Support/Tablet.swift`): UiFixedScale keeps a large screen's density (sw >= 600 dp:
+  the controls keep their dp size, the screens fill the width) - the iPad keeps the pt sizes, no scaling of the chrome;
+  values-sw500dp focus_circle_size 100 dp (76 dp) - the focus ring's radius x 100/76 on a regular width (46 pt); GalleryUi.widthFactor
+  round(width / 420) - the gallery's grid and timeline columns, the month / year cards a row (TimelineRows.span), the albums'
+  2 / 3 a row and the search's 4 columns times it (an iPad in portrait: x2; the stored column setting stays the phone's).
+- Camera (`CameraView.Stage`): iPhone math unchanged. On a regular width the largest 3:4 viewfinder that leaves the bar's solid
+  part (shutter row, bottom row, grabber: 182 pt) under it, centred; the band and the lens strip float over the preview's bottom
+  as on the iPhone; the bar, the Pro / LUT / «Oldstyle» panels and the quick settings in the viewfinder's width (iPad Air 5:
+  ~686 x 914 pt viewfinder, ~67 pt black at the sides) instead of a phone layout stretched over 820 pt. The top row keeps its
+  16 pt gaps (centred). The «Верхняя строка» card at most 600 pt wide, the first-run dialog 480 pt, the «Формат | Размер» card in
+  the middle of the iPad's form sheet (detents do not apply there).
+- Settings: a full-screen cover as before; every page's list in a 680 pt readable column over the grouped background
+  (`tabletReadableList`). Android's settings have no tablet layout (one pane), so no split view: the pushed pages, the search
+  drawer and the per-page toolbars stay as on the iPhone.
+- Editor: the tools' sheet up to 380 pt (32 % of the screen; iPhone 300 pt / 36 %), its rows and the tab bar in the 680 pt column.
+  The viewer's bottom capsule already follows Android's (width - 24) / 5 capped at 72 pt.
+- Sheets: iPadOS shows `.presentationDetents` sheets as form sheets (detents ignored), the confirmation dialogs as popovers on
+  their views; the share sheets are UIActivityViewController inside a sheet (no popover anchor needed).
+- Risky for the CI build / device: `horizontalSizeClass` drives the camera's and the editor's iPad paths (a regular width; an
+  iPad form sheet may report compact - it then gets the phone layout); `UIRequiresFullScreen` is deprecated on iPadOS 26 (still
+  honoured; a resizable-window future would need all four orientations and the camera's rotation handling).
