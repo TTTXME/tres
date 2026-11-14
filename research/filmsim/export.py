@@ -1,6 +1,8 @@
 """export.py <out dir>: the spektrafilm data our port needs (CC BY-SA 4.0 profiles, Andrea Volpato,
 https://github.com/andreavolpato/spektrafilm), one little-endian container per stock plus shared.bin and index.json.
-Container: magic 'SFD1', count u32, then per array: name len u8, name, dtype u8 (0 f32, 1 f16), ndim u8, dims u32..., data."""
+Container: magic 'SFD1', count u32, then per array: name len u8, name, dtype u8 (0 f32, 1 f16), ndim u8, dims u32..., data.
+P683: the app's assets/film holds them packed as SFD2 (python3 tools/film_pack.py sfd2 <SFD1> <out>; then
+python3 tools/film_pack.py manifest app/src/main/assets/film tools/film_arrays.sha256 for the arrays' new hashes)."""
 import sys, os, json, struct
 sys.path.insert(0, r'C:/Users/MECHREVO/Downloads/x200u/SCAMERA-PC/evidence/spektrafilm/src/src')
 sys.path.append(r'C:/Users/MECHREVO/AppData/Local/Temp/claude/C--Users-MECHREVO-Downloads-x200u/b81dc619-c8a9-41ca-bbae-ac070a033320/scratchpad/sf/stubs')

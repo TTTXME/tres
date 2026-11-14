@@ -21,7 +21,16 @@ public final class WhyAe {
             {2.4f, 1.35f, 1.4f, -7.5f, 3.5f, 1.05f, 0.0f}};
 
     /** Effective settings fields read by the AE (defaults: WhyCam 2.85 X8U, tone_port.md section 3). */
-    public static final class Settings {
+    public static final class Settings implements Cloneable {
+        /** P683: a copy (the viewfinder's meter job reads it while the GL thread changes its own); every field is a primitive. */
+        public Settings copy() {
+            try {
+                return (Settings) super.clone();
+            } catch (CloneNotSupportedException e) {
+                throw new AssertionError(e);
+            }
+        }
+
         public float aeTarget = 0.15f, maxBoost = 5.0f, minLimit = 0.5f;
         public float hlOverflow = 2.0f, hlBlend = 0.33f;
         public float nightThresh = 100f, nightDim = 1.0f;

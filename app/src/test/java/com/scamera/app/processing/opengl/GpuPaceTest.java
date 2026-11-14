@@ -243,7 +243,10 @@ public class GpuPaceTest {
         pass(gpu, sized, "why/combine", 4096, 3072, 100.0, 0, new long[1]);
         assertEquals("not paced (no pacer on this thread): as asked", 256, GpuPace.bandRows("why/combine", 4096, 256));
         assertEquals("post_band_ms 0: as asked", 256, new GpuPace.Pacer(gpu, 2, 0f).bandRows("why/combine", 4096, 256));
-        assertEquals("8-row tiles (SMALL_PIXELS) as they are", 8, sized.bandRows("why/combine", 4096, 8));
+        // P683: the post's tiles are 256 rows for every picture (no 8-row tiles under 8 MP); a band asked below the 16-row step
+        // (a caller's own small bands) is still drawn as asked
+        assertEquals("rows below the step as asked", 8, sized.bandRows("why/combine", 4096, 8));
+        assertEquals("a picture under 8 MP (3264 wide): its 256-row bands narrowed when measured slow", 16, sized.bandRows("why/combine", 3264, 256));
         assertEquals("no measurement of that program: as asked", 256, sized.bandRows("other", 4096, 256));
         assertEquals("unnamed program: as asked", 256, sized.bandRows(null, 4096, 256));
         assertEquals("absent: 10 ms", GpuPace.DEFAULT_BAND_MS, GpuPace.bandMsFor(Float.NaN), 0f);

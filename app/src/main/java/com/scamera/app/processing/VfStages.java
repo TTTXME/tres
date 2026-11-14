@@ -135,6 +135,14 @@ public final class VfStages {
         return "-";
     }
 
+    /** P683: the mean of {@code stage} in the window so far, ms (NaN: not noted in it); read before {@link #take}. */
+    public static double meanMs(Stage stage) {
+        synchronized (LOCK) {
+            final int i = stage.ordinal();
+            return count[i] == 0 ? Double.NaN : sum[i] / 1e6 / count[i];
+        }
+    }
+
     /** The line of the window since the last call (then a new window starts); the texts of {@link Stage} say what each number is. */
     public static String take() {
         synchronized (LOCK) {

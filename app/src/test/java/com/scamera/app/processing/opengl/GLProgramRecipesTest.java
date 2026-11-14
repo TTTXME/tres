@@ -177,4 +177,33 @@ public class GLProgramRecipesTest {
         assertTrue(name, name.length() < 180);
         assertTrue(name, name.endsWith("...}"));
     }
+
+    /**
+     * P683: a clean install has no kept recipes - the APK's defaults (assets/shaders/default_recipes.txt, written from the code by
+     * tools/make_default_recipes.py, CI checks it is current) give the warm-up its programs: every line a recipe, as the shot makes
+     * it, no damaged line taken.
+     */
+    @Test public void theApksDefaultRecipes() throws Exception {
+        List<String> r = GLProg.defaultRecipes("# a comment\nA why/lpyr 0 MODE=2\nU gaussdown 0 -\nA scamdn/stats_cs 1 LAYOUT=x A=1\n"
+                + "X bad 0 -\nA bad 2 -\nA bad 0 NOEQUALS\nA short 0\n\n");
+        assertEquals(3, r.size());
+        assertEquals(GLProg.recipe('A', "why/lpyr", false, defines("MODE", "2")), r.get(0));
+        assertEquals(GLProg.recipe('U', "gaussdown", false, null), r.get(1));
+        assertEquals(GLProg.recipe('A', "scamdn/stats_cs", true, defines("LAYOUT", "x", "A", "1")), r.get(2));
+        assertTrue(GLProg.defaultRecipes(null).isEmpty());
+        File asset = new File("src/main/assets/" + GLProg.DEFAULT_RECIPES);
+        if (!asset.isFile()) asset = new File("app/src/main/assets/" + GLProg.DEFAULT_RECIPES);
+        String text = new String(java.nio.file.Files.readAllBytes(asset.toPath()), StandardCharsets.UTF_8);
+        int lines = 0;
+        for (String l : text.split("\n")) if (!l.trim().isEmpty() && !l.startsWith("#")) lines++;
+        List<String> shipped = GLProg.defaultRecipes(text);
+        assertTrue("the code gives dozens of programs: " + shipped.size(), shipped.size() >= 40);
+        assertEquals("every line a recipe", lines, shipped.size());
+        for (String recipe : shipped) assertNotNull(recipe, GLProg.parseRecipe(recipe, null));
+        // the warm-up takes them only when no recipe was kept (a clean install)
+        String src = new String(java.nio.file.Files.readAllBytes(new File(asset.getParentFile().getParentFile().getParentFile(),
+                "java/com/scamera/app/processing/opengl/GLProg.java").toPath()), StandardCharsets.UTF_8);
+        assertTrue(src.contains("if (kept.isEmpty() || withDefaults) {"));
+        assertTrue(src.contains("defaultRecipes(assetSource(DEFAULT_RECIPES))"));
+    }
 }

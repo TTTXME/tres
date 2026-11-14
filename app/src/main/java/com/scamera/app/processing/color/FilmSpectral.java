@@ -90,10 +90,16 @@ public final class FilmSpectral {
         return m;
     }
 
-    /** 'SFD1', count, then per array: name, dtype (0 f32, 1 f16), dims, little-endian data. */
+    /**
+     * 'SFD1', count, then per array: name, dtype (0 f32, 1 f16), dims, little-endian data. P683 (APK and install size): 'SFD2',
+     * the same with each array's data stored as codec (0 the plain words, 1 delta + shuffle + deflate: tools/film_pack.py), the
+     * CRC-32 of the plain words and the stored length - decoded here into the same words (7.36 MB of arrays -> 4.40 MB).
+     */
     static Map<String, Arr> parse(byte[] bytes) throws IOException {
         final ByteBuffer b = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN);
-        if (bytes.length < 8 || b.get() != 'S' || b.get() != 'F' || b.get() != 'D' || b.get() != '1') throw new IOException("not SFD1");
+        if (bytes.length < 8 || b.get() != 'S' || b.get() != 'F' || b.get() != 'D') throw new IOException("not SFD1 / SFD2");
+        final byte version = b.get();
+        if (version != '1' && version != '2') throw new IOException("not SFD1 / SFD2");
         final int count = b.getInt();
         final Map<String, Arr> m = new HashMap<>();
         for (int a = 0; a < count; a++) {
@@ -103,11 +109,69 @@ public final class FilmSpectral {
             final int[] dims = new int[nd];
             int n = 1;
             for (int i = 0; i < nd; i++) n *= dims[i] = b.getInt();
+            final ByteBuffer words;
+            if (version == '1') {
+                words = b;
+            } else {
+                final int codec = b.get(), crc = b.getInt(), length = b.getInt();
+                final byte[] stored = new byte[length];
+                b.get(stored);
+                final byte[] plain = codec == 0 ? stored : unpack(stored, dt == 1 ? 2 : 4, n);
+                final java.util.zip.CRC32 check = new java.util.zip.CRC32();
+                check.update(plain, 0, plain.length);
+                if (plain.length != n * (dt == 1 ? 2 : 4) || (int) check.getValue() != crc)
+                    throw new IOException("damaged array " + new String(nb, java.nio.charset.StandardCharsets.US_ASCII));
+                words = ByteBuffer.wrap(plain).order(ByteOrder.LITTLE_ENDIAN);
+            }
             final double[] v = new double[n];
-            for (int i = 0; i < n; i++) v[i] = dt == 1 ? half(b.getShort()) : b.getFloat();
+            for (int i = 0; i < n; i++) v[i] = dt == 1 ? half(words.getShort()) : words.getFloat();
             m.put(new String(nb, java.nio.charset.StandardCharsets.US_ASCII), new Arr(dims, v));
         }
         return m;
+    }
+
+    /**
+     * P683: tools/film_pack.py's codec undone - inflate, the bytes back from their significance planes, the words' differences
+     * summed (wrapping, as they were taken): the little-endian words that were packed, bit for bit.
+     */
+    static byte[] unpack(byte[] stored, int width, int words) throws IOException {
+        final byte[] shuffled = new byte[words * width];
+        final java.util.zip.Inflater inflater = new java.util.zip.Inflater();
+        try {
+            inflater.setInput(stored);
+            int got = 0;
+            while (got < shuffled.length) {
+                final int n = inflater.inflate(shuffled, got, shuffled.length - got);
+                if (n == 0 && (inflater.finished() || inflater.needsInput() || inflater.needsDictionary())) break;
+                got += n;
+            }
+            if (got != shuffled.length || !inflater.finished()) throw new IOException("damaged film array (" + got + " of " + shuffled.length + " bytes)");
+        } catch (java.util.zip.DataFormatException e) {
+            throw new IOException("damaged film array", e);
+        } finally {
+            inflater.end();
+        }
+        final byte[] out = new byte[shuffled.length];
+        if (width == 4) {
+            int prev = 0;
+            for (int i = 0; i < words; i++) {
+                final int d = (shuffled[i] & 0xff) | (shuffled[words + i] & 0xff) << 8 | (shuffled[2 * words + i] & 0xff) << 16
+                        | (shuffled[3 * words + i] & 0xff) << 24;
+                prev += d;
+                out[4 * i] = (byte) prev;
+                out[4 * i + 1] = (byte) (prev >>> 8);
+                out[4 * i + 2] = (byte) (prev >>> 16);
+                out[4 * i + 3] = (byte) (prev >>> 24);
+            }
+        } else {
+            int prev = 0;
+            for (int i = 0; i < words; i++) {
+                prev = (prev + ((shuffled[i] & 0xff) | (shuffled[words + i] & 0xff) << 8)) & 0xffff;
+                out[2 * i] = (byte) prev;
+                out[2 * i + 1] = (byte) (prev >>> 8);
+            }
+        }
+        return out;
     }
 
     static float half(short h) {

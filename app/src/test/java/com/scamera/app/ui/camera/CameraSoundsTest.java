@@ -86,8 +86,8 @@ public class CameraSoundsTest {
      * PCM_RATE, the shutter's 0.13 s and the timer's 10.7 s countdown - so both switches work there too.
      */
     @Test public void thePcmCopiesOfBothSounds() throws Exception {
-        byte[] shutter = Files.readAllBytes(new File("src/main/res/raw/sound_shutter_pcm.raw").toPath());
-        byte[] timer = Files.readAllBytes(new File("src/main/res/raw/sound_timer_pcm.raw").toPath());
+        byte[] shutter = Files.readAllBytes(new File("src/cts/res/raw/sound_shutter_pcm.raw").toPath());
+        byte[] timer = Files.readAllBytes(new File("src/cts/res/raw/sound_timer_pcm.raw").toPath());
         assertEquals(0, shutter.length % 2);
         assertEquals(0, timer.length % 2);
         float shutterS = shutter.length / 2f / CameraSounds.PCM_RATE, timerS = timer.length / 2f / CameraSounds.PCM_RATE;
@@ -101,6 +101,13 @@ public class CameraSoundsTest {
         // no synthesized beeps any more
         String code = new String(Files.readAllBytes(new File("src/main/java/com/scamera/app/ui/camera/CameraSounds.java").toPath()), StandardCharsets.UTF_8);
         assertFalse(code.contains("ToneGenerator"));
-        assertTrue(code.contains("R.raw.sound_shutter_pcm") && code.contains("R.raw.sound_timer_pcm"));
+        assertTrue(code.contains("pcm(\"sound_shutter_pcm\")") && code.contains("pcm(\"sound_timer_pcm\")"));
+        // P683: only the CTS build (the only package that plays them) carries the PCM files
+        assertFalse(new File("src/main/res/raw/sound_shutter_pcm.raw").exists());
+        assertFalse(new File("src/main/res/raw/sound_timer_pcm.raw").exists());
+        String gradle = new String(Files.readAllBytes(new File("build.gradle").toPath()), StandardCharsets.UTF_8);
+        assertTrue(gradle.contains("if (providers.gradleProperty('scameraCtsNativeRaw').orNull == 'true') android.sourceSets.main.res.srcDir('src/cts/res')"));
+        assertTrue(CameraSounds.synthesizedFor(true, "android.camera.cts"));
+        assertFalse(CameraSounds.synthesizedFor(true, "com.scamera.app"));
     }
 }

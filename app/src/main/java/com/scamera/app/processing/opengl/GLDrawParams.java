@@ -3,7 +3,7 @@ package com.scamera.app.processing.opengl;
 /** Shared sizes of the processing passes. */
 public class GLDrawParams {
     /** Rows of one tile of a block read-back (GLCoreBlockProcessing) and of the tiled passes. */
-    public static int TILE_ROWS = 256; // set per shot (PostPipeline: 8 rows for a picture under SMALL_PIXELS)
+    public static int TILE_ROWS = 256; // the post's bands and output tiles (P683: 256 for every picture, no 8-row tiles under 8 MP)
     /** Channels of the pipeline's working textures (RGBA). */
     public final static int WORK_CHANNELS = 4;
 
