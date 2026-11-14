@@ -430,6 +430,10 @@ struct GalleryPrefs: Equatable {
     var type = TypeFilter.all
     var favouritesOnly = false
     var years: Set<Int> = []
+    /// P622: the view (Сетка / Список / Лента), the timeline's level and columns
+    var mode = GalleryLayout.Mode.grid
+    var level = GalleryLayout.Level.all
+    var timelineColumns = GalleryLayout.tlDefaultColumns
 
     /// Whether the filter sheet narrows the list (its chip shows; «Сбросить» clears it).
     var filtering: Bool { type != .all || favouritesOnly || !years.isEmpty }
@@ -448,6 +452,9 @@ struct GalleryPrefs: Equatable {
         p.type = TypeFilter(rawValue: d["type_filter"] as? Int ?? 0) ?? .all
         p.favouritesOnly = d["filter_favourites"] as? Bool ?? false
         p.years = Set(d["filter_years"] as? [Int] ?? [])
+        p.mode = GalleryLayout.Mode(rawValue: d["view_mode"] as? String ?? "") ?? .grid
+        p.level = GalleryLayout.Level(rawValue: d["timeline_level"] as? String ?? "") ?? .all
+        p.timelineColumns = GalleryLayout.clampTimeline(d["timeline_columns"] as? Int ?? GalleryLayout.tlDefaultColumns)
         return p
     }
 
@@ -458,6 +465,9 @@ struct GalleryPrefs: Equatable {
         d["type_filter"] = type.rawValue
         d["filter_favourites"] = favouritesOnly
         d["filter_years"] = Array(years)
+        d["view_mode"] = mode.rawValue
+        d["timeline_level"] = level.rawValue
+        d["timeline_columns"] = timelineColumns
         UserDefaults.standard.set(d, forKey: Self.key)
     }
 

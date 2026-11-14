@@ -190,7 +190,7 @@ struct AlbumGridPage: View {
                     Text(L("gallery.empty")).font(.app(15)).foregroundStyle(GalleryStyle.muted)
                     Spacer()
                 } else {
-                    SelectableGrid(library: library, assets: assets, selection: $selection,
+                    SelectableGrid(library: library, assets: assets, selection: $selection, levelBottom: 16,
                                    open: { i in viewer = GalleryView.ViewerStart(assets: assets, index: i) },
                                    compare: { a, b in compare = GalleryView.CompareStart(first: a, second: b) })
                 }

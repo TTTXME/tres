@@ -558,3 +558,28 @@
 "video.d.stereo" = "stereo";
 "video.d.channels" = "ch";
 "video.back" = "Back";
+
+// P622 the gallery's views (Сетка / Список / Лента), the fast scroller, the list's rows
+"gallery.mode.grid" = "Grid";
+"gallery.mode.list" = "List";
+"gallery.mode.timeline" = "Timeline";
+"gallery.level.years" = "Years";
+"gallery.level.months" = "Months";
+"gallery.level.all" = "All photos";
+"gallery.view_mode" = "View";
+"gallery.view_hint" = "Grid: cards by day. List: rows with the name, size and tags. Timeline: edge-to-edge tiles by month; pinch or the control below for years, months, all photos.";
+"gallery.timeline_zoom" = "Timeline zoom";
+"gallery.fast_scroll" = "Fast scroll";
+"gallery.select_day" = "select the day";
+"gallery.open" = "Open";
+"gallery.actions" = "Actions:";
+"gallery.open_month" = "open the month's photos";
+"gallery.open_months" = "open the months";
+"gallery.empty_counts" = "Empty";
+"gallery.n_photo" = "%d photo";
+"gallery.n_photos" = "%d photos";
+"gallery.n_video" = "%d video";
+"gallery.n_videos" = "%d videos";
+"gallery.size_mb" = "%@ MB";
+"gallery.size_kb" = "%d KB";
+"gallery.size_b" = "%d B";

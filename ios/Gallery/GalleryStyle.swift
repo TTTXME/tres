@@ -13,6 +13,8 @@ enum GalleryStyle {
     static let warn = Color(red: 0xFF / 255, green: 0x45 / 255, blue: 0x3A / 255)
     static let bar = Color(red: 0x14 / 255, green: 0x14 / 255, blue: 0x16 / 255).opacity(0.9)
     static let thumb = Color(red: 0x76 / 255, green: 0x76 / 255, blue: 0x80 / 255).opacity(0.32)
+    /// ViewerChrome.FAV: the favourites' pink (the hearts on the cells)
+    static let favourite = Color(red: 1, green: 0x6B / 255, blue: 0x81 / 255)
     static let hairline = Color(red: 0x54 / 255, green: 0x54 / 255, blue: 0x58 / 255).opacity(0.65)
 }
 

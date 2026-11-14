@@ -76,3 +76,8 @@ kb_ui_ic_aspect_rest
 kb_ui_ic_lock_rest
 kb_ui_ic_unlock_rest
 kb_ui_ic_rotate_rest
+kb_ui_ic_open_rest
+ui_ic_text
+kb_ui_ic_pip_rest
+kb_ui_ic_zoom_in_rest
+kb_ui_ic_zoom_out_rest
