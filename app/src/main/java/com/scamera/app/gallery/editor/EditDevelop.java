@@ -59,15 +59,126 @@ final class EditDevelop {
         return new EditDevelop(record, dng);
     }
 
-    /** The developer of {@code source} (a DNG of ours with its record), or null: the editor's own RAW route only. */
+    /**
+     * The developer of {@code source}: a DNG of ours with its record; P696: else a Bayer DNG the developer can take (ours by its
+     * Software, or any with its colour tags) with a record made from its tags ({@link #fromTags}); null: the editor's own RAW route
+     * only.
+     */
     @Nullable
     static EditDevelop open(EditSource source) {
         if (source.route != EditSource.Route.DNG || source.copyFile() == null) return null;
-        final DevelopRecord r = DevelopRecord.read(source.copyFile());
-        if (r == null) return null;
-        Log.i(TAG, "develop record of " + source.name + ": build " + r.meta.optInt("build") + ", headroom " + r.headroom()
+        return open(source.name, source.copyFile());
+    }
+
+    /** The developer of the DNG {@code dng} ({@link #open(EditSource)}'s file): its record, else one from its tags, else null. */
+    @Nullable
+    static EditDevelop open(String name, File dng) {
+        final DevelopRecord r = DevelopRecord.read(dng);
+        if (r == null) return fromTags(name, dng);
+        Log.i(TAG, "develop record of " + name + ": build " + r.meta.optInt("build") + ", headroom " + r.headroom()
                 + ", maps: clip " + (r.clipFlags != null) + ", frames " + (r.frames != null) + ", highlight mask " + (r.hlMask != null));
-        return new EditDevelop(r, source.copyFile());
+        return new EditDevelop(r, dng);
+    }
+
+    /** P696: whether this develop's record was made from the DNG's tags (no record of the shot): the settings are today's. */
+    boolean fromTags() {
+        return com.scamera.app.processing.opengl.postpipeline.DevelopDefaults.fromTags(record);
+    }
+
+    /**
+     * P696 (owner: «В галерее не даёт обрабатывать равы, хотя это Рав из нашей камеры»): the developer of {@code dng} without a
+     * develop record - its record made from the DNG's own tags and the camera's settings now (DevelopDefaults) - or null when the
+     * DNG is not one the developer can take ({@link #refusal}) or cannot be read.
+     */
+    @Nullable
+    static EditDevelop fromTags(String name, File dng) {
+        try {
+            final DngRaw.Info info = DngRaw.probe(EditSource.map(dng));
+            final String why = refusal(info);
+            if (why != null) {
+                Log.i(TAG, name + ": no develop record, and no develop from its tags (" + why + ")");
+                return null;
+            }
+            final DevelopRecord r = com.scamera.app.processing.opengl.postpipeline.DevelopDefaults.record(facts(info));
+            Log.i(TAG, "no develop record in " + name + " (" + (info.software.isEmpty() ? "no Software" : info.software)
+                    + "): developed from its tags, headroom " + r.headroom() + ", the camera's settings now");
+            return new EditDevelop(r, dng);
+        } catch (IOException | org.json.JSONException | RuntimeException | OutOfMemoryError e) {
+            Log.w(TAG, name + ": no develop from its tags: " + e);
+            return null;
+        }
+    }
+
+    /** P696: a DNG's Software of SCAMERA (DngMetadata.software: "SCAMERA <version> (<code>) <commit>"). */
+    static boolean ours(DngRaw.Info info) {
+        return info.software != null && info.software.trim().toUpperCase(java.util.Locale.ROOT).startsWith("SCAMERA");
+    }
+
+    /**
+     * P696: why the developer cannot take a DNG without a record, null when it can: a Bayer mosaic of single sites (the demosaic
+     * here; a Quad / LinearRaw DNG is not one), an orientation without a mirror (the pipeline's turn), and - another app's DNG -
+     * its colour: a ColorMatrix and the as-shot white.
+     */
+    @Nullable
+    static String refusal(DngRaw.Info info) {
+        if (info.kind != DngRaw.KIND_BAYER) return "not a Bayer mosaic";
+        if (info.cell != 1) return "a Quad mosaic";
+        if (rotation(info.orientation) < 0) return "a mirrored orientation " + info.orientation;
+        if (!ours(info) && (info.colour == null || !info.colour.hasMatrices() || !info.asShotGiven))
+            return "another app's DNG without its colour matrix or as-shot white";
+        return null;
+    }
+
+    /** The clockwise turn of the EXIF / TIFF orientation (1, 6, 3, 8; anything unknown upright), -1 for a mirrored one. */
+    static int rotation(int orientation) {
+        switch (orientation) {
+            case 6: return 90;
+            case 3: return 180;
+            case 8: return 270;
+            case 2: case 4: case 5: case 7: return -1;
+            default: return 0;
+        }
+    }
+
+    /** P696: what the DNG says for its record (DevelopDefaults.Facts). */
+    static com.scamera.app.processing.opengl.postpipeline.DevelopDefaults.Facts facts(DngRaw.Info info) {
+        final com.scamera.app.processing.opengl.postpipeline.DevelopDefaults.Facts f =
+                new com.scamera.app.processing.opengl.postpipeline.DevelopDefaults.Facts();
+        final int[] size = info.size(1);
+        f.width = size[0];
+        f.height = size[1];
+        final com.scamera.app.gallery.dng.DngColor colour = info.colour;
+        final double[] n = colour != null ? colour.asShotNeutral : new double[]{1, 1, 1};
+        f.neutral = new float[]{(float) n[0], (float) n[1], (float) n[2]};
+        if (colour != null && colour.hasMatrices()) {
+            final double[] m = colour.cameraToXyzD50(n);
+            boolean finite = m != null && m.length >= 9;
+            final float[] out = new float[9];
+            for (int i = 0; finite && i < 9; i++) {
+                out[i] = (float) m[i];
+                finite = Float.isFinite(out[i]);
+            }
+            if (finite) f.cameraToXyzD50 = out;
+            final double[] xy = colour.estimateXy(n);
+            if (xy != null) f.sceneCct = (float) com.scamera.app.gallery.dng.DngColor.cctDuv(xy)[0];
+        }
+        f.noiseProfile = info.noiseProfile;
+        f.iso = (int) Math.round(info.iso);
+        f.exposureTime = info.exposureTime;
+        f.fNumber = (float) info.fNumber;
+        f.focalMm = (float) info.focalLength;
+        f.rotationDeg = Math.max(0, rotation(info.orientation));
+        // P165: a SCAMERA merged DNG holds the RGB over its headroom, BaselineExposure = log2 of it; another app's exposure tag
+        // is its own look, not a headroom
+        f.headroom = ours(info) && info.baselineExposure > 0 && info.baselineExposure < 8
+                ? (float) Math.pow(2, info.baselineExposure) : 1f;
+        f.whiteLevel = (int) Math.round(info.whiteLevel);
+        f.blackLevel = (float) info.blackLevel;
+        f.software = info.software != null ? info.software : "";
+        f.shadingMap = info.shadingMap;
+        f.shadingW = info.shadingW;
+        f.shadingH = info.shadingH;
+        return f;
     }
 
     /** A key of {@code changes} (the full develop is kept per key). */

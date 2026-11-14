@@ -24,9 +24,11 @@ import java.util.Objects;
  * P665 «Проявка» / «Develop»: the editor's tab with every processing setting of the camera (DevelopCatalog), grouped as the
  * camera's settings - Тон, Света, Резкость, Шумоподавление, Цвет, Плёнка, LUT, Портрет (Oldstyle for a shot of that mode), and
  * Склейка greyed. A DNG of ours with its develop record: the switch «Проявка камерой» develops it with the camera's own pipeline,
- * each row starting at the value the photo was shot with (its record); a change re-develops the preview. Any other photo: the
- * rows are shown greyed with why (a finished picture already has the camera's tone, noise reduction and sharpening in it; a DNG
- * without the record has no shot settings to start from), and where the finished-picture equivalents are.
+ * each row starting at the value the photo was shot with (its record); a change re-develops the preview. P696: a Bayer DNG without
+ * the record (ours by its Software, or another app's with its colour tags) develops the same way from its own tags, each row
+ * starting at the camera's current setting. Any other photo: the rows are shown greyed with why (a finished picture already has
+ * the camera's tone, noise reduction and sharpening in it; a RAW the developer cannot take says which ones it takes), and where
+ * the finished-picture equivalents are.
  */
 final class EditDevelopPanel {
     private final Context c;
@@ -53,11 +55,16 @@ final class EditDevelopPanel {
         EditDevelop d = host.develop();
         if (d != null) return null;
         EditSource s = host.source();
+        // P696: a DNG without the record is developed from its own tags (EditDevelop.fromTags); what is left cannot be
         if (s != null && s.isRaw())
-            return Lang.t("В этом RAW нет записи обработки SCAMERA (снят до этой версии, без склейки или другим приложением): проявка "
-                            + "камерой недоступна. RAW правится вкладками «Свет», «Цвет» и «Детали».",
-                    "This RAW has no SCAMERA processing record (taken before this version, without a merge or by another app): the "
-                            + "camera's develop is not available. The RAW is edited in «Light», «Colour» and «Detail».");
+            return Lang.t("В этом RAW нет записи обработки SCAMERA, и по его собственным тегам он не проявляется: проявка камерой "
+                            + "берёт Bayer-DNG — SCAMERA или с цветовыми тегами (матрица цвета, баланс белого). Этот RAW другого "
+                            + "формата, с Quad-мозаикой, зеркальной ориентацией, без цветовых тегов или не прочитан. RAW правится "
+                            + "вкладками «Свет», «Цвет» и «Детали».",
+                    "This RAW has no SCAMERA processing record and cannot be developed from its own tags: the camera's develop "
+                            + "takes a Bayer DNG - a SCAMERA one, or one with its colour tags (colour matrix, white balance). This RAW is "
+                            + "another format, a Quad mosaic, mirrored, without colour tags or could not be read. The RAW is edited "
+                            + "in «Light», «Colour» and «Detail».");
         return Lang.t("Готовый снимок: тон, шумоподавление и резкость камеры уже в нём, заново их не применить. Для готовых снимков: "
                         + "плёнка и LUT камеры — вкладка «LUT», цвет — «Цвет», резкость и шум — «Детали», зерно — «Эффекты». "
                         + "Все настройки камеры работают на DNG SCAMERA.",
@@ -128,6 +135,16 @@ final class EditDevelopPanel {
     String statusText() {
         String busy = host.developStatus();
         if (busy != null) return busy;
+        EditDevelop d = host.develop();
+        if (d != null && d.fromTags())
+            // P696: no record of the shot in this DNG: its own tags and the camera's settings now
+            return host.state().develop
+                    ? Lang.t("Проявлено конвейером камеры. В этом DNG нет записи обработки: цвет и шум — из его тегов, значения по "
+                            + "умолчанию — текущие настройки камеры; изменённые подсвечены.",
+                    "Developed by the camera's pipeline. This DNG has no processing record: colour and noise come from its tags, "
+                            + "the defaults are the camera's current settings; changed ones are highlighted.")
+                    : Lang.t("Включите «Проявка камерой», чтобы проявить DNG с текущими настройками камеры (записи обработки в нём нет).",
+                    "Switch on «Camera develop» to develop the DNG with the camera's current settings (it has no processing record).");
         return host.state().develop
                 ? Lang.t("Проявлено конвейером камеры. Значения по умолчанию — как при съёмке; изменённые подсвечены.",
                 "Developed by the camera's pipeline. The defaults are the shot's values; changed ones are highlighted.")

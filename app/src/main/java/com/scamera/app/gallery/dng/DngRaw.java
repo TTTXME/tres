@@ -42,6 +42,24 @@ public final class DngRaw {
         public boolean gainMap;
         public int bits;
         public int compression;
+        /**
+         * P696 (the gallery developer of a DNG without its develop record): the file's Software ("" for none), NoiseProfile (per
+         * plane S, O of the normalised signal; null for none), ISO, exposure time (s), f-number and focal length (mm; 0 when
+         * absent), whether it gives the as-shot white (AsShotNeutral or AsShotWhiteXY) and its white level and mean black level.
+         */
+        public String software = "";
+        public double[] noiseProfile;
+        public double iso, exposureTime, fNumber, focalLength;
+        public boolean asShotGiven;
+        public double whiteLevel, blackLevel;
+        /**
+         * P696: the lens-shading map of the DNG's OpcodeList2 GainMaps (tag 0xC741, the DNG writer's Camera2 map: one map a 2x2
+         * site) as Camera2 gives it - {@link #shadingW} x {@link #shadingH} points of 4 gains (R, the two greens, B) - for the
+         * post pipeline's colour shading (Parameters.shadingMap); null when the DNG has no such four maps or the decode applies
+         * gain maps itself.
+         */
+        public float[] shadingMap;
+        public int shadingW, shadingH;
 
         /** The size of a decode with {@code bin}: {width, height}. */
         public int[] size(int bin) {
@@ -208,6 +226,18 @@ public final class DngRaw {
         white = f.white > 0 ? f.white : (lin != null ? 65535 : (1 << info.bits) - 1);
         if (f.opcodeList2 != null) parseOpcodes(f.opcodeList2);
         info.gainMap = !gainMaps.isEmpty();
+        info.software = p.software != null ? p.software : "";
+        info.noiseProfile = p.noiseProfile;
+        info.iso = p.iso;
+        info.exposureTime = p.exposureTime;
+        info.fNumber = p.fNumber;
+        info.focalLength = p.focalLength;
+        info.asShotGiven = p.asShotNeutral != null && p.asShotNeutral.length >= 3 || p.asShotWhiteXY != null && p.asShotWhiteXY.length >= 2;
+        info.whiteLevel = white;
+        if (info.kind == KIND_BAYER && info.cell == 1 && gainMaps.isEmpty() && f.stage2Opcodes != null) shadingOf(parseGainMaps(f.stage2Opcodes));
+        double sum = 0;
+        for (double v : black) sum += v;
+        info.blackLevel = black.length > 0 ? sum / black.length : 0;
     }
 
     /** A 4x4 pattern of 2x2 single-colour cells that reduces to a Bayer. */
@@ -317,6 +347,37 @@ public final class DngRaw {
             // a damaged list: no shading correction
         }
         return gainMaps;
+    }
+
+    /**
+     * P696: {@code maps} as a Camera2 lens-shading map into {@link Info#shadingMap}: four single-plane maps of one grid, each on
+     * one site of the 2x2 pattern (pitch 2), their colours R, G, G, B by the CFA; anything else leaves none.
+     */
+    private void shadingOf(List<GainMap> maps) {
+        if (maps.size() != 4) return;
+        final GainMap first = maps.get(0);
+        final int pw = first.pointsH, ph = first.pointsV;
+        if (pw < 1 || ph < 1 || (long) pw * ph > 1 << 16) return;
+        final float[] out = new float[pw * ph * 4];
+        int sites = 0, greens = 0;
+        for (GainMap g : maps) {
+            if (g.pointsH != pw || g.pointsV != ph || g.rowPitch != 2 || g.colPitch != 2 || g.mapPlanes != 1 || g.gains == null) return;
+            final int site = ((g.top & 1) << 1) | (g.left & 1);
+            if ((sites & (1 << site)) != 0) return;
+            sites |= 1 << site;
+            final int colour = cfaAt(aaLeft + g.left, aaTop + g.top);
+            final int channel = colour == 0 ? 0 : colour == 2 ? 3 : 1 + greens++;
+            if (channel > 2 && colour == 1) return;
+            for (int i = 0; i < pw * ph; i++) {
+                final float v = g.gains[i];
+                if (!(v > 0f) || !Float.isFinite(v)) return;
+                out[i * 4 + channel] = v;
+            }
+        }
+        if (sites != 15 || greens != 2) return;
+        info.shadingMap = out;
+        info.shadingW = pw;
+        info.shadingH = ph;
     }
 
     // ---------------------------------------------------------------- decode
