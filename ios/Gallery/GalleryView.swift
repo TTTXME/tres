@@ -85,9 +85,9 @@ struct GalleryView: View {
             HStack(spacing: 10) {
                 RoundIconButton(icon: "ui_ic_back", label: L("gallery.back")) { dismiss() }
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(L("gallery.photos")).font(.system(size: 28, weight: .bold)).foregroundStyle(.white)
+                    Text(L("gallery.photos")).font(.app(28, 700)).foregroundStyle(.white)
                     if library.access == .granted {
-                        Text(Self.countText(shown.count)).font(.system(size: 13)).foregroundStyle(GalleryStyle.muted)
+                        Text(Self.countText(shown.count)).font(.app(13)).foregroundStyle(GalleryStyle.muted)
                     }
                 }
                 Spacer()
@@ -131,11 +131,11 @@ struct GalleryView: View {
         case .denied:
             Spacer()
             VStack(spacing: 14) {
-                Text(L("gallery.no_access")).font(.system(size: 15)).foregroundStyle(GalleryStyle.muted).multilineTextAlignment(.center)
+                Text(L("gallery.no_access")).font(.app(15)).foregroundStyle(GalleryStyle.muted).multilineTextAlignment(.center)
                 Button(L("camera.open_settings")) {
                     if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
                 }
-                .font(.system(size: 15, weight: .semibold)).foregroundStyle(GalleryStyle.ink)
+                .font(.app(15, 600)).foregroundStyle(GalleryStyle.ink)
                 .padding(.horizontal, 18).frame(minHeight: 40).background(GalleryStyle.accent, in: Capsule())
             }
             .padding(32)
@@ -144,7 +144,7 @@ struct GalleryView: View {
             if shown.isEmpty {
                 Spacer()
                 Text(library.prefs.filtering ? L("gallery.nothing_filtered") : library.source == .camera ? L("gallery.empty_camera") : L("gallery.empty"))
-                    .font(.system(size: 15)).foregroundStyle(GalleryStyle.muted).multilineTextAlignment(.center).padding(32)
+                    .font(.app(15)).foregroundStyle(GalleryStyle.muted).multilineTextAlignment(.center).padding(32)
                 Spacer()
             } else {
                 SelectableGrid(library: library, assets: shown, selection: $selection, bottomInset: 96,
@@ -167,7 +167,7 @@ struct GalleryView: View {
                 } label: {
                     VStack(spacing: 3) {
                         GalleryIcon(name: icons[t.rawValue], size: 22, color: on ? GalleryStyle.accent : GalleryStyle.muted)
-                        Text(names[t.rawValue]).font(.system(size: 11, weight: .semibold)).lineLimit(1)
+                        Text(names[t.rawValue]).font(.app(11, 600)).lineLimit(1)
                             .foregroundStyle(on ? GalleryStyle.accent : GalleryStyle.muted)
                     }
                     .frame(maxWidth: .infinity, minHeight: 48)
@@ -255,7 +255,7 @@ struct SelectableGrid: View {
 
     private func sectionHeader(_ title: String, _ items: [PHAsset]) -> some View {
         HStack {
-            Text(title).font(.system(size: 17, weight: .semibold)).foregroundStyle(.white)
+            Text(title).font(.app(17, 600)).foregroundStyle(.white)
             Spacer()
             if let s = selection {
                 let ids = Set(items.map(\.localIdentifier))
@@ -263,7 +263,7 @@ struct SelectableGrid: View {
                 Button(all ? L("gallery.deselect") : L("gallery.select")) {
                     selection = all ? s.subtracting(ids) : s.union(ids)
                 }
-                .font(.system(size: 14, weight: .semibold)).foregroundStyle(GalleryStyle.accent)
+                .font(.app(14, 600)).foregroundStyle(GalleryStyle.accent)
             }
         }
         .padding(.horizontal, 16).padding(.vertical, 8)
@@ -303,7 +303,7 @@ struct SelectableGrid: View {
             Button {
                 selection = Set(assets.map(\.localIdentifier))
             } label: {
-                Text(n == 0 ? L("gallery.select_items") : GalleryView.countText(n)).font(.system(size: 15, weight: .semibold))
+                Text(n == 0 ? L("gallery.select_items") : GalleryView.countText(n)).font(.app(15, 600))
                     .foregroundStyle(.white).lineLimit(1).minimumScaleFactor(0.7).frame(maxWidth: .infinity, minHeight: 48)
             }
             .buttonStyle(.plain)
@@ -331,7 +331,7 @@ struct SelectableGrid: View {
         Button(action: action) {
             VStack(spacing: 3) {
                 GalleryIcon(name: icon, size: 22, color: color)
-                Text(label).font(.system(size: 10.5, weight: .medium)).foregroundStyle(color).lineLimit(1).minimumScaleFactor(0.6)
+                Text(label).font(.app(10.5, 500)).foregroundStyle(color).lineLimit(1).minimumScaleFactor(0.6)
             }
             .frame(maxWidth: .infinity, minHeight: 48)
         }
@@ -388,12 +388,12 @@ struct GalleryThumb: View {
                 HStack(spacing: 4) {
                     if asset.mediaType == .video {
                         GalleryIcon(name: "ui_ic_play", size: 14)
-                        Text(VideoResume.clock(Int64(asset.duration * 1000))).font(.system(size: 10, weight: .semibold).monospacedDigit())
+                        Text(VideoResume.clock(Int64(asset.duration * 1000))).font(.app(10, 600).monospacedDigit())
                             .foregroundStyle(.white).shadow(color: .black, radius: 1)
                     }
                     if asset.isFavorite { GalleryIcon(name: "ui_ic_heart_on", size: 14) }
                     if library.kinds[asset.localIdentifier]?.raw ?? false {
-                        Text("RAW").font(.system(size: 9, weight: .bold)).foregroundStyle(.white)
+                        Text("RAW").font(.app(9, 700)).foregroundStyle(.white)
                             .padding(.horizontal, 4).padding(.vertical, 1).background(GalleryStyle.bar, in: Capsule())
                     }
                 }
@@ -431,8 +431,8 @@ struct GalleryViewSheet: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                Text(L("gallery.view_title")).font(.system(size: 22, weight: .bold)).foregroundStyle(.white).padding(.horizontal, 18)
-                Text(L("gallery.view_sub")).font(.system(size: 14)).foregroundStyle(GalleryStyle.muted).padding(.horizontal, 18).padding(.top, 4)
+                Text(L("gallery.view_title")).font(.app(22, 700)).foregroundStyle(.white).padding(.horizontal, 18)
+                Text(L("gallery.view_sub")).font(.app(14)).foregroundStyle(GalleryStyle.muted).padding(.horizontal, 18).padding(.top, 4)
                 GallerySection(text: L("gallery.order"))
                 GallerySegments(names: [L("gallery.newest_first"), L("gallery.oldest_first")], selected: library.prefs.oldestFirst ? 1 : 0) {
                     library.prefs.oldestFirst = $0 == 1
@@ -443,7 +443,7 @@ struct GalleryViewSheet: View {
                     library.prefs.columns = GalleryPrefs.minColumns + $0
                 }
                 Button { dismiss() } label: {
-                    Text(L("gallery.done")).font(.system(size: 16, weight: .semibold)).foregroundStyle(GalleryStyle.ink)
+                    Text(L("gallery.done")).font(.app(16, 600)).foregroundStyle(GalleryStyle.ink)
                         .frame(maxWidth: .infinity, minHeight: 48).background(GalleryStyle.accent, in: Capsule())
                 }
                 .buttonStyle(.plain).padding(18)
@@ -464,7 +464,7 @@ struct GalleryFilterSheet: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                Text(L("gallery.filter")).font(.system(size: 22, weight: .bold)).foregroundStyle(.white).padding(.horizontal, 18)
+                Text(L("gallery.filter")).font(.app(22, 700)).foregroundStyle(.white).padding(.horizontal, 18)
                 GallerySection(text: L("gallery.format"))
                 GallerySegments(names: [L("gallery.album.all"), "RAW", "JPEG", "HEIC"], selected: library.prefs.type.rawValue) {
                     library.prefs.type = GalleryPrefs.TypeFilter(rawValue: $0) ?? .all
@@ -489,12 +489,12 @@ struct GalleryFilterSheet: View {
                 }
                 HStack(spacing: 10) {
                     Button { library.prefs.clearFilter() } label: {
-                        Text(L("gallery.filter_reset")).font(.system(size: 16, weight: .semibold)).foregroundStyle(.white)
+                        Text(L("gallery.filter_reset")).font(.app(16, 600)).foregroundStyle(.white)
                             .frame(maxWidth: .infinity, minHeight: 48).background(GalleryStyle.card, in: Capsule())
                     }
                     .buttonStyle(.plain)
                     Button { dismiss() } label: {
-                        Text(L("gallery.done")).font(.system(size: 16, weight: .semibold)).foregroundStyle(GalleryStyle.ink)
+                        Text(L("gallery.done")).font(.app(16, 600)).foregroundStyle(GalleryStyle.ink)
                             .frame(maxWidth: .infinity, minHeight: 48).background(GalleryStyle.accent, in: Capsule())
                     }
                     .buttonStyle(.plain)
@@ -602,8 +602,8 @@ struct PhotoViewer: View {
                 RoundIconButton(icon: "ui_ic_back", label: L("gallery.back_grid"), background: GalleryStyle.bar) { dismiss() }
                 if let a = asset, let d = a.creationDate {
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(d.formatted(date: .abbreviated, time: .omitted)).font(.system(size: 15, weight: .semibold)).foregroundStyle(.white)
-                        Text(d.formatted(date: .omitted, time: .shortened)).font(.system(size: 12)).foregroundStyle(GalleryStyle.muted)
+                        Text(d.formatted(date: .abbreviated, time: .omitted)).font(.app(15, 600)).foregroundStyle(.white)
+                        Text(d.formatted(date: .omitted, time: .shortened)).font(.app(12)).foregroundStyle(GalleryStyle.muted)
                     }
                     .padding(.horizontal, 12).padding(.vertical, 4).background(GalleryStyle.bar, in: Capsule())
                 }
@@ -659,7 +659,7 @@ struct PhotoViewer: View {
         Button(action: action) {
             VStack(spacing: 3) {
                 GalleryIcon(name: icon, size: 24, color: color)
-                Text(label).font(.system(size: 11, weight: .medium)).foregroundStyle(color).lineLimit(1).minimumScaleFactor(0.7)
+                Text(label).font(.app(11, 500)).foregroundStyle(color).lineLimit(1).minimumScaleFactor(0.7)
             }
             .frame(maxWidth: .infinity, minHeight: 48)
         }
@@ -985,8 +985,8 @@ private struct DetailsSheet: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 8) {
-                Text(L("gallery.details")).font(.system(size: 22, weight: .bold)).foregroundStyle(.white)
-                if !details.fileName.isEmpty { Text(details.fileName).font(.system(size: 14)).foregroundStyle(GalleryStyle.muted) }
+                Text(L("gallery.details")).font(.app(22, 700)).foregroundStyle(.white)
+                if !details.fileName.isEmpty { Text(details.fileName).font(.app(14)).foregroundStyle(GalleryStyle.muted) }
                 VStack(spacing: 0) {
                     row("ui_ic_clock", details.when ?? "—", details.folder.map { L("gallery.folder") + " " + $0 })
                     Divider().background(GalleryStyle.hairline)
@@ -1007,9 +1007,9 @@ private struct DetailsSheet: View {
                     VStack(spacing: 0) {
                         ForEach(details.more.indices, id: \.self) { i in
                             HStack(alignment: .top) {
-                                Text(details.more[i].0).font(.system(size: 14)).foregroundStyle(.white)
+                                Text(details.more[i].0).font(.app(14)).foregroundStyle(.white)
                                 Spacer(minLength: 10)
-                                Text(details.more[i].1).font(.system(size: 14)).foregroundStyle(GalleryStyle.muted)
+                                Text(details.more[i].1).font(.app(14)).foregroundStyle(GalleryStyle.muted)
                                     .multilineTextAlignment(.trailing).textSelection(.enabled)
                             }
                             .padding(.horizontal, 16).frame(minHeight: 44)
@@ -1019,7 +1019,7 @@ private struct DetailsSheet: View {
                     .background(GalleryStyle.card, in: RoundedRectangle(cornerRadius: 16))
                 }
                 if let route = details.route {
-                    Text(String(format: L("gallery.route_note"), route)).font(.system(size: 13)).foregroundStyle(GalleryStyle.muted)
+                    Text(String(format: L("gallery.route_note"), route)).font(.app(13)).foregroundStyle(GalleryStyle.muted)
                         .padding(14).frame(maxWidth: .infinity, alignment: .leading)
                         .background(GalleryStyle.card, in: RoundedRectangle(cornerRadius: 16))
                         .padding(.top, 12)
@@ -1057,8 +1057,8 @@ private struct DetailsSheet: View {
                 .frame(width: 32, height: 32)
                 .background(Color(red: 0x3A / 255, green: 0x3A / 255, blue: 0x3C / 255), in: RoundedRectangle(cornerRadius: 8))
             VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.system(size: 16, weight: .semibold)).foregroundStyle(.white)
-                if let sub, !sub.isEmpty { Text(sub).font(.system(size: 13)).foregroundStyle(GalleryStyle.muted) }
+                Text(title).font(.app(16, 600)).foregroundStyle(.white)
+                if let sub, !sub.isEmpty { Text(sub).font(.app(13)).foregroundStyle(GalleryStyle.muted) }
             }
             Spacer()
         }
@@ -1067,8 +1067,8 @@ private struct DetailsSheet: View {
 
     private func cell(_ title: String, _ value: String?) -> some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text(title).font(.system(size: 12.5)).foregroundStyle(GalleryStyle.muted).lineLimit(1).minimumScaleFactor(0.7)
-            Text(value ?? "—").font(.system(size: 16, weight: .semibold).monospacedDigit()).foregroundStyle(.white).lineLimit(1)
+            Text(title).font(.app(12.5)).foregroundStyle(GalleryStyle.muted).lineLimit(1).minimumScaleFactor(0.7)
+            Text(value ?? "—").font(.app(16, 600).monospacedDigit()).foregroundStyle(.white).lineLimit(1)
                 .minimumScaleFactor(0.6)
         }
         .frame(maxWidth: .infinity, alignment: .leading)

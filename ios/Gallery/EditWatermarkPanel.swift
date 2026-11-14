@@ -75,12 +75,12 @@ struct EditWatermarkPanel: View {
     }
 
     private func hint(_ text: String) -> some View {
-        Text(text).font(.system(size: 12)).foregroundStyle(GalleryStyle.muted)
+        Text(text).font(.app(12)).foregroundStyle(GalleryStyle.muted)
             .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 18).padding(.top, 6).padding(.bottom, 4)
     }
 
     private func caption(_ text: String) -> some View {
-        Text(text).font(.system(size: 15)).foregroundStyle(GalleryStyle.text)
+        Text(text).font(.app(15)).foregroundStyle(GalleryStyle.text)
             .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 18).padding(.top, 10)
     }
 
@@ -207,9 +207,9 @@ struct EditWatermarkPanel: View {
                         set: @escaping (inout WatermarkSpec, Bool) -> Void) -> some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(Self.pref(title)).font(.system(size: 16)).foregroundStyle(GalleryStyle.text)
+                Text(Self.pref(title)).font(.app(16)).foregroundStyle(GalleryStyle.text)
                 if let value, !value.isEmpty {
-                    Text(value).font(.system(size: 12)).foregroundStyle(GalleryStyle.muted).lineLimit(1)
+                    Text(value).font(.app(12)).foregroundStyle(GalleryStyle.muted).lineLimit(1)
                 }
             }
             Spacer(minLength: 8)
@@ -230,7 +230,7 @@ struct EditWatermarkPanel: View {
     /// The own text, typed in place (64 characters at most, as the camera draws); one undo step when the typing ends.
     private func textRow(_ spec: WatermarkSpec) -> some View {
         TextField(Self.pref("prefs_watermark_text_title"), text: $text)
-            .font(.system(size: 16)).foregroundStyle(GalleryStyle.text)
+            .font(.app(16)).foregroundStyle(GalleryStyle.text)
             .textInputAutocapitalization(.never)
             .autocorrectionDisabled()
             .submitLabel(.done)

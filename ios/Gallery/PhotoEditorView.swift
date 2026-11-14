@@ -52,7 +52,7 @@ struct PhotoEditorView: View {
             RoundIconButton(icon: "ui_ic_close", label: L("editor.close")) {
                 if model.hasChanges { confirmLeave = true } else { dismiss() }
             }
-            Text(model.name).font(.system(size: 13)).foregroundStyle(GalleryStyle.muted).lineLimit(1).truncationMode(.middle)
+            Text(model.name).font(.app(13)).foregroundStyle(GalleryStyle.muted).lineLimit(1).truncationMode(.middle)
                 .frame(maxWidth: .infinity).padding(.horizontal, 2)
             RoundIconButton(icon: "kb_ui_ic_undo_rest", label: L("editor.undo"), enabled: model.history.canUndo) { model.undo() }
             RoundIconButton(icon: "kb_ui_ic_redo_rest", label: L("editor.redo"), enabled: model.history.canRedo) { model.redo() }
@@ -66,7 +66,7 @@ struct PhotoEditorView: View {
             }
             .accessibilityLabel(L("gallery.more"))
             Button { Task { await model.save() } } label: {
-                Text(L("editor.save_copy")).font(.system(size: 14, weight: .semibold)).foregroundStyle(GalleryStyle.ink)
+                Text(L("editor.save_copy")).font(.app(14, 600)).foregroundStyle(GalleryStyle.ink)
                     .padding(.horizontal, 14).frame(minHeight: 40).background(GalleryStyle.accent, in: Capsule())
             }
             .buttonStyle(.plain)
@@ -106,7 +106,7 @@ struct PhotoEditorView: View {
                     .padding(12)
                     Spacer()
                     if let notice = model.notice {
-                        Text(notice).font(.system(size: 13, weight: .semibold)).foregroundStyle(.white).multilineTextAlignment(.center)
+                        Text(notice).font(.app(13, 600)).foregroundStyle(.white).multilineTextAlignment(.center)
                             .padding(.horizontal, 14).padding(.vertical, 8)
                             .background(GalleryStyle.bar, in: RoundedRectangle(cornerRadius: 16))
                             .padding(.horizontal, 16).padding(.bottom, 12)
@@ -119,7 +119,7 @@ struct PhotoEditorView: View {
                 }
                 if model.loading { ProgressView().tint(.white).scaleEffect(1.4) }
                 if let f = model.failure {
-                    Text(f).font(.system(size: 15)).foregroundStyle(GalleryStyle.muted).multilineTextAlignment(.center).padding(24)
+                    Text(f).font(.app(15)).foregroundStyle(GalleryStyle.muted).multilineTextAlignment(.center).padding(24)
                 }
             }
             .contentShape(Rectangle())
@@ -163,7 +163,7 @@ struct PhotoEditorView: View {
                 } label: {
                     VStack(spacing: 3) {
                         GalleryIcon(name: icons[t.rawValue], size: 22, color: on ? GalleryStyle.accent : GalleryStyle.muted)
-                        Text(names[t.rawValue]).font(.system(size: 10.5, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.7)
+                        Text(names[t.rawValue]).font(.app(10.5, 600)).lineLimit(1).minimumScaleFactor(0.7)
                             .foregroundStyle(on ? GalleryStyle.accent : GalleryStyle.muted)
                     }
                     .frame(maxWidth: .infinity).padding(.top, 8).padding(.bottom, 6)
@@ -182,7 +182,7 @@ struct PhotoEditorView: View {
             Color.black.opacity(0.8).ignoresSafeArea()
             VStack(spacing: 12) {
                 Text(L("editor.saving") + " \(Int((model.exportProgress * 100).rounded())) %")
-                    .font(.system(size: 16, weight: .semibold)).foregroundStyle(.white)
+                    .font(.app(16, 600)).foregroundStyle(.white)
                 ProgressView(value: Double(model.exportProgress)).tint(GalleryStyle.accent)
             }
             .padding(20)
@@ -317,7 +317,7 @@ private struct EditorPanels: View {
     }
 
     private func hint(_ text: String) -> some View {
-        Text(text).font(.system(size: 12)).foregroundStyle(GalleryStyle.muted)
+        Text(text).font(.app(12)).foregroundStyle(GalleryStyle.muted)
             .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 18).padding(.top, 4).padding(.bottom, 8)
     }
 
@@ -362,7 +362,7 @@ private struct EditorPanels: View {
         Button(action: action) {
             VStack(spacing: 6) {
                 GalleryIcon(name: icon, size: 24)
-                Text(label).font(.system(size: 12, weight: .medium)).foregroundStyle(.white).lineLimit(1).minimumScaleFactor(0.7)
+                Text(label).font(.app(12, 500)).foregroundStyle(.white).lineLimit(1).minimumScaleFactor(0.7)
             }
             .frame(maxWidth: .infinity, minHeight: 64)
             .background(GalleryStyle.card, in: RoundedRectangle(cornerRadius: 16))
@@ -435,7 +435,7 @@ private struct EditorPanels: View {
                                 if let image = model.lookThumbs[card.2] { Image(uiImage: image).resizable().scaledToFill() }
                             }
                             .frame(width: 53, height: 53).clipShape(RoundedRectangle(cornerRadius: 14))
-                            Text(card.1).font(.system(size: 11, weight: .semibold)).foregroundStyle(.white).lineLimit(2)
+                            Text(card.1).font(.app(11, 600)).foregroundStyle(.white).lineLimit(2)
                                 .multilineTextAlignment(.center).frame(width: 64)
                         }
                         .padding(5)

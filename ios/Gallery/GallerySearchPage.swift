@@ -22,7 +22,7 @@ struct GallerySearchPage: View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
                 RoundIconButton(icon: "ui_ic_back", label: L("gallery.back")) { back() }
-                Text(L("gallery.search")).font(.system(size: 28, weight: .bold)).foregroundStyle(.white)
+                Text(L("gallery.search")).font(.app(28, 700)).foregroundStyle(.white)
                 Spacer()
             }
             .padding(.horizontal, 16).padding(.top, 8).padding(.bottom, 8)
@@ -40,7 +40,7 @@ struct GallerySearchPage: View {
         HStack(spacing: 8) {
             GalleryIcon(name: "kb_ui_ic_search_rest", size: 20, color: GalleryStyle.section).accessibilityHidden(true)
             TextField("", text: $query, prompt: Text(L("gallery.search_hint")).foregroundStyle(GalleryStyle.section))
-                .font(.system(size: 16)).foregroundStyle(.white)
+                .font(.app(16)).foregroundStyle(.white)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .submitLabel(.search)
@@ -85,8 +85,8 @@ struct GallerySearchPage: View {
                                 Button { openAlbum(a) } label: {
                                     HStack(spacing: 10) {
                                         GalleryIcon(name: a.icon, size: 20, color: GalleryStyle.accent)
-                                        Text(a.title).font(.system(size: 15)).foregroundStyle(.white).lineLimit(1)
-                                        Text("\(a.count)").font(.system(size: 14)).foregroundStyle(GalleryStyle.muted)
+                                        Text(a.title).font(.app(15)).foregroundStyle(.white).lineLimit(1)
+                                        Text("\(a.count)").font(.app(14)).foregroundStyle(GalleryStyle.muted)
                                     }
                                     .padding(.horizontal, 14).frame(minHeight: 48)
                                     .background(GalleryStyle.card, in: RoundedRectangle(cornerRadius: 18))
@@ -116,7 +116,7 @@ struct GallerySearchPage: View {
     }
 
     private func heading(_ title: String) -> some View {
-        Text(title.uppercased()).font(.system(size: 12, weight: .semibold)).foregroundStyle(GalleryStyle.section).kerning(0.7)
+        Text(title.uppercased()).font(.app(12, 600)).foregroundStyle(GalleryStyle.section).kerning(0.7)
             .padding(.leading, 4).padding(.top, 16).padding(.bottom, 6)
             .accessibilityAddTraits(.isHeader)
     }
@@ -129,7 +129,7 @@ struct GallerySearchPage: View {
                     query = words[i]
                     remember(words[i])
                 } label: {
-                    Text(words[i]).font(.system(size: 15)).foregroundStyle(.white)
+                    Text(words[i]).font(.app(15)).foregroundStyle(.white)
                         .padding(.horizontal, 14).padding(.vertical, 9)
                         .background(GalleryStyle.card, in: Capsule())
                 }
@@ -154,7 +154,7 @@ struct GallerySearchPage: View {
         let columns = Array(repeating: GridItem(.flexible(), spacing: 2), count: 4)
         return VStack(alignment: .leading, spacing: 0) {
             Text(found.isEmpty ? L("gallery.search_nothing") : L("gallery.search_found") + " " + GalleryView.countText(found.count))
-                .font(.system(size: 13)).foregroundStyle(GalleryStyle.muted).padding(.horizontal, 18).padding(.bottom, 8)
+                .font(.app(13)).foregroundStyle(GalleryStyle.muted).padding(.horizontal, 18).padding(.bottom, 8)
             ScrollView {
                 LazyVGrid(columns: columns, spacing: 2) {
                     ForEach(found.indices, id: \.self) { i in

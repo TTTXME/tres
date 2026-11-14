@@ -50,7 +50,7 @@ struct RoundIconButton: View {
 struct GalleryPill: View {
     let text: String
     var body: some View {
-        Text(text).font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
+        Text(text).font(.app(13, 600)).foregroundStyle(.white)
             .padding(.horizontal, 12).padding(.vertical, 6)
             .background(GalleryStyle.bar, in: Capsule())
     }
@@ -63,7 +63,7 @@ struct GalleryChip: View {
     let action: () -> Void
     var body: some View {
         Button(action: action) {
-            Text(text).font(.system(size: 14, weight: .medium)).foregroundStyle(on ? GalleryStyle.ink : GalleryStyle.text)
+            Text(text).font(.app(14, 500)).foregroundStyle(on ? GalleryStyle.ink : GalleryStyle.text)
                 .padding(.horizontal, 14).frame(minHeight: 36)
                 .background(on ? GalleryStyle.accent : GalleryStyle.card, in: Capsule())
         }
@@ -80,7 +80,7 @@ struct GallerySegments: View {
         HStack(spacing: 2) {
             ForEach(names.indices, id: \.self) { i in
                 Button { pick(i) } label: {
-                    Text(names[i]).font(.system(size: 13, weight: i == selected ? .semibold : .regular)).lineLimit(1).minimumScaleFactor(0.7)
+                    Text(names[i]).font(.app(13, i == selected ? 600 : 400)).lineLimit(1).minimumScaleFactor(0.7)
                         .foregroundStyle(.white).frame(maxWidth: .infinity).frame(height: 30)
                         .background(i == selected ? Color(white: 0.39) : Color.clear, in: RoundedRectangle(cornerRadius: 7))
                 }
@@ -98,7 +98,7 @@ struct GallerySegments: View {
 struct GallerySection: View {
     let text: String
     var body: some View {
-        Text(text.uppercased()).font(.system(size: 12, weight: .semibold)).foregroundStyle(GalleryStyle.section)
+        Text(text.uppercased()).font(.app(12, 600)).foregroundStyle(GalleryStyle.section)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 18).padding(.top, 12).padding(.bottom, 2)
     }
@@ -132,9 +132,9 @@ struct EditSliderRow: View {
     var body: some View {
         VStack(spacing: 4) {
             HStack {
-                Text(label).font(.system(size: 15)).foregroundStyle(GalleryStyle.text).lineLimit(1)
+                Text(label).font(.app(15)).foregroundStyle(GalleryStyle.text).lineLimit(1)
                 Spacer(minLength: 8)
-                Text(format(value)).font(.system(size: 14, weight: .bold).monospacedDigit())
+                Text(format(value)).font(.app(14, 700).monospacedDigit())
                     .foregroundStyle(value != def ? GalleryStyle.ink : GalleryStyle.accent)
                     .padding(.horizontal, 11).frame(minWidth: 44, minHeight: 24)
                     .background(value != def ? GalleryStyle.accent : GalleryStyle.accent.opacity(0.16), in: Capsule())

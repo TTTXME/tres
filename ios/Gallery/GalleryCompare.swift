@@ -32,7 +32,7 @@ struct CompareView: View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
                 RoundIconButton(icon: "ui_ic_back", label: L("gallery.back")) { dismiss() }
-                Text(L("gallery.compare_title")).font(.system(size: 22, weight: .bold)).foregroundStyle(.white)
+                Text(L("gallery.compare_title")).font(.app(22, 700)).foregroundStyle(.white)
                 Spacer()
                 RoundIconButton(icon: "kb_ui_ic_swap_rest", label: L("gallery.swap")) {
                     let was = first
@@ -56,7 +56,7 @@ struct CompareView: View {
             }
             HStack(spacing: 12) {
                 HStack {
-                    Text(L("gallery.compare_sync")).font(.system(size: 15)).foregroundStyle(.white).lineLimit(1).minimumScaleFactor(0.7)
+                    Text(L("gallery.compare_sync")).font(.app(15)).foregroundStyle(.white).lineLimit(1).minimumScaleFactor(0.7)
                     Spacer()
                     Toggle("", isOn: $sync).labelsHidden().tint(GalleryStyle.accent)
                 }
@@ -89,10 +89,10 @@ struct CompareView: View {
 
     private func labelCard(_ l: CompareLabel) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(timeMode ? l.timeLine : l.exifLine).font(.system(size: 13, weight: .semibold).monospacedDigit()).foregroundStyle(.white)
+            Text(timeMode ? l.timeLine : l.exifLine).font(.app(13, 600).monospacedDigit()).foregroundStyle(.white)
             if !timeMode {
-                if !l.sizeLine.isEmpty { Text(l.sizeLine).font(.system(size: 11)).foregroundStyle(GalleryStyle.muted) }
-                if !l.fileName.isEmpty { Text(l.fileName).font(.system(size: 11)).foregroundStyle(GalleryStyle.muted).lineLimit(1) }
+                if !l.sizeLine.isEmpty { Text(l.sizeLine).font(.app(11)).foregroundStyle(GalleryStyle.muted) }
+                if !l.fileName.isEmpty { Text(l.fileName).font(.app(11)).foregroundStyle(GalleryStyle.muted).lineLimit(1) }
             }
         }
         .padding(.horizontal, 10).padding(.vertical, 6)
