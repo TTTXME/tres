@@ -624,8 +624,42 @@ public final class LiveRawFrame {
         }
     }
 
+    // ---- P683: a reader of the GL thread's frame on another thread (LiveWhyTone's AE meter job, started by the GL thread after its
+    // draw): the frame's buffer is the GL thread's until its next acquire (then the producer refills it, or a ring view is freed),
+    // so that acquire - and a retired view's timer - wait for the reader. One reader at a time; the GL thread starts it.
+    private static final java.util.concurrent.atomic.AtomicReference<java.util.concurrent.CountDownLatch> offThreadReader =
+            new java.util.concurrent.atomic.AtomicReference<>();
+    /** P683: waits longer than this logged (the GL thread waited for the meter). */
+    static final long READER_WAIT_LOG_NS = 20_000_000L;
+
+    /** P683: {@code done} counts down when the off-thread reader of the GL thread's current frame is done with it. */
+    public static void offThreadReader(java.util.concurrent.CountDownLatch done) {
+        offThreadReader.set(done);
+    }
+
+    /** P683: waits until the off-thread reader (if any) is done with the frame (never times out: it reads a bounded frame). */
+    static void awaitOffThreadReader() {
+        final java.util.concurrent.CountDownLatch r = offThreadReader.get();
+        if (r == null || r.getCount() == 0) return;
+        final long t0 = System.nanoTime();
+        boolean interrupted = false;
+        while (true) {
+            try {
+                r.await();
+                break;
+            } catch (InterruptedException e) {
+                interrupted = true;
+            }
+        }
+        if (interrupted) Thread.currentThread().interrupt();
+        final long waited = System.nanoTime() - t0;
+        if (waited > READER_WAIT_LOG_NS)
+            com.scamera.app.util.Log.d("LiveRawFrame", String.format(java.util.Locale.ROOT, "the frame's off-thread meter held the GL thread %.1f ms", waited / 1e6));
+    }
+
     /** P365: frees {@code view} when it is still retired (by identity: a ByteBuffer's equals compares its bytes). */
     private static void freeRetired(ByteBuffer view) {
+        awaitOffThreadReader(); // P683
         boolean mine = false;
         synchronized (LOCK) {
             for (java.util.Iterator<ByteBuffer> it = retired.iterator(); it.hasNext(); )
@@ -1219,6 +1253,13 @@ public final class LiveRawFrame {
     public static Frame acquire() {
         final java.util.ArrayList<ByteBuffer> done = new java.util.ArrayList<>(2);
         final Frame f;
+        // P683: the GL thread's frame is let go of here (a new frame takes its place, a retired view is freed): a meter still
+        // reading it off the GL thread (LiveWhyTone's AE job) finishes first
+        final boolean letsGo;
+        synchronized (LOCK) {
+            letsGo = readyFresh || !retired.isEmpty();
+        }
+        if (letsGo) awaitOffThreadReader();
         synchronized (LOCK) {
             f = acquireLocked(done);
         }

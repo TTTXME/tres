@@ -175,6 +175,7 @@ public final class Heic10Encoder {
             source = new TileSource(img, grid, P010.Matrix.forCode(colour.matrix));
             final Encoded encoded = run(codec, source, input, grid, deadline);
             stats.convertMs = source.convertNanos / 1_000_000;
+            Log.i(TAG, "P010 tiles " + grid.count() + ", arrays allocated " + source.allocated.get() + " (P681: the others reused)");
             final HevcNal.Sps sps = HevcNal.parseSps(encoded.sets.sps.get(0));
             stats.sps = sps.toString();
             if (sps.bitDepthLuma != 10 || sps.bitDepthChroma != 10 || sps.chromaFormatIdc != 1)
@@ -277,6 +278,7 @@ public final class Heic10Encoder {
                     if (next < n) {
                         final byte[] p010 = source.tile(next, deadline);
                         final int size = fill(codec, in, p010, grid.tile, input);
+                        source.recycle(p010); // P681: copied into the codec's buffer, the array serves a later tile
                         codec.queueInputBuffer(in, 0, size, pts, 0);
                         next++;
                     } else {
@@ -431,7 +433,14 @@ public final class Heic10Encoder {
         private final int[][] bands;
         @SuppressWarnings("unchecked")
         private final Future<byte[]>[][] futures;
+        /**
+         * P681: tile arrays the encoder has copied from, for the next tiles (each tile overwrites every byte of its array): at
+         * most the two bands in flight are ever allocated instead of a new 0.75 MB array per tile (~150 MB of garbage at 50 MP).
+         */
+        private final java.util.concurrent.ConcurrentLinkedQueue<byte[]> spare = new java.util.concurrent.ConcurrentLinkedQueue<>();
         long convertNanos;
+        /** P681: tile arrays allocated (the rest were reused), for the encode's log line. */
+        final java.util.concurrent.atomic.AtomicInteger allocated = new java.util.concurrent.atomic.AtomicInteger();
 
         @SuppressWarnings("unchecked")
         TileSource(Bitmap img, TileGrid grid, P010.Matrix matrix) {
@@ -459,7 +468,11 @@ public final class Heic10Encoder {
             for (int c = 0; c < grid.columns; c++) {
                 final int column = c;
                 f[c] = pool.submit(() -> {
-                    final byte[] out = new byte[P010.tileBytes(grid.tile, grid.tile)];
+                    byte[] out = spare.poll();
+                    if (out == null) {
+                        out = new byte[P010.tileBytes(grid.tile, grid.tile)];
+                        allocated.incrementAndGet();
+                    }
                     P010.convertTile(band, grid.width, validRows, grid.x0(column), grid.validWidth(column), grid.tile, grid.tile, out, matrix);
                     return out;
                 });
@@ -480,10 +493,16 @@ public final class Heic10Encoder {
             return out;
         }
 
+        /** P681: a tile's array the encoder has copied from, kept for a later tile. */
+        void recycle(byte[] p010) {
+            if (p010 != null && p010.length == P010.tileBytes(grid.tile, grid.tile)) spare.offer(p010);
+        }
+
         @Override
         public void close() {
             pool.shutdownNow();
             reader.close();
+            spare.clear();
         }
     }
 }

@@ -361,6 +361,9 @@ public class CameraResumeTest {
         when(manager.getCameraCharacteristics("3")).thenThrow(new IllegalArgumentException(
                 "getCameraCharacteristics:1370: Unable to retrieve camera characteristics for unknown device 3: No such file or directory (-2)"));
         CaptureController dying=new CaptureController(activity,mock(ExecutorService.class),events);
+        // P680: the read runs on the pool (a mock here, which runs nothing): the first caller that needs the list runs it
+        assertFalse((Boolean)get(dying,"mCharacteristicsIncomplete"));
+        dying.awaitAllCharacteristics();
         assertTrue((Boolean)get(dying,"mCharacteristicsIncomplete"));
         assertEquals(1,((ArrayDeque<Long>)get(dying,"mRecoveries")).size());
     }

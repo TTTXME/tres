@@ -36,6 +36,62 @@ public final class ScamHybridBurst implements ScamTransport {
      * frame count; the frames of the merge are {@link #lastMergeFrames}.
      */
     public static volatile java.nio.ByteBuffer lastEffectiveFrames;
+    /**
+     * P681: the native frame map the client read (a view of the worker's result memfd, else an Allocator copy), until it is
+     * dropped: the end of the shot it came with ({@link #dropEffectiveFrames(java.nio.ByteBuffer)}), the next shot's read, a lab
+     * run's end. {@link #lastEffectiveFrames} may point elsewhere meanwhile (the gallery developer's map, a YUV shot's): only
+     * this one is freed, once. Before it, the map was a Java heap buffer (1 B per output pixel, 50 MB at 50 MP) the GC returned
+     * whenever it ran.
+     */
+    private static java.nio.ByteBuffer nativeEffectiveFrames;
+
+    /** P681: {@code eff} (native) becomes the frame map of the shot just merged; an earlier native one goes. */
+    static synchronized void keepNativeEffectiveFrames(java.nio.ByteBuffer eff) {
+        dropEffectiveFrames();
+        nativeEffectiveFrames = eff;
+        lastEffectiveFrames = eff;
+    }
+
+    /** P681: the end of the shot whose merge returned {@code eff}: no longer the frame map, freed when it is the native one. */
+    public static synchronized void dropEffectiveFrames(java.nio.ByteBuffer eff) {
+        if (eff == null) return;
+        if (lastEffectiveFrames == eff) lastEffectiveFrames = null;
+        if (eff == nativeEffectiveFrames) {
+            nativeEffectiveFrames = null;
+            com.scamera.app.util.Allocator.free(eff);
+        }
+    }
+
+    /** P681: the native frame map freed if one is left (a shot that failed before it took its map); the others stay. */
+    public static synchronized void releaseNativeEffectiveFrames() {
+        dropEffectiveFrames(nativeEffectiveFrames);
+    }
+
+    /** P681: no frame map any more (the next read, a lab run's end, the CPU fallback): the native one is freed. */
+    public static synchronized void dropEffectiveFrames() {
+        final java.nio.ByteBuffer native_ = nativeEffectiveFrames;
+        nativeEffectiveFrames = null;
+        if (lastEffectiveFrames == native_) lastEffectiveFrames = null;
+        if (native_ != null) com.scamera.app.util.Allocator.free(native_);
+        lastEffectiveFrames = null;
+    }
+
+    /**
+     * P681: the merged DNG no shot took (a lab run, the next read, the CPU fallback) is freed - a view of the worker's result
+     * memfd would keep the whole memfd mapped, an Allocator copy its 2 B per sensor pixel; null afterwards.
+     */
+    public static synchronized void dropMergedDng() {
+        final java.nio.ByteBuffer dng = lastMergedDng;
+        lastMergedDng = null;
+        if (dng != null) com.scamera.app.util.Allocator.free(dng);
+    }
+
+    /** P681: the merged DNG of the shot just merged, handed to the caller (who frees it); null when there is none. */
+    public static synchronized java.nio.ByteBuffer takeMergedDng() {
+        final java.nio.ByteBuffer dng = lastMergedDng;
+        lastMergedDng = null;
+        return dng;
+    }
     /** P212h (A5 = M5): the coverage (frames) code 64 of {@link #lastEffectiveFrames} stands for; NaN when the worker gave none. */
     public static volatile float lastEffectiveMedian = Float.NaN;
     /**
@@ -344,10 +400,16 @@ public final class ScamHybridBurst implements ScamTransport {
         // P191 (owner's 50 MP shots, 2026-10-17: 20 frames taken, 2 merged - «Сетка не исчезла»): a mosaic stream below 100 MP is
         // budgeted by the worker itself - its native merge holds each frame binned (~24 MB at 50 MP) and picks the frames its
         // MemAvailable allows - while this estimate counted each frame at full size (156 MB) and kept 2 of 20
-        final boolean workerBudget = workerBudgetsMosaic(width, height, mosaicBlock);
+        // P685: the fast route («Быстрый», which takes every shot of that mode) fits its own memory: a merge above its share of
+        // MemAvailable runs in row bands (the worker's scam-fast-merge.h); each more frame costs it ~1 B a pixel (its flow and
+        // rejection map) besides the frame itself, already in the shot arena - this estimate's 20-40 B a pixel fixed and ~2.5 B
+        // a pixel per frame are the SCAM merge's (a 200 MP series read «0 frames» here and was kept whole anyway)
+        final boolean fastBudget = workerBudgetsFast(fastRoute(), width, height);
+        final boolean workerBudget = workerBudgetsMosaic(width, height, mosaicBlock) || fastBudget;
         final int budget = workerBudget ? Integer.MAX_VALUE : memoryFrameBudget(width, height, mosaicBlock, grid, available);
         if (workerBudget && available > 0) Log.i("SCAM_HDR", "hybrid memory " + width + "x" + height + " colour block " + mosaicBlock
-                + ": the worker's native mosaic budget picks the frames (available " + (available >> 20) + " MB)");
+                + (fastBudget ? ": the fast route sizes its own memory (row bands above its share, P685; available "
+                        : ": the worker's native mosaic budget picks the frames (available ") + (available >> 20) + " MB)");
         // The input and three post-pipeline RGBA16F textures coexist. A smaller frame budget alone is only an estimate.
         if (strictTwoX && available > 0 && minimumPostBytes(outWidth, outHeight) > available)
             throw new IOException(Lang.t("SHDR: недостаточно свободной памяти для склейки 2× ",
@@ -818,6 +880,14 @@ public final class ScamHybridBurst implements ScamTransport {
     static boolean workerBudgetsMosaic(int w, int h, int mosaicBlock) {
         final long px = (long) w * h;
         return mosaicBlock >= 2 && px > CLASSIC_INPUT_PIXELS && px <= HUGE_INPUT_PIXELS;
+    }
+
+    /**
+     * P685: a stream above 16 MP on the fast route ({@code fast}: «Быстрый») leaves its memory to the worker, which merges in row
+     * bands sized to its share of MemAvailable (HYBRID FAST MERGE ROW BANDS) - no frame cap from the SCAM merge's estimate.
+     */
+    static boolean workerBudgetsFast(boolean fast, int w, int h) {
+        return fast && (long) w * h > CLASSIC_INPUT_PIXELS;
     }
 
     /** P179: the N frames a merge of a w x h stream keeps whatever its memory budget says. */
@@ -1821,11 +1891,11 @@ public final class ScamHybridBurst implements ScamTransport {
         lastDcgNoise = null;
         lastMergeFrames = Double.NaN;
         ScamRgb.dropClipFlags();
-        lastEffectiveFrames = null;
+        dropEffectiveFrames(); // P681: freed when native
         lastHlMask = null; // P480
         lastEffectiveMedian = Float.NaN;
         lastNormals = 1;
-        lastMergedDng = null;
+        dropMergedDng(); // P681
         lastMergeTier = "cpu-single";
         Log.w("SCAM_HDR", "Hybrid fallback=cpu-single: base frame " + burst.base.number + " " + w + "x" + h + " block " + block
                 + " demosaicked on the CPU in " + (android.os.SystemClock.elapsedRealtime() - start) + " ms");

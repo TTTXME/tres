@@ -20,7 +20,30 @@ final class YuvMergePlan {
     private YuvMergePlan() {}
 
     /** Packed frames of one series at most (the merge also holds the merged frame and the float RGB). */
-    static final long BUDGET_BYTES = 288L << 20;
+    /** P694 (owner, 2026-11-14: «1гб для тех у кого больше 8гб и 0.5гб для тех у кого 8гб и меньше»): the low class's budget. */
+    static final long BUDGET_BYTES = 512L << 20;
+    /**
+     * P693 (owner, 2026-11-14: «Увеличь бюджет памяти для yuv»): the packed series' budget of a phone above the low memory class
+     * (RamClass: more than 8 GB, not a low-RAM device) - 20 N + 2 ES + 1 L frames of 4096 x 3072 at 8 bits (18 MB each) fit, and
+     * 18 + 3 at 10 bits (36 MB); {@link #BUDGET_BYTES} stays the low class's. The frame count's cap rises with it.
+     */
+    static final long BUDGET_BYTES_HIGH = 1024L << 20;
+    /** P694: the series' frame cap (the budget is the real bound: 28 frames of 18 MB in 0.5 GB, 56 in 1 GB). */
+    static final int MAX_FRAMES = 32;
+
+    /** P693: the packed series' budget of this phone's memory class (RamClass.get(); the low class's when unknown). */
+    static long budget(boolean lowClass, long totalBytes) {
+        return lowClass || totalBytes <= 0 ? BUDGET_BYTES : BUDGET_BYTES_HIGH;
+    }
+
+    static long budget() {
+        try {
+            final com.scamera.app.util.RamClass ram = com.scamera.app.util.RamClass.get();
+            return budget(ram.low(), ram.totalBytes);
+        } catch (RuntimeException | LinkageError e) {
+            return BUDGET_BYTES;
+        }
+    }
     /**
      * P656: the «Из буфера ZSL» ring's frames at most in bytes of their packed copies - twice the series' budget (the ring holds
      * the camera's own Images and packs them all at the press). Its count followed «Число кадров в серии» alone (P650: up to 65
@@ -33,8 +56,13 @@ final class YuvMergePlan {
      * {@link #RING_BUDGET_BYTES} of {@code frameBytes} (0: unknown, no cap) + 2 and at least {@code floor}.
      */
     static int ringFrames(int zslBuffer, int generalFrames, long frameBytes, int floor) {
+        return ringFrames(zslBuffer, generalFrames, frameBytes, floor, BUDGET_BYTES);
+    }
+
+    /** P693: {@link #ringFrames} within twice the series' budget {@code budgetBytes} of this phone's memory class. */
+    static int ringFrames(int zslBuffer, int generalFrames, long frameBytes, int floor, long budgetBytes) {
         int n = Math.min(zslBuffer, generalFrames + 2);
-        if (frameBytes > 0) n = (int) Math.min(n, RING_BUDGET_BYTES / frameBytes + 2);
+        if (frameBytes > 0) n = (int) Math.min(n, 2 * budgetBytes / frameBytes + 2);
         return Math.max(floor, n);
     }
     /** The clipped share (Y >= 250) from which the short frames are taken, and the deep-shadow share (Y <= 24) for the long one. */
@@ -73,8 +101,17 @@ final class YuvMergePlan {
      */
     static HybridPlan build(long nNs, int nIso, Range<Long> times, Range<Integer> isos, float clip, float shadow, Tuning t,
                             long frameBytes, boolean bracketAllowed) {
-        final int maxFrames = (int) Math.max(2, Math.min(16, BUDGET_BYTES / Math.max(1, frameBytes)));
-        final int normals = Math.min(t.frames, maxFrames);
+        return build(nNs, nIso, times, isos, clip, shadow, t, frameBytes, bracketAllowed, BUDGET_BYTES);
+    }
+
+    /** P693: {@link #build} within {@code budgetBytes} of packed frames (at most {@link #MAX_FRAMES}). */
+    static HybridPlan build(long nNs, int nIso, Range<Long> times, Range<Integer> isos, float clip, float shadow, Tuning t,
+                            long frameBytes, boolean bracketAllowed, long budgetBytes) {
+        final int maxFrames = (int) Math.max(2, Math.min(MAX_FRAMES, budgetBytes / Math.max(1, frameBytes)));
+        // P690 (owner's log 2026-11-14: 16 N frames filled the 16-frame budget, so a backlit scene - 17 % clipped, 16 % deep
+        // shadows - got no short and no long frame): the brackets the scene asks for are kept out of the N's share of the budget
+        final int reserved = bracketsWanted(t, bracketAllowed, clip, shadow);
+        final int normals = Math.max(2, Math.min(t.frames, maxFrames - reserved));
         // P650: the general frame count was cut to the packed-frame memory budget (the RAW path logs its own cap the same way)
         final String memCap = normals < t.frames
                 ? String.format(Locale.ROOT, " N %d->%d (memory: %d frames of %.1f MB)", t.frames, normals, maxFrames, frameBytes / 1048576.0) : "";
@@ -100,7 +137,8 @@ final class YuvMergePlan {
                     for (int i = 0; i < count; i++) out.add(new HybridPlan.Request(ImageFrame.CaptureRole.EXTRA_SHORT, ns, iso, ratio));
                     room -= count;
                 } else why.append(String.format(Locale.ROOT, " ES skipped (sensor floor x%.2f)", ratio));
-            } else why.append(String.format(Locale.ROOT, " no ES (clipped %.4f)", clip));
+            } else why.append(clip >= CLIP_TRIGGER ? " no ES (no room in the memory budget)"
+                    : String.format(Locale.ROOT, " no ES (clipped %.4f)", clip));
             if (shadow >= SHADOW_TRIGGER && room >= 1) {
                 final double target = n * Math.pow(2, t.longEv);
                 int iso = (int) Math.max(isos.getLower(), Math.min(isos.getUpper(), Math.round(nIso * Math.pow(2, t.longEv))));
@@ -112,10 +150,17 @@ final class YuvMergePlan {
                 final double ratio = ns * (double) iso / n;
                 if (ratio >= 1.4) out.add(new HybridPlan.Request(ImageFrame.CaptureRole.LONG, ns, iso, ratio));
                 else why.append(String.format(Locale.ROOT, " L skipped (x%.2f)", ratio));
-            } else why.append(String.format(Locale.ROOT, " no L (shadows %.3f)", shadow));
+            } else why.append(shadow >= SHADOW_TRIGGER ? " no L (no room in the memory budget)"
+                    : String.format(Locale.ROOT, " no L (shadows %.3f)", shadow));
         }
         final String description = String.format(Locale.ROOT, "YUV MERGE plan: N=%.3fms*ISO%d clip=%.4f shadows=%.3f requests=%s%s"
                 + " (at most %d frames of %.1f MB)%s", nNs / 1e6, nIso, clip, shadow, out, why, maxFrames, frameBytes / 1048576.0, memCap);
         return HybridPlan.of(out, nNs, nIso, description);
+    }
+
+    /** P690: the bracket frames this scene asks for - 2 short ones over the clip trigger, 1 long one over the shadow trigger. */
+    static int bracketsWanted(Tuning t, boolean bracketAllowed, float clip, float shadow) {
+        if (!bracketAllowed || !t.bracket) return 0;
+        return (clip >= CLIP_TRIGGER ? 2 : 0) + (shadow >= SHADOW_TRIGGER ? 1 : 0);
     }
 }

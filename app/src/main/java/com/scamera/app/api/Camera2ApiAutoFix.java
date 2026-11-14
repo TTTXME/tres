@@ -139,7 +139,7 @@ public final class Camera2ApiAutoFix {
         CameraReflectionApi.set(CaptureResult.SENSOR_DYNAMIC_BLACK_LEVEL, black, captureResult);
     }
 
-    /** Full-size GL tiles for a capture (PostPipeline drops them to 8 only for small RAW sizes). */
+    /** Full-size GL tiles for a capture (P683: PostPipeline no longer drops them to 8 rows for small RAW sizes). */
     public static void resetTileSize() {
         GLDrawParams.TILE_ROWS = 256;
     }

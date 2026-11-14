@@ -76,6 +76,12 @@ public class ScamProcessor extends ProcessorBase {
      * frames' close skipped it and the view kept the whole shot arena mapped, or a ZSL ring slot pinned, for the process lifetime.
      */
     private ByteBuffer referenceRaw;
+    /** P681: the merged DNG taken from the merge until its writer has it (freed by runPass()'s finally when the shot fails first). */
+    private ByteBuffer mergedDng;
+    /** P681: the DNG being written beside the post pipeline (null: none, or joined). */
+    private ImageSaver.Util.DngJob dngJob;
+    /** P681: when the screen and the scanner hear of this shot's DNG (null: no DNG). */
+    private DngReport dngReport;
 
 
     public ScamProcessor(ProcessingEvents listener) {
@@ -235,6 +241,15 @@ public class ScamProcessor extends ProcessorBase {
             final ByteBuffer reference = referenceRaw;
             referenceRaw = null;
             if (reference != null) Allocator.free(reference);
+            // P681: a merged DNG no writer took, a DNG still written beside a pipeline that failed (its file is the shot's then)
+            final ByteBuffer dngLeft = mergedDng;
+            mergedDng = null;
+            if (dngLeft != null) Allocator.free(dngLeft);
+            com.scamera.app.processing.opengl.postpipeline.ScamHybridBurst.dropMergedDng();
+            joinDng();
+            final DngReport report = dngReport;
+            dngReport = null;
+            if (report != null) report.shotFailed();
             com.scamera.app.processing.opengl.postpipeline.ScamDiagnostics.finish();
             if (scamOwnedOutput != null) {
                 // ScamRgb may already have freed the big buffer after the GL upload (then scamRgb is a small copy).
@@ -248,8 +263,9 @@ public class ScamProcessor extends ProcessorBase {
             // P187: nothing reads this shot's clip flags or frame map any more; until now they stayed until the next shot's
             // worker had finished (through its capture and merge)
             com.scamera.app.processing.opengl.postpipeline.ScamRgb.dropClipFlags(shotClipFlags);
-            if (com.scamera.app.processing.opengl.postpipeline.ScamHybridBurst.lastEffectiveFrames == shotEffectiveFrames)
-                com.scamera.app.processing.opengl.postpipeline.ScamHybridBurst.lastEffectiveFrames = null;
+            // P681: freed when native (a view of the merge's result memfd, or its copy); a native map the shot never took as well
+            com.scamera.app.processing.opengl.postpipeline.ScamHybridBurst.dropEffectiveFrames(shotEffectiveFrames);
+            com.scamera.app.processing.opengl.postpipeline.ScamHybridBurst.releaseNativeEffectiveFrames();
             if (com.scamera.app.processing.opengl.postpipeline.ScamHybridBurst.lastHlMask == shotHlMask)
                 com.scamera.app.processing.opengl.postpipeline.ScamHybridBurst.lastHlMask = null; // P480
             shotClipFlags = shotEffectiveFrames = null;
@@ -710,6 +726,7 @@ public class ScamProcessor extends ProcessorBase {
                             stageName = "YUV merge";
                             // P656: the merge's span in SHOT SUMMARY (merge=-1 before: the in-process merge had no marks; log 7's
                             // 969 ms YUV merge read as «gap» between nothing and the post)
+                            keepYuvSeries(images); // P690: «Сохранять RAW-серию» of a YUV shot (no worker keeps it), not merge time
                             com.scamera.app.processing.ShotTimeline.mark("job");
                             scamOwnedOutput = com.scamera.app.processing.yuv.YuvBurst.process(images, processingParameters,
                                     shotCamera, referenceMetadata);
@@ -771,12 +788,31 @@ public class ScamProcessor extends ProcessorBase {
         ImageFrame ref=images.get(0);
         ByteBuffer output=ref.buffer;ref.buffer=null;
         referenceRaw = output;
+        // P681: the merged DNG from here on this shot's (freed by its writer, or by runPass()'s finally)
+        mergedDng = com.scamera.app.processing.opengl.postpipeline.ScamHybridBurst.takeMergedDng();
+        final boolean dngWanted = !yuvShot && (mosaicDngOnly || ((rawSaving >= 1) && alignMode != 2));
+        if (mergedDng != null && !dngWanted) {
+            final ByteBuffer unused = mergedDng;
+            mergedDng = null;
+            Allocator.free(unused);
+        }
+        ByteBuffer scamMergedDng = mergedDng;
+        // P681: above 16 MP the reference RAW is copied out of the shot arena only when something reads it after the frames go (the
+        // reference frame's DNG, a post_ab run, a non-hybrid pipeline): a hybrid shot with its merged DNG (or none wanted) never
+        // did - 96 MB copied at 50 MP, 384 MB at 200 MP, freed unread. Its view goes now (the arena, a ZSL ring slot, unpinned).
+        if ((long) width * height > 16_000_000L && !referenceRawNeeded(dngWanted && scamMergedDng == null, hybridShot,
+                processingParameters.scamRgbOwned, com.scamera.app.processing.opengl.postpipeline.PostAb.wanted(processingParameters,
+                        lookAtPress != null ? lookAtPress.film : com.scamera.app.processing.color.FilmSim.current()))) {
+            referenceRaw = null;
+            Allocator.free(output);
+            output = null;
+            Log.i(TAG, "reference RAW not copied out of the shot arena (" + ((long) width * height * 2 >> 20)
+                    + " MB): nothing reads it after the merge (P681)");
+        }
         if ((long) width * height > 16_000_000L) output = outOfArena(output);
         referenceRaw = output;
         com.scamera.app.processing.ShotTimeline.mark("ref_copy"); // P236
         releaseFrames(images);
-        ByteBuffer scamMergedDng=yuvShot?null:com.scamera.app.processing.opengl.postpipeline.ScamHybridBurst.lastMergedDng;
-        com.scamera.app.processing.opengl.postpipeline.ScamHybridBurst.lastMergedDng=null;
         Log.d(TAG, "Alignment elapsed:" + (System.currentTimeMillis() - startTime) + " ms");
         // P620: the DNG that gets the developed photo as its preview once the photo is saved (null: none)
         Path dngPreviewTarget = null;
@@ -786,8 +822,9 @@ public class ScamProcessor extends ProcessorBase {
         boolean mergedDngWritten = false;
         // P646: a YUV shot has no RAW for a DNG («RAW only» saves its photo)
         if (yuvShot && rawSaving >= 1) Log.i(TAG, "DNG: none for a YUV shot (no RAW frame), the photo only");
-        if (!yuvShot && (mosaicDngOnly || ((rawSaving >= 1) && alignMode != 2))) {
+        if (dngWanted) {
             boolean imageSaved = false;
+            dngReport = new DngReport(events, ScamProcessor::scanDng, dngPath, rawSaving, mosaicDngOnly);
             // P243: the DNG carries the JPEG's white balance and colour matrix (DngColour); scam_dev dng_colour_jpeg 0: the camera's
             // dual-illuminant profile as before. P370 (review): a camera whose own ColorMatrix a DNG cannot carry (all zero without
             // the tags, singular) gets the JPEG's profile with dng_colour_jpeg 0 too
@@ -814,6 +851,7 @@ public class ScamProcessor extends ProcessorBase {
                 // P165: 16 bit over its headroom, BaselineExposure log2(headroom) keeps its brightness.
                 float[] black = processingParameters.cfaBlack.clone();
                 int white = processingParameters.whiteLevel;
+                boolean handedOff = false;
                 float k = 65535f / white;
                 final float headroom = Math.max(1f, com.scamera.app.processing.opengl.postpipeline.ScamHybridBurst.lastMergedDngHeadroom);
                 for (int i = 0; i < 4; i++) processingParameters.cfaBlack[i] = Math.round(black[i] * k);
@@ -841,8 +879,21 @@ public class ScamProcessor extends ProcessorBase {
                             single, noiseFactor, headroom, framesKnown ? mergeFrames : 1, 1);
                     processingParameters.dngMosaicBlock = mergedDngBlock;
                     processingParameters.dngMerged = true; // P618: its ImageDescription
-                    imageSaved = mosaicDng ? ImageSaver.Util.saveStackedRaw(dngPath, scamMergedDng, processingParameters, true)
-                            : ImageSaver.Util.saveStackedRaw(dngPath, scamMergedDng, processingParameters);
+                    // P681: beside the post pipeline when memory allows (DngReport.offPostPath); the writer takes every value of
+                    // the file now, so the restore below is safe at once, and frees the merged DNG on its thread when it is done
+                    if (DngReport.offPostPath(PreferenceKeys.scamDevSwitch("dng_async", true), dngReport.photoFollows,
+                            (long) processingParameters.rawSize.x * processingParameters.rawSize.y, totalMemory())) {
+                        final ByteBuffer merged = scamMergedDng;
+                        dngJob = ImageSaver.Util.saveSingleRawAsync(dngPath, merged, processingParameters, mosaicDng,
+                                () -> Allocator.free(merged));
+                        mergedDng = null;
+                        handedOff = true;
+                        imageSaved = true; // until the join says otherwise (the preview and the develop record wait for it)
+                        Log.i(TAG, "DNG written beside the post pipeline (P681)");
+                    } else {
+                        imageSaved = mosaicDng ? ImageSaver.Util.saveStackedRaw(dngPath, scamMergedDng, processingParameters, true)
+                                : ImageSaver.Util.saveStackedRaw(dngPath, scamMergedDng, processingParameters);
+                    }
                     mergedDngWritten = imageSaved && !mosaicDng; // P665
                     Log.i("SCAM_HDR", String.format(java.util.Locale.ROOT, "DNG: merged burst RAW (N, bracketed and ultrashort frames), "
                             + "16-bit, headroom x%.3f, BaselineExposure %+.2f EV", headroom, processingParameters.dngBaselineExposure));
@@ -858,7 +909,10 @@ public class ScamProcessor extends ProcessorBase {
                     processingParameters.dngNoiseProfile = null;
                     processingParameters.dngMosaicBlock = 1;
                     processingParameters.dngMerged = false;
-                    Allocator.free(scamMergedDng);
+                    if (!handedOff) {
+                        mergedDng = null;
+                        Allocator.free(scamMergedDng);
+                    }
                 }
             } else {
                 // P214c: the reference RAW is one frame as the sensor gave it: the one-frame model (H, N, sites = 1), with the
@@ -890,7 +944,11 @@ public class ScamProcessor extends ProcessorBase {
             } finally {
                 processingParameters.dngColour = null; // P243: only these DNG writes
             }
-            reportDng(events, imageSaved, rawSaving, mosaicDngOnly, dngPath);
+            // P681: a DNG beside a photo is not shown on the card nor scanned before the photo (DngReport)
+            if (dngJob == null) {
+                com.scamera.app.processing.ShotTimeline.mark("dng_written");
+                dngReport.written(imageSaved);
+            }
             // P620: a DNG with a photo (not the mosaic DNG alone, not RAW only); the front camera's photo is mirrored, its DNG not
             if (imageSaved && !mosaicDngOnly && rawSaving != 2 && !processingParameters.mirrored) dngPreviewTarget = dngPath;
             // P665: a merged Bayer DNG beside a processed photo carries the developer's record (the reference frame's DNG does not:
@@ -937,7 +995,7 @@ public class ScamProcessor extends ProcessorBase {
         stageName = "RAW post-processing";
         // P179 (200 MP: LOW_MEMORY): the hybrid's pipeline takes the merged RGB (scamRgbOwned), not the reference RAW, which is
         // only held for the post_ab comparison now: above 16 MP it goes before the pipeline (401 MB at 200 MP).
-        if (hybridShot && processingParameters.scamRgbOwned && (long) width * height > 16_000_000L
+        if (output != null && hybridShot && processingParameters.scamRgbOwned && (long) width * height > 16_000_000L
                 && !com.scamera.app.processing.opengl.postpipeline.PostAb.wanted(processingParameters,
                         lookAtPress != null ? lookAtPress.film : com.scamera.app.processing.color.FilmSim.current())) {
             referenceRaw = null;
@@ -1092,7 +1150,7 @@ public class ScamProcessor extends ProcessorBase {
         }
         com.scamera.app.processing.ShotTimeline.mark("post_done");
         com.scamera.app.util.ThermalPolicy.processing(false); // P353: the GPU work of the shot is done (the encoders are CPU)
-        final byte[] streamedJpeg = img == null ? pipeline.streamedJpeg : null; // P483: the photo as its file (no bitmap)
+        final com.scamera.app.processing.ChunkedBytes streamedJpeg = img == null ? pipeline.streamedJpeg : null; // P483: the photo as its file (no bitmap)
         if (img == null && streamedJpeg == null) throw new IllegalStateException("post pipeline: no image and no streamed JPEG");
         if (img != null) com.scamera.app.processing.opengl.postpipeline.ScamLab.preview(img, pipeline.record); // P277: the lab shot's photo (before the zoom / ISZ crops)
         stage(0.85f); // P158: processed
@@ -1311,17 +1369,24 @@ public class ScamProcessor extends ProcessorBase {
             }
         }
         com.scamera.app.processing.ShotTimeline.mark("saved");
+        // P681: a DNG written beside the post is complete before its preview and its develop record are appended
+        final boolean dngComplete = joinDng();
+        final DngReport report = dngReport;
+        if (report != null) report.photoSaved();
         if (dngPreview != null) {
             try {
-                appendDngPreview(dngPreviewTarget, dngPreview, processingParameters.rotationDeg, pipeline.p3Output);
+                if (dngComplete) appendDngPreview(dngPreviewTarget, dngPreview, processingParameters.rotationDeg, pipeline.p3Output);
             } catch (RuntimeException | OutOfMemoryError e) {
                 Log.e(TAG, "DNG preview failed (the DNG stays without one): " + e);
             } finally {
                 dngPreview.recycle();
             }
         }
-        // P665: after the DNG's preview (the record is the file's last part)
-        if (developRecord != null) com.scamera.app.processing.opengl.postpipeline.DevelopCapture.appendLater(developTarget, developRecord);
+        // P665: after the DNG's preview (the record is the file's last part); P681: the DNG's one scan after both
+        if (developRecord != null && dngComplete) com.scamera.app.processing.opengl.postpipeline.DevelopCapture.appendLater(developTarget,
+                developRecord, report != null ? report::scan : null);
+        else if (report != null) report.scan();
+        dngReport = null;
         finishDeferredTeardown();
 
         Allocator.getMemoryCount();
@@ -1399,12 +1464,72 @@ public class ScamProcessor extends ProcessorBase {
         if (sensor != null) sensor.recycle();
         Log.i(TAG, "DNG preview " + (ok ? size + " " + jpeg.length / 1024 + " KB" : "not written")
                 + " in " + (System.nanoTime() - started) / 1000000 + " ms");
-        if (!ok) return;
+    }
+
+    /** P681: the media scanner reads the shot's DNG once, when nothing is appended to it any more (DngReport). */
+    static void scanDng(Path dng) {
         try {
             android.media.MediaScannerConnection.scanFile(ScameraApp.getAppContext(), new String[]{dng.toString()}, null, null);
         } catch (RuntimeException e) {
-            Log.d(TAG, "DNG preview scan: " + e);
+            Log.d(TAG, "DNG scan: " + e);
         }
+    }
+
+    /**
+     * P681: waits for the DNG written beside the post pipeline (nothing when none is): its end goes into the shot's timeline
+     * (dng_written), its result to the DngReport; true when no write is pending or it saved the file.
+     */
+    private boolean joinDng() {
+        final ImageSaver.Util.DngJob job = dngJob;
+        dngJob = null;
+        if (job == null) return dngReport == null || dngReport.saved();
+        final long t0 = System.nanoTime();
+        boolean ok = false, interrupted = false;
+        while (true) {
+            try {
+                ok = Boolean.TRUE.equals(job.saved.get());
+                break;
+            } catch (InterruptedException e) {
+                interrupted = true; // the writer frees the mosaic itself: wait for it all the same
+            } catch (java.util.concurrent.ExecutionException e) {
+                Log.e(TAG, "DNG write: " + e.getCause());
+                break;
+            }
+        }
+        if (interrupted) Thread.currentThread().interrupt();
+        if (job.endedNanos > 0) com.scamera.app.processing.ShotTimeline.markAt("dng_written", job.endedNanos);
+        Log.i("PERF", "DNG beside the post pipeline: " + (ok ? "saved" : "FAILED") + ", the join waited "
+                + (System.nanoTime() - t0) / 1_000_000 + " ms");
+        if (dngReport != null) dngReport.written(ok);
+        return ok;
+    }
+
+    private static volatile long totalMemory = -1;
+
+    /** P681: the device's RAM (ActivityManager's totalMem), 0 when unknown. */
+    static long totalMemory() {
+        long known = totalMemory;
+        if (known >= 0) return known;
+        try {
+            final android.app.ActivityManager manager = (android.app.ActivityManager) ScameraApp.getAppContext()
+                    .getSystemService(android.content.Context.ACTIVITY_SERVICE);
+            final android.app.ActivityManager.MemoryInfo info = new android.app.ActivityManager.MemoryInfo();
+            manager.getMemoryInfo(info);
+            known = Math.max(0, info.totalMem);
+        } catch (RuntimeException e) {
+            known = 0;
+        }
+        totalMemory = known;
+        return known;
+    }
+
+    /**
+     * P681: whether the reference RAW is read after the merge above 16 MP (where it is copied out of the shot arena): the reference
+     * frame's DNG (no merged one), a pipeline that takes the RAW (not the hybrid's own RGB), a post_ab run. The hybrid frees it
+     * before its pipeline otherwise (processBurst, «P179»).
+     */
+    static boolean referenceRawNeeded(boolean referenceDng, boolean hybridShot, boolean rgbOwned, boolean postAb) {
+        return referenceDng || !hybridShot || !rgbOwned || postAb;
     }
 
     /**
@@ -1997,5 +2122,24 @@ public class ScamProcessor extends ProcessorBase {
             x += strip.getWidth();
         }
         return out;
+    }
+
+    /**
+     * P690 (owner, 2026-11-14: «При включенном YUV бурст не сохраняется»): the RAW routes' series is kept by the merge worker; a YUV
+     * shot is merged here, so «Сохранять RAW-серию» (scam_dev keep_burst) writes its frames itself, next to the RAW series in
+     * Download/SCAMERA, and the lab's sidecars (metadata, photo) land beside it as for a kept RAW series.
+     */
+    private static void keepYuvSeries(java.util.List<ImageFrame> frames) {
+        if (!com.scamera.app.settings.PreferenceKeys.scamDevSwitch("keep_burst",
+                com.scamera.app.settings.PreferenceKeys.isKeepRawBurst())) return;
+        final java.io.File dir = com.scamera.app.util.ScameraFiles.dir();
+        if (dir == null || !dir.isDirectory()) {
+            Log.w("SCAM_HDR", "YUV series not kept: no folder " + dir);
+            return;
+        }
+        final java.io.File target = new java.io.File(dir, "scam_yuvburst-" + new java.text.SimpleDateFormat("yyyyMMdd-HHmmss",
+                java.util.Locale.ROOT).format(new java.util.Date()) + ".bin");
+        if (com.scamera.app.processing.yuv.YuvBurstFile.write(frames, null, target))
+            com.scamera.app.processing.opengl.postpipeline.ScamLab.keepingSeries(target);
     }
 }

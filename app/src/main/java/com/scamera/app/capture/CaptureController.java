@@ -167,7 +167,22 @@ public class CaptureController {
     private boolean useMaximumResolutionKey;
 
     /** Characteristics of every camera id this run has read (logical and physical), by id. */
-    private final Map<String, CameraCharacteristics> mCameraCharacteristicsMap = new HashMap<>();
+    /**
+     * P680: filled off the main thread (the constructor's {@link #mCharacteristicsRead}) while the main thread and the open read
+     * it: concurrent; a null id or value is no entry (as a HashMap's get of a missing one answered).
+     */
+    private final Map<String, CameraCharacteristics> mCameraCharacteristicsMap = new CharacteristicsMap();
+
+    /** P680: a ConcurrentHashMap that takes a null key or value as no entry. */
+    static final class CharacteristicsMap extends java.util.concurrent.ConcurrentHashMap<String, CameraCharacteristics> {
+        @Override public CameraCharacteristics get(Object key) { return key == null ? null : super.get(key); }
+        @Override public boolean containsKey(Object key) { return key != null && super.containsKey(key); }
+        @Override public CameraCharacteristics remove(Object key) { return key == null ? null : super.remove(key); }
+        @Override public CameraCharacteristics put(String key, CameraCharacteristics value) {
+            if (key == null) return null;
+            return value == null ? super.remove(key) : super.put(key, value);
+        }
+    }
     /** The open lens's characteristics and its latest still metadata, read across the app. */
     public static volatile CameraCharacteristics mCameraCharacteristics;
     public static volatile CaptureResult mCaptureResult;
@@ -630,6 +645,8 @@ public class CaptureController {
     private volatile Runnable mInFlightRescue;
     /** P222: the reason of the last rescueInFlightShot, read by the rescue it runs. */
     private volatile String mInFlightRescueReason;
+    /** P684: a failed 200 MP still-only series noted its next variant (StillOnly200): a camera error right after fails no row. */
+    private volatile boolean mStillOnlyNextVariant;
     /** P27: manual ISO / shutter this camera's HAL honours (learned from shots; null before the first session). */
     private volatile ExposureLimits mExposureLimits;
     /** Unpacked copy of a RAW10 / RAW12 preview frame for the mosaic measurement (reused). */
@@ -781,7 +798,10 @@ public class CaptureController {
                     mVfNeutrals.offer(physicalID, android.os.SystemClock.elapsedRealtime(), result);
                 // P212g (W7 = M12): a converged plain result teaches the camera's colour table (about once a second)
                 if (mVivoSdkRawSession == null) plainColour(result);
-                if (mLastPreviewResultMs == 0) markModuleGood();
+                if (mLastPreviewResultMs == 0) {
+                    markModuleGood();
+                    OpenTimeline.firstFrame(); // P680: the PERF line of this start
+                }
                 mLastPreviewResultMs = android.os.SystemClock.elapsedRealtime();
                 // P575: the nubia row's reported mode; one that never shows fails over (posted: not inside the result callback)
                 final String nubiaWhy = NubiaFullRes.watchResult(physicalID, result);
@@ -902,7 +922,8 @@ public class CaptureController {
                 }
                 maybeRunPendingRearm(session, request, result);
                 maybeReapplyAutoOis(session); // P316: «Оптическая стабилизация» Авто follows the tripod during the session
-                if(PreferenceKeys.isScamEnabled() && PreferenceKeys.useStockBracketPlanner() && isCurrentPreviewSession(session)) {
+                // P680: the constant first (useStockBracketPlanner is false since P129): no settings read per frame for it
+                if(PreferenceKeys.useStockBracketPlanner() && PreferenceKeys.isScamEnabled() && isCurrentPreviewSession(session)) {
                     ScamStockAe stock=mStockAe;
                     if(stock==null || stock.generation!=mSessionGeneration.get()) {
                         if(stock!=null)stock.close();
@@ -915,7 +936,8 @@ public class CaptureController {
                 final com.scamera.app.control.subject.SubjectFocus subject = mSubjectFocus;
                 if (subject != null) subject.onPreviewResult(result);
                 cameraEventsListener.previewResult(result);
-                if(PreferenceKeys.getAfMode() == CaptureRequest.CONTROL_AF_MODE_AUTO && !burst && (mTouchFocus == null || !mTouchFocus.isTouchFocus)) {
+                // P680: the AF mode from the session's settings snapshot (read again once any setting changed), after the cheap checks
+                if(!burst && (mTouchFocus == null || !mTouchFocus.isTouchFocus) && sessionPrefs().afMode == CaptureRequest.CONTROL_AF_MODE_AUTO) {
                     CaptureRequest.Builder builder = mPreviewRequestBuilder;
                     if (builder != null && isCurrentPreviewSession(session)) {
                         builder.set(CaptureRequest.CONTROL_AF_TRIGGER, CaptureRequest.CONTROL_AF_TRIGGER_START);
@@ -927,6 +949,15 @@ public class CaptureController {
         }
 
     };
+
+    /** P680: the settings the viewfinder's results read per frame (camera thread; a new session reads them again). */
+    private volatile com.scamera.app.settings.SessionPrefs mSessionPrefs;
+
+    private com.scamera.app.settings.SessionPrefs sessionPrefs() {
+        final com.scamera.app.settings.SessionPrefs p = com.scamera.app.settings.SessionPrefs.refresh(mSessionPrefs);
+        mSessionPrefs = p;
+        return p;
+    }
 
     /** One main-thread handler for the controller's posts (was a new Handler for each of them). */
     private static volatile Handler sMainHandler;
@@ -992,6 +1023,7 @@ public class CaptureController {
 
         @Override
         public void onOpened(@NonNull CameraDevice device) {
+            OpenTimeline.opened(); // P680
             synchronized (mPreviewStateLock) {
                 if (mVivoSdkRawSession != null) mVivoSdkRawDevice = device;
                 openSettled();
@@ -1413,6 +1445,7 @@ public class CaptureController {
             }, 700);
             return null;
         }
+        awaitAllCharacteristics(); // P680: the fallback is chosen from the whole list
         String requestedSlot = com.scamera.app.settings.ModuleRegistry.active();
         int wanted = com.scamera.app.settings.ModuleChoice.wantedFacing(requestedSlot, null);
         String side = com.scamera.app.settings.ModuleChoice.side(wanted);
@@ -1740,6 +1773,8 @@ public class CaptureController {
     }
 
     public CaptureController(Activity host, ExecutorService pool, CameraEvents listener) {
+        final long constructStart = System.nanoTime();
+        trace("CaptureController.<init>");
         activity = host;
         cameraEventsListener = listener;
         processExecutor = pool;
@@ -1747,14 +1782,57 @@ public class CaptureController {
         mCameraManager = (CameraManager) host.getSystemService(Context.CAMERA_SERVICE);
         // Before the first camera list read: vendors filter hidden cameras by package.
         com.scamera.app.capture.spoof.CameraPackageSpoof.apply(host, mCameraManager);
-        mLensDirectory = new CameraManager2(mCameraManager, ScameraApp.getInstance(host).getSettingsManager());
+        mLensDirectory = CameraManager2.get(mCameraManager, ScameraApp.getInstance(host).getSettingsManager()); // P680: cached
         PreferenceKeys.addIds(mLensDirectory.getCameraIdList());
         paramController = new ParamController(this);
         // P92: the processing foreground service runs while a shot is captured, queued or merged
         // P617: held weakly (the static supplier kept this controller and its activity after the activity was destroyed)
         com.scamera.app.processing.ProcessingKeepAlive.busy = com.scamera.app.processing.ProcessingKeepAlive.weakly(
                 this, CaptureController::nextShotPending, () -> sScamPending.get() > 0 || isProcessing);
-        readAllCharacteristics();
+        // P680 (performance audit: the constructor ran on the main thread of CameraFragment.onViewCreated, the characteristics of
+        // every camera read there): they are read on the processing pool, queued before any open; the open's loadLens reads its
+        // own camera if it comes first, and whatever needs the whole list waits for them (awaitAllCharacteristics)
+        mCharacteristicsRead = new java.util.concurrent.FutureTask<>(() -> {
+            final long start = System.nanoTime();
+            trace("CaptureController.readAllCharacteristics");
+            try {
+                readAllCharacteristics();
+            } finally {
+                endTrace();
+            }
+            Log.i("PERF", "camera characteristics of " + mCameraCharacteristicsMap.size() + " cameras read in "
+                    + (System.nanoTime() - start) / 1_000_000 + " ms on " + Thread.currentThread().getName());
+        }, null);
+        try {
+            pool.execute(mCharacteristicsRead);
+        } catch (RuntimeException rejected) {
+            mCharacteristicsRead.run();
+        }
+        endTrace();
+        Log.i("PERF", "CaptureController constructed in " + (System.nanoTime() - constructStart) / 1_000_000 + " ms on "
+                + Thread.currentThread().getName() + " (the characteristics read on the pool)");
+    }
+
+    /** P680: the start-up read of every camera's characteristics (run on the pool by the constructor). */
+    private final java.util.concurrent.FutureTask<Void> mCharacteristicsRead;
+
+    /**
+     * P680: the start-up read is done: run here when the pool has not started it yet, else waited for (at most 5 s). For what needs
+     * the whole list (the fallback camera of a side, the viewfinder size without the open camera's characteristics).
+     */
+    void awaitAllCharacteristics() {
+        final java.util.concurrent.FutureTask<Void> read = mCharacteristicsRead;
+        if (read == null || read.isDone()) return;
+        final long start = System.nanoTime();
+        read.run(); // a no-op while the pool runs it
+        try {
+            read.get(5, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (java.util.concurrent.ExecutionException | java.util.concurrent.TimeoutException e) {
+            Log.w(TAG, "camera characteristics not read: " + e);
+        }
+        Log.i("PERF", "camera characteristics awaited " + (System.nanoTime() - start) / 1_000_000 + " ms on " + Thread.currentThread().getName());
     }
 
     /** The camera id a listed id names: "logical-physical" ids stand for their physical camera. */
@@ -1907,20 +1985,57 @@ public class CaptureController {
      * still counts and the saver holds them all (the ring's normal frames included).
      */
     private static void awaitSeriesFrames(@Nullable ScamCaptureSequence series, ImageSaver saver, int seriesFrames, int ringFrames) {
-        for (int waited = 0; ; waited++) {
-            final int expected = seriesFrames - (series != null ? series.droppedCount() : 0);
-            if (ScameraApp.getGyro().capturingNumber >= expected && saver.bufferSize() >= ringFrames + expected) return;
-            if (waited > 1000) {
-                Log.d(TAG, "GyroBurstTimeout");
-                return;
-            }
+        final long start = System.nanoTime();
+        if (!ImageSaver.awaitFrames(() -> seriesFramesIn(series, saver, seriesFrames, ringFrames), SERIES_WAIT_MS, SERIES_WAIT_SLICE_MS)) {
+            Log.d(TAG, "GyroBurstTimeout");
+            return;
+        }
+        final long waited = (System.nanoTime() - start) / 1_000_000;
+        if (waited > 0) Log.i("PERF", "series frames awaited " + waited + " ms off the processing pool");
+    }
+
+    /** The series' frames are all there (see {@link #awaitSeriesFrames}). */
+    private static boolean seriesFramesIn(@Nullable ScamCaptureSequence series, ImageSaver saver, int seriesFrames, int ringFrames) {
+        final int expected = seriesFrames - (series != null ? series.droppedCount() : 0);
+        return ScameraApp.getGyro().capturingNumber >= expected && saver.bufferSize() >= ringFrames + expected;
+    }
+
+    /** The series wait's limit (was 1000 sleeps of 1 ms) and its look between two signals (ImageSaver.framesChanged). */
+    static final long SERIES_WAIT_MS = 1000, SERIES_WAIT_SLICE_MS = 5;
+
+    /**
+     * P680 (performance audit: the wait held one of the processing pool's two threads for up to 1 s, the pool the camera's open and
+     * resume run on): {@code then} runs on the pool once the series' frames are in - at once when they are, else after a wait on a
+     * thread of {@link #SERIES_WAIT} (signalled by the saver); inline when the pool is gone (the fragment destroyed).
+     */
+    private void awaitSeriesFramesThen(@Nullable ScamCaptureSequence series, ImageSaver saver, int seriesFrames, int ringFrames, Runnable then) {
+        final Runnable onPool = () -> {
             try {
-                Thread.sleep(1);
-            } catch (InterruptedException ignored) {
-                // keep waiting: the series' frames are still on their way
+                processExecutor.execute(then);
+            } catch (RuntimeException rejected) {
+                then.run();
             }
+        };
+        if (seriesFramesIn(series, saver, seriesFrames, ringFrames)) {
+            onPool.run();
+            return;
+        }
+        try {
+            SERIES_WAIT.execute(() -> {
+                awaitSeriesFrames(series, saver, seriesFrames, ringFrames);
+                onPool.run();
+            });
+        } catch (RuntimeException rejected) {
+            onPool.run();
         }
     }
+
+    /** P680: the threads the series waits run on (none while no shot waits). */
+    private static final java.util.concurrent.ExecutorService SERIES_WAIT = java.util.concurrent.Executors.newCachedThreadPool(r -> {
+        final Thread t = new Thread(r, "SCAMERA-series-wait");
+        t.setDaemon(true);
+        return t;
+    });
 
     /** P179: a shot above this many pixels (200 MP) is merged with the camera in its plain session. */
     static final long HUGE_SHOT_PIXELS = 100_000_000L;
@@ -1982,6 +2097,19 @@ public class CaptureController {
                 com.scamera.app.processing.opengl.postpipeline.ScamHybridBurst::memoryAvailableNow,
                 android.os.SystemClock::elapsedRealtime, android.os.SystemClock::sleep);
         Log.i("SCAM_CAPTURE", "PERF FULLRES: camera closed for the merge: " + wait);
+    }
+
+    /**
+     * P685: whether a FULLRES merge starts without awaiting the camera's close: below 100 MP on the fast route, which measures its
+     * memory in the worker (row bands while the camera's buffers are not back yet); scam_dev fullres_close_wait 1: never skipped.
+     */
+    private static boolean closeWaitSkipped(boolean hugeShot) {
+        return closeWaitSkipped(hugeShot, com.scamera.app.processing.opengl.postpipeline.ScamHybridBurst.fastRoute(),
+                PreferenceKeys.scamDevSwitch("fullres_close_wait", false));
+    }
+
+    static boolean closeWaitSkipped(boolean hugeShot, boolean fastRoute, boolean forcedWait) {
+        return !hugeShot && fastRoute && !forcedWait;
     }
 
     /** P662: the longest awaitClosedForProcessing waits after the close (the fixed sleep it replaces). */
@@ -2050,11 +2178,59 @@ public class CaptureController {
     }
 
     /**
+     * P680 (performance audit: onPause closed the camera on the main thread, 97 ms in the log): a pause stops the viewfinder's
+     * repeating request here and closes the session, the device and the readers on {@link #CAMERA_CLOSE}, as a restart does
+     * (P662). P662 kept the pause synchronous so that the camera's outputs stop before the GL viewfinder drops their texture: the
+     * repeating request stops here, and the texture itself is released only once the close is done (MainRenderer waits for
+     * {@link #awaitCameraOutputsClosed} before it releases the old one). Synchronous as before while a vendor lease or SDK session
+     * is held (its give-back follows the device's close at once, P640: the stock camera may open right after the pause), a video is
+     * recorded, a FULLRES merge closed the camera, or scam_dev pause_close_async is 0.
+     */
+    public void closeCameraOnPause() {
+        final boolean async = pauseCloseAsync(mIszLease != null, mVivoSdkRawSession != null || mVivoSdkRestorePending,
+                recordingVideo || videoRecorder != null, mClosedForProcessing, PreferenceKeys.scamDevSwitch("pause_close_async", true));
+        if (async) {
+            final CameraCaptureSession session = mCaptureSession;
+            try {
+                if (session != null) session.stopRepeating();
+            } catch (CameraAccessException | RuntimeException e) {
+                Log.d(TAG, "pause: viewfinder request not stopped (" + e.getMessage() + "), the close stops it");
+            }
+        }
+        closeCamera(false, async);
+    }
+
+    /** P680: whether a pause closes the camera off the main thread (see {@link #closeCameraOnPause}). */
+    static boolean pauseCloseAsync(boolean leaseHeld, boolean sdkSession, boolean video, boolean closedForProcessing, boolean switchOn) {
+        return switchOn && !leaseHeld && !sdkSession && !video && !closedForProcessing;
+    }
+
+    /** P680: counted down when the last async close is done (MainRenderer releases the old viewfinder texture after it). */
+    private static volatile java.util.concurrent.CountDownLatch sOutputsClosed = new java.util.concurrent.CountDownLatch(0);
+
+    /**
+     * P680: waits (at most {@code timeoutMs}) until the camera closed off the main thread has closed its device - no output of it
+     * writes into the viewfinder's texture any more; the ms waited.
+     */
+    public static long awaitCameraOutputsClosed(long timeoutMs) {
+        final java.util.concurrent.CountDownLatch outputs = sOutputsClosed;
+        if (outputs.getCount() == 0) return 0;
+        final long start = System.nanoTime();
+        try {
+            outputs.await(timeoutMs, TimeUnit.MILLISECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        return (System.nanoTime() - start) / 1_000_000;
+    }
+
+    /**
      * P662: {@code keepRing} - a restart of the camera keeps the ZSL ring for the next session (reused when it fits, else released
      * on its first frame; {@link #releaseZslRing}); {@code async} - the session, the device, the readers and the surfaces close
      * on {@link #CAMERA_CLOSE} (65-95 ms on the main thread per lens switch on the OPPO X7U) while the open lock is held, so the
      * next open (openOnPool takes the lock) starts only once the old camera is closed. The fields are cleared here, before this
-     * returns, as before. A pause closes synchronously: its outputs stop before the GL viewfinder drops their texture.
+     * returns, as before. A pause closed synchronously (its outputs stop before the GL viewfinder drops their texture); P680:
+     * {@link #closeCameraOnPause} keeps that order with the close off the main thread.
      */
     void closeCamera(boolean keepRing, boolean async) { // package-private: CameraResumeTest verifies the restart's close
         final long closeStart = System.nanoTime();
@@ -2142,17 +2318,26 @@ public class CaptureController {
             final Surface viewSurface = surface;
             surface = null;
             mShotState = SHOT_CLOSED;
+            // P680: what the close below gives back is taken now - an open may run beside an async close up to the device's open
+            // (openOnPool) and make its own readers, LOFIC readers or (after its wait) lease; the close never touches those
+            final VivoSdkRawSession leaseAtClose = mIszLease;
+            final VivoSdkRawSession sdkAtClose = mVivoSdkRawSession;
+            final ImageReader loficReader = readers ? mLoficReader : null;
+            final ImageReader[] loficReaders = readers ? loficSessionReaders() : null;
+            final java.util.concurrent.CountDownLatch outputs = async ? new java.util.concurrent.CountDownLatch(1) : null;
+            if (outputs != null) sOutputsClosed = outputs;
             // the same calls in the same order as before P662, on this thread or on the close thread
             final Runnable close = () -> {
                 final long start = System.nanoTime();
+                trace("CaptureController.closeDevice");
                 try {
                     if (closingSession != null) closingSession.close();
                     if (device != null) {
                         device.close();
-                        giveIszLeaseBack(); // P640
+                        giveIszLeaseBack(leaseAtClose); // P640
                     } else if (!wasOpening) {
-                        closeVivoSdkRawSession(null);
-                        giveIszLeaseBack(); // P640: a lease taken for an open that failed (no device, so no onClosed) went nowhere
+                        synchronized (mVivoSdkLock) { if (mVivoSdkRawSession == sdkAtClose) closeVivoSdkRawSession(null); }
+                        giveIszLeaseBack(leaseAtClose); // P640: a lease taken for an open that failed (no device, so no onClosed) went nowhere
                     }
                     closeReader(sdkJpeg);
                     if (readers) {
@@ -2160,14 +2345,17 @@ public class CaptureController {
                         closeReader(raw);
                         closeReader(view);
                         closeReader(companion);
-                        closeLoficReader(); // P641d
-                        closeLoficSession(); // P679
+                        closeLoficReader(loficReader); // P641d
+                        closeLoficSession(loficReaders); // P679
                     }
                     if (recorder != null) recorder.release();
                     if (viewSurface != null) viewSurface.release();
                 } catch (RuntimeException e) {
                     Log.w(TAG, "camera close: " + e);
                 } finally {
+                    endTrace();
+                    if (outputs != null) outputs.countDown();
+                    mCloseDoneNs = System.nanoTime();
                     mAsyncCloseInFlight = false;
                     mCameraOpenCloseLock.release();
                 }
@@ -2181,6 +2369,7 @@ public class CaptureController {
                     handedOff = true;
                 } catch (RuntimeException rejected) {
                     mAsyncCloseInFlight = false;
+                    outputs.countDown(); // closed below, on this thread
                 }
             }
             if (!handedOff) {
@@ -2204,6 +2393,23 @@ public class CaptureController {
     });
     /** P662: a close handed to {@link #CAMERA_CLOSE} still holds the open lock (openOnPool waits longer for it). */
     private volatile boolean mAsyncCloseInFlight;
+    /** P680: when the last close finished (System.nanoTime; the open's PERF line tells the overlap). */
+    private volatile long mCloseDoneNs;
+
+    /** P680: android.os.Trace sections (Perfetto) of the camera's start; never a failure of their own. */
+    static void trace(String name) {
+        try {
+            android.os.Trace.beginSection(name);
+        } catch (RuntimeException | LinkageError ignored) {
+        }
+    }
+
+    static void endTrace() {
+        try {
+            android.os.Trace.endSection();
+        } catch (RuntimeException | LinkageError ignored) {
+        }
+    }
     /** P662: the device being closed and the latch its onClosed counts down. */
     private final Object mDeviceClosedLock = new Object();
     private CameraDevice mClosingDevice;
@@ -2707,6 +2913,7 @@ public class CaptureController {
      */
     private Size getPreviewOutputSize(@Nullable CameraCharacteristics lens, CameraMode mode) {
         if (lens == null) {
+            awaitAllCharacteristics(); // P680: the start-up read runs on the pool
             if (mCameraCharacteristicsMap.isEmpty()) readAllCharacteristics();
             lens = mCameraCharacteristicsMap.get(physicalID);
             if (lens != null) mCameraCharacteristics = lens;
@@ -2937,6 +3144,67 @@ public class CaptureController {
                 : OppoNativeFullRes.ispStream(mVivoSdkCameraId, VivoSdkFullRes.profile(mVivoSdkCameraId));
     }
 
+    /** P684: what a still-only series' stills proved, for the log: their mosaic and the HAL's reported full-size mode. */
+    static String mosaicWords(@Nullable VivoSdkFullResCapture series) {
+        final int block = series == null ? -1 : series.deliveredBlock();
+        final Long seamless = series == null ? null : series.seamlessSeen();
+        return (block == 4 ? "the sensor's native Tetra (block 4)" : block == 2 ? "a native Quad (block 2)"
+                : block == 1 ? "the HAL's remosaicked Bayer (block 1)" : "no confident colour block")
+                + ", seamlessMode " + (seamless == null ? "-" : String.valueOf(seamless));
+    }
+
+    /** P684: the variant of this 200 MP still-only session (StillOnly200), null in any other session. */
+    @Nullable private volatile StillOnly200.Choice mStillChoice;
+
+    /** P684: this still-only session runs the X300 Ultra stock camera's full-size keys (X300FullSize). */
+    private boolean fullSizeRecipe() {
+        final StillOnly200.Choice c = mStillChoice;
+        return c != null && c.variant.recipe && stillOnlyFullRes();
+    }
+
+    /**
+     * P684: the decision frame of the stock full-size recipe: the viewfinder request without the viewfinder RAW (the YUV companion
+     * only), at the viewfinder's shutter and the lowest ISO, the widest AE range, com.vivo.current_ui_module 74; the viewfinder's
+     * builder as it was afterwards. Null without the companion or a viewfinder result.
+     */
+    @Nullable
+    private CaptureRequest fullSizeDecision(@Nullable CameraCharacteristics c) {
+        final CaptureRequest.Builder b = mPreviewRequestBuilder;
+        final ImageReader view = mImageReaderRawView, companion = mRecipeCompanion;
+        final CaptureResult latest = mPreviewCaptureResult;
+        final Long ns = latest == null ? null : latest.get(CaptureResult.SENSOR_EXPOSURE_TIME);
+        if (b == null || view == null || companion == null || ns == null || ns <= 0) return null;
+        final Range<Integer> iso = c == null ? null : c.get(CameraCharacteristics.SENSOR_INFO_SENSITIVITY_RANGE);
+        final Range<Integer>[] ranges = c == null ? null : c.get(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES);
+        int lo = Integer.MAX_VALUE, hi = 0;
+        if (ranges != null) for (Range<Integer> r : ranges) { lo = Math.min(lo, r.getLower()); hi = Math.max(hi, r.getUpper()); }
+        final Integer aeMode = b.get(CaptureRequest.CONTROL_AE_MODE), isoBefore = b.get(CaptureRequest.SENSOR_SENSITIVITY);
+        final Long nsBefore = b.get(CaptureRequest.SENSOR_EXPOSURE_TIME), frameBefore = b.get(CaptureRequest.SENSOR_FRAME_DURATION);
+        final Range<Integer> fpsBefore = b.get(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE);
+        try {
+            b.removeTarget(view.getSurface());
+            b.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_OFF);
+            b.set(CaptureRequest.SENSOR_EXPOSURE_TIME, ns);
+            b.set(CaptureRequest.SENSOR_SENSITIVITY, iso == null ? 100 : iso.getLower());
+            b.set(CaptureRequest.SENSOR_FRAME_DURATION, Math.max(ns, 33_333_333L));
+            if (hi > 0 && lo <= hi) b.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, new Range<>(lo, hi));
+            final List<String> unknown = X300FullSize.applyDecision(b);
+            if (!unknown.isEmpty()) Log.w("SCAM_CAPTURE", "200 MP decision frame keys unknown to this firmware: " + unknown + " (P684)");
+            return b.build();
+        } catch (RuntimeException e) {
+            Log.w("SCAM_CAPTURE", "200 MP decision frame not built: " + e + " (P684)");
+            return null;
+        } finally {
+            X300FullSize.clearDecision(b);
+            b.set(CaptureRequest.CONTROL_AE_MODE, aeMode);
+            b.set(CaptureRequest.SENSOR_EXPOSURE_TIME, nsBefore);
+            b.set(CaptureRequest.SENSOR_SENSITIVITY, isoBefore);
+            b.set(CaptureRequest.SENSOR_FRAME_DURATION, frameBefore);
+            b.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, fpsBefore);
+            b.addTarget(view.getSurface());
+        }
+    }
+
     /** P208: the native FULLRES session keeps its viewfinder in the normal mode, the full-size stream takes the stills only. */
     private boolean stillOnlyFullRes() {
         VivoSdkFullRes.Profile profile = mVivoSdkRawSession == null ? null : VivoSdkFullRes.profile(mVivoSdkCameraId);
@@ -2986,7 +3254,11 @@ public class CaptureController {
      * onClosed (a callback of a thread that may be gone). Only that lease: a camera opened meanwhile has its own.
      */
     private void giveIszLeaseBack() {
-        final VivoSdkRawSession lease = mIszLease;
+        giveIszLeaseBack(mIszLease);
+    }
+
+    /** P680: {@link #giveIszLeaseBack()} for {@code lease}, the lease of the camera closeCamera closed (taken when it scheduled the close). */
+    private void giveIszLeaseBack(@Nullable VivoSdkRawSession lease) {
         try {
             if (lease != null) LeaseGuard.executor().execute(() -> {
                 synchronized (mIszLeaseLock) {
@@ -3068,17 +3340,55 @@ public class CaptureController {
     }
 
     private void openOnPool(int width, int height) {
-        // P662: a restart's close runs on CAMERA_CLOSE holding the open lock: everything of the open (the SDK lease, the readers,
-        // the device) starts after it, in the order it had when the close ran on the main thread
-        if (mAsyncCloseInFlight) {
-            final long waitStart = System.nanoTime();
-            try {
-                if (mCameraOpenCloseLock.tryAcquire(5000, TimeUnit.MILLISECONDS)) mCameraOpenCloseLock.release();
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-            Log.i("PERF", "camera open waited " + (System.nanoTime() - waitStart) / 1_000_000 + " ms for the previous camera's close");
+        trace("CaptureController.openOnPool");
+        try {
+            openOnPoolTraced(width, height);
+        } finally {
+            endTrace();
         }
+    }
+
+    /**
+     * P680: whether an open waits for the previous camera's async close before it prepares anything (as P662 did): while a vendor
+     * lease or SDK session is held (the close gives it back after the device: the open must not give it back first), or when this
+     * open takes one (vivo / OPPO-family FULLRES, ISZ, the PD2454 native RAW, a sensor-mode pick - taken only once the previous
+     * device closed, P640). Otherwise only the device's open waits (the open lock) and the readers, sizes and characteristics are
+     * made meanwhile; the sweep of a dead process's lease (vivo) finds the cameras busy then and waits for the next open.
+     */
+    static boolean closeWaitFirst(boolean leaseOrSdkHeld, boolean leaseWanted, boolean sdkWanted) {
+        return leaseOrSdkHeld || leaseWanted || sdkWanted;
+    }
+
+    private boolean closeWaitFirst(String id) {
+        boolean leaseWanted, sdkWanted;
+        try {
+            leaseWanted = VivoQcomIsz.leaseWanted(id) || VivoPd2454NativeRaw.leaseWanted(id) || SensorModePick.leaseWanted(id);
+            sdkWanted = VivoSdkFullRes.offered(id);
+        } catch (RuntimeException e) {
+            return true;
+        }
+        return closeWaitFirst(mIszLease != null || mVivoSdkRawSession != null || mVivoSdkRestorePending, leaseWanted, sdkWanted);
+    }
+
+    /** P662: waits (at most 5 s) until a close handed to CAMERA_CLOSE released the open lock; the ms waited. */
+    private long awaitAsyncClose() {
+        final long waitStart = System.nanoTime();
+        try {
+            if (mCameraOpenCloseLock.tryAcquire(5000, TimeUnit.MILLISECONDS)) mCameraOpenCloseLock.release();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        return (System.nanoTime() - waitStart) / 1_000_000;
+    }
+
+    private void openOnPoolTraced(int width, int height) {
+        final long openStart = System.nanoTime();
+        // P662: a restart's close runs on CAMERA_CLOSE holding the open lock. P680: an open of the vendor lease path waits for it
+        // here, before the SDK lease, the readers and the device, in the order it had when the close ran on the main thread; any
+        // other open makes its readers, sizes and characteristics meanwhile and waits only before the device's open (the lock)
+        final boolean closing = mAsyncCloseInFlight;
+        final boolean waitFirst = closing && closeWaitFirst(ScameraApp.getSettings().cameraId);
+        if (waitFirst) Log.i("PERF", "camera open waited " + awaitAsyncClose() + " ms for the previous camera's close (vendor lease path)");
         final boolean permitted = ContextCompat.checkSelfPermission(activity, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED;
         if (!permitted || !isCameraResumed) {
             mCameraOpening.set(false);
@@ -3125,11 +3435,32 @@ public class CaptureController {
         boolean lockHeld = false;
         try {
             // P662: a restart's close runs on its own thread holding the lock: the open waits for it (as it waited on the main thread)
-            if (!mCameraOpenCloseLock.tryAcquire(mAsyncCloseInFlight ? 5000 : 1000, TimeUnit.MILLISECONDS)) {
+            final long lockStart = System.nanoTime();
+            trace("CaptureController.awaitClose");
+            final boolean locked;
+            try {
+                locked = mCameraOpenCloseLock.tryAcquire(mAsyncCloseInFlight ? 5000 : 1000, TimeUnit.MILLISECONDS);
+            } finally {
+                endTrace();
+            }
+            if (!locked) {
                 mCameraOpening.set(false);
                 throw new RuntimeException("Time out waiting to lock camera opening.");
             }
             lockHeld = true;
+            if (closing && !waitFirst) {
+                // P680: the open's preparation ran beside the previous camera's close; the device opens only after it
+                final long prepared = (lockStart - openStart) / 1_000_000, waited = (System.nanoTime() - lockStart) / 1_000_000;
+                final long overlap = Math.max(0, Math.min(lockStart, mCloseDoneNs) - openStart) / 1_000_000;
+                Log.i("PERF", "camera open overlapped the previous camera's close: prepared in " + prepared + " ms, then waited "
+                        + waited + " ms for the close (" + overlap + " ms of the close ran beside the preparation)");
+                if (!isCameraResumed) {
+                    openRefused(true);
+                    Log.d(TAG, "screen left while the previous camera closed: no open");
+                    return;
+                }
+            }
+            OpenTimeline.deviceAsked();
             // "x-y": logical camera x, physical camera y; one id: both
             final String[] ids = ScameraApp.getSettings().cameraId.split("-");
             logicalID = ids[0];
@@ -3297,7 +3628,7 @@ public class CaptureController {
                     + (cap == Integer.MAX_VALUE ? "" : ", ISO cap " + cap) + ")");
         }
         if (mRecipePlan != null) {
-            mTargetFormat = ImageFormat.RAW_SENSOR;
+            mTargetFormat = mRecipePlan.captureFormat(); // P689: the profile's (RAW_SENSOR; RAW10 on the X9 Ultra)
             fullRes = new Size(mRecipePlan.recipe.width, mRecipePlan.recipe.height);
             mFullResSession = true;
         }
@@ -3448,6 +3779,7 @@ public class CaptureController {
         if (mImageReaderRawView != null) { mImageReaderRawView.close(); mImageReaderRawView = null; }
         if (mRecipeCompanion != null) { mRecipeCompanion.close(); mRecipeCompanion = null; } // P635
         if (mVivoSdkJpeg != null) { mVivoSdkJpeg.close(); mVivoSdkJpeg = null; }
+        mStillChoice = null; // P684: chosen again below for a 200 MP still-only session
         if (sdkFullRes) {
             mTargetFormat = ImageFormat.RAW_SENSOR;
             mImageReaderRaw = ImageReader.newInstance(fullRes.getWidth(), fullRes.getHeight(), ImageFormat.RAW_SENSOR,
@@ -3466,6 +3798,29 @@ public class CaptureController {
                 }, mBackgroundHandler);
                 Log.i("SCAM_CAPTURE", "FULLRES 200 MP still-only: viewfinder RAW " + own[0] + " in the normal mode, "
                         + fullRes + " for the stills (P208)");
+                // P684: the session's variant of the still-only route (StillOnly200), the same for its presses; the X300 Ultra stock
+                // camera's full-size recipe adds a small YUV companion stream (its frames dropped; the decision frame's target)
+                final VivoSdkFullRes.Profile stillProfile = VivoSdkFullRes.profile(mVivoSdkCameraId);
+                if (StillOnly200.applies(stillProfile, VivoSdkFullRes.oppo())) {
+                    mStillChoice = StillOnly200.choose(mVivoSdkCameraId, stillProfile);
+                    Size companion = null;
+                    if (mStillChoice.variant.recipe) {
+                        companion = X300FullSize.companion(map.getOutputSizes(ImageFormat.YUV_420_888), own[0].getWidth(), own[0].getHeight());
+                        if (companion != null) {
+                            final ImageReader reader = ImageReader.newInstance(companion.getWidth(), companion.getHeight(), ImageFormat.YUV_420_888, 2);
+                            reader.setOnImageAvailableListener(rd -> { // its frames are not used: the stream only has to run
+                                try {
+                                    final Image image = rd.acquireLatestImage();
+                                    if (image != null) image.close();
+                                } catch (IllegalStateException closed) { }
+                            }, mBackgroundHandler);
+                            mRecipeCompanion = reader;
+                        }
+                    }
+                    Log.i("SCAM_CAPTURE", "200 MP still-only session camera " + mVivoSdkCameraId + " " + fullRes + " block "
+                            + stillProfile.nativeBlock + ": variant " + mStillChoice + (mStillChoice.variant.recipe
+                            ? ", stock full-size keys, YUV companion " + (companion == null ? "none (no YUV size)" : companion) : "") + " (P684)");
+                }
             }
             if (!nativeVivoFullRes()) {
             mVivoSdkJpeg = ImageReader.newInstance(fullRes.getWidth(), fullRes.getHeight(), ImageFormat.JPEG, 3);
@@ -3517,7 +3872,9 @@ public class CaptureController {
         }
         mImageReaderRaw.setOnImageAvailableListener(mRawReaderListener, mBackgroundHandler);
         // P319: the size the session really captures, for the photo size pill (PhotoSize.badge)
-        com.scamera.app.ui.camera.PhotoSize.stream(physicalID, mImageReaderRaw.getWidth(), mImageReaderRaw.getHeight());
+        // P688: a FULLRES session's stream is never the «Обычный» size (a cold start with 50 MP chosen named the plain row «50 Мп»)
+        com.scamera.app.ui.camera.PhotoSize.stream(physicalID, mImageReaderRaw.getWidth(), mImageReaderRaw.getHeight(),
+                mVivoSdkRawSession == null && !mFullResSession);
         mRawMaxFps = ViewfinderFps.maxFps(characteristics, mTargetFormat, mImageReaderRaw.getWidth(), mImageReaderRaw.getHeight(),
                 useMaximumResolutionKey);
         // P230: a DCG mode (60 fps only) has its own limits, not the normal mode's of the same RAW size
@@ -3576,12 +3933,14 @@ public class CaptureController {
         }
         sLastGoodCamera = runningId;
         mConfiguredSessionGeneration = generation;
+        mSessionPrefs = null; // P680: the new session's settings are read at its first result
         synchronized (mRingLock) { mRingClosing = false; } // P662: this session's frames go into the ring
         if (mBackgroundHandler != null) { // P662: a kept ring this session never takes goes after a while
             mBackgroundHandler.removeCallbacks(mDropParkedRing);
             mBackgroundHandler.postDelayed(mDropParkedRing, PARKED_RING_MS);
         }
         mLastPreviewResultMs = 0;
+        mStillOnlyNextVariant = false; // P684: only for an error under the series that noted it
         mPreviewSessionStartMs = android.os.SystemClock.elapsedRealtime();
         // P212d: the scene-flicker report of a session counts after its first results, never in a native route
         // with its own RAW viewfinder (no HAL statistics there; the still-only route keeps the normal viewfinder)
@@ -3840,7 +4199,7 @@ public class CaptureController {
             if (photoMode && PreferenceKeys.scamDevSwitch("isp_preview_off_always", false)) mIspPreviewOff = true;
             if (mRecipePlan != null) { // P635: the viewfinder's streams are the profile's, whatever «Поток ISP» says
                 mIspSurfaceOff = !mRecipePlan.ispStream();
-                mIspPreviewOff = mIspSurfaceOff;
+                mIspPreviewOff = mIspSurfaceOff || mRecipePlan.ispFake(); // P689: fake off - configured, in no request
             }
             if (loficSetup != null) { // P679: the recipe's viewfinder is its PRIVATE stream (output 1)
                 mIspSurfaceOff = false;
@@ -3993,6 +4352,7 @@ public class CaptureController {
             final CameraCaptureSession.StateCallback stateCallback = new CameraCaptureSession.StateCallback() {
                 @Override
                 public void onConfigured(@NonNull CameraCaptureSession configured) {
+                    OpenTimeline.configured(); // P680
                     if (mConfiguringDevice == sessionDevice) mConfiguringDevice = null;
                     synchronized (mPreviewStateLock) {
                         Log.d(TAG, "session configured: " + configured);
@@ -4091,6 +4451,11 @@ public class CaptureController {
                 } else if (sdkFullRes) {
                     CaptureRequest.Builder sdkSession = sessionDevice.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
                     if (nativeVivoFullRes()) applyVivoSdkPreview(sdkSession);
+                    if (fullSizeRecipe()) { // P684: the stock full-size recipe's session keys
+                        final List<String> unknown = X300FullSize.applySession(sdkSession);
+                        Log.i("SCAM_CAPTURE", "200 MP full-size session keys on camera " + physicalID
+                                + (unknown.isEmpty() ? ": all set" : ": unknown to this firmware (skipped) " + unknown) + " (P684)");
+                    }
                     else {
                         mVivoSdkRawSession.apply(sdkSession, false, 0);
                         mVivoSdkRawSession.applyStreamUsage(sdkSession);
@@ -4205,6 +4570,14 @@ public class CaptureController {
         final String note;
         synchronized (mVivoSdkLock) {
             if (mVivoSdkRawSession == null || !PixelPro10.fullResOn()) return false;
+            // P684: the camera died under a 200 MP still-only series whose next variant is noted (StillOnly200): the series'
+            // failure has asked for the restart already, the row and FULLRES stay for that variant
+            if (mStillOnlyNextVariant && why.startsWith("camera error")) {
+                mStillOnlyNextVariant = false;
+                Log.w("SCAM_CAPTURE", "200 MP still-only: " + why + " under the series; its next variant the next press, the row stays (P684)");
+                if (session != null) try { session.close(); } catch (RuntimeException ignored) { }
+                return true;
+            }
             // P186: the X100 / X300 Ultra note the row that failed and try the next one of its size the next time
             note = !nativeVivoFullRes() ? null : VivoSdkFullRes.oppo() // P192: an OPPO camera tries its next mode the next time
                     ? OppoNativeFullRes.failed(mVivoSdkCameraId, VivoSdkFullRes.profile(mVivoSdkCameraId), why)
@@ -4295,7 +4668,8 @@ public class CaptureController {
         final CameraMode mode = ScameraApp.getSettings().mode;
         if (sdkFullRes || recordingVideo || !isRawFormat(mTargetFormat)
                 || (mode != CameraMode.PHOTO && mode != CameraMode.NIGHT && mode != CameraMode.MOTION)) return;
-        final FullResRecipeStore.Active active = FullResRecipeStore.active(physicalID, characteristics);
+        // P689: with the session's «Поток ISP» (the OPPO Find X9 Ultra's «50 Мп» recipe takes its viewfinder variant from it)
+        final FullResRecipeStore.Active active = FullResRecipeStore.active(physicalID, characteristics, this.ispSurface);
         if (active == null) return;
         Size viewfinder = null;
         try {
@@ -4342,6 +4716,7 @@ public class CaptureController {
         Log.i("SCAM_CAPTURE", "FULLRES RECIPE camera " + physicalID + " on: " + active.recipe + " (module " + active.slot
                 + (active.autoRow >= 0 ? ", instead of the module's sensor mode row " + active.autoRow + ": that row alone gives no full frame, P635b" : "")
                 + (mRecipeProof == 1 ? ", not proven on this firmware yet: one proof still follows" : ", proven on this firmware") + ", P635)");
+        if (active.x9Ultra() && OplusX9Ultra.learnLine(physicalID) != null) Log.i("SCAM_CAPTURE", OplusX9Ultra.learnLine(physicalID)); // P689
     }
 
     /**
@@ -4422,8 +4797,10 @@ public class CaptureController {
             CameraCharacteristics c = mCameraCharacteristicsMap.get(physicalID);
             if (c == null) c = mCameraCharacteristics;
             final float black = com.scamera.app.processing.RawLevels.current(c, null).meanBlack();
-            if (img.getFormat() == ImageFormat.RAW_SENSOR)
-                truth = FullResTruth.check(img.getPlanes()[0].getBuffer(), img.getWidth(), img.getHeight(), img.getPlanes()[0].getRowStride(), black);
+            // P689: a RAW10 proof (the X9 Ultra recipe's stills) is judged on its packed rows
+            if (img.getFormat() == ImageFormat.RAW_SENSOR || img.getFormat() == ImageFormat.RAW10)
+                truth = FullResTruth.check(img.getPlanes()[0].getBuffer(), img.getWidth(), img.getHeight(), img.getPlanes()[0].getRowStride(),
+                        black, img.getFormat() == ImageFormat.RAW10);
         } catch (RuntimeException e) {
             Log.w("SCAM_CAPTURE", "FULLRES RECIPE proof: " + e);
         } finally {
@@ -4538,11 +4915,12 @@ public class CaptureController {
     }
 
     /** P635: the running profile failed for {@code why}: remembered for this lens (until a field changes), said in the log with its field set. */
-    private void recipeFailed(String why) {
+    @Nullable
+    private String recipeFailed(String why) {
         final FullResRecipeStore.Active active = mRecipe;
         final FullResRecipePlan plan = mRecipePlan;
-        if (active == null) return;
-        FullResRecipeStore.failActive(active, why);
+        if (active == null) return null;
+        final String notice = FullResRecipeStore.failActive(active, why); // P689: the X9 Ultra's variant memory and message
         Log.w("SCAM_CAPTURE", "FULLRES RECIPE camera " + physicalID + " failed (" + why + "): the normal session opens; the lens keeps this"
                 + " until a field of the profile changes. " + (plan == null ? String.valueOf(active.recipe) : plan.describe(String.valueOf(physicalID))));
         mRecipe = null;
@@ -4550,6 +4928,7 @@ public class CaptureController {
         mRecipeShot = null;
         FullResRecipeSession.session(null);
         mFullResSession = false;
+        return notice;
     }
 
     /**
@@ -4559,9 +4938,9 @@ public class CaptureController {
      */
     private boolean retryWithoutRecipe(@Nullable CameraCaptureSession session, String why) {
         if (mRecipe == null) return false;
-        recipeFailed(why);
+        final String x9u = recipeFailed(why); // P689: the X9 Ultra's «50 Мп» names its next variant
         if (session != null) try { session.close(); } catch (Exception ignored) { }
-        showError(Lang.t("Полное разрешение (рецепт): камера отказала, обычный режим. Причина — в настройках объектива.",
+        showError(x9u != null ? x9u : Lang.t("Полное разрешение (рецепт): камера отказала, обычный режим. Причина — в настройках объектива.",
                 "Full resolution (recipe): refused by the camera, normal mode. The reason is in the lens settings."));
         mainHandler().post(this::restartCamera);
         return true;
@@ -4846,10 +5225,18 @@ public class CaptureController {
     private static final long LOFIC_PAIR_NS = 500_000L;
 
     private void closeLoficReader() {
-        final ImageReader r = mLoficReader;
-        mLoficReader = null;
+        closeLoficReader(mLoficReader);
+    }
+
+    /**
+     * P680: the overflow reader {@code r} closes (the one closeCamera took when it scheduled the close); its field and the pairs'
+     * frames go only while it is still the session's (an open meanwhile may have made its own).
+     */
+    private void closeLoficReader(@Nullable ImageReader r) {
+        final boolean current = mLoficReader == r;
+        if (current) mLoficReader = null;
         if (r != null) try { r.close(); } catch (RuntimeException ignored) { }
-        synchronized (mLoficRing) {
+        if (current) synchronized (mLoficRing) {
             mLoficRing.clear();
             mLoficMainStats = null;
         }
@@ -4983,10 +5370,26 @@ public class CaptureController {
 
     /** The LOFIC readers and pairs go (the session ended, or the next one is not a LOFIC one). */
     private void closeLoficSession() {
-        final ImageReader[] readers = {mLoficDummy, mLoficVideo, mLoficJpeg, mLoficRawA, mLoficRawB};
-        mLoficDummy = mLoficVideo = mLoficJpeg = mLoficRawA = mLoficRawB = null;
+        closeLoficSession(loficSessionReaders());
+    }
+
+    /** P680: the LOFIC session's readers now (closeCamera takes them when it schedules the close). */
+    private ImageReader[] loficSessionReaders() {
+        return new ImageReader[]{mLoficDummy, mLoficVideo, mLoficJpeg, mLoficRawA, mLoficRawB};
+    }
+
+    /**
+     * P680: the LOFIC readers {@code readers} ({@link #loficSessionReaders}) close; a field still holding its reader is cleared,
+     * and the pairs go unless a new LOFIC session has its readers already.
+     */
+    private void closeLoficSession(ImageReader[] readers) {
+        if (mLoficDummy == readers[0]) mLoficDummy = null;
+        if (mLoficVideo == readers[1]) mLoficVideo = null;
+        if (mLoficJpeg == readers[2]) mLoficJpeg = null;
+        if (mLoficRawA == readers[3]) mLoficRawA = null;
+        if (mLoficRawB == readers[4]) mLoficRawB = null;
         for (ImageReader r : readers) closeQuietly(r);
-        mLoficPairs.clear();
+        if (mLoficRawA == null) mLoficPairs.clear();
     }
 
     /** The recipe's readers for {@code s}; false when one cannot be made here. */
@@ -5180,7 +5583,9 @@ public class CaptureController {
     private List<Surface> sessionOutputs(boolean isBurstSession) {
         if (mRecipePlan != null) return recipeSurfaces(); // P635
         final Surface raw = mImageReaderRaw.getSurface();
-        if (stillOnlyFullRes() && mImageReaderRawView != null) return Arrays.asList(mImageReaderRawView.getSurface(), raw);
+        if (stillOnlyFullRes() && mImageReaderRawView != null) return fullSizeRecipe() && mRecipeCompanion != null // P684
+                ? Arrays.asList(mImageReaderRawView.getSurface(), mRecipeCompanion.getSurface(), raw)
+                : Arrays.asList(mImageReaderRawView.getSurface(), raw);
         // P609: an OPPO-family FULLRES row tried with the viewfinder's ISP stream in its session (fake off / on), as the stock camera
         if (nativeVivoFullRes() && oppoIspStream() > 0 && surface != null) return Arrays.asList(surface, raw);
         if (nativeVivoFullRes() || VivoPd2454NativeRaw.active(physicalID)) return Collections.singletonList(raw);
@@ -5230,6 +5635,8 @@ public class CaptureController {
         if (mVivoSdkRawSession != null) {
             if (nativeVivoFullRes()) b.addTarget(stillOnlyFullRes() && mImageReaderRawView != null
                     ? mImageReaderRawView.getSurface() : mImageReaderRaw.getSurface());
+            // P684: the stock full-size recipe's viewfinder repeats its YUV companion too
+            if (fullSizeRecipe() && mRecipeCompanion != null) b.addTarget(mRecipeCompanion.getSurface());
             // P609: the «ISP stream on» variant repeats the viewfinder's ISP stream too (fake off: in the session, in no request)
             if (nativeVivoFullRes() && oppoIspStream() == 2 && surface != null) b.addTarget(surface);
             clearZslPreviewFrames();
@@ -5310,6 +5717,7 @@ public class CaptureController {
             VivoPd2454NativeRaw.applyFullRes(builder, VivoSdkFullRes.profile(mVivoSdkCameraId));
             // P224: the viewfinder not below 20 fps; a still keeps the camera's whole range
             builder.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, builder == mPreviewRequestBuilder ? ViewfinderFps.raise(FpsRangeAuto, mRawMaxFps) : FpsRangeAuto);
+            if (builder == mPreviewRequestBuilder && fullSizeRecipe()) X300FullSize.applyRequest(builder); // P684
             // P201: the manual mode over the FULLRES keys of the viewfinder (not the session parameters; the OPPO's own exposure
             // takes the hand-set ISO / shutter itself)
             if (builder == mPreviewRequestBuilder) {
@@ -6903,7 +7311,7 @@ public class CaptureController {
                 // no hardware remosaic: noted, its camera takes the own mosaic from the next start
                 if (block > 1 && nativeVivoFullRes()) {
                     final VivoSdkFullRes.Profile full = VivoSdkFullRes.profile(mVivoSdkCameraId);
-                    if (full != null && full.nativeBayer()
+                    if (full != null && full.nativeBayer() && !full.stillOnly // P684: a still-only viewfinder is the normal mode's
                             && retryWithoutVivoSdkFullRes(mCaptureSession, "the hardware-remosaic row gives a block " + block + " mosaic, not a Bayer")) return;
                 }
                 if (block > 1 && !mMosaicPreview && !mLiveRawSession && !XiaomiTeleZoom.ispPreview()) {
@@ -8386,6 +8794,7 @@ public class CaptureController {
         synchronized (mRingLock) {
             while (!mZslRingBuffer.isEmpty()) mZslRingBuffer.pollFirst().close();
             if (keep && mZslRing != null) {
+                if (!mZslRingParked) mZslRingParkedAtMs = android.os.SystemClock.elapsedRealtime(); // P680
                 mZslRingParked = true;
             } else {
                 if (mZslRing != null) mZslRing.close();
@@ -8400,15 +8809,71 @@ public class CaptureController {
     private boolean mZslRingParked;
     /** P662: a kept ring the new session has not taken this long after its configuration (video, a mode without RAW) goes. */
     static final long PARKED_RING_MS = 3000;
+    /**
+     * P680 (performance audit: video and back went over the 3 s and made the ring again - a new memfd and its first-touch faults):
+     * a kept ring stays up to this long in all while the memory allows it ({@link #keepParkedRing}), checked every
+     * {@link #PARKED_RING_MS}.
+     */
+    static final long PARKED_RING_MAX_MS = 15_000;
+    /** P680: the memory available a kept ring needs beside it to stay longer than PARKED_RING_MS. */
+    static final long PARKED_RING_MIN_AVAIL = 2L << 30;
+    /** P680: when the ring was kept (elapsedRealtime ms). */
+    private long mZslRingParkedAtMs;
+
+    /**
+     * P680: a kept ring unused for {@code parkedMs} stays for another {@link #PARKED_RING_MS}: within PARKED_RING_MAX_MS, not on a
+     * phone of the low memory class, the system not low on memory and {@link #PARKED_RING_MIN_AVAIL} available beside it.
+     */
+    static boolean keepParkedRing(long parkedMs, long availBytes, boolean lowMemory, boolean lowRamClass) {
+        return parkedMs + PARKED_RING_MS <= PARKED_RING_MAX_MS && !lowMemory && !lowRamClass && availBytes >= PARKED_RING_MIN_AVAIL;
+    }
+
     private final Runnable mDropParkedRing = () -> {
+        final long parkedMs;
         synchronized (mRingLock) {
             if (!mZslRingParked) return;
+            parkedMs = android.os.SystemClock.elapsedRealtime() - mZslRingParkedAtMs;
+        }
+        long avail = -1;
+        boolean lowMemory = false;
+        try {
+            final android.app.ActivityManager am = (android.app.ActivityManager) ScameraApp.getAppContext().getSystemService(Context.ACTIVITY_SERVICE);
+            final android.app.ActivityManager.MemoryInfo info = new android.app.ActivityManager.MemoryInfo();
+            am.getMemoryInfo(info);
+            avail = info.availMem;
+            lowMemory = info.lowMemory;
+        } catch (RuntimeException ignored) {
+        }
+        final Handler handler = mBackgroundHandler;
+        if (handler != null && keepParkedRing(parkedMs, avail, lowMemory, com.scamera.app.util.RamClass.get().low())) {
+            handler.postDelayed(this.mDropParkedRing, PARKED_RING_MS);
+            Log.i("SCAM_CAPTURE", "ZSL ring kept for this session unused for " + parkedMs + " ms: kept " + PARKED_RING_MS
+                    + " ms more (" + (avail >> 20) + " MB available)");
+            return;
+        }
+        dropParkedRing(false, "kept for this session unused for " + parkedMs + " ms");
+    };
+
+    /**
+     * P662: a kept ring no frame of this session has taken goes ({@code now}: on this thread, P684 before a 200 MP series asks the
+     * HAL for its full-size buffers; else on the ring's memory thread). True when a ring went.
+     */
+    private boolean dropParkedRing(boolean now, String why) {
+        final ZslRing ring;
+        synchronized (mRingLock) {
+            if (!mZslRingParked) return false;
             mZslRingParked = false;
-            if (mZslRing != null) mZslRing.close();
+            ring = mZslRing;
             mZslRing = null;
         }
-        Log.i("SCAM_CAPTURE", "ZSL ring kept for this session unused for " + PARKED_RING_MS + " ms: released");
-    };
+        final long start = System.nanoTime();
+        if (ring != null) {
+            if (now) ring.closeNow();
+            else ring.close();
+        }
+        Log.i("SCAM_CAPTURE", "ZSL ring " + why + ": released" + (now ? " in " + (System.nanoTime() - start) / 1_000_000 + " ms" : ""));
+        return true;
+    }
 
     /**
      * P91: the shot's own frames (converted ring frames, the post-shutter series) in free slots of the ring's memfd, so the
@@ -8506,7 +8971,8 @@ public class CaptureController {
         // and the after-shutter YUV plan now use; getZslBufferCountValue stays the hard memory ceiling.
         // P656: and within the ring's memory (YuvMergePlan.ringFrames: a 10-bit ring of 65 + 2 frames held ~1.3 GB of Images)
         if (yuv != null) return yuv.afterShutter ? SUSPENDED_RING
-                : YuvMergePlan.ringFrames(PreferenceKeys.getZslBufferCountValue(), PreferenceKeys.getHybridZslFrames(), yuv.frameBytes, SUSPENDED_RING);
+                : YuvMergePlan.ringFrames(PreferenceKeys.getZslBufferCountValue(), PreferenceKeys.getHybridZslFrames(), yuv.frameBytes, SUSPENDED_RING,
+                        YuvMergePlan.budget()); // P693
         // P578 (owner, 2026-11-09: up to 65 frames in the merge): the ring holds at least the merge's N, so a long merge is not cut
         // to the buffer's 50 (ZslRing.create still keeps it within the memory budget)
         return Math.max(PreferenceKeys.getZslBufferCountValue(), Math.min(100, PreferenceKeys.getHybridZslFrames()));
@@ -9382,6 +9848,12 @@ public class CaptureController {
         // bytes) taken after the shutter in the 200 MP session; the HAL's 200 MP buffers go back for the merge (camera closed)
         final VivoSdkFullRes.Profile shotProfile = VivoSdkFullRes.profile(mVivoSdkCameraId);
         final boolean tetraBin = shotProfile != null && shotProfile.tetraBin && nativeVivoFullRes();
+        // P684 (X300 Ultra 200 MP, «SDK STILL buffer lost» at 3.2 GB free): the previous session's kept ZSL ring (~1.2 GB) goes before
+        // the memory is read and the HAL asked for its full-size buffers, not up to 3 s into the 200 MP session (PARKED_RING_MS)
+        if (stillOnlyFullRes() && mBackgroundHandler != null) {
+            mBackgroundHandler.removeCallbacks(mDropParkedRing);
+            dropParkedRing(true, "of the previous session at a 200 MP press (P684)");
+        }
         final long readerBytes = (long) mImageReaderRaw.getWidth() * mImageReaderRaw.getHeight() * 2;
         final android.util.Size shotSize = tetraBin ? shotProfile.shotSize() : new android.util.Size(mImageReaderRaw.getWidth(), mImageReaderRaw.getHeight());
         final long frameBytes = (long) shotSize.getWidth() * shotSize.getHeight() * 2;
@@ -9562,13 +10034,23 @@ public class CaptureController {
         // with more, the SDK route one at a time); a failure of a series with more than 3 is noted for this camera and size
         final String seriesCamera = mVivoSdkCameraId;
         final VivoSdkFullRes.Profile seriesProfile = VivoSdkFullRes.profile(seriesCamera);
+        // P684 (owner, 2026-11-14: «200мп не работают на 300U»): a 200 MP series of the X100 / X300 Ultra's still-only route (P208)
+        // runs its camera's variant (StillOnly200: the mode key on the stills, one still in flight, P208 as before), remembered per
+        // camera, size and firmware; a failed series moves it on for the next press
+        final StillOnly200.Choice sessionChoice = mStillChoice;
+        final StillOnly200.Choice stillVariant = !StillOnly200.applies(seriesProfile, VivoSdkFullRes.oppo()) ? null
+                : sessionChoice != null ? sessionChoice : StillOnly200.choose(seriesCamera, seriesProfile);
         final FullResInFlight.Choice inFlight = seriesProfile == null ? new FullResInFlight.Choice(1, "no profile")
                 : FullResInFlight.forSeries(seriesCamera, seriesProfile, count);
+        if (stillVariant != null) Log.i("SCAM_CAPTURE", "200 MP still-only camera " + seriesCamera + " " + seriesProfile.size
+                + ": variant " + stillVariant + " (P684)");
         Log.i("SCAM_CAPTURE", "FULLRES in flight: " + inFlight + " for " + count + " stills after the shutter, camera "
                 + seriesCamera + (seriesProfile == null ? "" : " " + seriesProfile.size));
         final java.util.concurrent.atomic.AtomicBoolean sent = new java.util.concurrent.atomic.AtomicBoolean();
         // the camera closed or failed under the series (rescueInFlightShot): its reason, which decides whether the count is noted
         final java.util.concurrent.atomic.AtomicReference<String> rescueCause = new java.util.concurrent.atomic.AtomicReference<>();
+        // P684: the series of a still-only variant, for what its stills proved (their mosaic, the HAL's full-size mode)
+        final VivoSdkFullResCapture[] seriesStats = new VivoSdkFullResCapture[1];
         final VivoSdkFullResCapture.Listener listener = new VivoSdkFullResCapture.Listener() {
             public void started() {
                 cameraEventsListener.frameStarted(null);
@@ -9636,7 +10118,12 @@ public class CaptureController {
                         try {
                             com.scamera.app.processing.MosaicBlockStore.setShotKey(mosaicKey, tetraBin ? 2 : 1);
                             if (plainForMerge) {
-                                awaitClosedForProcessing();
+                                // P685: a 50 MP «Быстрый» shot does not wait for the close (283 - 295 ms of every one on the X200
+                                // Ultra): its worker reads MemAvailable itself and merges in row bands when the camera's buffers
+                                // still hold it; above 100 MP (P179) the merge still starts once they are back
+                                if (closeWaitSkipped(hugeShot)) Log.i("SCAM_CAPTURE", "FULLRES: the merge starts beside the camera's close"
+                                        + " (P685: the fast route sizes its memory itself; scam_dev fullres_close_wait 1: wait as before)");
+                                else awaitClosedForProcessing();
                                 com.scamera.app.processing.ShotTimeline.mark("plain_ready"); // P236
                             }
                             saver.runRaw(characteristics, base, base.getRequest(), shakiness, rotation, exposures);
@@ -9667,6 +10154,12 @@ public class CaptureController {
                                 + " after the shutter; Hybrid ZSL" + (dropped.isEmpty() ? "" : " (dropped: " + dropped + ")"));
                     } else Log.i("SCAM_CAPTURE", "SDK FULLRES50: " + count + " matched future RAWs; Hybrid PSL, stock ZSL=false");
                     Log.i("SCAM_CAPTURE", "FULLRES in flight: series done with " + inFlight.count + " in flight");
+                    if (stillVariant != null) { // P684: the variant that completed a series is kept; the photo says what it got
+                        final String kept = StillOnly200.succeeded(seriesCamera, seriesProfile, stillVariant);
+                        if (kept != null) Log.i("SCAM_CAPTURE", kept);
+                        Log.i("SCAM_CAPTURE", "200 MP still-only photo camera " + seriesCamera + ": variant " + stillVariant.variant + ", "
+                                + mosaicWords(seriesStats[0]) + " (P684)");
+                    }
                 } catch (RuntimeException failure) {
                     failed(failure.getMessage());
                 }
@@ -9697,9 +10190,27 @@ public class CaptureController {
                 burst = false;
                 mShotState = SHOT_IDLE;
                 cameraEventsListener.burstCompleted(null);
+                // P684: a failed 200 MP still-only series moves its camera's size to the next variant for the next press; when
+                // every variant has failed, the 200 MP row is noted failed (the size off, as a row that never gave a frame)
+                boolean rowNoted = false, nextVariant = false;
+                if (stillVariant != null && sent.get()) {
+                    rowNoted = true; // the variants' trial owns this route's verdicts; the row only when every variant failed
+                    final String cause = rescueCause.get() != null ? rescueCause.get() : reason;
+                    final StillOnly200.Outcome outcome = StillOnly200.failed(seriesCamera, seriesProfile, stillVariant, cause);
+                    Log.w("SCAM_CAPTURE", outcome.log + "; pixels: " + mosaicWords(seriesStats[0]) + " (P684)");
+                    if (outcome.exhausted) {
+                        final String note = VivoNativeFullRes.failed(seriesCamera, seriesProfile, cause);
+                        if (note != null) showError(note);
+                    } else if (outcome.noted) {
+                        nextVariant = true;
+                        // the camera died under the series (onError rescued it): that error fails no row (retryWithoutVivoSdkFullRes)
+                        mStillOnlyNextVariant = cause != null && cause.startsWith("camera error");
+                        showToast(StillOnly200.ownerNext(outcome));
+                    }
+                }
                 // P192: an OPPO still that proved another mode or mosaic: the camera's next candidate the next time; P207 the X100 /
                 // X300 Ultra's too (the X100 Ultra's log: its main's row 0 refused twice as no Quad, never noted as failed)
-                if (reason != null && (reason.contains("sensor mode is not active")
+                if (!rowNoted && reason != null && (reason.contains("sensor mode is not active")
                         || reason.contains("mosaic does not match") || reason.contains("not been verified"))) {
                     if (VivoSdkFullRes.oppo())
                         showError(OppoNativeFullRes.failed(mVivoSdkCameraId, VivoSdkFullRes.profile(mVivoSdkCameraId), reason));
@@ -9711,8 +10222,10 @@ public class CaptureController {
                 cameraEventsListener.processingFailed(reason);
                 Log.w("SCAM_CAPTURE", "SDK FULLRES50 failed: " + reason);
                 // P179: a 200 MP series stopped the preview at the shutter: the camera opens again for it - P315: once (it restarted
-                // twice, the 200 MP restart and the FULLRES-off one: vivo X300 Ultra log 2026-10-19)
-                PixelPro10.setFullRes(false);
+                // twice, the 200 MP restart and the FULLRES-off one: vivo X300 Ultra log 2026-10-19). P684: with a next variant
+                // to try the camera opens in 200 MP again, so the next press takes it
+                if (nextVariant) Log.i("SCAM_CAPTURE", "200 MP still-only: FULLRES stays on, the next press tries the next variant (P684)");
+                else PixelPro10.setFullRes(false);
                 if (hugeShot) mainHandler().post(CaptureController.this::restartCamera);
                 else if (isCameraResumed && mCaptureSession == session)
                     mainHandler().post(() -> {
@@ -9735,6 +10248,19 @@ public class CaptureController {
                 VivoSdkFullRes.profile(mVivoSdkCameraId), mPreviewCaptureResult.getRequest(),
                 characteristics.getAvailableSessionKeys(), listener,
                 image -> mLiveMetadata.image(image.getTimestamp(), image), inFlight.count);
+            if (stillVariant != null) { // P684: the variant's mode key and stock full-size keys (decision frame, still keys, checks)
+                capture.modeKeyOnStills(stillVariant.variant.modeKey);
+                if (stillVariant.variant.recipe) {
+                    final CaptureRequest decision = fullSizeDecision(characteristics);
+                    final ImageReader view = mImageReaderRawView;
+                    final int expected = view == null ? 0 : X300FullSize.expectedSeamless(seriesProfile.size,
+                            new android.util.Size(view.getWidth(), view.getHeight()));
+                    capture.fullSize(stillVariant.variant, decision, expected);
+                    Log.i("SCAM_CAPTURE", "200 MP full-size stills (" + stillVariant.variant + "): decision frame "
+                            + (decision == null ? "none" : "built") + ", seamlessMode expected " + expected + " (P684)");
+                }
+                seriesStats[0] = capture;
+            }
             // P198: the stills after the shutter are the Hybrid plan's (the native mode's keys on each, as every still of the series)
             if (zsl != null) {
                 capture.plan(zsl.plan);
@@ -9742,6 +10268,17 @@ public class CaptureController {
             } else if (pslPlan != null) {
                 capture.plan(pslPlan);
             } else {
+                // P684: the stock full-size recipe takes its stills at the viewfinder's exposure (AE off), as the stock camera
+                if (stillVariant != null && stillVariant.variant.recipe && paramController.manualIsoValue() <= 0
+                        && paramController.manualPreviewShutterNs() <= 0 && manualPslNs <= 0) {
+                    final CaptureResult vf = mPreviewCaptureResult;
+                    final Long vfNs = vf == null ? null : vf.get(CaptureResult.SENSOR_EXPOSURE_TIME);
+                    final Integer vfIso = vf == null ? null : vf.get(CaptureResult.SENSOR_SENSITIVITY);
+                    if (vfNs != null && vfIso != null && vfNs > 0 && vfIso > 0) {
+                        capture.manualNormals(vfNs, vfIso);
+                        Log.i("SCAM_CAPTURE", "200 MP full-size N at the viewfinder's exposure: " + vfNs + " ns ISO " + vfIso + " (P684)");
+                    }
+                }
                 // P201: the series' N at the hand-set exposure: a long shutter at its ISO (pslIso), else the hand-set ISO / shutter
                 // with the viewfinder's other value (the ZSL shot's N are its ring frames, the plan built from them)
                 final CaptureResult latest = mPreviewCaptureResult;
@@ -10155,7 +10692,7 @@ public class CaptureController {
                             mCameraCharacteristics.get(CameraCharacteristics.SENSOR_INFO_SENSITIVITY_RANGE),yuvScene[0],yuvScene[1],
                             YuvMergePlan.Tuning.read(),com.scamera.app.processing.yuv.YuvFrames.packedBytes(
                                     mImageReaderRaw.getWidth(),mImageReaderRaw.getHeight(),yuvRoute.format==YuvMergeRoute.P010?10:8),
-                            yuvRoute.curve||yuvRoute.hlg);
+                            yuvRoute.curve||yuvRoute.hlg,YuvMergePlan.budget()); // P693: the budget of this phone's memory class
                 } else {
                     plan=com.scamera.app.settings.MotionMode.on()
                             ? HybridPlan.autoExposure(Math.min(4, PreferenceKeys.getHybridZslFrames()))
@@ -10545,8 +11082,7 @@ public class CaptureController {
                     burst = false;
                     final CameraMode shotMode = ScameraApp.getSettings().mode;
                     if (shotMode != CameraMode.UNLIMITED && shotMode != CameraMode.RAWVIDEO) {
-                        processExecutor.execute(() -> {
-                            awaitSeriesFrames(scamSequence, shotSaver, finalFrameCount, zslNormalCount);
+                        awaitSeriesFramesThen(scamSequence, shotSaver, finalFrameCount, zslNormalCount, () -> {
                             ScameraApp.getGyro().seriesDone();
                             awaitZslCopy();
                             // P27: a ZSL frame whose copy did not finish is copied now; one that cannot be copied is dropped.

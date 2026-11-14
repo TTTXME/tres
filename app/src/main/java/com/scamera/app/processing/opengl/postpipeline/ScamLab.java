@@ -141,6 +141,11 @@ public final class ScamLab {
         if (shotDir == null) keptBurst = burst;
     }
 
+    /** P690: a series the app kept itself (a YUV shot): its sidecars go beside it, as for one the worker kept. */
+    public static void keepingSeries(File burst) {
+        keeping(burst);
+    }
+
     /** A kept series' file beside it: its name without ".bin" / ".nch" + {@code suffix}. */
     public static File sidecar(File burst, String suffix) {
         final String n = burst.getName();

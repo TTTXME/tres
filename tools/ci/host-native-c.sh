@@ -32,6 +32,9 @@ ASAN_OPTIONS=detect_leaks=0 /tmp/check-worker-progress
 # P371: the worker's RGB halves streamed into the output memfd during the merge (scam-stream-out.h, the plain sink's rows)
 g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined tools/check_stream_out.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-stream-out
 ASAN_OPTIONS=detect_leaks=0 /tmp/check-stream-out
+# P685: the fast route's memory estimate (against the merge's own count), its plan, and its row bands against the whole frame's merge
+g++ -pthread -std=c++17 -O1 tools/check_fast_row_bands.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-fast-row-bands
+LIBGL_ALWAYS_SOFTWARE=1 EGL_PLATFORM=surfaceless /tmp/check-fast-row-bands
 g++ -std=c++17 -O1 -fsanitize=address,undefined tools/check_scam_probe.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-scam-probe
 ASAN_OPTIONS=detect_leaks=0 /tmp/check-scam-probe /tmp/scam-probe-fixture
 # P214a: NativeEngine lookups leave no JNI global reference (fake JNIEnv against the NDK's jni.h).
@@ -46,6 +49,10 @@ ASAN_OPTIONS=detect_leaks=0 /tmp/check-dng-mosaic-cfa
 # every IFD sorted with each tag once, no PhotonCamera string, the image and the colour tags as without them
 g++ -std=c++17 -O1 -fsanitize=address,undefined -fno-sanitize-recover=bounds -I/tmp/native-engine-host -Itools/host-include -Iapp/src/main/cpp/deps tools/check_dng_metadata.cpp -ldl -o /tmp/check-dng-metadata
 ASAN_OPTIONS=detect_leaks=0 /tmp/check-dng-metadata
+# P681: the DNG streamed in three parts (header and metadata, the strip in place, the IFD) is byte for byte the in-memory file
+# of before: 16-bit and lossless JPEG, with and without the GainMap opcodes, the Exif IFD, the crop, Bayer / Quad / Tetra
+g++ -std=c++17 -O1 -fsanitize=address,undefined -fno-sanitize-recover=bounds -I/tmp/native-engine-host -Itools/host-include -Iapp/src/main/cpp/deps tools/check_dng_stream.cpp -ldl -o /tmp/check-dng-stream
+/tmp/check-dng-stream /tmp
 # P371: the merge client reads the worker's result in place (allocator.cpp arenaAdopt: views of the memfd, the RGB view's
 # free punches its pages, unmapped after the last view; review B1: the trailers between the views survive the release)
 g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined -I/tmp/native-engine-host -Itools/host-include tools/check_allocator_adopt.cpp -o /tmp/check-allocator-adopt

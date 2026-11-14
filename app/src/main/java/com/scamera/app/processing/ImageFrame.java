@@ -228,16 +228,30 @@ public class ImageFrame {
         return rewound(out);
     }
 
-    /** P72: a packed RAW14 frame ({@code capacity} bytes of rows from {@code offset}) to uint16, binned 2x2 when asked. */
+    /**
+     * P72: a packed RAW14 frame ({@code capacity} bytes of rows from {@code offset}) to uint16, binned 2x2 when asked. P681: the
+     * unpacked rows are native (Allocator; the frame's close frees them there - a Java heap buffer went to Allocator.free, which
+     * is no Java buffer's free), and the unbinned rows are freed as soon as the binned copy is made, not left to a GC.
+     */
     private static ByteBuffer unpackRaw14(ByteBuffer in, int offset, int format, int width, int rowStride, int capacity, boolean binning) {
         final int rows = capacity / rowStride;
         final int bytes = width * rows * 2;
         final ByteBuffer from = in.duplicate();
         from.position(offset);
-        final ByteBuffer plain = ByteBuffer.allocateDirect(bytes).order(ByteOrder.nativeOrder());
-        if (!RawUnpack.unpack(from, format, width, rows, rowStride, plain))
-            throw new IllegalStateException("RAW14 frame does not fit its geometry");
-        return rewound(binning ? Allocator.allocateAndCopyBinning(bytes, plain, width, rows, width * 2) : plain);
+        final ByteBuffer plain = Allocator.allocate(bytes);
+        if (plain == null) throw new IllegalStateException("no memory for the unpacked RAW14 frame (" + (bytes >> 20) + " MB)");
+        plain.order(ByteOrder.nativeOrder());
+        final ByteBuffer out;
+        try {
+            if (!RawUnpack.unpack(from, format, width, rows, rowStride, plain))
+                throw new IllegalStateException("RAW14 frame does not fit its geometry");
+            out = binning ? Allocator.allocateAndCopyBinning(bytes, plain, width, rows, width * 2) : plain;
+        } catch (RuntimeException | Error e) {
+            Allocator.free(plain);
+            throw e;
+        }
+        if (out != plain) Allocator.free(plain);
+        return out == null ? null : rewound(out);
     }
 
     /** Bytes the deferred copy will take (0 when not deferred): a packed RAW10 / RAW12 frame is unpacked to 16 bit. */

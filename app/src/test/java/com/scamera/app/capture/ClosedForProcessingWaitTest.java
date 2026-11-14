@@ -64,4 +64,13 @@ public class ClosedForProcessingWaitTest {
         assertTrue(w.totalMs <= 300);
         assertTrue(w.toString(), w.toString().contains("was a fixed 300 ms"));
     }
+
+    /** P685: a 50 MP «Быстрый» merge starts beside the close; above 100 MP, «Качество» or scam_dev fullres_close_wait 1 it waits. */
+    @Test
+    public void onlyA50MpFastMergeSkipsTheWait() {
+        assertTrue(CaptureController.closeWaitSkipped(false, true, false));
+        assertFalse("200 MP (P179)", CaptureController.closeWaitSkipped(true, true, false));
+        assertFalse("«Качество»", CaptureController.closeWaitSkipped(false, false, false));
+        assertFalse("scam_dev fullres_close_wait 1", CaptureController.closeWaitSkipped(false, true, true));
+    }
 }

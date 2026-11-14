@@ -41,7 +41,9 @@ public class CropUpscaleTest {
         String s = src("src/main/java/com/scamera/app/processing/processor/ScamProcessor.java");
         int block = s.indexOf("mergedDngBlock = yuvShot ? 1 : com.scamera.app.processing.opengl.postpipeline.ScamHybridBurst.lastDngMosaic;");
         int flag = s.indexOf("mosaicDngOnly = mergedDngBlock > 1;", block);
-        int dng = s.indexOf("if (!yuvShot && (mosaicDngOnly || ((rawSaving >= 1) && alignMode != 2))) {", flag);
+        // P681: the condition named dngWanted (the merged DNG is taken before it), then the DNG block
+        int wanted = s.indexOf("final boolean dngWanted = !yuvShot && (mosaicDngOnly || ((rawSaving >= 1) && alignMode != 2));", flag);
+        int dng = wanted < 0 ? -1 : s.indexOf("if (dngWanted) {", wanted);
         int check = s.indexOf("final boolean mosaicDng = mosaicDngOnly;", dng);
         int merged = s.indexOf("if (scamMergedDng != null) {", check);
         int stacked = s.indexOf("imageSaved = mosaicDng ? ImageSaver.Util.saveStackedRaw(dngPath, scamMergedDng, processingParameters, true)", merged);

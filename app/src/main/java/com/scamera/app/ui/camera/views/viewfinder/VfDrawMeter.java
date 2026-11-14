@@ -126,6 +126,11 @@ public final class VfDrawMeter {
         if (hiddenSinceMs < 0) hiddenSinceMs = SystemClock.elapsedRealtime();
     }
 
+    /** P685: the viewfinder is paused and has not drawn since (GpuPace: the post needs no pacing then); any thread. */
+    public static boolean hiddenNow() {
+        return hiddenSinceMs >= 0;
+    }
+
     /** The camera is opened again (CaptureController.restartCamera: a lens switch, a session setting). */
     public static void restart() {
         restartAtMs = SystemClock.elapsedRealtime();

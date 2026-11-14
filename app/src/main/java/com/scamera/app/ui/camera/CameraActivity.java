@@ -230,7 +230,8 @@ public class CameraActivity extends BaseActivity {
     /** Every permission is there: the folders, the log and the camera screen (once). */
     private void startCamera() {
         if (SDK_INT >= Build.VERSION_CODES.R) SimpleStorageHelper.updateFileManagerPaths(this);
-        FileManager.CreateFolders();
+        // P680: the folders' mkdirs (shared storage, a FUSE round trip each) off the main thread; nothing is saved this early
+        new Thread(FileManager::CreateFolders, "SCAMERA-folders").start();
         // P302: photos and RAW files of Download/SCAMERA/DCIM back to DCIM, once (in the background)
         com.scamera.app.util.DcimMoveBack.runOnce(getApplicationContext());
         Log.setLogFolder(getApplicationContext());

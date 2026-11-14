@@ -69,24 +69,63 @@ inline std::array<int,2> hybridFastOut(const HybridInput& in,const HybridTuning&
 }
 // The route takes the burst: plain Bayer, the sensor grid, up to kHybridClassicPixels, a width of 4 px multiples
 // Above 16 MP (owner, 2026-11-03: «Серии больше 16 Мп ... должны работать через "быструю" обработку») the fast merge runs in row
-// strips: the GPU memory it holds then, estimated per RAW pixel from its textures (scam-fast-merge.h, the strip branch) and the CPU
-// side of the worker's contract (the float result, the trailers). Upper bounds: every frame counted, the highlight path and every
-// short frame assumed on, the strips at their default height (kFastStripBytes of accumulators).
+// strips of kFastStripBytes of accumulators (hybridFastMerge, the strip branch).
 constexpr uint64_t kFastStripBytes=uint64_t(256)<<20;
-inline uint64_t hybridFastStripBytes(const HybridInput& in){
-    const double px=double(in.w)*double(in.h);
-    int frames=0,shorts=0;
-    for(const auto& f:in.frames){frames+=f.role!=kRoleUltrashort;shorts+=f.role==kRoleUltrashort;}
-    // per RAW pixel: base (Bayer 2, guide 2, covariance 1, reference colour 2 + luma 0.5), the current frame (Bayer 2, guide 2,
-    // covariance 1), gray pyramids 1.33, the rejection chain and the frame weights 1.5, every frame's own rejection map 0.5, the
-    // upload ring 6, the highlight path 6 and 5 per kept short frame, the effective frames 1 (none above 100 MP: flag 16); P601: every
-    // frame's flow on 4 x 4 HALF blocks 0.25 (fastFlowPick)
-    double gpu=7.5+5+1.33+1.5+0.75*frames+6+(shorts?6.0+5.0*shorts:0.0)+(px>double(kHybridHugePixels)?0.0:1.0);
-    const double stripRows=std::max(64.0,std::min(double(in.h),double(kFastStripBytes)/(23.0*in.w)));
-    gpu+=23.0*stripRows/double(in.h); // the accumulators (16 B) and the readback band (7 B) of one strip
-    const double cpu=12.0+2.0; // the float result, the clip flags and the effective map
-    return uint64_t((gpu+cpu)*px);
+// P685: the first band's effective-map code scale (hybridFastMerge sets it; the row bands hand it to the bands after it)
+inline float& fastEffScaleOut(){static float s=0.f;return s;}
+// P685 (owner, 2026-11-14: «200мп при обработке вылетают»; vivo X200 Ultra, 16320x12288 Tetra, 3 N + 1 ultrashort: «row strips may
+// need ~9547 MB, above 60 % of MemAvailable 6337 MB; taken anyway», the phone swapped to a halt and the system killed the app during
+// the merge). The memory of one fast merge of a w x h burst (or row band), as hybridFastMerge makes it: every GPU object (the RAW
+// upload ring and the readback buffers too, which the merge's own count leaves out when they are hardware buffers; the grids at
+// their finest LK tile) and the CPU side it holds meanwhile (the float result, the frame map, the trailers). tools/check_fast_row_bands
+// holds it against the merge's own count.
+struct FastMemShape {
+    int w=0,h=0,ow=0,oh=0;
+    int loopFrames=0,shorts=0; // normal donors + long frames; ultrashort frames kept (the highlight path)
+    bool bento=false,quad=false,flowPick=true;
+    bool floats=true;  // the float result held (a Quad / Tetra result for its chroma median, no stream, a merged DNG)
+    bool frameMap=false; // the HALF frame map read back as floats (an effective map or the Tetra few-frame pass)
+    bool effMap=false,hlMask=false,clipFlags=false;
+    int stripRows=-1; // -1: the strips hybridFastMerge takes at this size (fastStripRowsFor); 0: none; > 0 (SCAM_FM_STRIP_ROWS)
+};
+inline int fastStripRowsFor(int W,int H,int OW,int OH){ // the strip height hybridFastMerge takes (0: one pass)
+    int r=0;
+    if(int64_t(W)*H>kHybridClassicPixels||int64_t(OW)*OH*16>2*int64_t(kFastStripBytes))
+        r=int(std::max<int64_t>(64,std::min<int64_t>(OH,int64_t(kFastStripBytes)/(23*int64_t(OW)))));
+    if(r>0)r=std::min(OH,std::max(64,r&~15));
+    return r>0&&r<OH?r:0;
 }
+inline uint64_t fastMergeGpuBytes(const FastMemShape& s){
+    const int w2=s.w/2,h2=s.h/2;const double half=double(w2)*h2;
+    const int stripRows=s.stripRows>=0?s.stripRows:fastStripRowsFor(s.w,s.h,s.ow,s.oh);
+    double b=half*(8+8+(s.quad?8:0));  // the base's and the current frame's unpacked RAW (RGBA16F), the Quad / Tetra unpack target
+    b+=half*(8+4+8+4+8+2);             // the guides (RGBA16F), covariances (RGB10_A2), the reference colour and its luma
+    b+=half*8;                         // the rejection chain and the accumulated frame weights
+    b+=double(std::max(1,w2/8))*std::max(1,h2/8)*4; // the unblocker
+    int lw=w2,lh=h2;const int tile[5]={16,16,16,8,8};double grid0=0;
+    for(int l=0;l<5;++l){ // gray pyramids (R16F x 2), the 8-bit L1 guides, the LK grids (5 RGBA32F / R32F textures a level)
+        if(l){const int f=l==1?2:4;lw=(lw+f-1)/f;lh=(lh+f-1)/f;}
+        b+=double(lw)*lh*4+(l==1?double(lw)*lh*8:0.0);
+        const double grid=double((lw+tile[l]-1)/tile[l])*double((lh+tile[l]-1)/tile[l]);
+        b+=grid*68;if(l==0)grid0=grid;
+    }
+    const double pick=s.flowPick?double(w2/4+2)*double(h2/4+2):0.0;
+    b+=grid0*32+pick*(16+4);           // the flow and its surroundings, the block grid's flow and fit (P601)
+    b+=double(s.shorts)*(half*20+grid0*16); // a short frame keeps its Bayer, guide, covariance and flow
+    if(stripRows>0)b+=double(s.loopFrames)*(half*2+(s.flowPick?pick*16:grid0*16)); // row strips: every frame's flow and rejection
+    if(s.bento)b+=half*24+2.0*std::max(1,w2/8)*std::max(1,h2/8)*8; // the highlight chain
+    b+=double(s.ow)*(stripRows>0?stripRows:s.oh)*(16+7); // the accumulators, the output readback (halves and flags)
+    b+=3.0*s.w*s.h*2;                  // the RAW upload ring (3 frames)
+    b+=half*4+(s.hlMask&&s.bento?half*2:0.0); // the frame map's readback, the highlight mask's
+    return uint64_t(b);
+}
+inline uint64_t fastMergeCpuBytes(const FastMemShape& s){
+    const double half=double(s.w/2)*(s.h/2),out=double(s.ow)*s.oh;
+    return uint64_t((s.floats?out*12:0.0)+(s.frameMap?half*4:0.0)+(s.effMap?out:0.0)+(s.clipFlags?out:0.0)+(s.hlMask?half*2:0.0));
+}
+// GPU memory as the driver holds it: our bytes plus its own (alignment, tiling, compression metadata); an assumption, not measured
+constexpr double kFastGpuSlack=1.15;
+inline uint64_t fastMergeBytes(const FastMemShape& s){return uint64_t(double(fastMergeGpuBytes(s))*kFastGpuSlack)+fastMergeCpuBytes(s);}
 inline bool hybridFastEligible(const HybridInput& input,const HybridTuning& tune,const std::function<void(const std::string&)>& report,std::string& why){
     if(input.frames.empty()||!input.frames[0].raw){why="no base frame";return false;}
     if(input.subFrames>1){why="colour-block sub-frames";return false;}
@@ -103,15 +142,7 @@ inline bool hybridFastEligible(const HybridInput& input,const HybridTuning& tune
         if(o[0]%4||o[1]%2||o[0]<input.w||o[1]<input.h||o[0]>2*input.w||o[1]>2*input.h){why="output "+std::to_string(o[0])+"x"+std::to_string(o[1]);return false;}
     }
     if(input.w%4||input.h%2||input.w<64||input.h<64){why="frame "+std::to_string(input.w)+"x"+std::to_string(input.h);return false;}
-    if(int64_t(input.w)*input.h>kHybridClassicPixels){ // row strips (hybridFastMerge): the memory they need against MemAvailable
-        const uint64_t need=hybridFastStripBytes(input);
-        uint64_t avail=hybridMemAvailable();
-        if(const char* fake=std::getenv("SCAM_FM_MEMAVAIL_MB"))avail=uint64_t(std::max(0L,std::atol(fake)))<<20;
-        // P495 (owner, 2026-11-03: «Убери лимит»): only reported. The bound counts every short frame and the highlight path on,
-        // and the SCAM merge it sent the Nubia Z17 (22 MP, MemAvailable 1441 MB) to took 52 s at a 1513 MB peak itself
-        if(avail>0&&need>avail/10*6)
-            report("HYBRID FAST MERGE: row strips may need ~"+hybridMB(need)+" MB, above 60 % of MemAvailable "+hybridMB(avail)+" MB; taken anyway");
-    }
+    // (the memory: hybridFastRoute - P685: a merge above its share of MemAvailable runs in row bands that fit it)
     if(input.cfa<0||input.cfa>3){why="CFA "+std::to_string(input.cfa);return false;}
     return true;
 }
@@ -279,24 +310,7 @@ inline FastShift fastThumbShiftFixed(const FastThumbNorm& rn,const FastThumbNorm
 }
 inline FastShift fastThumbShift(const FastThumbNorm& rn,const FastThumbNorm& cn){return fastThumbShiftFixed(rn,cn);}
 inline FastShift fastThumbShift(const FastThumb& ref,const FastThumb& cur){return fastThumbShift(FastThumbNorm(ref),FastThumbNorm(cur));}
-// P662: body(i) for i in [0, n) on min(n, cores, 8) threads (this one among them), one index at a time: the selector's thumbnails
-// and shifts (each index computes alone, so any thread order gives the same values); was a thread per frame (21 on 8 cores)
-inline void fastParallelFor(int n,const std::function<void(int)>& body){
-    if(n<=0)return;
-    const int threads=std::max(1,std::min({n,int(std::thread::hardware_concurrency()),8}));
-    std::atomic<int> next{0};
-    std::exception_ptr error;std::mutex errorLock;
-    auto run=[&]{
-        for(int i=next.fetch_add(1);i<n;i=next.fetch_add(1)){
-            try{body(i);}catch(...){std::lock_guard<std::mutex> l(errorLock);if(!error)error=std::current_exception();}
-        }
-    };
-    std::vector<std::thread> team;
-    for(int t=1;t<threads;++t){try{team.emplace_back(run);}catch(const std::exception&){break;}} // fewer threads: shared indices
-    run();
-    for(auto& t:team)t.join();
-    if(error)std::rethrow_exception(error);
-}
+// P662 / P682: fastParallelFor is in scam-merge.h (the clipped lights' notch takes it too)
 
 // P627: a frame past one of the GPU's limits for the fast route (texture / viewport size, the storage block of a strip's ring):
 // maxW - the widest frame (RAW px) the limit takes at this height (0: the height itself is past it)
@@ -363,6 +377,54 @@ inline void fastSelectFrames(const HybridInput& input,const HybridTuning& tune,c
             selectLine+=line;
         }
     }
+}
+
+// The fast merge's white balance (P685: also the row bands' one for the whole frame): wbR / wbB of the app, else the base frame's
+// grey world - a Quad / Tetra stream's over whole colour periods (hybridBlendWb reads 2x2 Bayer cells)
+inline std::array<float,3> fastMergeWb(const HybridInput& input,const HybridTuning& tune,const HybridFrame& base,bool quad,int sensorType){
+    if(!quad)return hybridBlendWb(input,tune);
+    const int W=input.w,H=input.h,cfa=input.cfa;
+    if(tune.wbR>0.f&&tune.wbB>0.f)return hybridBlendWb(input,tune);
+    if(sensorType==2){ // 4x4 blocks: whole 8x8 colour periods
+        const int sx=4*(cfa&1),sy=4*(cfa>>1);double sum[3]{};
+        const uint16_t* r=base.raw;
+        for(int y=0;y+8<=H;y+=32)for(int x=0;x+8<=W;x+=32){
+            float v[4]={0,0,0,0};bool clip=false;
+            for(int b=0;b<4;++b)for(int k=0;k<16;++k){
+                const int X=x+((sx+4*(b&1))&7)+(k&3),Y=y+((sy+4*(b>>1))&7)+(k>>2),q=((Y&1)<<1)|(X&1);
+                const float n=(float(r[size_t(Y)*W+X])-input.black[size_t(q)])/std::max(input.white-input.black[size_t(q)],1.f);
+                v[b]+=0.0625f*n;clip=clip||n>=0.98f;
+            }
+            if(clip)continue;
+            sum[0]+=v[0];sum[1]+=0.5*(v[1]+v[2]);sum[2]+=v[3];
+        }
+        if(sum[0]<=0.0||sum[1]<=0.0||sum[2]<=0.0)return std::array<float,3>{1.f,1.f,1.f};
+        return std::array<float,3>{float(std::clamp(sum[1]/sum[0],0.1,10.0)),1.f,float(std::clamp(sum[1]/sum[2],0.1,10.0))};
+    }
+    const int sx=2*(cfa&1),sy=2*(cfa>>1);double sum[3]{};
+    const uint16_t* r=base.raw;
+    for(int y=0;y+4<=H;y+=16)for(int x=0;x+4<=W;x+=16){
+        float v[4]={0,0,0,0};bool clip=false;
+        for(int b=0;b<4;++b)for(int k=0;k<4;++k){
+            const int X=x+((sx+2*(b&1))&3)+(k&1),Y=y+((sy+2*(b>>1))&3)+(k>>1),q=((Y&1)<<1)|(X&1);
+            const float n=(float(r[size_t(Y)*W+X])-input.black[size_t(q)])/std::max(input.white-input.black[size_t(q)],1.f);
+            v[b]+=0.25f*n;clip=clip||n>=0.98f;
+        }
+        if(clip)continue;
+        sum[0]+=v[0];sum[1]+=0.5*(v[1]+v[2]);sum[2]+=v[3];
+    }
+    if(sum[0]<=0.0||sum[1]<=0.0||sum[2]<=0.0)return std::array<float,3>{1.f,1.f,1.f};
+    return std::array<float,3>{float(std::clamp(sum[1]/sum[0],0.1,10.0)),1.f,float(std::clamp(sum[1]/sum[2],0.1,10.0))};
+}
+// The highlight path's decision (§3.3, 0x16dc28..0x16e128): the share of the base's RAW sites at >= black + 0.98 (white - black) on a
+// grid (step max(4, 2 (W / 240)) px, 4 px borders) over the sites seen. P685: also the row bands' one for the whole frame
+inline float fastClipFraction(const HybridInput& input,const HybridFrame& base){
+    const int W=input.w,H=input.h;
+    const int stepX=std::max(4,2*(W/240)),stepY=std::max(4,2*(H/240));
+    long clipped=0,seen=0;
+    const float at=input.black[0]+0.98f*(input.white-input.black[0]);
+    for(int y=4;y<H-4;y+=stepY){const uint16_t* r=base.raw+size_t(y)*W;for(int x=4;x<W-4;x+=stepX){++seen;clipped+=float(r[x])>=at?1:0;}}
+    return seen?float(clipped)/float(seen):0.f;
 }
 
 inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridTuning& tune,const std::function<void(const std::string&)>& report,
@@ -492,41 +554,10 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
     // stage 4: a 4x4 colour-block stream (Tetra / Quad-Quad) takes the same programs with cfa_sensor_type 2 and merge_quad_quad (sh103)
     const bool quad=mosaicBlock==2||mosaicBlock==4;
     const int sensorType=mosaicBlock==4?2:1; // (quad only)
-    // its white balance: the grey world over whole 4x4 colour periods (hybridBlendWb reads 2x2 Bayer cells)
-    auto quadWb=[&]{
-        if(tune.wbR>0.f&&tune.wbB>0.f)return hybridBlendWb(input,tune);
-        if(sensorType==2){ // 4x4 blocks: whole 8x8 colour periods
-            const int sx=4*(cfa&1),sy=4*(cfa>>1);double sum[3]{};
-            const uint16_t* r=base.raw;
-            for(int y=0;y+8<=H;y+=32)for(int x=0;x+8<=W;x+=32){
-                float v[4]={0,0,0,0};bool clip=false;
-                for(int b=0;b<4;++b)for(int k=0;k<16;++k){
-                    const int X=x+((sx+4*(b&1))&7)+(k&3),Y=y+((sy+4*(b>>1))&7)+(k>>2),q=((Y&1)<<1)|(X&1);
-                    const float n=(float(r[size_t(Y)*W+X])-input.black[size_t(q)])/std::max(input.white-input.black[size_t(q)],1.f);
-                    v[b]+=0.0625f*n;clip=clip||n>=0.98f;
-                }
-                if(clip)continue;
-                sum[0]+=v[0];sum[1]+=0.5*(v[1]+v[2]);sum[2]+=v[3];
-            }
-            if(sum[0]<=0.0||sum[1]<=0.0||sum[2]<=0.0)return std::array<float,3>{1.f,1.f,1.f};
-            return std::array<float,3>{float(std::clamp(sum[1]/sum[0],0.1,10.0)),1.f,float(std::clamp(sum[1]/sum[2],0.1,10.0))};
-        }
-        const int sx=2*(cfa&1),sy=2*(cfa>>1);double sum[3]{};
-        const uint16_t* r=base.raw;
-        for(int y=0;y+4<=H;y+=16)for(int x=0;x+4<=W;x+=16){
-            float v[4]={0,0,0,0};bool clip=false;
-            for(int b=0;b<4;++b)for(int k=0;k<4;++k){
-                const int X=x+((sx+2*(b&1))&3)+(k&1),Y=y+((sy+2*(b>>1))&3)+(k>>1),q=((Y&1)<<1)|(X&1);
-                const float n=(float(r[size_t(Y)*W+X])-input.black[size_t(q)])/std::max(input.white-input.black[size_t(q)],1.f);
-                v[b]+=0.25f*n;clip=clip||n>=0.98f;
-            }
-            if(clip)continue;
-            sum[0]+=v[0];sum[1]+=0.5*(v[1]+v[2]);sum[2]+=v[3];
-        }
-        if(sum[0]<=0.0||sum[1]<=0.0||sum[2]<=0.0)return std::array<float,3>{1.f,1.f,1.f};
-        return std::array<float,3>{float(std::clamp(sum[1]/sum[0],0.1,10.0)),1.f,float(std::clamp(sum[1]/sum[2],0.1,10.0))};
-    };
-    const std::array<float,3> wb=quad?quadWb():hybridBlendWb(input,tune);
+    // P686: HALF texels per colour run for the highlight path's own reads of a texel (0: a Bayer quad per texel; Quad 1, Tetra 2)
+    const int hlBlock=quad?(sensorType==2?2:1):0;
+    // P685: a row band takes the whole frame's white balance (its own grey world would differ band to band)
+    const std::array<float,3> wb=tune.fastBandWb[0]>0.f?tune.fastBandWb:fastMergeWb(input,tune,base,quad,sensorType);
     // sensor 2x2 phase -> colour index (0 R, 1 G on the R row, 2 G on the B row, 3 B): the reference's colour-ordered uniforms
     const int dx=cfa&1,dy=cfa>>1;
     int colourOf[4];
@@ -551,14 +582,8 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
     // ---- the highlight path's decision (§3.3, 0x16dc28..0x16e128): the base's RAW sites at >= black + 0.98 (white - black) on a
     // grid (step max(4, 2 (W / 240)) px, 4 px borders) over the sites seen; above 0.000390 the highlight path runs, with every short
     // frame of exposure factor >= 2 (none: the path is off). SCAM_FM_NO_SHORT: off (A/B).
-    float clipFraction=0.f;
-    {
-        const int stepX=std::max(4,2*(W/240)),stepY=std::max(4,2*(H/240));
-        long clipped=0,seen=0;
-        const float at=input.black[0]+0.98f*(input.white-input.black[0]);
-        for(int y=4;y<H-4;y+=stepY){const uint16_t* r=base.raw+size_t(y)*W;for(int x=4;x<W-4;x+=stepX){++seen;clipped+=float(r[x])>=at?1:0;}}
-        clipFraction=seen?float(clipped)/float(seen):0.f;
-    }
+    float clipFraction=fastClipFraction(input,base);
+    if(tune.fastBandClip>=0.f)clipFraction=tune.fastBandClip; // P685: a row band: the whole frame's (one highlight path decision)
     // P497 (owner, 2026-11-04, the sun in fog, SCA_20261104_063920: a grey disc): 0.0001 (two grid samples) in place of the scheme's
     // 0.00039 - a small sun or lamp hits the sparse grid only once or twice; the short frames' own gates still decide
     const float clipPath=std::getenv("SCAM_FM_CLIP_PATH")?float(std::atof(std::getenv("SCAM_FM_CLIP_PATH"))):0.0001f;
@@ -617,7 +642,9 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
     const bool mosaicChroma=quad&&tune.fastMosaicChroma!=0&&tune.mosaicChroma;
     // P564: its GPU context builds during the merge; P610: with the Quad lattice's programs when the lattice follows the median
     const bool latticeAfter=quad&&sensorType==1&&tune.fastQuadLattice!=0&&tune.chromaGpu>0;
-    if(mosaicChroma&&tune.chromaGpu>0)chromaPrewarm(false,latticeAfter);
+    // P682: the Tetra few-frame pass (P634) on the median's context (ChromaMedianGpu::mosaicPost): its programs built ahead too
+    const bool tetraPostGpu=quad&&sensorType==2&&tune.fastTetraPost!=0&&tune.mosaicAlongEdge>0.f&&tune.fastTetraAlongEdgeK>0.f&&tune.chromaGpu>0;
+    if(mosaicChroma&&tune.chromaGpu>0)chromaPrewarm(tetraPostGpu,latticeAfter);
     const bool streamWanted=hybridFinalHalvesHook()&&!(mergedDng&&input.mergedDng)&&!std::getenv("SCAM_NO_STREAM_OUT")&&!mosaicChroma;
     // P662: a result the stream prepared for is only reserved (its data pointer names the stream; nothing reads its floats when the
     // stream takes the halves): no 600 MB of zeroed pages at 50 MP; a stream that refuses (at the preparation, or later) gets the
@@ -706,6 +733,7 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
     }
     // profile 2: a glFinish at every boundary and the CPU clock (Adreno's timestamps read 0 around compute passes); replays only
     const bool syncProfile=tune.profile==2;
+    chromaGpuSyncTimes()=syncProfile; // P682
     const bool profile=syncProfile||(queryCounter&&queryResult);
     std::array<double,16> stageMs{}; // profile: see the profile line
     std::vector<std::pair<GLuint,int>> stamps; // (query, stage that ends at it)
@@ -940,9 +968,11 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
         g.u4f(A::pReject,"noise_texture_scale_bias",nsb[0],nsb[1],nsb[2],nsb[3]);
         // (color_difference_multiplier: the frame's, z > 0 marks a long donor)
         g.u2f(A::pReject,"unblocker_scale",1.f,1.f);
-        g.u1f(A::pReject,"unblocker_reduction_threshold",0.003f*(2016.f/float(h2)));
+        // P685: a row band keeps the whole frame's HALF height in these size-relative thresholds
+        const float rejH=float(tune.fastBandHalfH>0?tune.fastBandHalfH:h2);
+        g.u1f(A::pReject,"unblocker_reduction_threshold",0.003f*(2016.f/rejH));
         g.u1f(A::pReject,"extra_motion_robustness_boost",(tune.fastMergeSport&1)?10.f:6.f);g.u1f(A::pReject,"motion_robustness_boost_variance_threshold",25.f);
-        g.u1f(A::pReject,"extra_motion_robustness_motion_threshold",1e-4f*(2016.f/float(h2)));
+        g.u1f(A::pReject,"extra_motion_robustness_motion_threshold",1e-4f*(2016.f/rejH));
         g.u1i(A::pReject,"enable_photometric_correction",0);
         if(nightMotion){ // P675
             g.u4f(A::pReject,"u_nm",nmGain,nmP[0],nmP[1],0.f);g.u4f(A::pReject,"u_nm2",nmP[2],nmP[3],nmP[4],nmP[5]);
@@ -1272,6 +1302,7 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
             g.u1i(A::pShortRecover,"u_width",w2);g.u1i(A::pShortRecover,"u_height",h2);g.u1i(A::pShortRecover,"u_cfa_pattern",cfa);
             g.u4f(A::pShortRecover,"u_black_level",blackSensor);g.u1f(A::pShortRecover,"u_white_level",input.white);
             g.u4f(A::pShortRecover,"u_wb_gains",wb[0],wb[1],wb[2],1.f);
+            g.u1i(A::pShortRecover,"u_block",hlBlock);g.u1i(A::pShortRecover,"u_row1",0); // P686: Quad / Tetra cells of one colour
             lutFrame=&fr;frontEnd(fr.raw,sf.bayer,sf.fGuide,sf.guide,pyrC,fPyrC,next,lf.ev,fr.slope,fr.offset,bayerCur);
         } else {lutFrame=&fr;frontEnd(fr.raw,slotBayer[slot],slotGuideFbo[slot],guideCur,pyrC,fPyrC,next,lf.ev,fr.slope,fr.offset);}
         // global homography (§5.3): KLT of the base corners into the frame's 8-bit L1 guide, RANSAC on the GPU
@@ -1326,6 +1357,7 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
             g.u4f(A::pHlValidate,"u_flow_scale_offset",sfx,sfy,0.f,0.f);g.u4f(A::pHlValidate,"u_black_level",blackSensor);
             g.u1f(A::pHlValidate,"u_white_level",input.white);g.u1f(A::pHlValidate,"u_ev_scale",lf.ev);
             g.u1i(A::pHlValidate,"u_is_first_short",shortsDone==0);g.u1f(A::pHlValidate,"u_err_thresh",0.8f);g.u3f(A::pHlValidate,"u_wb",wb[0],wb[1],wb[2]);
+            g.u1i(A::pHlValidate,"u_block",hlBlock);g.u1i(A::pHlValidate,"u_cfa_pattern",cfa); // P686: the base texel's colour
             g.draw(A::pHlValidate,fHlValid,w2,h2,1);
             // quarantine blocks (sh100) and the safety gate (sh018, sums read back): rejected when the homography failed (inliers
             // < 65 % or a shift > 15 px), motion (invalid / mask) > 0.35 or clip (clipped / mask) > 0.35; then every short frame is off
@@ -1553,16 +1585,20 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
         bEff=g.readBuffer(size_t(w2)*h2*4);
         g.tex(A::pOutput,"u_accum_color_r",0,acc0);g.tex(A::pOutput,"u_accum_weights_gb",1,acc1);g.tex(A::pOutput,"u_frame_weights",2,accW);
         g.u2i(A::pOutput,"u_size",OW,OH);g.u2i(A::pOutput,"u_half",w2,h2);
-        g.u3f(A::pOutput,"u_inv_wb",1.f/wb[0],1.f/wb[1],1.f/wb[2]);g.u1f(A::pOutput,"u_clip",0.94f);g.u1f(A::pOutput,"u_clip_short",validShorts>0?clipShort():0.f);g.u1i(A::pOutput,"u_fill",validShorts>0?outFill:0);g.u1f(A::pOutput,"u_fill_light",std::clamp(tune.fastLightFill,0.f,1.f));g.u1f(A::pOutput,"u_quad_lift",quadLift&&validShorts>0?1.f:0.f);g.u1f(A::pOutput,"u_moire",moire);g.u1f(A::pOutput,"u_step",float(OW)/float(W));g.tex(A::pOutput,"u_hl_base",3,bento?hlBase:zeroMask);g.tex(A::pOutput,"u_hl_final",4,hlMaskTex);g.tex(A::pOutput,"u_base_bayer",5,bayerBase);g.u4f(A::pOutput,"u_black",blackSensor);g.u1f(A::pOutput,"u_white",input.white);
+        g.u3f(A::pOutput,"u_inv_wb",1.f/wb[0],1.f/wb[1],1.f/wb[2]);g.u1f(A::pOutput,"u_clip",0.94f);g.u1f(A::pOutput,"u_clip_short",validShorts>0?clipShort():0.f);g.u1i(A::pOutput,"u_fill",validShorts>0?outFill:0);g.u1f(A::pOutput,"u_fill_light",std::clamp(tune.fastLightFill,0.f,1.f));g.u1f(A::pOutput,"u_quad_lift",quadLift&&validShorts>0?1.f:0.f);g.u1f(A::pOutput,"u_moire",moire);g.u1f(A::pOutput,"u_step",float(OW)/float(W));g.tex(A::pOutput,"u_hl_base",3,bento?hlBase:zeroMask);g.tex(A::pOutput,"u_hl_final",4,hlMaskTex);g.tex(A::pOutput,"u_base_bayer",5,bayerBase);g.u1i(A::pOutput,"u_block",hlBlock);g.u4f(A::pOutput,"u_black",blackSensor);g.u1f(A::pOutput,"u_white",input.white);
         // P596: the de-grid's «flat» from the merged noise, its line notch where few frames merged (Quad; Tetra as before)
         g.u4f(A::pOutput,"u_flat_noise",S,O,quad&&sensorType==1?std::clamp(tune.fastQuadFlatNoise,0.f,8.f):0.f,quad&&sensorType==1?std::clamp(tune.fastQuadLineFrames,0.f,64.f):0.f);
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER,2,bEff);
+        // P682: a fence after each band's output pass, flushed: the readback below takes band b once it is written (readBuffer's done)
+        struct BandFences { std::vector<GLsync> f; ~BandFences(){for(GLsync s:f)if(s)glDeleteSync(s);} } bandDone;
+        bandDone.f.assign(size_t(bands),nullptr);
         for(int b=0;b<bands;++b){
             const int y0=b*bandRows,rows=std::min(bandRows,OH-y0);
             bRgb[size_t(b)]=g.readBuffer(size_t(OW)*rows*6);bFlags[size_t(b)]=g.readBuffer(size_t(OW)*rows);
             glBindBufferBase(GL_SHADER_STORAGE_BUFFER,0,bRgb[size_t(b)]);glBindBufferBase(GL_SHADER_STORAGE_BUFFER,1,bFlags[size_t(b)]);
             g.u1i(A::pOutput,"u_row0",y0);g.u1i(A::pOutput,"u_rows",rows);
             g.dispatch(A::pOutput,(OW/4+63)/64,rows);
+            if(bands>1){bandDone.f[size_t(b)]=glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE,0);glFlush();}
         }
         // P480: the base highlight mask (0x530) for the app's dezipper pass, only with the highlight path on (none: no pass, no trailer)
         if(hlMaskOut&&bento){ // (P501: the sensor's HALF grid at any sabre_scale: the app's dezipper samples it in uv)
@@ -1591,7 +1627,7 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
             g.readBuffer(bRgb[size_t(b)],size_t(OW)*rows*6,[&](const void* m){
                 if(b==0)waitMs=ms(t0,Clock::now());
                 streamed=halvesHook(static_cast<const uint16_t*>(m),OW,OH,y0,y0+rows,out.data());
-            });
+            },bandDone.f[size_t(b)]);
         }
         if(streamed)streamed=halvesHook(nullptr,OW,OH,-1,-1,out.data());
         outNote=streamed?"halves streamed into the output":"floats";
@@ -1616,8 +1652,8 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
                     for(size_t i=a;i<e;++i)d[i]=hybridHalfToFloat(src[i]);
     #endif
                 });
-            });
-            if(clipFlags)g.readBuffer(bFlags[size_t(b)],size_t(OW)*rows,[&](const void* m){std::memcpy(clipFlags->data()+size_t(y0)*OW,m,size_t(OW)*rows);});
+            },bandDone.f[size_t(b)]);
+            if(clipFlags)g.readBuffer(bFlags[size_t(b)],size_t(OW)*rows,[&](const void* m){std::memcpy(clipFlags->data()+size_t(y0)*OW,m,size_t(OW)*rows);},bandDone.f[size_t(b)]);
         }
     // ---- phase B (row strips): see the strip decision above
     } else {
@@ -1701,9 +1737,9 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
         if(unpackTo){ // a short frame: sh011 over its unpacked rows
             g.tex(A::pShortRecover,"u_input_extracted",0,unpackTo);
             glBindImageTexture(1,bayer,0,GL_FALSE,0,GL_WRITE_ONLY,GL_RGBA16F);
-            g.u1i(A::pShortRecover,"u_row0",qa);
+            g.u1i(A::pShortRecover,"u_row0",qa);g.u1i(A::pShortRecover,"u_row1",qb); // P686: its neighbours within the rows unpacked
             g.dispatch(A::pShortRecover,(w2+15)/16,(qb-qa+15)/16);
-            g.u1i(A::pShortRecover,"u_row0",0);
+            g.u1i(A::pShortRecover,"u_row0",0);g.u1i(A::pShortRecover,"u_row1",0);
             glMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT|GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
         }
         if(profile)lap(13); // P567: phase B's upload + unpack + hot pixels (profile only: no extra flushes)
@@ -1723,7 +1759,7 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
     const GLuint bRgbS=g.readBuffer(size_t(OW)*stripRows*6),bFlagsS=g.readBuffer(size_t(OW)*stripRows);
     g.tex(A::pOutput,"u_accum_color_r",0,acc0);g.tex(A::pOutput,"u_accum_weights_gb",1,acc1);g.tex(A::pOutput,"u_frame_weights",2,accW);
     g.u2i(A::pOutput,"u_size",OW,OH);g.u2i(A::pOutput,"u_half",w2,h2);
-    g.u3f(A::pOutput,"u_inv_wb",1.f/wb[0],1.f/wb[1],1.f/wb[2]);g.u1f(A::pOutput,"u_clip",0.94f);g.u1f(A::pOutput,"u_clip_short",validShorts>0?clipShort():0.f);g.u1i(A::pOutput,"u_fill",validShorts>0?outFill:0);g.u1f(A::pOutput,"u_fill_light",std::clamp(tune.fastLightFill,0.f,1.f));g.u1f(A::pOutput,"u_quad_lift",quadLift&&validShorts>0?1.f:0.f);g.u1f(A::pOutput,"u_moire",moire);g.u1f(A::pOutput,"u_step",float(OW)/float(W));g.tex(A::pOutput,"u_hl_base",3,bento?hlBase:zeroMask);g.tex(A::pOutput,"u_hl_final",4,hlMaskTex);g.tex(A::pOutput,"u_base_bayer",5,bayerBase);g.u4f(A::pOutput,"u_black",blackSensor);g.u1f(A::pOutput,"u_white",input.white);
+    g.u3f(A::pOutput,"u_inv_wb",1.f/wb[0],1.f/wb[1],1.f/wb[2]);g.u1f(A::pOutput,"u_clip",0.94f);g.u1f(A::pOutput,"u_clip_short",validShorts>0?clipShort():0.f);g.u1i(A::pOutput,"u_fill",validShorts>0?outFill:0);g.u1f(A::pOutput,"u_fill_light",std::clamp(tune.fastLightFill,0.f,1.f));g.u1f(A::pOutput,"u_quad_lift",quadLift&&validShorts>0?1.f:0.f);g.u1f(A::pOutput,"u_moire",moire);g.u1f(A::pOutput,"u_step",float(OW)/float(W));g.tex(A::pOutput,"u_hl_base",3,bento?hlBase:zeroMask);g.tex(A::pOutput,"u_hl_final",4,hlMaskTex);g.tex(A::pOutput,"u_base_bayer",5,bayerBase);g.u1i(A::pOutput,"u_block",hlBlock);g.u4f(A::pOutput,"u_black",blackSensor);g.u1f(A::pOutput,"u_white",input.white);
     // P596: the de-grid's «flat» from the merged noise, its line notch where few frames merged (Quad; Tetra as before)
     g.u4f(A::pOutput,"u_flat_noise",S,O,quad&&sensorType==1?std::clamp(tune.fastQuadFlatNoise,0.f,8.f):0.f,quad&&sensorType==1?std::clamp(tune.fastQuadLineFrames,0.f,64.f):0.f);
     out=outAlloc.get();
@@ -1853,6 +1889,10 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
         g.readBuffer(bHlMask,size_t(w2)*h2*2,[&](const void* m){std::memcpy(hlMask.data()+8,m,size_t(w2)*h2*2);});
     }
     FastMergeGpu::check("readback");
+    // P685: every GPU object of the merge is read: freed now, not after the chroma median / Tetra pass / lattice that follow (their
+    // own GPU memory came on top of the merge's: 2.2 GB at 50 MP Quad); the timestamp queries stay (no objects of the list)
+    const bool ahbRing=bufUpload&&g.ahbUpload(ring[0]),ahbAny=!g.ahbOf.empty(); // (the log lines below: before the objects go)
+    if(!std::getenv("SCAM_FM_LATE_FREE")){g.freeObjects();glFlush();}
     const auto readDone=Clock::now();
     if(!syncProfile&&profile&&stamps.size()>1){
         GLuint64 prev=0;
@@ -1870,7 +1910,8 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
         for(size_t i=0;i<eff.size();i+=7)sample.push_back(eff[i]);
         float median=1.f;
         if(!sample.empty()){std::nth_element(sample.begin(),sample.begin()+sample.size()/2,sample.end());median=std::max(sample[sample.size()/2],1.f);}
-        const float codeScale=64.f/median;
+        const float codeScale=tune.fastBandEffScale>0.f?tune.fastBandEffScale:64.f/median; // P685: a row band: the first band's
+        fastEffScaleOut()=codeScale;
         // P662: every byte is written below (the map only sized here: no assign of zeros over a map of this size); the HALF column of
         // each OUT column from a table and each HALF cell's code once per source row (the same lround / clamp of the same float), an
         // OUT row that reads the row before's HALF row a copy of it: the same codes as one 64-bit division and lround per pixel
@@ -1941,13 +1982,13 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
     const auto finished=Clock::now();
     {
         char t[400];std::snprintf(t,sizeof(t),"HYBRID FAST MERGE ms: front %.0f, context %.0f, objects %.0f, submit %.0f (base %.0f, first donor %.0f; uploads %.0f%s: copy waited %.0f, fences %.0f; copies %.0f), readback %.0f, side outputs %.0f",
-            ms(started,gpuStarted),ms(gpuStarted,gpuReady),ms(gpuReady,objectsMade),ms(objectsMade,submitted),ms(objectsMade,baseSubmitted),ms(baseSubmitted,firstDonorSubmitted),uploadMs,bufUpload&&g.ahbUpload(ring[0])?" (AHB)":"",stagedWaitMs,fenceMs,copyMs,ms(submitted,readDone),ms(readDone,finished));
+            ms(started,gpuStarted),ms(gpuStarted,gpuReady),ms(gpuReady,objectsMade),ms(objectsMade,submitted),ms(objectsMade,baseSubmitted),ms(baseSubmitted,firstDonorSubmitted),uploadMs,ahbRing?" (AHB)":"",stagedWaitMs,fenceMs,copyMs,ms(submitted,readDone),ms(readDone,finished));
         report(t);
     }
     char line[600];
     std::snprintf(line,sizeof(line),"HYBRID FAST MERGE GPU: %s%s, context %s%s %.0f ms (%s), objects+submit %.0f ms, first readback waited %.0f ms, readback %.0f ms (%s, %s; map %.0f, use %.0f, unmap %.0f)",
         g.renderer.c_str(),(g.gpuPrio+", filter "+(g.rejFilterGather?"gather":"fetch")+", merge batch "+std::to_string(mergeBatch)).c_str(),prewarmed?"prewarmed":"made",prewarmWhy.empty()?"":(" ("+prewarmWhy+")").c_str(),prewarmed?g.initMs:ms(gpuStarted,gpuReady),g.cacheNote().c_str(),
-        ms(gpuReady,submitted),waitMs,ms(submitted,readDone),outNote.c_str(),!g.ahbOf.empty()?"cached hardware buffers":g.ahbFailed?"default storage (hardware buffer refused)":"default storage",g.mapMs,g.useMs,g.unmapMs);
+        ms(gpuReady,submitted),waitMs,ms(submitted,readDone),outNote.c_str(),ahbAny?"cached hardware buffers":g.ahbFailed?"default storage (hardware buffer refused)":"default storage",g.mapMs,g.useMs,g.unmapMs);
     report(line);
     if(profile){
         std::snprintf(line,sizeof(line),"HYBRID FAST MERGE GPU ms (timestamps, sums over %d donors; a compute pass may count in the next draw's stage): unpack=%.1f guide=%.1f pyr=%.1f "
@@ -1964,13 +2005,15 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
     report("HYBRID STAGES ms: align=0 localAlign=0 mask=0 merge="+std::to_string(stats.mergeMs)+" total="+std::to_string(ms(started,finished))
         +" merged="+std::to_string(N)+" droppedBracketed="+std::to_string(longsDropped)+" bento=0 (fast merge)");
     HybridLatticeFuse fuse; // P662
+    // P634: the Tetra few-frame pass below runs (P682: it takes the chroma median's context when tetraPostGpu)
+    const bool tetraPass=tetraPost&&!streamed&&eff.size()==size_t(w2)*h2&&tune.mosaicAlongEdge>0.f&&tune.fastTetraAlongEdgeK>0.f;
     if(mosaicChroma&&!streamed){
         // P563: the native merge's chroma median (dual 5-point, taps max(1, b / 2) output px; the false-colour suppression on the
         // luma's oscillation): the blocks' colour lattice of the per-frame merge (R / B at 1/4 cycles / px 2-3x the quality route's)
         const auto c0=Clock::now();
         const int b=std::max(1,int(std::lround(double(mosaicBlock)*OW/std::max(W,1))));
         std::string how;
-        chromaKeepNext(latticeAfter); // P610: the lattice below takes the median's context (not torn down and made again)
+        chromaKeepNext(latticeAfter||(tetraPostGpu&&tetraPass)); // P610: the lattice below takes the median's context (not torn down and made again); P682: the Tetra pass
         // P662: in the median's GPU bands (50 MP) the lattice follows there, each band's result on the GPU
         if(latticeAfter){fuse.relative=tune.fastQuadLattice>=2;fuse.clipK=2.5f;}
         mosaicChromaMedian(out,OW,OH,b,nullptr,tune.chromaGpu>0,&how,0,nullptr,latticeAfter?&fuse:nullptr);
@@ -1978,7 +2021,7 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
         report("HYBRID FAST MERGE MOSAIC: chroma median (dual 5-point, taps "+std::to_string(std::max(1,b/2))+" px of the "+std::to_string(OW)+"x"
             +std::to_string(OH)+" result, "+how+") "+std::to_string(int(ms(c0,Clock::now())))+" ms (P563)");
     }
-    if(tetraPost&&!streamed&&eff.size()==size_t(w2)*h2&&tune.mosaicAlongEdge>0.f&&tune.fastTetraAlongEdgeK>0.f){
+    if(tetraPass){
         // P634 (owner, 2026-11-12: «Займись улучшением результата на Tetra»; «максимум детализации, при этом не ухудшив движущиеся
         // объекты и не добавив новых артефактов»): where this route merged the base frame nearly alone (a moving subject: 1 - 2
         // frames in its map against 15 - 30 beside it) the 4x4 blocks' one-frame reconstruction keeps 4 / 8 px stair-steps along
@@ -1987,23 +2030,49 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
         // edge only, across it and in texture nothing; pixels of 4 frames and more are not touched. (The motion smoothing of
         // P603 was tried here as well: the splash's noise -22 % but its texture -8 % - not taken.)
         const auto c0=Clock::now();
-        std::vector<float> ef(size_t(OW)*OH);
-        mergeRowBands(OH,[&](int y0,int y1){
+        // P682: the frame map's rows per band of the pass (bilinear from the half grid, the same floats), no W x H map (200 MB at 50 MP)
+        auto efRows=[&](int y0,int y1,float* dst){
             for(int y=y0;y<y1;++y){
                 const float fy=std::clamp((float(y)+0.5f)*float(h2)/float(OH)-0.5f,0.f,float(h2-1));
                 const int ya=int(fy),yb=std::min(ya+1,h2-1);const float ty=fy-float(ya);
-                const float* ra=eff.data()+size_t(ya)*w2;const float* rb=eff.data()+size_t(yb)*w2;float* d=ef.data()+size_t(y)*OW;
+                const float* ra=eff.data()+size_t(ya)*w2;const float* rb=eff.data()+size_t(yb)*w2;float* d=dst+size_t(y-y0)*OW;
                 for(int x=0;x<OW;++x){
                     const float fx=std::clamp((float(x)+0.5f)*float(w2)/float(OW)-0.5f,0.f,float(w2-1));
                     const int xa=int(fx),xb=std::min(xa+1,w2-1);const float tx=fx-float(xa);
                     d[x]=(ra[xa]*(1.f-tx)+ra[xb]*tx)*(1.f-ty)+(rb[xa]*(1.f-tx)+rb[xb]*tx)*ty;
                 }
             }
-        });
-        const size_t nEdge=hybridAlongEdge(out,OW,OH,ef,0,0,tune.fastTetraAlongEdgeK,tune.mosaicAlongEdge,2);
-        char line[220];
-        std::snprintf(line,sizeof(line),"HYBRID FAST MERGE MOSAIC: Tetra few-frame pass (P634): along-edge smoothing (K %.0f, step 2) %zu px (%.2f %%), cpu, %d ms",
-            double(tune.fastTetraAlongEdgeK),nEdge,100.0*double(nEdge)/std::max(1.0,double(OW)*OH),int(ms(c0,Clock::now())));
+        };
+        // P682 (speed): on the GPU (ChromaMedianGpu::mosaicPost's along-edge pass, the CPU's twin: P531; the frame map's rows per
+        // strip from efRows), the CPU twin below when the GPU is off, short of memory or fails before writing a row
+        size_t nEdge=0;std::string how="cpu";bool done=false;
+        if(tetraPostGpu&&tetraPass){
+            try{
+                auto gpu=chromaTake(); // the median's context (chromaKeepNext above)
+                gpu->releaseBuffers(); // the median's result kept for a lattice: not read here
+                const uint64_t avail=hybridMemAvailable();
+                if(avail==0||ChromaMedianGpu::postBytesFor(OW,OH)<avail/4){
+                    gpu->times.clear();
+                    gpu->postStrip=512; // strips of 512 rows (+ 2 x 32 halo): 44 B a pixel, ~200 MB at 8192 px wide (the same result)
+                    const std::function<void(int,int,float*)> rows=efRows;
+                    size_t changed[2]{0,0};
+                    try{
+                        gpu->mosaicPost(out,OW,OH,std::vector<float>(),0,0,tune.fastTetraAlongEdgeK,tune.mosaicAlongEdge,2,nullptr,nullptr,nullptr,nullptr,changed,
+                                        10,6,1.2f,2.5f,nullptr,nullptr,&rows);
+                    }catch(const std::exception& e){
+                        // rows written back already: the CPU twin would pass over them twice (and read them as its input)
+                        if(gpu->postCommitted>0){how=std::string("gpu failed after ")+std::to_string(gpu->postCommitted)+" rows, the rest left as merged ("+e.what()+")";done=true;}
+                        throw;
+                    }
+                    nEdge=changed[0];how="gpu:"+gpu->times+" ms";done=true;
+                }else how="cpu (size)";
+                chromaGiveBack(std::move(gpu)); // torn down on its thread, as after the median before
+            }catch(const std::exception& e){if(!done)how=std::string("cpu (")+e.what()+")";}
+        }
+        if(!done)nEdge=hybridAlongEdgeRows(out,OW,OH,efRows,tune.fastTetraAlongEdgeK,tune.mosaicAlongEdge,2);
+        char line[400];
+        std::snprintf(line,sizeof(line),"HYBRID FAST MERGE MOSAIC: Tetra few-frame pass (P634): along-edge smoothing (K %.0f, step 2) %zu px (%.2f %%), %s, %d ms",
+            double(tune.fastTetraAlongEdgeK),nEdge,100.0*double(nEdge)/std::max(1.0,double(OW)*OH),how.c_str(),int(ms(c0,Clock::now())));
         report(line);
     }
     if(quad&&sensorType==2&&!streamed&&tune.fastTetraClipNotch!=0&&tune.mosaicTetraNotchClipReach>0.f&&OW==W&&clipFlags&&clipFlags->size()==size_t(OW)*OH){
@@ -2147,12 +2216,308 @@ inline std::vector<float> hybridFastMergeBands(const HybridInput& input,const Hy
     return out;
 }
 
+// ---- P685 (owner, 2026-11-14: «200мп при обработке вылетают»; X200 Ultra, 16320x12288 Tetra, 3 N + 1 ultrashort, MemAvailable
+// 6337 MB: the merge took ~9.5 GB «anyway», the phone swapped to a halt and the system killed the app mid-merge). A merge whose
+// memory (fastMergeBytes) is above kFastMemWhole of MemAvailable runs in row bands sized to kFastMemBands of it: one frame pick, one
+// white balance, one highlight path decision and the whole frame's size-relative rejection thresholds for every band (tune
+// fastBand*); each band (its rows + kFastBandMargin RAW rows above and below, read in place: no copy) a fast merge of its own, the
+// bands blended over kFastBandBlend rows at each seam (the column bands' weights), the finished rows streamed as halves into the
+// output (StreamOut's sparse reservation: pages as the rows come), the clip flags / frame map / highlight mask rows from the band
+// that owns them, a merged DNG from the finished rows. The memory then: one band's merge plus the frame's outputs. Only when even
+// the smallest bands do not fit, frames are left out (the oldest donors, then the short frames), and said so.
+// SCAM_FM_ROW_BANDS=<rows> (replays): bands of that many RAW rows whatever the memory; SCAM_FM_MEMAVAIL_MB: MemAvailable.
+constexpr double kFastMemWhole=0.85,kFastMemBands=0.6;
+constexpr int kFastRowStep=64; // seams on 64 RAW rows: the Tetra colour period, the LK tile grid (32 RAW rows at L0) kept in phase
+// the smallest band: 1024 RAW rows + its margins (1536 rows: the homography's 24 x 24 corner cells of the L1 guide 16 rows tall; at
+// 768 rows they were 8 and empty inside their 4-px borders - no homography, every short frame rejected in that band)
+constexpr int kFastRowMinCore=1024;
+struct FastRowPlan {
+    uint64_t avail=0,whole=0,fixed=0,band=0,budget=0;
+    int count=1,rows=0; // bands, RAW rows of a band with its margins
+    int keepDonors=-1;bool dropShorts=false; // frames left out for the memory (-1: none)
+    bool bands=false,forced=false,fits=true;
+};
+inline FastMemShape fastShapeOf(const HybridInput& in,const HybridTuning& tune,int block,int rows,int loopFrames,int shorts,bool floats,
+                                bool effMap,bool clipFlags){
+    const std::array<int,2> o=hybridFastOut(in,tune);
+    FastMemShape s;s.w=in.w;s.h=rows;s.ow=o[0];
+    s.oh=rows==in.h?o[1]:std::max(2,int(std::lround(double(rows)*o[1]/in.h))&~1);
+    s.loopFrames=loopFrames;s.shorts=shorts;s.bento=shorts>0;s.quad=block==2||block==4;s.flowPick=tune.fastFlowPick!=0;
+    s.floats=floats||(s.quad&&tune.fastMosaicChroma!=0&&tune.mosaicChroma);
+    s.frameMap=effMap||(block==4&&tune.fastTetraPost!=0&&o[0]==in.w&&o[1]==in.h);
+    s.effMap=effMap;s.clipFlags=clipFlags;s.hlMask=hybridHighlightMaskOut()!=nullptr;
+    return s;
+}
+inline FastRowPlan fastRowPlan(const HybridInput& in,const HybridTuning& tune,int block,bool mergedDng,bool effMap,bool clipFlags){
+    FastRowPlan p;
+    const std::array<int,2> o=hybridFastOut(in,tune);
+    const uint64_t outPx=uint64_t(o[0])*o[1],half=uint64_t(in.w/2)*(in.h/2);
+    int normals=0,longs=0,shorts=0;
+    for(size_t f=0;f<in.frames.size();++f){const HybridFrame& fr=in.frames[f];
+        if(!fr.raw||!(fr.exposure>0.f))continue;
+        if(f==0||(fr.role==kRoleNormal&&std::abs(fr.exposure-1.f)<0.02f))++normals;
+        else if(fr.role==kRoleUltrashort){if(1.f/fr.exposure>=2.f)++shorts;}
+        else if(fr.role==kRoleBracketed){if(fr.exposure>=1.2f)++longs; else ++normals;}}
+    const int donors=std::max(0,normals-1);
+    // the whole frame: the streamed halves (the app's memfd, at most StreamOut's 1 GiB) or the floats
+    const bool hooked=bool(hybridFinalHalvesHook())&&!std::getenv("SCAM_NO_STREAM_OUT");
+    const bool wholeFloats=!hooked||mergedDng||outPx*6>(uint64_t(1)<<30);
+    const FastMemShape ws=fastShapeOf(in,tune,block,in.h,donors+longs,shorts,wholeFloats,effMap,clipFlags);
+    p.whole=fastMergeBytes(ws)+(ws.floats?0:outPx*6);
+    p.avail=hybridMemAvailable();
+    if(const char* fake=std::getenv("SCAM_FM_MEMAVAIL_MB"))p.avail=uint64_t(std::max(0L,std::atol(fake)))<<20;
+    int forcedRows=0;
+    if(const char* e=std::getenv("SCAM_FM_ROW_BANDS"))forcedRows=std::max(0,std::atoi(e));
+    p.forced=forcedRows>0;
+    if(!p.forced&&(p.avail==0||double(p.whole)<=kFastMemWhole*double(p.avail)))return p;
+    // the bands: the frame's outputs (the streamed halves, else the floats; the trailers; a merged DNG's site plane and words) and
+    // one band's merge (its float result, no stream)
+    const bool planeDng=mergedDng&&o[0]==in.w&&o[1]==in.h;
+    p.fixed=(hooked&&!(mergedDng&&!planeDng)?outPx*6:outPx*12)+(clipFlags?outPx:0)+(effMap?outPx:0)+(hybridHighlightMaskOut()?half*2:0)
+           +(mergedDng?uint64_t(in.w)*in.h*(planeDng?6:2):0);
+    p.budget=uint64_t(kFastMemBands*double(p.avail));
+    auto bandRows=[&](int nb){const int core=(((in.h+nb-1)/nb+kFastRowStep-1)/kFastRowStep)*kFastRowStep;
+        return std::min(in.h,core+2*kFastBandMargin);};
+    auto bandNeed=[&](int rows,int d,int s){return fastMergeBytes(fastShapeOf(in,tune,block,rows,d+longs,s,true,effMap,clipFlags));};
+    p.bands=true;
+    if(p.forced){
+        const int core=std::max(kFastRowStep,forcedRows/kFastRowStep*kFastRowStep); // (replays: any height, the smallest's rule aside)
+        p.count=std::max(1,(in.h+core-1)/core);p.rows=bandRows(p.count);p.band=bandNeed(p.rows,donors,shorts);
+        p.fits=p.avail==0||p.fixed+p.band<=p.budget;
+        return p;
+    }
+    int d=donors,s=shorts;
+    for(;;){
+        const int most=std::max(2,in.h/kFastRowMinCore);
+        for(int nb=2;nb<=most;++nb){
+            const int rows=bandRows(nb);const uint64_t need=bandNeed(rows,d,s);
+            if(p.fixed+need<=p.budget){p.count=nb;p.rows=rows;p.band=need;
+                if(d<donors)p.keepDonors=d;
+                p.dropShorts=s<shorts;
+                return p;}
+        }
+        if(d>0)--d; else if(s>0)s=0; else break; // the smallest bands do not fit: the oldest donor out, then the short frames
+    }
+    // nothing fits: the smallest bands with every frame (said so; the old behaviour, minus the whole frame's merge)
+    p.count=std::max(2,in.h/kFastRowMinCore);p.rows=bandRows(p.count);p.band=bandNeed(p.rows,donors,shorts);p.fits=false;
+    return p;
+}
+// float rows -> halves (round to nearest even; scam::floatToHalf, FCVT on aarch64: the same halves as the worker's own conversion)
+inline void fastHalvesOf(const float* src,uint16_t* dst,size_t n){
+    mergeRowBands(int((n+65535)/65536),[&](int b0,int b1){
+        size_t i=size_t(b0)*65536;const size_t e=std::min(n,size_t(b1)*65536);
+#if defined(__aarch64__)
+        for(;i+8<=e;i+=8){
+            const float16x4_t a=vcvt_f16_f32(vld1q_f32(src+i)),c=vcvt_f16_f32(vld1q_f32(src+i+4));
+            vst1q_u16(dst+i,vreinterpretq_u16_f16(vcombine_f16(a,c)));
+        }
+#endif
+        for(;i<e;++i)dst[i]=floatToHalf(src[i]);
+    });
+}
+inline std::vector<float> hybridFastMergeRowBands(const HybridInput& input,const HybridTuning& tune,const std::function<void(const std::string&)>& report,
+                                                 std::vector<uint16_t>* mergedDng,std::vector<uint8_t>* effMap,HybridStats* statsOut,
+                                                 std::vector<uint8_t>* clipFlags,const FastRowPlan& plan,int block){
+    using Clock=std::chrono::steady_clock;
+    const auto started=Clock::now();
+    auto ms=[](Clock::time_point a,Clock::time_point b){return std::chrono::duration<double,std::milli>(b-a).count();};
+    const int W=input.w,H=input.h,w2=W/2,h2=H/2;
+    const std::array<int,2> o=hybridFastOut(input,tune);
+    const int OW=o[0],OH=o[1];
+    const double sy=double(OH)/H;
+    const bool sameGrid=OW==W&&OH==H;
+    const int nb=plan.count,M=kFastBandMargin;
+    std::vector<int> seam(size_t(nb+1));
+    for(int i=0;i<=nb;++i)seam[size_t(i)]=i==nb?H:int(int64_t(H)*i/nb)/kFastRowStep*kFastRowStep;
+    // the whole frame's decisions
+    std::vector<int> normals,longs;
+    for(int f=0;f<int(input.frames.size());++f){const HybridFrame& fr=input.frames[size_t(f)];
+        if(!fr.raw||!(fr.exposure>0.f))continue;
+        if(f==0||(fr.role==kRoleNormal&&std::abs(fr.exposure-1.f)<0.02f))normals.push_back(f);
+        else if(fr.role==kRoleBracketed){if(fr.exposure>=1.2f)longs.push_back(f); else normals.push_back(f);}}
+    std::vector<FastThumb> thumbs(input.frames.size());int baseIdx=0,dropped=0;std::vector<int> donors;std::string selectLine;
+    fastSelectFrames(input,tune,normals,longs,thumbs,baseIdx,donors,dropped,selectLine);
+    std::string left;
+    if(plan.keepDonors>=0&&int(donors.size())>plan.keepDonors){
+        left+=std::to_string(int(donors.size())-plan.keepDonors)+" donor(s) (";
+        for(size_t i=size_t(plan.keepDonors);i<donors.size();++i)left+=(i>size_t(plan.keepDonors)?",":"")+std::to_string(donors[i]);
+        left+=")";donors.resize(size_t(plan.keepDonors));
+    }
+    HybridTuning bt=tune;bt.fastPick.clear();bt.fastPick.push_back(baseIdx);for(int f:donors)bt.fastPick.push_back(f);
+    const HybridFrame& base=input.frames[size_t(baseIdx)];
+    const bool quad=block==2||block==4;
+    bt.fastBandWb=fastMergeWb(input,tune,base,quad,block==4?2:1);
+    bt.fastBandClip=fastClipFraction(input,base);
+    bt.fastBandHalfH=h2;
+    HybridInput bin0=input;bin0.mosaic=block;bin0.mergedDng=false;
+    if(plan.dropShorts){int n=0;for(auto& fr:bin0.frames)if(fr.raw&&fr.role==kRoleUltrashort){fr.raw=nullptr;++n;}
+        if(n)left+=std::string(left.empty()?"":", ")+std::to_string(n)+" short frame(s)";}
+    {
+        char t[600];
+        std::snprintf(t,sizeof(t),"HYBRID FAST MERGE ROW BANDS (P685): %dx%d in %d row bands of <= %d RAW rows with their margins (+%d rows above / below, %d-row "
+            "blends): the whole frame's merge needs ~%s MB, %s; a band ~%s MB + the frame's outputs ~%s MB, budget %s MB (%.0f %% of MemAvailable %s MB)%s; %s",
+            W,H,nb,plan.rows,M,kFastBandBlend,hybridMB(plan.whole).c_str(),plan.forced?"bands forced (SCAM_FM_ROW_BANDS)":
+            ("above "+std::to_string(int(kFastMemWhole*100))+" % of MemAvailable").c_str(),hybridMB(plan.band).c_str(),hybridMB(plan.fixed).c_str(),
+            hybridMB(plan.budget).c_str(),kFastMemBands*100,hybridMB(plan.avail).c_str(),plan.fits?"":" - ABOVE it even in the smallest bands with every frame",selectLine.c_str());
+        report(t);
+        if(!left.empty())report("HYBRID FAST MERGE ROW BANDS: left out for the memory: "+left+" (the smallest bands with them did not fit "
+            +hybridMB(plan.budget)+" MB)");
+    }
+    // the whole-frame contracts: this function makes them from the bands (the bands' merges have none)
+    std::function<bool(const uint16_t*,int,int,int,int,const float*)> hook;std::swap(hook,hybridFinalHalvesHook());
+    std::vector<uint16_t>* const hl=hybridHighlightMaskOut();hybridHighlightMaskOut()=nullptr;
+    struct Restore{std::function<bool(const uint16_t*,int,int,int,int,const float*)>& h;std::vector<uint16_t>* m;
+        ~Restore(){std::swap(h,hybridFinalHalvesHook());hybridHighlightMaskOut()=m;}} restore{hook,hl};
+    if(hl)hl->clear();
+    const size_t nOut=size_t(OW)*OH*3;
+    const bool dng=mergedDng&&input.mergedDng,planeDng=dng&&sameGrid;
+    std::vector<float> out;bool streamed=false;
+    if(hook&&!(dng&&!planeDng)&&!std::getenv("SCAM_NO_STREAM_OUT")){out.reserve(nOut);streamed=hook(nullptr,OW,OH,0,-1,out.data());}
+    if(!streamed){
+        report("HYBRID FAST MERGE ROW BANDS: the output as floats ("+hybridMB(nOut*4)+" MB: "+(hook?(dng&&!planeDng?"a merged DNG at the Sabre grid":"the stream refused"):"no output stream")+")");
+        out.clear();out.shrink_to_fit();out.resize(nOut);
+    }
+    std::vector<uint8_t> clipAll(clipFlags?size_t(OW)*OH:0),effAll(effMap?size_t(OW)*OH:0);
+    std::vector<uint16_t> hlAll;bool hlAny=false;
+    if(hl){hybridHighlightMaskHeader(hlAll,w2,h2);hlAll.resize(8+size_t(w2)*h2,0);}
+    std::vector<float> plane(planeDng?size_t(W)*H:0);
+    const int dngBlock=quad&&tune.dngMosaic!=0?block:1;
+    auto dngColour=[&](int x,int y){ // hybridWriteMergedDng's site colour
+        x/=dngBlock;y/=dngBlock;int cx=x-(input.cfa&1),cy=y-(input.cfa>>1);if(cx<0)cx+=2;if(cy<0)cy+=2;
+        const int phase=((cy&1)<<1)|(cx&1);return phase==0?0:phase==3?2:1;
+    };
+    // the finished rows, in order: the stream's halves (or the floats), a merged DNG's sites
+    int emitted=0;std::vector<uint16_t> halfRows;
+    auto emit=[&](const float* rows,int y0,int n){
+        if(n<=0)return;
+        if(y0!=emitted)throw std::runtime_error("FAST MERGE ROW BANDS: rows "+std::to_string(y0)+" after "+std::to_string(emitted));
+        const size_t cnt=size_t(n)*OW*3;
+        if(streamed)for(int r0=0;r0<n;r0+=64){ // (64 rows of halves at a time: ~6 MB at 16320 px, not a band's ~150 MB)
+            const int r1=std::min(n,r0+64);const size_t c=size_t(r1-r0)*OW*3;
+            halfRows.resize(c);fastHalvesOf(rows+size_t(r0)*OW*3,halfRows.data(),c);
+            if(!hook(halfRows.data(),OW,OH,y0+r0,y0+r1,out.data()))throw std::runtime_error("FAST MERGE ROW BANDS: the output stream refused rows "+std::to_string(y0+r0)+"..");
+        } else std::memcpy(out.data()+size_t(y0)*OW*3,rows,cnt*sizeof(float));
+        if(planeDng)mergeRowBands(n,[&](int r0,int r1){for(int r=r0;r<r1;++r){const int y=y0+r;const float* s=rows+size_t(r)*OW*3;float* d=plane.data()+size_t(y)*W;
+            for(int x=0;x<W;++x)d[x]=s[size_t(x)*3+size_t(dngColour(x,y))];}});
+        emitted=y0+n;
+    };
+    // the seam rows waiting for the next band: sum of weight x value, sum of weights (the column bands' arithmetic)
+    std::vector<float> pend,pendW;int pendY0=0,pendN=0;
+    HybridStats stats;double mergeMs=0;
+    for(int bi=0;bi<nb;++bi){
+        const int s0=seam[size_t(bi)],s1=seam[size_t(bi)+1];
+        const int a=std::max(0,s0-M),b=std::min(H,s1+M);
+        HybridInput bin=bin0;bin.h=b-a;
+        for(auto& fr:bin.frames)if(fr.raw)fr.raw+=size_t(a)*W;
+        int bOH=b-a,Y0b=a;
+        if(!sameGrid){ // (a Sabre grid: the band's output rows on the frame's, an even count; the last band ends at OH)
+            Y0b=int(int64_t(a)*OH/H);const int Y1b=b==H?OH:int(int64_t(b)*OH/H);
+            if((Y1b-Y0b)&1)Y0b=Y0b>0?Y0b-1:Y0b+1;
+            bOH=Y1b-Y0b;
+        }
+        if(input.outW>0||!sameGrid){bin.outW=OW;bin.outH=bOH;}
+        if(bi>0&&effMap)bt.fastBandEffScale=fastEffScaleOut();
+        std::vector<uint8_t> be,bc;HybridStats bs;std::vector<uint16_t> bhl;
+        hybridHighlightMaskOut()=hl?&bhl:nullptr;
+        const auto b0=Clock::now();
+        std::vector<float> r;
+        try{r=hybridFastMerge(bin,bt,[&](const std::string& l){report("[row band "+std::to_string(bi+1)+"/"+std::to_string(nb)+"] "+l);},
+                              nullptr,effMap?&be:nullptr,&bs,clipFlags?&bc:nullptr);}
+        catch(...){hybridHighlightMaskOut()=nullptr;throw;}
+        hybridHighlightMaskOut()=nullptr;
+        mergeMs+=ms(b0,Clock::now());
+        if(bi==0)stats=bs;
+        if(r.size()<size_t(bOH)*OW*3)throw std::runtime_error("HYBRID FAST MERGE ROW BANDS: band "+std::to_string(bi)+" returned "+std::to_string(r.size()/3)+" px");
+        // its weight per output row (1 inside, ramps of kFastBandBlend RAW rows across the seams) and the rows it owns
+        const double B=kFastBandBlend;
+        auto weight=[&](int Y){const double x=(Y+0.5)/sy;
+            const double wl=bi==0?1.0:std::clamp((x-(s0-B/2))/B,0.0,1.0),wr=bi==nb-1?1.0:std::clamp(((s1+B/2)-x)/B,0.0,1.0);return float(wl*wr);};
+        const int yEnd=std::min(OH,Y0b+bOH);
+        int Y=std::max(0,Y0b);
+        while(Y<yEnd&&weight(Y)<=0.f)++Y; // the margin above
+        // the seam rows with the band above: finished now
+        if(pendN>0){
+            if(Y!=pendY0)throw std::runtime_error("FAST MERGE ROW BANDS: seam rows "+std::to_string(pendY0)+" / "+std::to_string(Y));
+            for(int k=0;k<pendN;++k){
+                const int y=pendY0+k;const float w=weight(y);const float* src=r.data()+size_t(y-Y0b)*OW*3;float* d=pend.data()+size_t(k)*OW*3;
+                if(w>0.f){for(int x=0;x<OW*3;++x)d[x]+=w*src[x];pendW[size_t(k)]+=w;}
+                const float ws=pendW[size_t(k)];
+                if(ws>0.f&&ws!=1.f)for(int x=0;x<OW*3;++x)d[x]/=ws;
+            }
+            emit(pend.data(),pendY0,pendN);
+            Y=pendY0+pendN;pendN=0;
+        }
+        // the rows it alone makes (weight 1), then the seam rows below it (weight < 1), kept for the next band
+        int mid=Y;
+        while(mid<yEnd&&weight(mid)>=1.f)++mid;
+        emit(r.data()+size_t(Y-Y0b)*OW*3,Y,mid-Y);
+        if(bi<nb-1){
+            int lo=mid,hi=mid;while(hi<yEnd&&weight(hi)>0.f)++hi;
+            pendY0=lo;pendN=hi-lo;pend.assign(size_t(pendN)*OW*3,0.f);pendW.assign(size_t(pendN),0.f);
+            for(int k=0;k<pendN;++k){const float w=weight(lo+k);const float* src=r.data()+size_t(lo+k-Y0b)*OW*3;float* d=pend.data()+size_t(k)*OW*3;
+                for(int x=0;x<OW*3;++x)d[x]+=w*src[x];pendW[size_t(k)]+=w;}
+        } else if(mid!=OH)throw std::runtime_error("FAST MERGE ROW BANDS: the last band ends at row "+std::to_string(mid)+" of "+std::to_string(OH));
+        // the trailers' rows it owns: output rows whose centre lies in [s0, s1) (RAW), HALF rows [s0 / 2, s1 / 2)
+        for(int y=std::max(0,Y0b);y<yEnd;++y){
+            const double x=(y+0.5)/sy;if(x<s0||x>=s1)continue;
+            const size_t src=size_t(y-Y0b)*OW,dst=size_t(y)*OW;
+            if(!bc.empty())std::memcpy(clipAll.data()+dst,bc.data()+src,size_t(OW));
+            if(!be.empty())std::memcpy(effAll.data()+dst,be.data()+src,size_t(OW));
+        }
+        if(hl&&bhl.size()==8+size_t(w2)*size_t((b-a)/2)){
+            hlAny=true;
+            std::memcpy(hlAll.data()+8+size_t(s0/2)*w2,bhl.data()+8+size_t((s0-a)/2)*w2,size_t((s1-s0)/2)*w2*2);
+        }
+    }
+    if(emitted!=OH)throw std::runtime_error("FAST MERGE ROW BANDS: "+std::to_string(emitted)+" of "+std::to_string(OH)+" rows finished");
+    if(streamed&&!hook(nullptr,OW,OH,-1,-1,out.data()))throw std::runtime_error("FAST MERGE ROW BANDS: the output stream did not commit");
+    if(clipFlags)clipFlags->swap(clipAll);
+    if(effMap)effMap->swap(effAll);
+    if(hl&&hlAny)*hl=std::move(hlAll);
+    if(dng){
+        float headroom=1.f;
+        if(planeDng)headroom=hybridWriteMergedDng(*mergedDng,W,H,input,[&](int x,int y,int){return plane[size_t(y)*W+x];},tune.dngDither!=0,dngBlock);
+        else {
+            const double kx=double(OW)/W,ky=double(OH)/H;
+            auto at=[&](int x,int y,int c){
+                const double xa=x*kx,xb=(x+1)*kx,ya=y*ky,yb=(y+1)*ky;double sum=0,ws=0;
+                for(int oy=int(ya);oy<std::min(OH,int(std::ceil(yb)));++oy){const double wy=std::min(yb,oy+1.0)-std::max(ya,double(oy));if(wy<=0)continue;
+                    for(int ox=int(xa);ox<std::min(OW,int(std::ceil(xb)));++ox){const double wx=std::min(xb,ox+1.0)-std::max(xa,double(ox));if(wx<=0)continue;
+                        sum+=wx*wy*out[(size_t(oy)*OW+ox)*3+size_t(c)];ws+=wx*wy;}}
+                return float(sum/std::max(ws,1e-12));
+            };
+            headroom=hybridWriteMergedDng(*mergedDng,W,H,input,at,tune.dngDither!=0,dngBlock);
+        }
+        report(hybridDngReport(headroom,W,H,hybridDngCeiling(input),tune.dngDither!=0));
+    }
+    stats.mergeMs=ms(started,Clock::now());
+    {
+        const auto rss=hybridRssMB();
+        report("HYBRID FAST MERGE ROW BANDS: "+std::to_string(nb)+" bands merged in "+std::to_string(int(mergeMs))+" ms, "+std::to_string(int(stats.mergeMs))
+            +" ms in all; output "+(streamed?"halves streamed":"floats")+"; worker RSS "+std::to_string(rss[0])+" MB, peak "+std::to_string(rss[1])+" MB");
+    }
+    if(statsOut)*statsOut=stats;
+    if(streamed)hybridStreamedFloats()=nOut;
+    return out;
+}
+
 inline std::vector<float> hybridFastRoute(const HybridInput& input,const HybridTuning& tune,const std::function<void(const std::string&)>& report,
                                          std::vector<uint16_t>* mergedDng,std::vector<uint8_t>* effMap,HybridStats* statsOut,std::vector<uint8_t>* clipFlags){
     std::string why;
     if(!hybridFastEligible(input,tune,report,why))throw std::runtime_error("HYBRID ROUTE: «Быстрый» cannot run: "+why);
+    // P685: the merge's memory against MemAvailable: whole, or in row bands that fit
+    FastRowPlan plan;int block=1;
+    if(int64_t(input.w)*input.h>kHybridClassicPixels||std::getenv("SCAM_FM_ROW_BANDS")){
+        block=input.mosaic!=0?input.mosaic:hybridMosaicBlock(input,tune,[](const std::string&){}); // (hybridFastMerge's own rule)
+        plan=fastRowPlan(input,tune,block,mergedDng&&input.mergedDng,effMap!=nullptr,clipFlags!=nullptr);
+        if(!plan.bands&&plan.avail>0)report("HYBRID FAST MERGE MEMORY (P685): the whole frame's merge needs ~"+hybridMB(plan.whole)+" MB of MemAvailable "
+            +hybridMB(plan.avail)+" MB (whole up to "+std::to_string(int(kFastMemWhole*100))+" %)");
+    }
     for(int attempt=0;;++attempt){
-        try{return hybridFastMerge(input,tune,report,mergedDng,effMap,statsOut,clipFlags);}
+        try{
+            if(plan.bands)return hybridFastMergeRowBands(input,tune,report,mergedDng,effMap,statsOut,clipFlags,plan,block);
+            return hybridFastMerge(input,tune,report,mergedDng,effMap,statsOut,clipFlags);
+        }
         catch(const FastMergeLimit& e){
             report(std::string("HYBRID FAST MERGE: ")+e.what()+": the fast route in column bands");
             if(e.maxW<=0)throw std::runtime_error(std::string("HYBRID ROUTE: «Быстрый» cannot run: ")+e.what()+" (the frame's height)");

@@ -11,6 +11,9 @@ import androidx.annotation.Nullable;
 import androidx.lifecycle.AndroidViewModel;
 
 import com.bumptech.glide.Glide;
+import com.bumptech.glide.RequestManager;
+import com.bumptech.glide.load.engine.DiskCacheStrategy;
+import com.bumptech.glide.request.RequestOptions;
 import com.bumptech.glide.request.target.CustomTarget;
 import com.bumptech.glide.request.transition.Transition;
 import com.scamera.app.gallery.files.GalleryFileOperations;
@@ -67,19 +70,34 @@ public class CameraFragmentViewModel extends AndroidViewModel {
         if (bitmap == null) return;
         new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> screen.setBitmap(bitmap));
     }
-    /** The gallery card's picture: {@code uri}, else the newest photo in the gallery (P637: the one the card opens). */
+    /**
+     * The gallery card's picture: {@code uri}, else the newest photo in the gallery (P637: the one the card opens). P681: through
+     * the gallery's thumbnail decoder - the EXIF (IFD1) thumbnail the save wrote into the JPEG, the HEIF thumbnail, a DNG's
+     * preview read in place - instead of a decode of the whole file (a 50 MP JPEG, a DNG copied into Glide's cache and rendered);
+     * the file's uri through Glide's own decoders when that fails, as before.
+     */
     public void updateGalleryThumb(@Nullable Uri uri) {
         Uri shown = uri;
+        ImageFile newest = null;
         if (shown == null) {
-            final ImageFile newest = GalleryFileOperations.fetchLatestImage(getApplication().getContentResolver());
+            newest = GalleryFileOperations.fetchLatestImage(getApplication().getContentResolver());
             com.scamera.app.gallery.ui.CameraHandoff.latest(newest); // P637: the photo the thumbnail opens
             if (newest != null) shown = newest.contentUri();
         }
         if (shown == null) return;
-        // a 200 px bitmap for the round gallery button
-        Glide.with(getApplication()).asBitmap().load(shown).override(200).into(new CustomTarget<Bitmap>() {
+        final long started = android.os.SystemClock.elapsedRealtime();
+        final String name = shown.getLastPathSegment();
+        final com.scamera.app.gallery.glide.GalleryThumb model = newest != null
+                ? com.scamera.app.gallery.glide.GalleryThumb.of(newest) : com.scamera.app.gallery.glide.GalleryThumb.of(shown);
+        final RequestManager glide = Glide.with(getApplication());
+        // a 200 px bitmap for the round gallery button (its short side covers it, as Glide's own downsampling gave)
+        glide.asBitmap().load(model).apply(new RequestOptions().diskCacheStrategy(DiskCacheStrategy.NONE).override(THUMB_PX).dontTransform())
+                .error(glide.asBitmap().load(shown).override(THUMB_PX))
+                .into(new CustomTarget<Bitmap>() {
             @Override
             public void onResourceReady(@NonNull Bitmap thumb, @Nullable Transition<? super Bitmap> transition) {
+                Log.i("PERF", "gallery button thumbnail " + thumb.getWidth() + "x" + thumb.getHeight() + " in "
+                        + (android.os.SystemClock.elapsedRealtime() - started) + " ms: " + name);
                 screen.setBitmap(thumb);
             }
 
@@ -89,6 +107,9 @@ public class CameraFragmentViewModel extends AndroidViewModel {
             }
         });
     }
+
+    /** The gallery button's thumbnail size (px). */
+    static final int THUMB_PX = 200;
 
     public void setScreenAspectRatio(float aspect) {
         screen.setScreenAspectRatio(aspect);

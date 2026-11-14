@@ -29,7 +29,6 @@ import com.scamera.app.processing.opengl.GLTexture;
 import com.scamera.app.processing.opengl.GLTexturePool;
 import com.scamera.app.processing.opengl.PostGlMode;
 import com.scamera.app.processing.opengl.nodes.Node;
-import com.scamera.app.processing.parameters.ResolutionSolution;
 import com.scamera.app.processing.render.Converter;
 import com.scamera.app.processing.render.NoiseModeler;
 import com.scamera.app.processing.render.Parameters;
@@ -171,7 +170,7 @@ public class PostPipeline extends GLBasePipeline {
     public boolean captureDemosaic;
     private final SceneGainMap gainMapPass = new SceneGainMap();
     /** P483: the JPEG {@link #streamJpeg} asked for, when Run returned null; else null. */
-    public byte[] streamedJpeg;
+    public com.scamera.app.processing.ChunkedBytes streamedJpeg;
     private int jpegQuality = -1;
     private JpegPlan jpegPlan;
     private boolean teardownPending;
@@ -460,7 +459,14 @@ public class PostPipeline extends GLBasePipeline {
         cropSize = new Point(shrinks ? fin : parameters.rawSize);
         // «16:9»: the frames arrive cropped (Wide169); a second crop here made the output a row taller than its data (P118)
         final Point picture = turned(shrinks ? finalSize : parameters.rawSize, getRotation());
-        GLDrawParams.TILE_ROWS = (long) parameters.rawSize.x * parameters.rawSize.y < ResolutionSolution.SMALL_PIXELS ? 8 : 256;
+        // P683 (owner: «ускорь и облегчи, особенно на старых/слабых»; Xiaomi 12X, Adreno 650, 3264 x 2448: «final output ...
+        // tiles=408 readback=635/681» against 445 ms for all post nodes): a picture under 8 MP drew every full-size pass in 8-row
+        // bands (from the original code, no reason recorded), each flushed, fenced and polled, and read the output back in 408
+        // tiles. Every picture now takes the 256-row bands of the larger ones: the same draws over the same pixels (a band is a
+        // viewport, tools/check_post_bands.py with the old 8-row bands too), bit for bit the same photo. A slow GPU's long
+        // bands stay bounded as before: P668 sizes the paced post's bands to ~10 ms of the GPU, and a band under 8 MP is
+        // narrower than the 256-row bands every larger photo draws on the same GPU.
+        GLDrawParams.TILE_ROWS = 256;
         final GLFormat rgba8 = new GLFormat(GLFormat.DataType.SIMPLE_8, 4);
         // the last pass goes tile by tile straight into the bitmap (no full-frame readback buffer); P353: on the context
         // kept for the process (its programs linked once)

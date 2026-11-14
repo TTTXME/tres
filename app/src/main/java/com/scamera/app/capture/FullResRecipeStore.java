@@ -138,6 +138,7 @@ public final class FullResRecipeStore {
 
     public static void proveActive(@Nullable Active active) {
         if (active != null) prove(prefs(), active.slot, active.recipe, String.valueOf(Build.FINGERPRINT));
+        if (active != null && active.x9uVariant >= 0) OplusX9Ultra.worked(active.camera, active.x9uVariant); // P689
     }
 
     // ---------------------------------------------------------------- P635b: a picked full-size row runs as the recipe
@@ -179,15 +180,29 @@ public final class FullResRecipeStore {
         public final FullResRecipe recipe;
         /** P635b: the module's picked sensor mode row this recipe runs instead of (the switch is off); -1: the switch is on. */
         public final int autoRow;
+        /** P689: the camera; and the X9 Ultra's «50 Мп» variant (OplusX9Ultra: its «Поток ISP» trial id), -1: not that route. */
+        @Nullable public final String camera;
+        public final int x9uVariant;
 
         Active(String slot, FullResRecipe recipe) {
             this(slot, recipe, -1);
         }
 
         Active(String slot, FullResRecipe recipe, int autoRow) {
+            this(slot, recipe, autoRow, null, -1);
+        }
+
+        Active(String slot, FullResRecipe recipe, int autoRow, @Nullable String camera, int x9uVariant) {
             this.slot = slot;
             this.recipe = recipe;
             this.autoRow = autoRow;
+            this.camera = camera;
+            this.x9uVariant = x9uVariant;
+        }
+
+        /** P689: the X9 Ultra's size switch runs this recipe (not the lens's own recipe switch). */
+        public boolean x9Ultra() {
+            return x9uVariant >= 0 && camera != null;
         }
     }
 
@@ -207,6 +222,16 @@ public final class FullResRecipeStore {
      */
     @Nullable
     public static Active active(@Nullable String physicalId, @Nullable CameraCharacteristics c) {
+        return active(physicalId, c, OplusX9Ultra.ISP_AUTO);
+    }
+
+    /**
+     * {@link #active(String, CameraCharacteristics)} with the session's «Поток ISP» ({@code ispSurface}: 0 Auto, 1 On, 2 Off, 3 fake
+     * off). P689: on the OPPO Find X9 Ultra the size switch «50 Мп» runs the X9 Ultra full-size recipe (OplusX9Ultra) while the
+     * lens's own recipe switch is off - the variant of its «Поток ISP» the camera's trials leave.
+     */
+    @Nullable
+    public static Active active(@Nullable String physicalId, @Nullable CameraCharacteristics c, int ispSurface) {
         try {
             if (physicalId == null || !PreferenceKeys.scamDevSwitch("fullres_recipe", true)) return null;
             final SharedPreferences p = prefs();
@@ -217,7 +242,7 @@ public final class FullResRecipeStore {
             // P635b: a picked row as wide as the proven preset runs as the recipe, the switch on or not
             final int row = SensorModePick.picked(slot);
             final boolean auto = !on(p, slot) && autoRoute(row, table, preset);
-            if (!on(p, slot) && !auto) return null;
+            if (!on(p, slot) && !auto) return OplusX9Ultra.phone() ? OplusX9Ultra.active(slot, physicalId, table, ispSurface) : null; // P689
             final List<String> problems = new ArrayList<>();
             final FullResRecipe recipe = profile(p, slot, preset, problems);
             final String blocked = blocked(p, slot, recipe, Build.VERSION.SDK_INT, String.valueOf(Build.FINGERPRINT));
@@ -233,9 +258,16 @@ public final class FullResRecipeStore {
         }
     }
 
-    /** {@link #fail} for the active lens's running profile (CaptureController). */
-    public static void failActive(@Nullable Active active, String why) {
-        if (active == null) return;
+    /**
+     * {@link #fail} for the active lens's running profile (CaptureController). P689: the X9 Ultra's «50 Мп» variant is remembered for
+     * its camera and firmware instead (the next session tries the next variant); returns its owner's message, null for a lens's
+     * own recipe.
+     */
+    @Nullable
+    public static String failActive(@Nullable Active active, String why) {
+        if (active == null) return null;
+        if (active.x9Ultra()) return OplusX9Ultra.failed(active.camera, active.x9uVariant, why);
         fail(prefs(), active.slot, active.recipe, String.valueOf(Build.FINGERPRINT), why);
+        return null;
     }
 }

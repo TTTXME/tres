@@ -52,7 +52,7 @@ public final class DevKeys {
      * matrix of the Parameters, hybrid_clip_flags: a flag of the burst); or only the DNG reads them; or nothing does any more.
      */
     static final Set<String> NOT_IN_LAB = Collections.unmodifiableSet(new HashSet<>(Arrays.asList(
-            "post_priority", "gpu_low_priority", "post_gpu_pace", "post_band_ms", "jpeg_threads", "rgba_upload", "gl_warm_up", "release_async", "worker_watchdog",
+            "post_priority", "gpu_low_priority", "post_gpu_pace", "post_band_ms", "jpeg_threads", "rgba_upload", "gl_warm_up", "release_async", "dng_async", "worker_watchdog",
             "gl_warm_up_recipes", "ok_read", "worker_nice", "worker_prespawn", "worker_keep_ready", "thermal_async", "black_scan_bulk", "zero_copy_read", // P371: speed only
             "raw_crop_in_place", "prep_warm", // P625: speed only (the same samples)
             "oldstyle_threads", "oldstyle_read16", "exif_beside_encode", // P636: speed only (the same bytes)
@@ -130,8 +130,11 @@ public final class DevKeys {
         k.add(s(cap, "motion_fast_ring", true, Lang.t("Спорт: при 60 к/с и пустой очереди до 12 кадров кольца в окне (вместо 8)", "Sport: at 60 fps with an empty queue up to 12 ring frames inside the window (not 8)")));
         k.add(s(merge, "motion_sharp_priority", true, Lang.t("Спорт: приоритет резкости, строгий отбор доноров и сохранение яркостных деталей в областях отсева", "Sport: sharpness priority, strict donor selection and retained luminance detail in rejected regions")));
         // capture and session
-        k.add(s(cap, "zsl_ring_prefault", true, Lang.t("Новое ZSL-кольцо заранее получает память в фоне (кольцевая часть): копии кадров на потоке камеры не ловят первые обращения к страницам. Выкл — память при первой записи, как раньше",
-                "A new ZSL ring gets its memory ahead in the background (the ring part): the camera thread's frame copies take no first-touch page faults. Off: memory on the first write, as before")));
+        k.add(s(cap, "zsl_ring_prefault", true, Lang.t("Новое ZSL-кольцо заранее получает память в фоне (кольцевая часть, окнами по 6 кадров впереди записи, с низким приоритетом): копии кадров на потоке камеры не ловят первые обращения к страницам. Выкл — память при первой записи, как раньше",
+                "A new ZSL ring gets its memory ahead in the background (the ring part, in windows of 6 frames ahead of the writes, at a low priority): the camera thread's frame copies take no first-touch page faults. Off: memory on the first write, as before")));
+        // P680: the pause's camera close off the main thread
+        k.add(s(cap, "pause_close_async", true, Lang.t("При сворачивании камера закрывается в фоне: экран не ждёт закрытия устройства (~0,1 с). Не при аренде vivo SDK, FULLRES и записи видео. Выкл — закрытие на главном потоке, как раньше",
+                "When the app is left the camera closes in the background: the screen does not wait for the device to close (~0.1 s). Not with a vivo SDK lease, FULLRES or a video being recorded. Off: closed on the main thread, as before")));
         k.add(s(cap, "zsl_memfd_ring", true, Lang.t("ZSL-кольцо в общей памяти (memfd): кадры копируются сразу, камере возвращаются буферы. Выкл — старое кольцо из буферов камеры", "ZSL ring in shared memory (memfd): frames copied on arrival, buffers go back to the camera. Off: the old ring of camera buffers")));
         k.add(n(cap, "vf_min_fps", String.valueOf(com.scamera.app.capture.ViewfinderFps.DEFAULT_FLOOR),
                 Lang.t("Видоискатель не медленнее N к/с (автоматический диапазон AE; 0 — как разрешает камера)",
@@ -268,6 +271,12 @@ public final class DevKeys {
                 "RAW viewfinder: the intermediate frames a pass draws whole are marked as not needed before it (the GPU does not load their old contents). Off: as before")));
         k.add(s(vf, "vf_direct_tone", true, Lang.t("RAW-видоискатель: тон Why рисуется прямо на экран, когда проход копирования после него ничего не меняет (размер экрана, без фильтра, пикинга и стиля ScamMaster). Выкл — через промежуточный кадр, как раньше",
                 "RAW viewfinder: the Why tone is drawn straight to the screen when the copy pass after it would change nothing (the screen's size, no filter, peaking or ScamMaster style). Off: through an intermediate frame, as before")));
+        // P683: the RAW viewfinder's tone at ~1.1 MP while the GPU does not keep up at full size (MainRenderer, RawPreviewLoad)
+        k.add(s(vf, "vf_adaptive_tone", true, Lang.t("RAW-видоискатель: если GPU не успевает (кадр рисуется дольше 11 мс или теряется больше 20% кадров два окна по 2 с подряд), тон Why считается в ~1,1 Мп вместо полного размера; обратно — после нескольких хороших окон. Фото не меняется. Выкл — всегда полный размер, как раньше",
+                "RAW viewfinder: when the GPU does not keep up (a frame drawn in over 11 ms or more than 20% of the frames lost, two 2 s windows in a row) the Why tone is made at ~1.1 MP instead of the full size; back after a few good windows. The photo does not change. Off: always the full size, as before")));
+        // P683: the WHY tone's AE meter off the GL thread (LiveWhyTone.startAePoint); the own look's meter not run for the WHY frame
+        k.add(s(vf, "vf_meter_async", true, Lang.t("RAW-видоискатель: замер экспозиции тона Why считается в отдельном потоке, результат берёт следующий кадр (поток отрисовки не ждёт замер); замер собственного вида не считается для кадра тона Why, который его не читает. Выкл — всё в потоке отрисовки, как раньше",
+                "RAW viewfinder: the Why tone's exposure meter runs on a thread of its own, the next frame takes its result (the draw thread does not wait for it); the own look's meter is not run for the Why tone's frame, which never reads it. Off: everything on the draw thread, as before")));
         k.add(s(vf, "vf_stage_gpu", false, Lang.t("RAW-видоискатель: в строке VF_RAW «stages» время GPU на кадр (glFinish после кадра; только для замера — сам замедляет видоискатель)",
                 "RAW viewfinder: the GPU's time of a frame in the VF_RAW \"stages\" line (glFinish after the frame; for measuring only - it slows the viewfinder itself)")));
         k.add(s(vf, "zsl_ring_unpack", true, Lang.t("RAW10 / RAW12 распаковывается в ячейку ZSL-кольца при приходе кадра: склейка и видоискатель берут её без копии (выкл — распаковка после нажатия)",
@@ -491,6 +500,9 @@ public final class DevKeys {
         // P542: WhyLumaSharpen.quadSwitch - Quad shots on the lattice-free source with the third RL stage x2
         k.add(s(post, "sharpen_quad", true, Lang.t("Резкость Quad-снимков как у Bayer (без 2-пиксельной решётки) и сильнее третья ступень RL: больше мелких деталей. Выкл — сглаженная яркость (R1), как раньше",
                 "Quad shots sharpened like Bayer ones (without the 2 px lattice) with a stronger third RL stage: more fine detail. Off: the smoothed luma (R1), as before")));
+        // P687: WhyLumaSharpen.quadEdgeSwitch - the Quad sharpening's increment smoothed along straight edges (no 2 - 4 px steps)
+        k.add(s(post, "sharpen_quad_edge", true, Lang.t("Резкость Quad-снимков без ступенек на прямых краях: прибавка резкости вдоль края сглаживается, поперёк остаётся. Выкл — как раньше",
+                "Quad shots sharpened without steps on straight edges: the sharpening's gain smoothed along the edge, kept across it. Off: as before")));
         // P212h (A5 = M5): the gain clamp of the WHY exposure from the merged image's noise
         k.add(n(post, "ae_clamp_stack", "1", Lang.t("Яркость фото: предел усиления по шуму — по числу склеенных кадров N (карта склейки, N^0.4). 1: FULLRES, 2: все снимки, 0: по одному кадру",
                 "Photo brightness: the noise gain clamp from the merged N frames (the merge's frame map, N^0.4). 1: FULLRES, 2: every shot, 0: one frame")));
@@ -771,6 +783,10 @@ public final class DevKeys {
                 "OnePlus 16, main, 50 MP: first modes 25 and 9 (8192x6144) with the ISP stream in the session - fake off, then on")));
         k.add(s(cap, "oplus_binned_50", true, Lang.t("OnePlus 16, основная: когда строки 50 Мп кончились, 50 Мп — режим 200 Мп с бинингом 2×2 в ячейке Tetra. Выкл — 50 Мп тускнеет",
                 "OnePlus 16, main: with no 50 MP row left, 50 MP is the 200 MP mode binned 2x2 per Tetra cell. Off: 50 MP is dimmed")));
+        k.add(s(cap, "x9u_fullres", true, Lang.t("OPPO Find X9 Ultra: «50 Мп» по рецепту полного разрешения X9 Ultra (RAW10 полного размера только в снимках, режим сенсора — только в снимке). Выкл — FULLRES на X9 Ultra нет",
+                "OPPO Find X9 Ultra: «50 MP» by the X9 Ultra full-resolution recipe (the full-size RAW10 in the stills only, the sensor mode on the still only). Off: no FULLRES on the X9 Ultra")));
+        k.add(s(cap, "x9u_isp_fake_first", true, Lang.t("OPPO Find X9 Ultra, «50 Мп», «Поток ISP» Авто: сначала поток ISP фиктивно выкл. (для автофокуса), при сбое — выкл. Выкл — сразу выкл., как в рецепте",
+                "OPPO Find X9 Ultra, «50 MP», «ISP stream» Auto: the ISP stream fake off first (for the autofocus), off after a failure. Off: off at once, as the recipe has it")));
         k.add(s(cap, "oplus_dead_rows_last", true, Lang.t("OnePlus 16, основная, 50 Мп: режим 9 (камера падала) после режима 25. Выкл — по порядку таблицы",
                 "OnePlus 16, main, 50 MP: mode 9 (the camera died in it) after mode 25. Off — in the table's order")));
         k.add(s(cap, "oplus_dcg_hdr_key", true, Lang.t("OnePlus 16, DCG / DAG: EnableHDRDCGMode = 1 в сессии и каждом запросе (если камера его перечисляет)",
@@ -813,6 +829,9 @@ public final class DevKeys {
         // P198 / P266: «50 Мп: ZSL» (pref_scam_hybrid_fullres50_zsl) is the menu row of fullres_zsl (MENU_BACKED)
         k.add(s(cap, "fullres_plain_merge", true, Lang.t("FULLRES 50 Мп: на время склейки камера в обычном режиме (меньше нагрев и памяти). Выкл — 50 Мп поток идёт и во время склейки",
                 "FULLRES 50 MP: the camera runs its plain session while the shot merges (less heat and memory). Off: the 50 MP stream keeps running")));
+        // P685: a 50 MP «Быстрый» merge does not wait for the camera's close (the worker sizes its memory itself)
+        k.add(s(cap, "fullres_close_wait", false, Lang.t("FULLRES 50 Мп, «Быстрый»: склейка ждёт закрытия камеры (~0,3 с), как до P685. Выкл — склейка начинается сразу, воркер сам меряет память (выше 100 Мп ждёт всегда)",
+                "FULLRES 50 MP, «Быстрый»: the merge waits for the camera's close (~0.3 s), as before P685. Off: the merge starts at once, the worker measures the memory itself (above 100 MP it always waits)")));
         // P222: the stills a native FULLRES series keeps in flight (FullResInFlight)
         k.add(n(cap, "fullres_in_flight", null, Lang.t("FULLRES: сколько кадров серии отправлено камере одновременно (1–8). По умолчанию 6 до 100 Мп, 3 выше 100 Мп и после сбоя серии на этой камере и размере; 3 — как до P222. SDK-путь X200 Ultra всегда по одному",
                 "FULLRES: the stills of a series sent to the camera at once (1-8). Default 6 up to 100 MP, 3 above 100 MP and after a failed series on this camera and size; 3 = as before P222. The X200 Ultra's SDK route always one at a time")));
@@ -886,6 +905,9 @@ public final class DevKeys {
         // P236: the shot's frames closed off the critical path after the merge (ScamProcessor.releaseFrames)
         k.add(s(post, "release_async", true, Lang.t("После склейки кадры снимка освобождаются в фоне, обработка начинается сразу (не для 200 Мп). Выкл — сначала освобождение (~0.4 с на 50 Мп), как до P236",
                 "After the merge the shot's frames are freed in the background and the processing starts at once (not for 200 MP). Off: freed first (~0.4 s at 50 MP), as before P236")));
+        // P681: the merged DNG written on its own thread beside the post pipeline (ScamProcessor, DngReport.offPostPath)
+        k.add(s(post, "dng_async", true, Lang.t("Склеенный DNG пишется в отдельном потоке параллельно с обработкой фото (только больше 8 ГБ памяти и до 100 Мп; файл тот же). Выкл — DNG записывается до обработки, как до P681",
+                "The merged DNG is written on its own thread beside the photo's processing (only above 8 GB of RAM and up to 100 MP; the same file). Off: the DNG is written before the processing, as before P681")));
         // P625: the RAW crop moves the kept rows inside the frames' own slots; the burst preparation's Java loop compiled ahead
         k.add(s(post, "raw_crop_in_place", true, Lang.t("Обрезка RAW (X200 Pro, ручные поля, кроп зума) на месте: строки сдвигаются в своём буфере кадра, без нового буфера на все кадры, воркер, запущенный при нажатии, остаётся в деле. Выкл — копия в новый буфер, как до P625",
                 "The RAW crop (X200 Pro, manual margins, the zoom's crop) in place: the rows move inside each frame's own buffer, no new buffer for the whole burst, the worker started at the press stays usable. Off: copied into a new buffer, as before P625")));
@@ -913,6 +935,11 @@ public final class DevKeys {
                 "X100/X300 Ultra FULLRES 200 MP the stock way: the viewfinder in the normal mode, 200 MP for the stills only. Off - the camera held in the 200 MP mode")));
         k.add(s(vivo, "vivo_fullres200_force", false, Lang.t("X100/X300 Ultra FULLRES 200 Мп (как в стоке): ключ режима 200 Мп на кадрах снимка",
                 "X100/X300 Ultra FULLRES 200 MP (the stock way): the 200 MP mode key on the stills")));
+        // P684: the 200 MP still-only route's variant (StillOnly200), else the camera's remembered one; the X300 Ultra's stock keys
+        k.add(n(vivo, "vivo_fullres200_variant", "0", Lang.t("X100/X300 Ultra 200 Мп: способ съёмки кадров (0 — авто: варианты по очереди, проверка каждого кадра, рабочий запоминается; 1 — ключи стоковой камеры без её ремозаика; 2 — то же без onlyDng; 3 — то же с ключом режима; 4 — как стоковая камера, ремозаик камеры (Байер); 5 — только ключ режима; 6 — как раньше)",
+                "X100/X300 Ultra 200 MP: how the stills are asked for (0 - auto: the variants in turn, every still checked, the working one remembered; 1 - the stock camera's keys without its remosaic; 2 - the same without onlyDng; 3 - the same with the mode key; 4 - as the stock camera, the camera's remosaic (Bayer); 5 - the mode key only; 6 - as before)")));
+        k.add(s(vivo, "vivo_x300_fullsize", true, Lang.t("X300 Ultra 200 Мп: ключи стоковой камеры для полноразмерных кадров (кадр решения, ключи кадров). Выкл — как раньше, затем ключ режима",
+                "X300 Ultra 200 MP: the stock camera's full-size keys (the decision frame, the still keys). Off - as before, then the mode key")));
         // P212h (A7 = M14): the vivo FULLRES AE audit (log only) and the 200 MP series' exposure
         k.add(s(vivo, "vivo_ae_audit", true, Lang.t("vivo: замер RAW-видоискателя (медиана, свет, BV) рядом с экспозицией HAL в логе SCAM_AE раз в секунду; только лог",
                 "vivo: the RAW viewfinder's meter (median, highlights, BV) beside the HAL's exposure in the SCAM_AE log once a second; log only")));

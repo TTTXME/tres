@@ -110,7 +110,15 @@ public final class DevelopCapture {
 
     /** Appends {@code r} to the DNG at {@code dng} on the writer thread (after the photo and the DNG's preview are saved). */
     public static void appendLater(Path dng, DevelopRecord r) {
-        if (dng == null || r == null) return;
+        appendLater(dng, r, null);
+    }
+
+    /** P681: {@link #appendLater}, then {@code then} on the writer thread (the DNG's one media scan, after its last part). */
+    public static void appendLater(Path dng, DevelopRecord r, @androidx.annotation.Nullable Runnable then) {
+        if (dng == null || r == null) {
+            if (then != null) then.run();
+            return;
+        }
         WRITER.execute(() -> {
             final long t0 = System.nanoTime();
             try {
@@ -118,6 +126,8 @@ public final class DevelopCapture {
                 Log.i(TAG, "develop record appended to " + dng.getFileName() + " in " + (System.nanoTime() - t0) / 1_000_000 + " ms");
             } catch (Exception | OutOfMemoryError e) {
                 Log.w(TAG, "develop record not appended to " + dng.getFileName() + ": " + e);
+            } finally {
+                if (then != null) try { then.run(); } catch (RuntimeException e) { Log.w(TAG, "after the develop record: " + e); }
             }
         });
     }

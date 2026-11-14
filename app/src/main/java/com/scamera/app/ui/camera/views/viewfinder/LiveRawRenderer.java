@@ -511,11 +511,15 @@ final class LiveRawRenderer {
     }
     /**
      * LiveRawMeter on a frame it has not measured (the viewfinder's own look exposes by it), then SceneLuma (P212h). P365: vf_fused 0
-     * - on every new frame, as before; else only for the own look ({@code linear} false) or while SceneLuma wants a value.
+     * - on every new frame, as before; else only for the own look ({@code linear} false) or while SceneLuma wants a value. P683: not
+     * for the WHY tone's linear frame with vf_fused 0 either - rawdevelop_fs returns its linear values before it reads the meter's
+     * exposure, contrast or multipliers (u_linear_out), so the meter's work was for nothing on every new frame on the GL thread
+     * (scam_dev vf_meter_async 0: as before).
      */
     private void meter(LiveRawFrame.Frame f,boolean linear){
         if(meteredVersion==f.version)return;
-        if(fusedOn() && linear && !(f.sceneLuma && com.scamera.app.manual.SceneLuma.wanted()))return;
+        if((fusedOn() || com.scamera.app.processing.opengl.postpipeline.LiveWhyTone.linearMeterSkipped()) && linear
+                && !(f.sceneLuma && com.scamera.app.manual.SceneLuma.wanted()))return;
         final long meterStart=System.nanoTime();
         meter.update(f);
         sceneLuma(f);

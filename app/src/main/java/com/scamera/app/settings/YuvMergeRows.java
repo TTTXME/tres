@@ -22,7 +22,23 @@ public final class YuvMergeRows {
     static final int ORDER = 8990;
 
     public static String title(Context c) {
-        return Lang.t(c, "Склейка YUV", "YUV merge");
+        return Lang.t(c, "Склейка YUV 8 бит", "YUV merge 8-bit");
+    }
+
+    /** P692: the lens's second switch, the 10-bit series (P010 / HLG10). */
+    public static String title10(Context c) {
+        return Lang.t(c, "Склейка YUV 10 бит", "YUV merge 10-bit");
+    }
+
+    public static String help10(Context c) {
+        return Lang.t(c, "То же, что «Склейка YUV 8 бит», но серия снимается в 10 битах (P010) с HDR-кривой HLG камеры, если камера"
+                        + " даёт такой поток в размере фото рядом с обычным видоискателем; иначе — 8 бит. Больше градаций в тенях,"
+                        + " но где камера ставит белый в HLG, решает она сама, и кадр вдвое тяжелее (меньше кадров в серии)."
+                        + " Включение одного переключателя выключает другой.",
+                "As «YUV merge 8-bit», but the series is taken at 10 bits (P010) with the camera's HLG HDR curve where the camera"
+                        + " gives such a stream at the photo size beside the normal viewfinder; 8 bits otherwise. More steps in the"
+                        + " shadows, but where HLG puts the white is the camera's choice, and a frame is twice as heavy (fewer frames"
+                        + " in the series). Turning one switch on turns the other off.");
     }
 
     public static String help(Context c) {
@@ -47,27 +63,62 @@ public final class YuvMergeRows {
                 : Lang.t(c, "Кадры RAW (если камера их даёт)", "RAW frames (where the camera gives them)");
     }
 
-    /** The switch of {@code slot} under {@code category} (its camera: {@code camera}). */
+    /** The two switches of {@code slot} under {@code category} (its camera: {@code camera}); one of them is on at most (P692). */
     static void add(Context context, PreferenceCategory category, String slot, @Nullable String camera) {
         final SharedPreferences prefs = androidx.preference.PreferenceManager.getDefaultSharedPreferences(context);
         final boolean x200Pro = YuvMergeRoute.x200Pro();
         final boolean byDefault = YuvMergeRoute.defaultOn(x200Pro, camera);
-        final boolean on = YuvMergeRoute.on(prefs.getAll(), slot, camera, x200Pro);
+        final java.util.Map<String, ?> values = prefs.getAll();
+        final boolean ten = YuvMergeRoute.tenOn(values, slot, camera, x200Pro);
+        final boolean eight = !ten && YuvMergeRoute.eightOn(values, slot, camera, x200Pro);
+        // the value and default are set before the row joins the page: a switch set after it would store its state (the module
+        // then counts as customised)
+        final SwitchPreferenceCompat toggle8 = row(context, YuvMergeRoute.key(slot), title(context), help(context), ORDER, byDefault, eight);
+        final SwitchPreferenceCompat toggle10 = row(context, YuvMergeRoute.key10(slot), title10(context), help10(context), ORDER + 1, false, ten);
+        toggle8.setSummary(state(context, eight, byDefault && !prefs.contains(YuvMergeRoute.key(slot))));
+        toggle10.setSummary(state10(context, ten));
+        com.scamera.app.ui.settings.SettingsStyle.style(toggle8, category);
+        category.addPreference(toggle8);
+        com.scamera.app.ui.settings.SettingsStyle.style(toggle10, category);
+        category.addPreference(toggle10);
+        toggle8.setOnPreferenceChangeListener((p, value) -> {
+            final boolean on = Boolean.TRUE.equals(value);
+            if (on && toggle10.isChecked()) {
+                toggle10.setChecked(false);
+                toggle10.setSummary(state10(context, false));
+            }
+            p.setSummary(state(context, on, false));
+            return true;
+        });
+        toggle10.setOnPreferenceChangeListener((p, value) -> {
+            final boolean on = Boolean.TRUE.equals(value);
+            if (on && toggle8.isChecked()) {
+                toggle8.setChecked(false);
+                toggle8.setSummary(state(context, false, false));
+            }
+            // the 8-bit default (the X200 Pro front) must not come back under the 10-bit switch: stored explicitly
+            if (on) prefs.edit().putBoolean(YuvMergeRoute.key(slot), false).apply();
+            p.setSummary(state10(context, on));
+            return true;
+        });
+    }
+
+    /** P692: the 10-bit switch's line. */
+    public static String state10(Context c, boolean on) {
+        return on ? Lang.t(c, "Кадры YUV 10 бит (8 бит, если камера не даёт 10)", "10-bit YUV frames (8-bit where the camera has no 10)")
+                : Lang.t(c, "Выключено", "Off");
+    }
+
+    private static SwitchPreferenceCompat row(Context context, String key, String title, String help, int order, boolean byDefault, boolean on) {
         final SwitchPreferenceCompat toggle = new SwitchPreferenceCompat(context);
-        toggle.setKey(YuvMergeRoute.key(slot));
-        toggle.setTitle(title(context));
+        toggle.setKey(key);
+        toggle.setTitle(title);
         toggle.setDefaultValue(byDefault);
         toggle.setChecked(on);
         toggle.setIcon(com.scamera.app.R.drawable.settings_ic_sensor);
-        toggle.setOrder(ORDER);
-        SettingHelp.describe(toggle, help(context));
+        toggle.setOrder(order);
+        SettingHelp.describe(toggle, help);
         SettingHelp.summaryIsState(toggle);
-        toggle.setSummary(state(context, on, byDefault && !prefs.contains(YuvMergeRoute.key(slot))));
-        toggle.setOnPreferenceChangeListener((p, value) -> {
-            p.setSummary(state(context, Boolean.TRUE.equals(value), false));
-            return true;
-        });
-        com.scamera.app.ui.settings.SettingsStyle.style(toggle, category);
-        category.addPreference(toggle);
+        return toggle;
     }
 }

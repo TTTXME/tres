@@ -9,6 +9,8 @@ python3 tools/check_scam_capture_sequence.py
 python3 tools/check_shader_fp16.py
 # P612: no GLSL loop index over a parameter of its function (Mali-G925 leaks it: «int * float», the blend refused)
 python3 tools/check_glsl_loop_shadow.py
+# P683: the APK's default program recipes (the clean install's warm-up) are what the code gives now; every one compiles (glslc)
+python3 tools/make_default_recipes.py --check
 # P662: the merge's programs as a Mali phone gets them (the «Качество» context's variants, the fast route's, the F6 alignment's),
 # dumped and compiled by glslc as strict GLSL ES 3.10 and with the Mali-G925 loop-index leak emulated (31253's blend0 fails it);
 # a driver's refusal remembered per driver and source, logged once, not compiled again (SCAM_GLSL_FAULTS)
@@ -20,7 +22,8 @@ python3 tools/check_glsl_loop_shadow.py --dump /tmp/scam-glsl-dump
 python3 -m venv /tmp/tetra-gpu-check
 /tmp/tetra-gpu-check/bin/pip install moderngl==5.12.0 numpy==2.3.5
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_post_pbo.py
-# P668: every post fragment program drawn in bands of 16 / 48 / 112 rows equals one draw bit for bit (the paced post's band sizing)
+# P668: every post fragment program drawn in bands of 16 / 48 / 112 rows equals one draw bit for bit (the paced post's band sizing);
+# P683: and in the 8-row tiles a picture under 8 MP had until P683 (now 256 rows as every picture)
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_post_bands.py
 # P671: the clip band in the flagged tiles only equals the band over every pixel, bit for bit (and no tile without a flag)
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_band_tiles.py
@@ -34,6 +37,15 @@ python3 tools/check_film_tiling.py
 python3 tools/check_film_profile_dir.py
 python3 tools/check_film_profiles.py
 python3 tools/check_film_queue_policy.py
+# P683: the film data stored packed (tools/film_pack.py: delta + shuffle + deflate) decodes bit for bit - assets/film's SFD2
+# arrays against the SFD1 arrays' hashes, libscameraFilm's Hanatos spectra (and its plain resources) against the repo's files
+python3 tools/film_pack.py check app/src/main/assets/film tools/film_arrays.sha256
+rm -rf /tmp/scamera-film-embed
+python3 tools/embed_film_reference.py --compiler "$ANDROID_HOME/ndk/27.2.12479018/shader-tools/linux-x86_64/glslc" \
+    --shaders app/src/main/cpp/third_party/spektrafilm/shaders --floats app/src/main/assets/film-reference --output /tmp/scamera-film-embed
+g++ -std=c++17 -O1 -Iapp/src/main/cpp -I/tmp/scamera-film-embed tools/check_film_embed.cpp app/src/main/cpp/film-reference-resources.cpp \
+    /tmp/scamera-film-embed/embedded_film_data.cpp -lz -o /tmp/scamera-film-embed/check
+/tmp/scamera-film-embed/check app/src/main/assets/film-reference /tmp/scamera-film-embed/shaders
 g++ -std=c++17 -O2 tools/check_bayer_tile.cpp -o /tmp/scamera-bayer-tile-check
 /tmp/scamera-bayer-tile-check app/src/main/cpp/scam-hybrid.h /tmp/scamera-bayer-tile-shaders
 python3 tools/check_bayer_tile.py /tmp/scamera-bayer-tile-shaders
@@ -90,6 +102,8 @@ LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_hybrid_dezip
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_why_p404.py
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_luma_grain.py
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_why_sharpen.py
+# P687: a Quad shot's sharpening does not lift the merge's grid at straight edges into steps (why/sharp_r1 mode 4); detail kept
+LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_quad_edge_sharpen.py
 # P595: the RL halo clamp within the range at a dark / bright edge (no white dots); the photo's dither triangular (no sky bands)
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_edge_dots.py
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_why_headroom.py
@@ -100,6 +114,9 @@ LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_fast_clip_fl
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_fast_quad_detail.py
 # P607: the fast route's hole fill only between two sides of recovered light (kFastOutput fill, u_fill_light): a lamp keeps its falloff
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_fast_light_fill.py
+# P686: the fast route's highlight path on Quad / Tetra (one colour per HALF texel): the short frame's recovery per colour (no 2.15 x
+# white islands), the validation against the base texel's own colour (no pink sky refused by an odd flow), refused bands filled
+LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_fast_quad_highlights.py
 # P607: why/combine HL_LOCAL does not darken a light's falloff (HL_LOCAL_RIM), window detail as before
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_hl_local_rim.py
 # P623: the fast merge's measured light above white on the real-headroom shoulder: the sun's glow without a grey ring

@@ -24,6 +24,11 @@ import java.util.Locale;
  * <li>OnePlus 16, camera 2 (the main), experimental: its 50 MP row 25 at the HAL's 8192x6144 frame with the engineer mode key on
  * the session and every request (P593 / P604: every RAW-only session of the row died 0.7 s after it was configured) plus the
  * documents' companion and still template, the ISP viewfinder kept. Not run on a phone.</li>
+ * <li>P689, OPPO Find X9 Ultra (CPH2841 / PMA110 / PMA120), cameras 3 / 2 / 4 / 5 (0.6x / 1x / 3x / 10x) and the front: the X9
+ * Ultra full-size recipe, proven on the phone without root (OplusX9Ultra) - the photo RAW10 at the full size (8160x6128 on the
+ * main, else 8192x6144) of CPU-read usage 0x3, no companion, the binned RAW viewfinder, com.oplus.is.sdk.camera.package (byte) and
+ * com.oplus.is.from.extension (int32) = 1 on the session, agingtest.mode.select (int32) = the full-size QBC row on the stills only,
+ * 3 frames. The front's row 22 is its own config's, not the recipe's: not proven.</li>
  * </ul>
  */
 public final class FullResRecipePresets {
@@ -58,6 +63,11 @@ public final class FullResRecipePresets {
 
         boolean onePlus16() {
             return manufacturer.equals("oneplus") && model.equals("pyb110");
+        }
+
+        /** P689: the OPPO Find X9 Ultra. */
+        boolean x9Ultra() {
+            return OplusX9Ultra.phone(manufacturer, model);
         }
 
         @Override public String toString() {
@@ -109,6 +119,7 @@ public final class FullResRecipePresets {
                     .pixelMode(FullResRecipe.PixelMode.ANNOTATE).preview(FullResRecipe.Preview.ISP).frames(4)
                     .operationMode(NubiaRemosaicProbe.STOCK_QCFA_MODE).experimental(true).build();
         }
+        if (device.x9Ultra()) return x9Ultra(camera, table, FullResRecipe.Preview.FAKE); // P689: «Поток ISP» Auto's first variant
         if (device.onePlus16() && "2".equals(camera))
             return new FullResRecipe.Builder().id(ONEPLUS_16).size(8192, 6144).usage(0).useCase(0)
                     .companion(FullResRecipe.Companion.YUV, 640, 480)
@@ -116,6 +127,27 @@ public final class FullResRecipePresets {
                     .stillTemplate("still").sessionTemplate("preview")
                     .pixelMode(FullResRecipe.PixelMode.NEVER).preview(FullResRecipe.Preview.ISP).frames(4).experimental(true).build();
         return null;
+    }
+
+    /** P689: the recipe's name of an X9 Ultra lens. */
+    static final String X9_ULTRA = "OPPO Find X9 Ultra 50 MP";
+
+    /**
+     * P689: the X9 Ultra full-size recipe of {@code camera} with the viewfinder {@code preview} (the «Поток ISP» variant,
+     * OplusX9Ultra.ladder); null for a camera without a lens of it, or whose table ({@code table}, null: unreadable) has the
+     * recipe's row at another size.
+     */
+    @Nullable
+    static FullResRecipe x9Ultra(@Nullable String camera, @Nullable int[] table, FullResRecipe.Preview preview) {
+        final OplusX9Ultra.Lens lens = OplusX9Ultra.lens(camera);
+        if (lens == null || OplusX9Ultra.gate(lens, true, true, table) != null) return null;
+        return new FullResRecipe.Builder().id(X9_ULTRA + " (" + lens.name + ")").size(lens.width, lens.height)
+                .format(FullResRecipe.RAW10).usage(0x3L).useCase(0).companion(FullResRecipe.Companion.OFF, 0, 0)
+                .tag(OplusX9Ultra.SDK_PACKAGE, FullResRecipe.TagType.U8, FullResRecipe.Target.SESSION, 1)
+                .tag(OplusX9Ultra.FROM_EXTENSION, FullResRecipe.TagType.I32, FullResRecipe.Target.SESSION, 1)
+                .tag(OppoNativeFullRes.MODE_KEY, FullResRecipe.TagType.I32, FullResRecipe.Target.STILL, lens.mode)
+                .stillTemplate("still").sessionTemplate("preview").pixelMode(FullResRecipe.PixelMode.NEVER).preview(preview)
+                .frames(OplusX9Ultra.FRAMES).viewTags(false).experimental(!lens.proven).build();
     }
 
     /**

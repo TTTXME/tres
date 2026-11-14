@@ -527,6 +527,14 @@ public final class OppoNativeFullRes {
             int[] table = null;
             String source = "none";
             if (key) try { table = c.get(TABLE); } catch (IllegalArgumentException noTag) { table = null; }
+            if (OplusX9Ultra.phone()) { // P689: the X9 Ultra's FULLRES is its full-size recipe, the native route offers nothing
+                boolean sdkPackage = false;
+                for (CaptureRequest.Key<?> k : c.getAvailableSessionKeys())
+                    if (OplusX9Ultra.SDK_PACKAGE.equals(k.getName())) { sdkPackage = true; break; }
+                OFFER.put(cameraId, Offer.NONE);
+                LINES.put(cameraId, OplusX9Ultra.learn(cameraId, key, sdkPackage, table));
+                return;
+            }
             if (table != null) source = table.length + " values";
             else if (key && (table = recordedTable(pyb110(), cameraId)) != null) source = "none by name, the PYB110 report's recorded table (" + table[0] + " rows)";
             int pw = 0, ph = 0;
@@ -808,6 +816,7 @@ public final class OppoNativeFullRes {
      * its own choice beside it).
      */
     public static boolean anyLive(@Nullable String cameraId) {
+        if (OplusX9Ultra.phone()) return OplusX9Ultra.offered(cameraId); // P689: its recipe's «50 Мп»
         return profile(cameraId, false) != null || twoSizes(cameraId) && profile(cameraId, true) != null;
     }
 
@@ -968,6 +977,7 @@ public final class OppoNativeFullRes {
 
     /** P214h: the camera offers full-size modes (its table, read this run) but every one failed: its button stays, dimmed. */
     static boolean exhausted(@Nullable String cameraId) {
+        if (OplusX9Ultra.phone()) return OplusX9Ultra.exhausted(cameraId); // P689
         return offer(cameraId) != null && !anyLive(cameraId); // P593: no size left (a dead 50 MP beside a live 200 MP is not it)
     }
 
@@ -978,6 +988,7 @@ public final class OppoNativeFullRes {
     @Nullable
     static String status(@Nullable android.content.SharedPreferences p, @Nullable String cameraId, String stamp) {
         if (p == null || cameraId == null) return null;
+        if (OplusX9Ultra.phone()) return OplusX9Ultra.status(p, cameraId, OplusX9Ultra.stamp()); // P689: the recipe's variants
         final int tried = failures(p, cameraId, stamp);
         final Offer all = OFFER.get(cameraId);
         // P586: a camera with two sizes says each size's rows (its 200 MP trials have keys of their own)

@@ -159,9 +159,9 @@ public class FullResRecipeStoreTest {
                 "recipeFailed(\"the stills are not the sensor's full readout (\"");
         final String saver = new String(Files.readAllBytes(Paths.get("src/main/java/com/scamera/app/processing/SaverImplementation.java")), StandardCharsets.UTF_8);
         // the truth check on the whole buffer before the 16:9 crop; a frame that is neither real nor a binned frame is refused
-        ordered(saver, "recipe.judge(buffer, image.getWidth(), rows.height, rows.stride);", "FullResTruth.Verdict.PARTIAL",
+        ordered(saver, "recipe.judge(buffer, image.getWidth(), rows.height, rows.stride, rows.format == RAW10);", "FullResTruth.Verdict.PARTIAL",
                 "return recipeFrame(image, buffer, rows, truth);", "rows.width > rows.height) cropTo169(image, rows);");
-        ordered(saver, "private ImageFrame recipeFrame(", "recipeBinned(image, buffer, rows.stride, rows.height, truth);",
+        ordered(saver, "private ImageFrame recipeFrame(", "recipeBinned(image, buffer, rows.stride, rows.height, truth, rows.format == RAW10);",
                 "refused.rawPayloadError = \"the full-size buffer holds no full frame");
         assertTrue(saver.contains("FullResTruth.unpackQuarter(out, buffer, width, height, rowStride)"));
     }
@@ -182,7 +182,7 @@ public class FullResRecipeStoreTest {
     @Test public void theSessionIsBuiltFromThePlan() throws Exception {
         final String src = controller();
         // decided before every other full-size route, which it stands in for (P631's forced RAW-only row included: no pick)
-        ordered(src, "recipeSession(sdkFullRes, map, characteristics);", "if (mRecipePlan != null) {\n            mTargetFormat = ImageFormat.RAW_SENSOR;",
+        ordered(src, "recipeSession(sdkFullRes, map, characteristics);", "if (mRecipePlan != null) {\n            mTargetFormat = mRecipePlan.captureFormat();",
                 "if (mRecipePlan == null && !sdkFullRes && isRawFormat(mTargetFormat) && !sFullResRefused.contains(physicalID)",
                 "final SensorModePick.Pick modePick = sdkFullRes || mFullResSession ");
         // the outputs: the use case and the pixel modes by the plan, on the plan's stream of each surface
@@ -223,8 +223,8 @@ public class FullResRecipeStoreTest {
                 "mImageSaver.recipeShot = recipeShot;");
         // the first frame is checked while it is copied; a doubled one is halved
         final String saver = new String(Files.readAllBytes(Paths.get("src/main/java/com/scamera/app/processing/SaverImplementation.java")), StandardCharsets.UTF_8);
-        ordered(saver, "recipe.judge(buffer, image.getWidth(), rows.height, rows.stride);", "FullResTruth.Verdict.UPSCALED",
-                "recipeBinned(image, buffer, rows.stride, rows.height, truth);",
+        ordered(saver, "recipe.judge(buffer, image.getWidth(), rows.height, rows.stride, rows.format == RAW10);", "FullResTruth.Verdict.UPSCALED",
+                "recipeBinned(image, buffer, rows.stride, rows.height, truth, rows.format == RAW10);",
                 "FullResTruth.halve(out, buffer, 0, width, height, rowStride, truth.phase)");
         assertTrue(new String(Files.readAllBytes(Paths.get("src/main/java/com/scamera/app/processing/ImageSaver.java")), StandardCharsets.UTF_8)
                 .contains("saverImpl.recipeShot = recipeShot;"));
@@ -336,7 +336,7 @@ public class FullResRecipeStoreTest {
                 "private boolean retryWithoutRecipe(@Nullable CameraCaptureSession session, String why) {",
                 "&& retryWithoutRecipe(session, \"no still of the shot arrived");
         // the failure is remembered with the whole field set in the log, the session's plan dropped, the camera restarted
-        final int failed = src.indexOf("private void recipeFailed(String why) {"), retry = src.indexOf("private boolean retryWithoutRecipe(");
+        final int failed = src.indexOf("private String recipeFailed(String why) {"), retry = src.indexOf("private boolean retryWithoutRecipe(");
         final String body = src.substring(failed, retry);
         for (String part : new String[]{"FullResRecipeStore.failActive(active, why);", "plan.describe(String.valueOf(physicalID))", "mRecipe = null;",
                 "mRecipePlan = null;", "FullResRecipeSession.session(null);", "mFullResSession = false;"})

@@ -46,8 +46,14 @@ public class Gravity {
         return c;
     }
 
+    /**
+     * P680 (performance audit): the turn is read at a press and for the UI's rotation - the game rate (~50 a second) gives it
+     * within 20 ms; the fastest rate (hundreds a second on some phones) woke the sensors' thread for nothing.
+     */
+    static final int RATE = SensorManager.SENSOR_DELAY_GAME;
+
     public void register() {
-        sensors.registerListener(listener, gravity, SensorManager.SENSOR_DELAY_FASTEST, SensorThread.handler()); // P551
+        sensors.registerListener(listener, gravity, RATE, SensorThread.handler()); // P551
     }
 
     /** No more readings; the last one stays for the next shot's orientation. */

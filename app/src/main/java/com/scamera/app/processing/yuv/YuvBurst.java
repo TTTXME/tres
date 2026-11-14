@@ -70,11 +70,19 @@ public final class YuvBurst {
         float[] curve = null;
         if (points) {
             final float[] pairs = YuvMergeRoute.curvePairs(c);
-            curve = new float[pairs.length];
-            for (int i = 0; i < pairs.length / 2; i++) {
-                curve[i] = pairs[2 * i];
-                curve[pairs.length / 2 + i] = pairs[2 * i + 1];
+            curve = mergeCurve(pairs);
+            // P691: what the frame's result says the camera applied (the merge inverts the points asked for)
+            float[] reported = null;
+            try {
+                final android.hardware.camera2.params.TonemapCurve tc = reference.get(CaptureResult.TONEMAP_CURVE);
+                if (tc != null) {
+                    reported = new float[2 * tc.getPointCount(android.hardware.camera2.params.TonemapCurve.CHANNEL_GREEN)];
+                    tc.copyColorCurve(android.hardware.camera2.params.TonemapCurve.CHANNEL_GREEN, reported, 0);
+                }
+            } catch (RuntimeException e) {
+                reported = null;
             }
+            Log.i(TAG, "YUV MERGE capture curve: " + curveReport(pairs, reported));
         }
         final float profile = "27".equals(PreferenceKeys.hybridString("yuv_profile", "31")) ? 0f : 1f;
         final int threads = Math.max(2, Math.min(8, Runtime.getRuntime().availableProcessors() - 1));
@@ -145,6 +153,33 @@ public final class YuvBurst {
         return rgb;
     }
 
+    /** The merge's curve (YuvMergeNative.merge): the points' linear inputs, then their encoded outputs, of interleaved pairs. */
+    static float[] mergeCurve(float[] pairs) {
+        final int n = pairs.length / 2;
+        final float[] curve = new float[2 * n];
+        for (int i = 0; i < n; i++) {
+            curve[i] = pairs[2 * i];
+            curve[n + i] = pairs[2 * i + 1];
+        }
+        return curve;
+    }
+
+    /**
+     * P691: the curve the frame's result reports ({@code reported}: green (in, out) pairs, null when absent) against the one asked
+     * for: the merge decodes through the points asked for, so a difference is said in the log.
+     */
+    static String curveReport(float[] asked, @androidx.annotation.Nullable float[] reported) {
+        final int n = asked.length / 2;
+        final String mine = n + " points at evenly spaced inputs";
+        if (reported == null || reported.length < 4) return mine + " (the result reports no curve)";
+        if (reported.length != asked.length)
+            return mine + "; the result reports " + reported.length / 2 + " points (decoded through the points asked for)";
+        float worst = 0f;
+        for (int i = 0; i < asked.length; i++) worst = Math.max(worst, Math.abs(asked[i] - reported[i]));
+        return worst < 1e-3f ? mine + ", the result reports them"
+                : String.format(Locale.ROOT, "%s; the result's points differ by up to %.4f (decoded through the points asked for)", mine, worst);
+    }
+
     /** Nothing of an earlier RAW merge applies to this shot (as ScamHybridBurst's CPU fallback clears it): no Bento, no flags. */
     static void clearRawMergeState(int w, int h) {
         com.scamera.app.processing.opengl.postpipeline.ScamHybridBurst.lastOutputSize = new android.graphics.Point(w, h);
@@ -154,7 +189,7 @@ public final class YuvBurst {
         com.scamera.app.processing.opengl.postpipeline.ScamHybridBurst.lastDcgNoise = null;
         com.scamera.app.processing.opengl.postpipeline.ScamHybridBurst.lastMergeFrames = Double.NaN;
         com.scamera.app.processing.opengl.postpipeline.ScamHybridBurst.lastHlMask = null;
-        com.scamera.app.processing.opengl.postpipeline.ScamHybridBurst.lastMergedDng = null;
+        com.scamera.app.processing.opengl.postpipeline.ScamHybridBurst.dropMergedDng(); // P681: freed, not dropped
         com.scamera.app.processing.opengl.postpipeline.ScamHybridBurst.lastDngMosaic = 1;
         com.scamera.app.processing.opengl.postpipeline.ScamHybridBurst.lastMergeTier = "yuv";
         com.scamera.app.processing.opengl.postpipeline.ScamRgb.dropClipFlags(

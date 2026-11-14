@@ -121,6 +121,26 @@ public final class WhyLumaSharpen extends Node {
     }
 
     /**
+     * P687 (owner, 2026-11-14, vivo X200 Ultra 50 MP Quad «Быстрый», SCA_20261114_094230: «сетка» - the lever keys' edges on a
+     * brushed panel in steps): the Quad merge leaves straight edges a faint wobble locked to its 2 x 2 blocks (at the reference
+     * app's level), and {@link #quadOnLattice}'s sharpening lifted it about x2 into 2 - 4 px steps along diagonal and slanted edges
+     * (host, the reference app's Quad bursts through the app chain: the edge crossings' wobble locked to x, y mod 4 0.039 - 0.051
+     * px against 0.019 - 0.033 unsharpened; with this pass 0.020 - 0.043). The last pass (why/sharp_r1 mode 4) smooths the sharpening's increment along a
+     * straight edge only - a straight edge's increment is the same all along it, so the edge keeps its sharpening across; texture,
+     * flat ground and bends keep mode 2's output bit for bit. The source plane lives to the end (one R16F plane more, a Quad shot
+     * up to 100 MP: {@link #r1Fits}). scam_dev "sharpen_quad_edge 0" = the passes of before.
+     */
+    static final float QUAD_EDGE_ALONG = 1f;
+
+    static boolean quadEdgeAlong(boolean quadBoost, boolean enabled) {
+        return quadBoost && enabled;
+    }
+
+    static boolean quadEdgeSwitch() {
+        return PreferenceKeys.scamDevSwitch("sharpen_quad_edge", true);
+    }
+
+    /**
      * P214z: R1 costs one full-grid R16F plane more at the sharpening's peak: the residual D = Ya - B lives through every RL
      * stage, which ran on 4 full planes (obs, est, next, ratio; ya went after the compose) and now runs on 5. On a 200 MP
      * grid (16320x12288) that is 400 MB more at the point P187 cut to its tightest budget, unmeasured on a phone; above
@@ -423,6 +443,8 @@ public final class WhyLumaSharpen extends Node {
         // P542: a Quad shot on the lattice source takes its third RL stage at QUAD_RL3_BOOST x
         final boolean quadBoost = lattice && quadOnLattice(block, block == 2 && quadSwitch());
         if (quadBoost) rl[2][2] *= QUAD_RL3_BOOST;
+        // P687: the source kept for the last pass, which smooths the increment along straight edges
+        final boolean edgeAlong = quadEdgeAlong(quadBoost, quadBoost && quadEdgeSwitch());
         GLTexture src = ya, residual = null;
         // P364: the full-grid passes below read their windows as 2 x 2 textureGather blocks (GATHER 1 of why/sharp_r1 mode 3,
         // why/sharp_box mode 0 and why/sharp_compose): the same taps in the same order; the old model of post_ab keeps the loops
@@ -499,7 +521,9 @@ public final class WhyLumaSharpen extends Node {
         shaderProg.setVar("sobelU", sobelAmount, sobelThresh);   // P404
         shaderProg.setVar("thinU", thin);
         shaderProg.drawBlocks(obs);
-        src.close(); // ya itself without R1
+        GLTexture source = null;
+        if (edgeAlong) source = src; // P687: read again by the last pass
+        else src.close(); // ya itself without R1
         if (ab != null) ab.close();
 
         StringBuilder stages = new StringBuilder();
@@ -557,11 +581,17 @@ public final class WhyLumaSharpen extends Node {
             shaderProg.useAssetProgram("why/sharp_r1", false);
             shaderProg.setTexture("Sharpened", obs);
             shaderProg.setTexture("Residual", residual);
-            shaderProg.setVar("modeU", 2);
+            if (source != null) { // P687: mode 2 with the increment smoothed along straight edges
+                shaderProg.setTexture("Source", source);
+                shaderProg.setVar("edgeAlongU", QUAD_EDGE_ALONG);
+            }
+            shaderProg.setVar("modeU", source != null ? 4 : 2);
             shaderProg.drawBlocks(out);
             residual.close();
+            if (source != null) source.close();
             obs = out;
-            stages.append(r1 ? " r1=B3(block " + block + ")" : " lattice=off-sharpened" + (quadBoost ? " quad(rl3 x" + QUAD_RL3_BOOST + ")" : ""));
+            stages.append(r1 ? " r1=B3(block " + block + ")" : " lattice=off-sharpened" + (quadBoost ? " quad(rl3 x" + QUAD_RL3_BOOST + ")" : "")
+                    + (source != null ? " edge-along" : ""));
         } else if (block > 1) stages.append(r1Fits(size.x, size.y) ? " r1=off(block " : " r1=off(>100MP, block ").append(block).append(")");
         shaderProg.closed = true;
         if (ratio != null) ratio.close();

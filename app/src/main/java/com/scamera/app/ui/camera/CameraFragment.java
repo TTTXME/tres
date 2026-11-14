@@ -1241,9 +1241,10 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
         // P214g: the camera closes here, so the session after the settings is a new one
         if (sessionWatch) sessionWatchPaused = true;
         freezeViewfinder();
-        // the camera's outputs stop before the GL viewfinder drops their texture
+        // the camera's outputs stop before the GL viewfinder drops their texture; P680: the viewfinder's request stops here, the
+        // device closes off the main thread where it may, and the texture is released only after that close (MainRenderer)
         final CaptureController camera = captureController;
-        camera.closeCamera();
+        camera.closeCameraOnPause();
         finderView.onPause();
         finderOverlay.clear();
         fragmentModel.onPause();
@@ -1537,7 +1538,7 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
      * static "0" / "1" may not exist, and after a process restart no saved state brings them back).
      */
     public void initCameraIDLists(CameraManager manager) {
-        lensData = new CameraManager2(manager, lensSettings).getCameraLensDataMap();
+        lensData = CameraManager2.get(manager, lensSettings).getCameraLensDataMap(); // P680: cached while nothing changes
         if (!lensData.containsKey(sActiveBackCamId)) {
             final String back = firstOfFacing(CameraCharacteristics.LENS_FACING_BACK);
             if (back != null) sActiveBackCamId = back;

@@ -50,6 +50,36 @@ public final class YuvMergeRoute {
         return ModuleSensorSettings.prefix(slot) + FIELD;
     }
 
+    /**
+     * P692 (owner, 2026-11-14: «Сделай просто два отдельных переключателя вместо одного нынешнего, один для 8бит, второй для
+     * 10бит»): the lens's «Склейка YUV 10 бит» switch (P010 / HLG10). {@link #key} is «Склейка YUV 8 бит»; one of the two is on at
+     * most (the rows turn the other off), either one turns the route on.
+     */
+    public static final String FIELD_10 = "yuvmerge10";
+
+    public static String key10(String slot) {
+        return ModuleSensorSettings.prefix(slot) + FIELD_10;
+    }
+
+    /**
+     * P692: the lens's 10-bit switch in {@code values}: stored, else the former global «YUV: 10 бит» (pref_scam_hybrid_yuv_10bit)
+     * while the lens's 8-bit switch is on (a phone that had both on keeps its 10-bit route).
+     */
+    public static boolean tenOn(@Nullable Map<String, ?> values, @Nullable String slot, @Nullable String camera, boolean x200Pro) {
+        if (slot == null) return false;
+        final Object stored = values == null ? null : values.get(key10(slot));
+        if (stored != null) return PreferenceNumber.bool(stored, false);
+        final Object global = values == null ? null : values.get("pref_scam_hybrid_yuv_10bit");
+        return global != null && PreferenceNumber.bool(global, TEN_BIT_DEFAULT) && eightOn(values, slot, camera, x200Pro);
+    }
+
+    /** P692: the lens's 8-bit switch (the former «Склейка YUV»): stored, else {@link #defaultOn}. */
+    public static boolean eightOn(@Nullable Map<String, ?> values, @Nullable String slot, @Nullable String camera, boolean x200Pro) {
+        if (slot == null) return false;
+        final Object stored = values == null ? null : values.get(key(slot));
+        return stored != null ? PreferenceNumber.bool(stored, false) : defaultOn(x200Pro, camera);
+    }
+
     /** The vivo X200 Pro (the owner's report: MODEL V2405A, DEVICE PD2405; its global models V2405DA / PD2405F as well). */
     public static boolean x200Pro(@Nullable String manufacturer, @Nullable String model, @Nullable String device) {
         if (manufacturer == null || !manufacturer.trim().equalsIgnoreCase("vivo")) return false;
@@ -69,9 +99,13 @@ public final class YuvMergeRoute {
 
     /** The switch of {@code slot} (its camera {@code camera}) in {@code values}: stored, else {@link #defaultOn}. */
     public static boolean on(@Nullable Map<String, ?> values, @Nullable String slot, @Nullable String camera, boolean x200Pro) {
-        if (slot == null) return false;
-        final Object stored = values == null ? null : values.get(key(slot));
-        return stored != null ? PreferenceNumber.bool(stored, false) : defaultOn(x200Pro, camera);
+        // P692: the 8-bit or the 10-bit switch
+        return eightOn(values, slot, camera, x200Pro) || tenOn(values, slot, camera, x200Pro);
+    }
+
+    /** P692: the 10-bit switch of the module that decides a session on {@code physicalId} ({@link #slotFor}). */
+    public static boolean tenFor(@Nullable Map<String, ?> values, @Nullable String physicalId, @Nullable String slot, boolean x200Pro) {
+        return physicalId != null && slot != null && tenOn(values, slot, physicalId, x200Pro);
     }
 
     /** The physical camera of a lens page's / module's {@code slot}. */
@@ -204,7 +238,7 @@ public final class YuvMergeRoute {
             }
             final boolean after = !"zsl".equals(PreferenceKeys.hybridString("yuv_capture", "after"));
             final StringBuilder why = new StringBuilder();
-            final boolean ten = tenBit(physicalId, map, c, largest, why);
+            final boolean ten = tenBit(physicalId, map, c, largest, why, tenFor(values, physicalId, slot, x200Pro()));
             final boolean curve = !ten && after && curveSupported(c);
             if (after && !ten && !curve) why.append(why.length() == 0 ? "" : "; ").append("no CONTRAST_CURVE tonemap: the camera's curve, no brackets");
             final Session s = new Session(physicalId, ten ? P010 : YUV, ten, after, curve, why.toString());
@@ -227,8 +261,9 @@ public final class YuvMergeRoute {
     }
 
     /** P010 at the YUV still size with HLG10 allowed beside STANDARD (the viewfinder), Android 13, not refused, the row on. */
-    static boolean tenBit(String camera, StreamConfigurationMap map, CameraCharacteristics c, Size still, StringBuilder why) {
-        if (!PreferenceKeys.hybridSwitch("yuv_10bit", TEN_BIT_DEFAULT)) { why.append("10 bit off"); return false; }
+    static boolean tenBit(String camera, StreamConfigurationMap map, CameraCharacteristics c, Size still, StringBuilder why, boolean wanted) {
+        // P692: the lens's «Склейка YUV 10 бит» switch, not one switch for every lens
+        if (!wanted) { why.append("8 bit (the lens's 8-bit switch)"); return false; }
         if (Build.VERSION.SDK_INT < 33) { why.append("10 bit needs Android 13"); return false; }
         if (sTenBitRefused.contains(camera)) { why.append("10 bit refused by this camera before"); return false; }
         boolean size = false;
@@ -263,14 +298,19 @@ public final class YuvMergeRoute {
     }
 
     /**
-     * The capture tone curve: {@code n} points (the camera's maximum, at most 64) of the sRGB curve, denser in the shadows (input
-     * (i / (n - 1))^2.2). Interleaved (in, out) pairs as TonemapCurve takes them; the processing inverts exactly these points.
+     * The capture tone curve: {@code n} points (the camera's maximum, at most 64) of the sRGB curve at evenly spaced inputs
+     * i / (n - 1). Interleaved (in, out) pairs as TonemapCurve takes them; the processing inverts exactly these points.
+     * <p>
+     * P691: the inputs were (i / (n - 1))^2.2 (denser in the shadows) before. The vivo X200 Ultra (Snapdragon) takes the points'
+     * outputs at evenly spaced inputs - its frames came out ~linear, decoded as light^2.2: the scene's median at 1/25 of the RAW
+     * route's (WHY V2 stats p50 0.00195 against 0.044 - 0.066), the photo dark with crushed shadows. With evenly spaced inputs a
+     * camera that honours the inputs and one that does not apply the same curve.
      */
     public static float[] curvePairs(int n) {
         n = Math.max(2, Math.min(64, n));
         final float[] pairs = new float[2 * n];
         for (int i = 0; i < n; i++) {
-            final float x = (float) Math.pow((double) i / (n - 1), 2.2);
+            final float x = (float) i / (n - 1);
             pairs[2 * i] = x;
             pairs[2 * i + 1] = srgb(x);
         }

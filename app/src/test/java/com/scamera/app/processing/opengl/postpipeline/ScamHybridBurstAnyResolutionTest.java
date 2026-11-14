@@ -349,6 +349,18 @@ public class ScamHybridBurstAnyResolutionTest {
     }
 
     /**
+     * P685: on the fast route a frame above 16 MP leaves its memory to the worker (row bands that fit its share of MemAvailable): no
+     * frame cap from the SCAM merge's estimate (a 200 MP series read «0 frames» there); «Качество» and 16 MP or less as before.
+     */
+    @Test public void theFastRouteBudgetsItsOwnMemory() {
+        assertTrue("200 MP Tetra", ScamHybridBurst.workerBudgetsFast(true, 16320, 12288));
+        assertTrue("50 MP Bayer", ScamHybridBurst.workerBudgetsFast(true, 8192, 6144));
+        assertFalse("12 MP: never capped anyway", ScamHybridBurst.workerBudgetsFast(true, 4080, 3072));
+        assertFalse("«Качество»: the SCAM merge's estimate", ScamHybridBurst.workerBudgetsFast(false, 16320, 12288));
+        assertFalse("«Качество» 50 MP", ScamHybridBurst.workerBudgetsFast(false, 8192, 6144));
+    }
+
+    /**
      * P267 «Наш ремозаик» off (owner, 2026-10-19: «При выкл сохраняй только днг без ремозаика»; «Склейка должны быть, просто без
      * ремозаика»): a Quad / Tetra stream the app knows is merged at the sensor grid (no 2x) and asks for its merged RAW in the mosaic
      * layout (dngMosaic 1, the merged-DNG flag); on (default), an unknown block or a frame of partial colour periods merges into a

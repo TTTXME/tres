@@ -302,6 +302,7 @@ public final class LiveWhyTone {
         fusedFailed = false;
         for (Tex t : new Tex[]{lin, low, aeLow, fused, means[0], means[1], means[2], ab[0], ab[1], boxTmp[0], boxTmp[1]})
             t.id = t.fbo = t.w = t.h = 0;
+        dropMetering(); // P683: the meter's job done with before the meter is used here again
         ae = null;
         frames = 0;
         curveTex = 0;
@@ -351,9 +352,7 @@ public final class LiveWhyTone {
                 // P314: the photo's tone per pixel - the AE on the CPU from the RAW frame (no readback), then one pass of why/combine
                 final com.scamera.app.processing.LiveWhyMeter.View view = frame.get();
                 observePortrait(view);
-                if (meterDue(observe(view))) {
-                    if (!runAePoint(view)) return fail("ae");
-                }
+                if (!meterPoint(view)) return fail("ae");
                 if (curveOf != ae) fillCurve(ae);
                 final float aeNow = easeShown(true);
                 // P378 review: the sky shown now, its cells in the tone's orientation
@@ -468,9 +467,7 @@ public final class LiveWhyTone {
             if (!raw.bind(p, shownFilm)) return false;
             final com.scamera.app.processing.LiveWhyMeter.View view = raw.view();
             observePortrait(view);
-            if (meterDue(observe(view))) {
-                if (!runAePoint(view)) return fusedFail("ae");
-            }
+            if (!meterPoint(view)) return fusedFail("ae");
             if (curveOf != ae) fillCurve(ae);
             final float aeNow = easeShown(true);
             // P378 review: the shown sky's cells (a sky shown first here takes the SKY program from the next frame)
@@ -647,7 +644,7 @@ public final class LiveWhyTone {
         } finally {
             // P378 review: the sky term as the photo has it - on (hybrid_why_sky), never with a film; vf_why 1 only
             skyWanted = WhyTone.sky() > 0f && filmNow == null && mode() == POINT;
-            meter.keepQuads = skyWanted;
+            // (P683: meter.keepQuads is set where the meter runs - runAePoint / startAePoint - never while its job may read it)
             if (!skyWanted) sky.decided(null, 0f, 0.0);
         }
     }
@@ -744,32 +741,197 @@ public final class LiveWhyTone {
      * frame was drawn with) - no GPU pass, no readback; false when there is nothing to meter and no earlier result.
      */
     private boolean runAePoint(com.scamera.app.processing.LiveWhyMeter.View v) {
+        applyMetering(true); // P683: the meter's job (if any) done with and its result in, then this one on the GL thread
         if (v == null || v.frame == null || v.frame.buffer == null) return ae != null;
         final com.scamera.app.processing.LiveRawFrame.Frame f = v.frame;
         mergedNoise(f.noiseS, f.noiseO);
         // P442: the photo's night rule from the frame's exposure (the decision's EV100 of base white, as the sky's below)
         settings.evWhite = WhySkyMask.evOffset(f.iso, f.exposureNs / 1e9, aperture, inScale);
         final long meterStart = System.nanoTime();
+        meter.keepQuads = skyWanted;
         final WhyAe.Result r = meter.measure(v, inScale, settings, f.iso, f.maxAnalogIso);
         // P597: the AE's cells and WhyAe on the GL thread (VF_RAW "stages": meter)
         com.scamera.app.processing.VfStages.note(com.scamera.app.processing.VfStages.Stage.METER,
                 System.nanoTime() - meterStart);
         if (r == null) return ae != null;
-        measurePortrait(v, meter.lastCells(), meter.lastGrid());
+        metered();
+        applyAe(v, r, meter.lastCells(), meter.lastGrid(), meter.lastQuads());
+        return true;
+    }
+
+    /** An AE result of the frame {@code v} into the tone: the portrait's skin, the film's AE, the fusion's exposures, the sky. */
+    private void applyAe(com.scamera.app.processing.LiveWhyMeter.View v, WhyAe.Result r, float[] cells, int[] grid, float[] quads) {
+        final com.scamera.app.processing.LiveRawFrame.Frame f = v.frame;
+        measurePortrait(v, cells, grid);
         filmAeTarget = WhyAe.filmAe(r);
         emTarget = WhyFusion.liveExposures(r);
-        metered();
         ae = r;
-        if (skyWanted) decideSky(v, r);
+        if (skyWanted) decideSky(v, r, quads, grid);
         final long now = SystemClock.uptimeMillis();
         if (now - aeLogAt >= AE_LOG_MS) {
             aeLogAt = now;
             Log.d(TAG, "viewfinder SMART_HDR (per pixel, " + v.width + "x" + v.height + " of " + f.width + "x" + f.height + (f.cellMean ? " cell means" : "")
                     + ", shown ae=" + (shown.on() ? shown.aeFor(track.logP()) : r.ae) + ", exposure 2^" + String.format(java.util.Locale.ROOT,
                     "%.2f", track.logP()) + ", moves refused " + track.takeRefused() + " suspect " + track.takeSuspect() + "): " + r.describe()
-                    + (skyWanted ? "; sky: " + skyLog : ""));
+                    + (skyWanted ? "; sky: " + skyLog : "") + (meterThread != 0 ? "; metered off the GL thread" : ""));
         }
-        return true;
+    }
+
+    // ---- P683 (owner: «ускорь и облегчи, особенно на старых/слабых»; VF_RAW stages of the 12X / OPPO logs: «meter 2.5 - 5.5 ms»
+    // of a «draw 9 - 14 ms» on the GL thread, every 2nd new frame): the AE's cells and WhyAe of a regular meter run on a thread of
+    // their own, started after the frame's draw; a later draw takes the result (one frame later; the shown tone eases towards an AE
+    // anyway, ToneEase). The first meter of a session, of a context and after a portrait change stays on the GL thread (a tone
+    // needs a result to draw with). The frame's buffer is the GL thread's until its next acquire, which waits for the job
+    // (LiveRawFrame.offThreadReader). One job at a time; the meter object is the job's while it runs. scam_dev vf_meter_async 0:
+    // every meter on the GL thread, as before.
+    private static final ExecutorService METER = Executors.newSingleThreadExecutor(r -> {
+        final Thread t = new Thread(() -> {
+            try {
+                android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_DISPLAY);
+            } catch (RuntimeException | LinkageError ignored) {
+            }
+            r.run();
+        }, "vf-why-meter");
+        t.setDaemon(true);
+        return t;
+    });
+
+    /** P683: a meter job's result - the frame's view, its session and exposure, the AE and copies of the meter's cells. */
+    private static final class Metered {
+        final com.scamera.app.processing.LiveWhyMeter.View v;
+        final int session;
+        final double logP;
+        final WhyAe.Result r;
+        final float[] cells, quads;
+        final int[] grid;
+
+        Metered(com.scamera.app.processing.LiveWhyMeter.View v, int session, double logP, WhyAe.Result r, float[] cells, int[] grid, float[] quads) {
+            this.v = v;
+            this.session = session;
+            this.logP = logP;
+            this.r = r;
+            this.cells = cells;
+            this.grid = grid;
+            this.quads = quads;
+        }
+    }
+
+    /** P683: the meter's job (GL thread; null: none running or untaken). */
+    private java.util.concurrent.Future<Metered> metering;
+    /** P683: 1 once a job ran (the AE line says so). */
+    private int meterThread;
+
+    /** P683: scam_dev vf_meter_async (on by default). */
+    static boolean meterAsync() {
+        return PreferenceKeys.scamDevSwitch("vf_meter_async", true);
+    }
+
+    /** P683: the own look's meter (LiveRawMeter) skipped for the WHY tone's linear frame, whose draw never reads it (vf_meter_async). */
+    public static boolean linearMeterSkipped() {
+        return meterAsync();
+    }
+
+    /**
+     * The meter of a drawn frame {@code view} (vf_why 1): a finished job's result in, then a meter when due - on the GL thread for
+     * the first result (P314 / P383, as before), else started on the meter's thread (P683). False: no AE to draw with.
+     */
+    private boolean meterPoint(com.scamera.app.processing.LiveWhyMeter.View view) {
+        final boolean fresh = observe(view);
+        applyMetering(false);
+        if (!meterDue(fresh)) return true;
+        if (ae != null && !meterNow && meterAsync()) {
+            if (metering == null) startAePoint(view);
+            return true;
+        }
+        return runAePoint(view);
+    }
+
+    /** P683: the AE of the drawn frame {@code v} started on the meter's thread (nothing when there is nothing to meter). */
+    private void startAePoint(com.scamera.app.processing.LiveWhyMeter.View v) {
+        if (v == null || v.frame == null || v.frame.buffer == null) return;
+        final com.scamera.app.processing.LiveRawFrame.Frame f = v.frame;
+        mergedNoise(f.noiseS, f.noiseO);
+        settings.evWhite = WhySkyMask.evOffset(f.iso, f.exposureNs / 1e9, aperture, inScale);
+        final WhyAe.Settings s = settings.copy();
+        final boolean quads = skyWanted;
+        final float scale = inScale;
+        final double logP = track.logP();
+        final int session = trackedSession;
+        final com.scamera.app.processing.LiveWhyMeter m = meter;
+        final java.util.concurrent.CountDownLatch done = new java.util.concurrent.CountDownLatch(1);
+        com.scamera.app.processing.LiveRawFrame.offThreadReader(done);
+        try {
+            metering = METER.submit(() -> {
+                try {
+                    final long t0 = System.nanoTime();
+                    m.keepQuads = quads;
+                    final WhyAe.Result r = m.measure(v, scale, s, f.iso, f.maxAnalogIso);
+                    com.scamera.app.processing.VfStages.note(com.scamera.app.processing.VfStages.Stage.METER, System.nanoTime() - t0);
+                    if (r == null) return new Metered(v, session, logP, null, null, null, null);
+                    final int[] grid = m.lastGrid();
+                    final float[] cells = m.lastCells(), q = m.lastQuads();
+                    return new Metered(v, session, logP, r,
+                            cells == null ? null : java.util.Arrays.copyOf(cells, Math.min(cells.length, grid[0] * grid[1] * 3)), grid,
+                            q == null ? null : java.util.Arrays.copyOf(q, Math.min(q.length, grid[0] * grid[1] * 12)));
+                } finally {
+                    done.countDown();
+                }
+            });
+        } catch (RuntimeException e) {
+            done.countDown();
+            metering = null;
+            return;
+        }
+        meterThread = 1;
+        // P383's cadence from this frame (its result is applied with the exposure it was metered at)
+        meterAtNs = System.nanoTime();
+        meterNow = false;
+        sinceMeter = 0;
+    }
+
+    /** P683: a finished job's result into the tone (its session's only); {@code wait}: waits for a running one. GL thread. */
+    private void applyMetering(boolean wait) {
+        final java.util.concurrent.Future<Metered> job = metering;
+        if (job == null || !wait && !job.isDone()) return;
+        metering = null;
+        final Metered m;
+        try {
+            m = getUninterruptibly(job);
+        } catch (java.util.concurrent.ExecutionException e) {
+            Log.w(TAG, "viewfinder meter job: " + e.getCause());
+            return;
+        }
+        if (m == null || m.r == null || m.session != trackedSession) return;
+        meteredLogP = m.logP;
+        applyAe(m.v, m.r, m.cells, m.grid, m.quads);
+    }
+
+    /** P683: the meter's job (if any) finished and its result dropped (a reset of the tone). */
+    private void dropMetering() {
+        final java.util.concurrent.Future<Metered> job = metering;
+        metering = null;
+        if (job == null) return;
+        try {
+            getUninterruptibly(job);
+        } catch (java.util.concurrent.ExecutionException ignored) {
+        }
+    }
+
+    private static <T> T getUninterruptibly(java.util.concurrent.Future<T> job) throws java.util.concurrent.ExecutionException {
+        boolean interrupted = false;
+        try {
+            while (true) {
+                try {
+                    return job.get();
+                } catch (InterruptedException e) {
+                    interrupted = true;
+                } catch (java.util.concurrent.CancellationException e) {
+                    return null;
+                }
+            }
+        } finally {
+            if (interrupted) Thread.currentThread().interrupt();
+        }
     }
 
     private void observePortrait(com.scamera.app.processing.LiveWhyMeter.View v) {
@@ -803,9 +965,7 @@ public final class LiveWhyTone {
      * absolute EV (its ISO, exposure time, the lens' f-number, inScale), the photo's top edge now (the gravity's rotation of the
      * sensor, the front mirror) and the AE's ceiling; into LiveSky in the scene's terms of the metered frame.
      */
-    private void decideSky(com.scamera.app.processing.LiveWhyMeter.View v, WhyAe.Result result) {
-        final float[] quads = meter.lastQuads();
-        final int[] grid = meter.lastGrid();
+    private void decideSky(com.scamera.app.processing.LiveWhyMeter.View v, WhyAe.Result result, float[] quads, int[] grid) {
         final com.scamera.app.processing.LiveRawFrame.Frame f = v.frame;
         if (quads == null || grid[0] < 2 || grid[1] < 2) {
             sky.decided(null, 0f, 0.0);

@@ -147,23 +147,108 @@ public final class ZslRing {
         }
     }
 
-    /** P662: the ring part prefaulted slot by slot from slot 0 (the camera fills it in that order), stopped once closed. */
+    /**
+     * P680 (vivo log: «PERF ZSL ring prefault: 50/50 slots x 24 MB in 629 ms» beside «VF_DRAW 24 fps maxGap=452ms» - the whole
+     * ring part prefaulted at once at the session's start, at the default priority, beside the first viewfinder frames): the ring
+     * part is prefaulted a window of this many slots at a time, ahead of the slot the camera writes ({@link #store}), at the
+     * background priority. Slots the camera reaches first take their own faults, as before P662.
+     */
+    static final int PREFAULT_WINDOW = 6;
+
+    /** P680: the ring part's slots to prefault ({@link #prefaultSlots}; 0: none, the switch off). */
+    private int prefaultLimit;
+    /** P680: slots [0, prefaultTo) handed to the memory thread so far. */
+    private int prefaultTo;
+
+    /**
+     * P680: the end of the next prefault window once the camera writes {@code writeSlot} - {@code prefaultTo} itself (none due)
+     * while the slots handed out are still half a window or more ahead of it, else up to {@link #PREFAULT_WINDOW} past the
+     * windows handed out (never past {@code limit}).
+     */
+    static int nextPrefaultEnd(int writeSlot, int prefaultTo, int limit, int window) {
+        if (prefaultTo >= limit || window <= 0) return prefaultTo;
+        if (writeSlot + Math.max(1, window / 2) < prefaultTo) return prefaultTo;
+        return Math.min(limit, Math.max(prefaultTo, writeSlot + 1) + window);
+    }
+
+    /** P662 / P680: the first window of the ring part, from slot 0 (the camera fills it in that order). */
     private void prefaultLater() {
         final int count = prefaultSlots(slots, spare, fullRes);
         if (count <= 0 || !prefaultOn()) return;
+        final int end;
+        synchronized (this) {
+            prefaultLimit = count;
+            end = prefaultTo = nextPrefaultEnd(-1, 0, count, PREFAULT_WINDOW);
+        }
+        prefaultWindow(0, end, -1);
+    }
+
+    /** P680: slots [from, to) prefaulted on the memory thread at the background priority, stopped once closed. */
+    private void prefaultWindow(int from, int to, int writeSlot) {
+        if (to <= from) return;
         try {
             MEMORY.execute(() -> {
+                final int restore = threadPriority();
+                setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);
                 final long start = System.nanoTime();
                 int done = 0;
-                for (int i = 0; i < count && !closed; i++) {
-                    if (!Allocator.arenaPrefault(id, offset(i), slotBytes)) break;
-                    done++;
+                trace("ZslRing.prefault");
+                try {
+                    for (int i = from; i < to && !closed; i++) {
+                        if (!Allocator.arenaPrefault(id, offset(i), slotBytes)) break;
+                        done++;
+                    }
+                } finally {
+                    endTrace();
+                    setThreadPriority(restore);
                 }
-                Log.i(TAG, "PERF ZSL ring prefault: " + done + "/" + count + " slots x " + (slotBytes >> 20) + " MB in "
-                        + (System.nanoTime() - start) / 1_000_000 + " ms (off the camera thread" + (closed ? ", closed meanwhile)" : ")"));
+                Log.i(TAG, "PERF ZSL ring prefault window " + from + "-" + (to - 1) + ": " + done + "/" + (to - from) + " slots x "
+                        + (slotBytes >> 20) + " MB in " + (System.nanoTime() - start) / 1_000_000 + " ms (camera at slot " + writeSlot
+                        + ", ring part " + prefaultLimit + ", background priority" + (closed ? ", closed meanwhile)" : ")"));
             });
         } catch (RuntimeException ignored) {
             // the copies take the faults, as before
+        }
+    }
+
+    /** P680: the window due once the camera took {@code slot} (store), handed to the memory thread. */
+    private void prefaultAhead(int slot) {
+        final int from, to;
+        synchronized (this) {
+            from = prefaultTo;
+            to = nextPrefaultEnd(slot, prefaultTo, prefaultLimit, PREFAULT_WINDOW);
+            if (to <= from) return;
+            prefaultTo = to;
+        }
+        prefaultWindow(from, to, slot);
+    }
+
+    private static int threadPriority() {
+        try {
+            return android.os.Process.getThreadPriority(android.os.Process.myTid());
+        } catch (RuntimeException | LinkageError e) {
+            return android.os.Process.THREAD_PRIORITY_DEFAULT;
+        }
+    }
+
+    private static void setThreadPriority(int priority) {
+        try {
+            android.os.Process.setThreadPriority(priority);
+        } catch (RuntimeException | LinkageError ignored) {
+        }
+    }
+
+    private static void trace(String name) {
+        try {
+            android.os.Trace.beginSection(name);
+        } catch (RuntimeException | LinkageError ignored) {
+        }
+    }
+
+    private static void endTrace() {
+        try {
+            android.os.Trace.endSection();
+        } catch (RuntimeException | LinkageError ignored) {
         }
     }
 
@@ -209,7 +294,9 @@ public final class ZslRing {
         final long slot = (frameBytes + 4095) & ~4095L;
         final int wanted = ringFrames + SPARE;
         final long waited = awaitReleases(RELEASE_WAIT_MS); // P662: the previous ring's memory back before the budget is read
-        final int fit = budgetSlots(context, slot);
+        final com.scamera.app.util.RamClass ram = com.scamera.app.util.RamClass.get(context);
+        final long avail = availableBytes(context);
+        final int fit = budgetSlots(avail, ram.totalBytes, ram.low(), slot, hybridFrames());
         final int count = Math.max(Math.min(8, ringFrames) + 4, Math.min(wanted, fit));
         final int spare = spareSlots(count, ringFrames);
         final int id = memfd(slot, count);
@@ -217,6 +304,10 @@ public final class ZslRing {
         Log.i(TAG, "ZSL ring in memfd: " + count + " slots x " + (slot >> 20) + " MB (ring " + Math.max(1, count - spare)
                 + " + shot " + spare + ", asked " + ringFrames + ", budget " + fit + ")"
                 + (waited > 0 ? " after " + waited + " ms for the previous ring's release" : ""));
+        if (ram.low()) Log.i(TAG, "ZSL ring sized for the low memory class " + ram + ": budget " + fit + " slots = "
+                + Math.round(LOW_RAM_SHARE * 100) + " % of min(" + (avail >> 20) + " MB available, half the total), at least "
+                + LOW_RAM_FLOOR + ", the merge's " + hybridFrames() + " frames + " + MIN_SPARE + " kept within " + budgetSlots(avail, slot)
+                + " (40 % of the available); «Кадры ZSL» at its default asks " + com.scamera.app.settings.PreferenceKeys.ZSL_BUFFER_LOW_RAM);
         final ZslRing ring = new ZslRing(id, slot, count, spare, false);
         ring.askedRing = ringFrames;
         ring.trimmed = count < wanted;
@@ -317,6 +408,38 @@ public final class ZslRing {
         return (int) Math.max(12, Math.min(128, availBytes * 2 / 5 / slotBytes));
     }
 
+    /** P680: the share of the memory a ring of the low memory class may take (was 40 % of the available on every phone). */
+    static final double LOW_RAM_SHARE = 0.28;
+    /** P680: at least this many slots of the low class's budget. */
+    static final int LOW_RAM_FLOOR = 8;
+    /** P680: the low class's budget when the memory available is not known (the default ring of the class and its shot). */
+    static final int LOW_RAM_UNKNOWN = 46;
+
+    /**
+     * P680: the ring's slots by the memory class. A normal phone keeps {@link #budgetSlots(long, long)} (40 % of the available, at
+     * least 12). A phone of the low class ({@code lowRam}: 8 GB or less, or a low-RAM device) takes {@link #LOW_RAM_SHARE} of the
+     * smaller of the memory available and half the total ({@code totalBytes} - an available figure read just after other apps were
+     * killed overstates what stays free), at least {@link #LOW_RAM_FLOOR}; the merge's {@code hybridFrames} plus the shot's
+     * {@link #MIN_SPARE} stay reachable whenever the usual 40 % of the available holds them.
+     */
+    static int budgetSlots(long availBytes, long totalBytes, boolean lowRam, long slotBytes, int hybridFrames) {
+        if (!lowRam) return budgetSlots(availBytes, slotBytes);
+        if (availBytes <= 0 || slotBytes <= 0) return LOW_RAM_UNKNOWN;
+        final long base = totalBytes > 0 ? Math.min(availBytes, totalBytes / 2) : availBytes;
+        final int share = (int) Math.max(LOW_RAM_FLOOR, Math.min(128, (long) (base * LOW_RAM_SHARE) / slotBytes));
+        final int merge = Math.min(budgetSlots(availBytes, slotBytes), Math.max(0, hybridFrames) + MIN_SPARE);
+        return Math.max(share, merge);
+    }
+
+    /** P680: the merge's N frames (PreferenceKeys.getHybridZslFrames), 0 when the settings cannot be read (tests). */
+    private static int hybridFrames() {
+        try {
+            return com.scamera.app.settings.PreferenceKeys.getHybridZslFrames();
+        } catch (RuntimeException | LinkageError e) {
+            return 0;
+        }
+    }
+
     /** P662: the Allocator arena id of the ring's memfd (the merge worker kept ready for the session holds it). */
     public int arenaId() {
         return id;
@@ -386,9 +509,12 @@ public final class ZslRing {
             if (slot < 0) return null;
             ringOwned[slot] = true;
         }
+        prefaultAhead(slot); // P680: the next window ahead of the camera
+        final long copyStart = System.nanoTime();
         final ByteBuffer view = unpacking
                 ? Allocator.arenaCopyUnpack(id, offset(slot), src, 0, format, width, plane.getRowStride(), height)
                 : Allocator.arenaCopy(id, offset(slot), src, 0, bytes);
+        if (view != null) STORE_PERF.copied(System.nanoTime() - copyStart, need, unpacking);
         if (view == null) {
             synchronized (this) { ringOwned[slot] = false; }
             return null;
@@ -398,6 +524,37 @@ public final class ZslRing {
                 : new Frame(slot, view, image.getTimestamp(), format, width, height, plane.getRowStride(), plane.getPixelStride(), format);
         image.close();
         return f;
+    }
+
+    /** P681: the ring copies' times (the camera thread's), one PERF line per {@link StorePerf#EVERY_MS} at most. */
+    private static final StorePerf STORE_PERF = new StorePerf();
+
+    /** P681: the ZSL store copy time per frame, summed and logged rate-limited (a line per frame would flood the log at 30 fps). */
+    static final class StorePerf {
+        static final long EVERY_MS = 10_000;
+        private long frames, totalNs, maxNs, bytes, lastLogMs;
+        private boolean unpacked;
+
+        synchronized void copied(long ns, long frameBytes, boolean unpack) {
+            frames++;
+            totalNs += ns;
+            maxNs = Math.max(maxNs, ns);
+            bytes = frameBytes;
+            unpacked |= unpack;
+            final long now = android.os.SystemClock.elapsedRealtime();
+            if (lastLogMs == 0) lastLogMs = now;
+            if (now - lastLogMs < EVERY_MS) return;
+            Log.i(TAG, line());
+            lastLogMs = now;
+            frames = totalNs = maxNs = 0;
+            unpacked = false;
+        }
+
+        /** The PERF line of the frames since the last one. */
+        String line() {
+            return String.format(java.util.Locale.ROOT, "PERF ZSL store: %d frames x %d MB%s, copy avg %.2f ms, max %.2f ms",
+                    frames, bytes >> 20, unpacked ? " (unpacked)" : "", frames == 0 ? 0.0 : totalNs / 1e6 / frames, maxNs / 1e6);
+        }
     }
 
     /** P365: a stream format the ring unpacks into its slot (MIPI RAW10 / RAW12 of whole 4-pixel groups). */

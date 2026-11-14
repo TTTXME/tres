@@ -30,8 +30,15 @@ public final class FullResRecipe {
     /** SENSOR_PIXEL_MODE: never set (a HAL whose full size is no maximum-resolution stream), or the capture streams annotated. */
     public enum PixelMode { NEVER, ANNOTATE }
 
-    /** The viewfinder beside the capture RAW: the ISP stream, the camera's own (binned) RAW stream, or both. */
-    public enum Preview { ISP, RAW, BOTH }
+    /**
+     * The viewfinder beside the capture RAW: the ISP stream, the camera's own (binned) RAW stream, or both. P689 FAKE (the owner's
+     * «ISP fake off», P276 / WhyCam's fake off): the RAW viewfinder, the ISP stream configured in the session but in no request -
+     * what keeps the OPPO HAL's focus alive under a RAW viewfinder (the Find X7 Ultra's 50 MP, owner 2026-11-13).
+     */
+    public enum Preview { ISP, RAW, BOTH, FAKE }
+
+    /** P689: the capture RAW's format - RAW_SENSOR (uint16) or packed RAW10 (the X9 Ultra full-size recipe's photo stream). */
+    public static final int RAW16 = 0x20, RAW10 = 0x25;
 
     /** Where a vendor tag goes: the session parameters, every request, both, or the stills only. */
     public enum Target { SESSION, REQUEST, BOTH, STILL }
@@ -118,12 +125,12 @@ public final class FullResRecipe {
     // ---------------------------------------------------------------- the fields
 
     /** The field names (the suffix of a module's preference key, SessionKeys splits at the last '_': no '_' inside). */
-    public static final String ON = "recipe", SIZE = "recipesize", USAGE = "recipeusage", USE_CASE = "recipeusecase",
+    public static final String ON = "recipe", SIZE = "recipesize", FORMAT = "recipeformat", USAGE = "recipeusage", USE_CASE = "recipeusecase",
             COMPANION = "recipecompanion", TAGS = "recipetags", TEMPLATE = "recipetemplate", SESSION = "recipesession",
             FPS = "recipefps", PIXEL_MODE = "recipepixelmode", PREVIEW = "recipepreview", FRAMES = "recipeframes",
             OP_MODE = "recipeopmode", VIEW_TAGS = "recipeviewtags", VIEW_COMPANION = "recipeviewcompanion";
     /** The editable fields, in the page's order. */
-    public static final List<String> FIELDS = Collections.unmodifiableList(java.util.Arrays.asList(SIZE, USAGE, USE_CASE, COMPANION,
+    public static final List<String> FIELDS = Collections.unmodifiableList(java.util.Arrays.asList(SIZE, FORMAT, USAGE, USE_CASE, COMPANION,
             VIEW_COMPANION, TAGS, VIEW_TAGS, TEMPLATE, SESSION, FPS, PIXEL_MODE, PREVIEW, FRAMES, OP_MODE));
 
     /** The templates a field may name, as CameraDevice.TEMPLATE_*. */
@@ -135,6 +142,8 @@ public final class FullResRecipe {
     public final String id;
     /** The capture RAW's size (also one the stream map does not list). */
     public final int width, height;
+    /** P689: the capture RAW's format ({@link #RAW16}: RAW_SENSOR, the engine's as before; {@link #RAW10}). */
+    public final int format;
     /** The RAW reader's usage bits (0: the reader's default). */
     public final long usage;
     /** The vendor stream use case of the capture RAW output (0: none; needs API 33). */
@@ -170,6 +179,7 @@ public final class FullResRecipe {
         id = b.id;
         width = b.width;
         height = b.height;
+        format = b.format;
         usage = b.usage;
         useCase = b.useCase;
         companion = b.companion;
@@ -193,6 +203,7 @@ public final class FullResRecipe {
     public static final class Builder {
         String id = "";
         int width, height;
+        int format = RAW16;
         long usage, useCase;
         Companion companion = Companion.OFF;
         int companionWidth, companionHeight;
@@ -209,6 +220,8 @@ public final class FullResRecipe {
 
         public Builder id(String v) { id = v == null ? "" : v; return this; }
         public Builder size(int w, int h) { width = w; height = h; return this; }
+        /** P689: {@link #RAW16} or {@link #RAW10}; another value keeps RAW_SENSOR. */
+        public Builder format(int v) { format = v == RAW10 ? RAW10 : RAW16; return this; }
         public Builder usage(long v) { usage = v; return this; }
         public Builder useCase(long v) { useCase = v; return this; }
         public Builder companion(Companion c, int w, int h) { companion = c; companionWidth = w; companionHeight = h; return this; }
@@ -227,7 +240,7 @@ public final class FullResRecipe {
     }
 
     public Builder edit() {
-        final Builder b = new Builder().id(id).size(width, height).usage(usage).useCase(useCase)
+        final Builder b = new Builder().id(id).size(width, height).format(format).usage(usage).useCase(useCase)
                 .companion(companion, companionWidth, companionHeight).fps(fpsLow, fpsHigh).pixelMode(pixelMode).preview(preview)
                 .frames(frames).operationMode(operationMode).experimental(experimental).viewTags(viewTags).viewCompanion(viewCompanion);
         b.stillTemplate = stillTemplate;
@@ -253,6 +266,7 @@ public final class FullResRecipe {
     public Map<String, String> fields() {
         final Map<String, String> out = new LinkedHashMap<>();
         out.put(SIZE, width > 0 && height > 0 ? width + "x" + height : "");
+        out.put(FORMAT, formatName(format));
         out.put(USAGE, usage == 0 ? "0" : "0x" + Long.toHexString(usage));
         out.put(USE_CASE, useCase == 0 ? "0" : "0x" + Long.toHexString(useCase));
         out.put(COMPANION, companion == Companion.OFF ? "off" : companion == Companion.VIEWFINDER ? "viewfinder"
@@ -304,6 +318,12 @@ public final class FullResRecipe {
                 final int[] s = size(low);
                 if (s == null) return false;
                 b.size(s[0], s[1]);
+                return true;
+            }
+            case FORMAT: {
+                final Integer f = formatOf(low);
+                if (f == null) return false;
+                b.format(f);
                 return true;
             }
             case USAGE: {
@@ -399,6 +419,19 @@ public final class FullResRecipe {
         }
     }
 
+    /** P689: the text of a capture format - "raw16" (RAW_SENSOR) or "raw10". */
+    public static String formatName(int format) {
+        return format == RAW10 ? "raw10" : "raw16";
+    }
+
+    /** P689: the capture format of a text ("raw16" / "raw_sensor" / "raw10", empty: raw16); null for another. */
+    @Nullable
+    static Integer formatOf(String low) {
+        if (low.isEmpty() || low.equals("raw16") || low.equals("raw_sensor")) return RAW16;
+        if (low.equals("raw10")) return RAW10;
+        return null;
+    }
+
     /** yes / no (also 1 / 0, on / off, true / false); null for any other text. */
     @Nullable
     static Boolean yesNo(String low) {
@@ -457,7 +490,8 @@ public final class FullResRecipe {
         if (width <= 0 || height <= 0) out.add("size");
         if (useCase != 0 && sdk < 33) out.add("usecase:33");
         if (pixelMode == PixelMode.ANNOTATE && sdk < 31) out.add("pixelmode:31");
-        if (companion == Companion.VIEWFINDER && preview == Preview.RAW) out.add("companion:viewfinder");
+        // P689: nor with the ISP stream as fake off (no request may target it)
+        if (companion == Companion.VIEWFINDER && (preview == Preview.RAW || preview == Preview.FAKE)) out.add("companion:viewfinder");
         if (companion == Companion.VIEWFINDER && pixelMode == PixelMode.ANNOTATE) out.add("companion:pixelmode");
         // P653: a MAXIMUM_RESOLUTION companion cannot be a target of the DEFAULT viewfinder request
         if (viewCompanion && companion == Companion.YUV && pixelMode == PixelMode.ANNOTATE) out.add("viewcompanion:pixelmode");
@@ -468,7 +502,11 @@ public final class FullResRecipe {
     /** What identifies the running profile (the failure memory: a changed field is a new trial). */
     public String signature() {
         final StringBuilder sb = new StringBuilder();
-        for (Map.Entry<String, String> e : fields().entrySet()) sb.append(e.getKey()).append('=').append(e.getValue().replace('\n', ';')).append('|');
+        for (Map.Entry<String, String> e : fields().entrySet()) {
+            // P689: RAW_SENSOR, every profile's capture before the field, leaves the stored proofs and failures as they were
+            if (FORMAT.equals(e.getKey()) && format == RAW16) continue;
+            sb.append(e.getKey()).append('=').append(e.getValue().replace('\n', ';')).append('|');
+        }
         return sb.toString();
     }
 

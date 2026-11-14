@@ -297,6 +297,7 @@ public class Gyro {
         framePath = 0;
         collecting = true;
         capturingNumber++;
+        com.scamera.app.processing.ImageSaver.framesChanged(); // P680: the series wait counts the frames started
     }
 
     /**

@@ -87,14 +87,27 @@ public class YuvMergeSessionTest {
     @Test public void theRouteIsEightBitUnlessTenBitIsSwitchedOn() throws Exception {
         // the series after the shutter runs in the session's stream (it never reconfigures): one default for every session
         assertFalse(YuvMergeRoute.TEN_BIT_DEFAULT);
+        // P692 (owner, 2026-11-14): two switches of the lens - «Склейка YUV 8 бит» and «Склейка YUV 10 бит» - instead of the
+        // route switch and one global «YUV: 10 бит» row: the global row is gone, the lens's 10-bit switch is off unless stored
         final NodeList rows = DocumentBuilderFactory.newInstance().newDocumentBuilder()
                 .parse(new File("src/main/res/xml/preferences.xml")).getElementsByTagName("SwitchPreferenceCompat");
-        String xml = null;
-        for (int i = 0; i < rows.getLength(); i++) {
-            final Element e = (Element) rows.item(i);
-            if ("pref_scam_hybrid_yuv_10bit".equals(e.getAttribute("android:key"))) xml = e.getAttribute("android:defaultValue");
-        }
-        assertEquals("the row's default is the code's", String.valueOf(YuvMergeRoute.TEN_BIT_DEFAULT), xml);
+        for (int i = 0; i < rows.getLength(); i++)
+            assertFalse("no global 10-bit row", "pref_scam_hybrid_yuv_10bit".equals(((Element) rows.item(i)).getAttribute("android:key")));
+        final Map<String, Object> values = new HashMap<>();
+        assertFalse(YuvMergeRoute.tenOn(values, "front0", "1", true));
+        assertTrue("the X200 Pro front: 8 bits by default", YuvMergeRoute.on(values, "front0", "1", true));
+        values.put(YuvMergeRoute.key10("back0"), Boolean.TRUE);
+        assertTrue(YuvMergeRoute.tenOn(values, "back0", "3", false));
+        assertTrue("10 bits alone turns the route on", YuvMergeRoute.on(values, "back0", "3", false));
+        assertFalse(YuvMergeRoute.eightOn(values, "back0", "3", false));
+        // a phone that had the former global row on keeps 10 bits on the lenses whose route is on
+        final Map<String, Object> former = new HashMap<>();
+        former.put("pref_scam_hybrid_yuv_10bit", Boolean.TRUE);
+        former.put(YuvMergeRoute.key("back2"), Boolean.TRUE);
+        assertTrue(YuvMergeRoute.tenOn(former, "back2", "3", false));
+        assertFalse("a lens with the route off stays off", YuvMergeRoute.tenOn(former, "back0", "3", false));
+        former.put(YuvMergeRoute.key10("back2"), Boolean.FALSE);
+        assertFalse("the lens's own switch wins", YuvMergeRoute.tenOn(former, "back2", "3", false));
     }
 
     @Test public void anHlgFramesRangeIsItsDataspaces() {

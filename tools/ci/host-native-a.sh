@@ -50,5 +50,6 @@ python3 tools/check_bayer_quads_memory.py
 
 # P646 «Склейка YUV»: the port == the owner's reference (tools/yuv-merge-ref) on random 8-bit bursts, both profiles; 16-bit samples;
 # our alignment, the burst's own noise LUT, the sharpest base, guided chroma, the linear bracket (no ghost, highlights back), HLG P010; P667: HLG10 (range declared) = the 8-bit path
+# P691: the 8-bit decode = the scene for the capture curve on a camera that honours the inputs and one that takes the outputs at even inputs; the curve check
 g++ -pthread -std=c++17 -O2 -ffp-contract=off -fsanitize=address,undefined -Iapp/src/main/cpp -Itools/yuv-merge-ref tools/check_yuv_merge.cpp -o /tmp/check-yuv-merge
 ASAN_OPTIONS=detect_leaks=0 /tmp/check-yuv-merge

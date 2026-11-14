@@ -3749,6 +3749,37 @@ uniform float u_ev_scale; // k = 1.0 / exposure_factor
 uniform int u_is_first_short;
 uniform float u_err_thresh;
 uniform vec3 u_wb; // P497: the white balance gains (the short frame's colour for the strict check)
+// P686 (owner, 2026-11-14, a 50 MP Quad shot: sunlit windows pink with white islands): HALF texels per colour run, 0 = a Bayer quad
+// per texel (as before); 1 = Quad, 2 = Tetra: one colour per texel, the colours alternate every u_block texels. The short frame's
+// texel nearest the flow was of another colour wherever the flow crossed an odd run (2.9 quads on the owner's frame 14): G against R
+// x 8 refused it wherever the base measured a channel (sky 1 .. 2.8 x white: R measured, G / B clipped), the MIN over the frames and
+// the quarantine left islands, and the base's partial clip (pink) between them. Now the nearest texel of the base texel's colour
+// and the short frame's colour from its cells around (the 3 x 3 average read four colours as one).
+uniform int u_block;
+uniform int u_cfa_pattern; // P686: the pattern of the colour blocks (u_block > 0)
+const int k_hv_cfa[16] = int[16](0, 1, 2, 3, 1, 0, 3, 2, 2, 3, 0, 1, 3, 2, 1, 0);
+int hvSame(float s, int p, int k, int n) { // the texel nearest s (texel centres at integers) of p's colour run parity
+    int t = clamp(int(floor(s + 0.5)), 0, n - 1);
+    if (((t / k) & 1) == ((p / k) & 1)) return t;
+    int r0 = (t / k) * k, lo = r0 - 1, hi = r0 + k;
+    int c = abs(s - float(lo)) <= abs(float(hi) - s) ? lo : hi;
+    if (c < 0) c = hi;
+    if (c > n - 1) c = lo;
+    return c;
+}
+vec3 hvColour(ivec2 q, ivec2 n) { // the short frame's (R, G, B) above black around texel q: own cell, the other colours beside it
+    int k = u_block, pat = clamp(u_cfa_pattern, 0, 3);
+    int ph = (((q.y / k) & 1) << 1) | ((q.x / k) & 1);
+    int xl = max((q.x / k) * k - 1, 0), xr = min((q.x / k) * k + k, n.x - 1), yu = max((q.y / k) * k - 1, 0), yd = min((q.y / k) * k + k, n.y - 1);
+    float c[4] = float[4](0.0, 0.0, 0.0, 0.0);
+    float own = dot(max(texelFetch(u_short_bayer, q, 0) - u_black_level, vec4(0.0)), vec4(0.25));
+    float mx = 0.5 * dot(max(texelFetch(u_short_bayer, ivec2(xl, q.y), 0) - u_black_level, vec4(0.0)) + max(texelFetch(u_short_bayer, ivec2(xr, q.y), 0) - u_black_level, vec4(0.0)), vec4(0.25));
+    float my = 0.5 * dot(max(texelFetch(u_short_bayer, ivec2(q.x, yu), 0) - u_black_level, vec4(0.0)) + max(texelFetch(u_short_bayer, ivec2(q.x, yd), 0) - u_black_level, vec4(0.0)), vec4(0.25));
+    float md = 0.25 * dot(max(texelFetch(u_short_bayer, ivec2(xl, yu), 0) - u_black_level, vec4(0.0)) + max(texelFetch(u_short_bayer, ivec2(xr, yu), 0) - u_black_level, vec4(0.0))
+                        + max(texelFetch(u_short_bayer, ivec2(xl, yd), 0) - u_black_level, vec4(0.0)) + max(texelFetch(u_short_bayer, ivec2(xr, yd), 0) - u_black_level, vec4(0.0)), vec4(0.25));
+    c[k_hv_cfa[pat * 4 + ph]] = own; c[k_hv_cfa[pat * 4 + (ph ^ 1)]] = mx; c[k_hv_cfa[pat * 4 + (ph ^ 2)]] = my; c[k_hv_cfa[pat * 4 + (ph ^ 3)]] = md;
+    return vec3(c[0], 0.5 * (c[1] + c[2]), c[3]);
+}
 
 void main() {
     float mask = texture(u_input_mask, tex_coord).r;
@@ -3774,7 +3805,13 @@ void main() {
     vec4 b_norm = clamp((base_q - u_black_level) * norm, 0.0, 1.0);
     vec3 base3 = vec3(b_norm.r, 0.5 * (b_norm.g + b_norm.b), b_norm.a);
 
-    vec4 short_q = texture(u_short_bayer, short_tc);
+    ivec2 hv_n = textureSize(u_short_bayer, 0), hv_q = ivec2(0);
+    if (u_block > 0) { // P686: the nearest texel of the base texel's colour
+        ivec2 p = ivec2(floor(tex_coord * vec2(textureSize(u_base_bayer, 0))));
+        vec2 st = short_tc * vec2(hv_n) - 0.5;
+        hv_q = ivec2(hvSame(st.x, p.x, u_block, hv_n.x), hvSame(st.y, p.y, u_block, hv_n.y));
+    }
+    vec4 short_q = u_block > 0 ? texelFetch(u_short_bayer, hv_q, 0) : texture(u_short_bayer, short_tc);
     vec4 s_norm = clamp((short_q - u_black_level) * norm, 0.0, 1.0);
     vec3 short3 = vec3(s_norm.r, 0.5 * (s_norm.g + s_norm.b), s_norm.a);
 
@@ -3805,10 +3842,13 @@ void main() {
     // rings of a PC's fans (scam_burst-20261020-193420) and left the base's white
     // its colour from the 3 x 3 quads around (the gained short frame's noise in a dark copy read as colour: a hairline came back)
     vec3 avg3 = vec3(0.0);
+    if (u_block > 0) avg3 = hvColour(hv_q, hv_n); // P686
+    else {
     vec2 sstep = vec2(1.0) / vec2(textureSize(u_short_bayer, 0));
     for (int dy = -1; dy <= 1; ++dy) for (int dx = -1; dx <= 1; ++dx) {
         vec4 qn = max(texture(u_short_bayer, short_tc + vec2(float(dx), float(dy)) * sstep) - u_black_level, vec4(0.0));
         avg3 += vec3(qn.r, 0.5 * (qn.g + qn.b), qn.a);
+    }
     }
     vec3 us_wb = avg3 * u_wb;
     float us_sat = (max(us_wb.r, max(us_wb.g, us_wb.b)) - min(us_wb.r, min(us_wb.g, us_wb.b))) / max(max(us_wb.r, max(us_wb.g, us_wb.b)), 1.0e-4);
@@ -4281,6 +4321,15 @@ uniform int u_cfa_pattern;
 uniform vec4 u_black_level;
 uniform float u_white_level;
 uniform vec4 u_wb_gains;
+// P686 (owner, 2026-11-14, a 50 MP Quad shot: «на фото у нас артефакты в окнах»: sunlit windows pink with white islands): HALF
+// texels per colour run. 0 = a texel holds one Bayer quad (R, Gr, Gb, B: the reference's layout, as before). 1 = Quad, 2 = Tetra:
+// a texel holds four sites of ONE colour; read as R, Gr, Gb, B it lifted every near-clipped cell of the short frame to the brightest
+// "channel" of its own four sites x the white balance (sites x 1 / 2.84 / 2.84 / 1.93, mean x 2.15 at a neutral 0.35 / 0.68: the
+// windows' short-frame light at 17.2 x white in place of its clip 8, a per-cell lattice). The texel's colour and the three other
+// colours from the nearest cells of each (the runs beside it), the same rule per site of its own colour.
+uniform int u_block;
+uniform int u_row1; // P686: rows from here on were not unpacked (a row strip's end; 0 = u_height)
+const int k_sr_cfa[16] = int[16](0, 1, 2, 3, 1, 0, 3, 2, 2, 3, 0, 1, 3, 2, 1, 0);
 
 void main() {
     ivec2 pos = ivec2(gl_GlobalInvocationID.xy) + ivec2(0, u_row0); // P497: a row strip's rows only
@@ -4292,6 +4341,45 @@ void main() {
     float norm = 1.0 / max(1.0, u_white_level - bl);
 
     vec4 q_norm = max(vec4(0.0), (quad - u_black_level) * norm);
+
+    if (u_block > 0) { // P686: Quad / Tetra
+        int k = u_block, pat = clamp(u_cfa_pattern, 0, 3);
+        int y1 = u_row1 > 0 ? min(u_row1, u_height) : u_height;
+        int ph = (((pos.y / k) & 1) << 1) | ((pos.x / k) & 1);
+        int xl = (pos.x / k) * k - 1, xr = (pos.x / k) * k + k, yu = (pos.y / k) * k - 1, yd = (pos.y / k) * k + k;
+        bool hl = xl >= 0, hr = xr < u_width, vu = yu >= u_row0, vd = yd < y1;
+        // the cells' means (normalised): own, the other colour along x, along y, diagonal
+        vec4 sx = vec4(0.0), sy = vec4(0.0), sd = vec4(0.0);
+        float nx = 0.0, ny = 0.0, nd = 0.0;
+        if (hl) { sx += texelFetch(u_input_extracted, ivec2(xl, pos.y), 0); nx += 1.0; }
+        if (hr) { sx += texelFetch(u_input_extracted, ivec2(xr, pos.y), 0); nx += 1.0; }
+        if (vu) { sy += texelFetch(u_input_extracted, ivec2(pos.x, yu), 0); ny += 1.0; }
+        if (vd) { sy += texelFetch(u_input_extracted, ivec2(pos.x, yd), 0); ny += 1.0; }
+        if (hl && vu) { sd += texelFetch(u_input_extracted, ivec2(xl, yu), 0); nd += 1.0; }
+        if (hr && vu) { sd += texelFetch(u_input_extracted, ivec2(xr, yu), 0); nd += 1.0; }
+        if (hl && vd) { sd += texelFetch(u_input_extracted, ivec2(xl, yd), 0); nd += 1.0; }
+        if (hr && vd) { sd += texelFetch(u_input_extracted, ivec2(xr, yd), 0); nd += 1.0; }
+        float own = dot(q_norm, vec4(0.25));
+        float mx = nx > 0.0 ? dot(max(vec4(0.0), (sx / nx - u_black_level) * norm), vec4(0.25)) : own;
+        float my = ny > 0.0 ? dot(max(vec4(0.0), (sy / ny - u_black_level) * norm), vec4(0.25)) : own;
+        float md = nd > 0.0 ? dot(max(vec4(0.0), (sd / nd - u_black_level) * norm), vec4(0.25)) : own;
+        float cm[4] = float[4](0.0, 0.0, 0.0, 0.0);
+        int oc = k_sr_cfa[pat * 4 + ph];
+        cm[oc] = own; cm[k_sr_cfa[pat * 4 + (ph ^ 1)]] = mx; cm[k_sr_cfa[pat * 4 + (ph ^ 2)]] = my; cm[k_sr_cfa[pat * 4 + (ph ^ 3)]] = md;
+        float g_c = 0.5 * (cm[1] + cm[2]);
+        vec3 swb = max(u_wb_gains.rgb, vec3(0.001));
+        float c_max = max(cm[0], max(g_c, cm[3])), c_min = min(cm[0], min(g_c, cm[3]));
+        float ach = clamp((c_min / max(c_max, 1.0e-5) - 0.35) / (0.65 - 0.35), 0.0, 1.0);
+        float gate = clamp((c_max - 0.75) / (0.85 - 0.75), 0.0, 1.0);
+        float rec = ach * gate;
+        if (rec > 0.001) {
+            float max_c = max(cm[0] * swb.r, max(g_c * swb.g, cm[3] * swb.b));
+            float wb_own = oc == 0 ? swb.r : (oc == 3 ? swb.b : swb.g);
+            quad = mix(q_norm, vec4(max_c / wb_own), rec) / norm + u_black_level;
+        }
+        imageStore(u_output_extracted, pos, quad);
+        return;
+    }
 
     float r_raw, gr_raw, gb_raw, b_raw;
     if (u_cfa_pattern == 1) { // GRBG: (0,0)=Gr, (1,0)=R, (0,1)=B, (1,1)=Gb

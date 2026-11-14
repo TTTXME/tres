@@ -345,10 +345,14 @@ public class VivoSdkRawSessionTest {
     @Test public void theCameraGivesTheLeaseBackWhereverACameraEnds() throws Exception {
         final String c = source("src/main/java/com/scamera/app/capture/CaptureController.java");
         // a closed device: at once, on the lease thread; no device (an open that failed): too
-        ordered(c, "public void closeCamera() {", "device.close();", "giveIszLeaseBack();", "} else if (!wasOpening) {",
-                "closeVivoSdkRawSession(null);", "giveIszLeaseBack();");
+        // P680: the lease (and the SDK session) of the camera that closes is taken when the close is scheduled
+        ordered(c, "public void closeCamera() {", "final VivoSdkRawSession leaseAtClose = mIszLease;",
+                "final VivoSdkRawSession sdkAtClose = mVivoSdkRawSession;", "device.close();", "giveIszLeaseBack(leaseAtClose);",
+                "} else if (!wasOpening) {", "if (mVivoSdkRawSession == sdkAtClose) closeVivoSdkRawSession(null);",
+                "giveIszLeaseBack(leaseAtClose);");
         // only the lease of the camera that closed, and a look 1.2 s later
-        ordered(c, "private void giveIszLeaseBack() {", "final VivoSdkRawSession lease = mIszLease;", "LeaseGuard.executor().execute(",
+        ordered(c, "private void giveIszLeaseBack() {", "giveIszLeaseBack(mIszLease);",
+                "private void giveIszLeaseBack(@Nullable VivoSdkRawSession lease) {", "LeaseGuard.executor().execute(",
                 "if (mIszLease == lease) closeIszLease();", "LeaseGuard.later(this::leaseWithoutCamera, 1200);");
         ordered(c, "private void leaseWithoutCamera() {", "if (mCameraDevice == null && !mCameraOpening.get()) {", "closeIszLease();",
                 "closeVivoSdkRawSession(mVivoSdkRawDevice);", "LeaseGuard.sweep(\"a camera closed\", 0);");

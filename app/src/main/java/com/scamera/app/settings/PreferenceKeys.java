@@ -1471,8 +1471,27 @@ public class PreferenceKeys {
      * Global pre-shutter RAW capacity, independent of mode, lens and merge count.
      */
     public static int getZslBufferCountValue() {
-        return Math.max(1, Math.min(100,
-                settings.getInteger(SCOPE_GLOBAL, Key.KEY_ZSL_BUFFER_COUNT, 50).intValue()));
+        final int stored = Math.max(1, Math.min(100,
+                settings.getInteger(SCOPE_GLOBAL, Key.KEY_ZSL_BUFFER_COUNT, ZSL_BUFFER_DEFAULT).intValue()));
+        return zslBufferCount(stored, com.scamera.app.util.RamClass.get().low());
+    }
+
+    /** The «Кадры ZSL» default (res/values pref_zsl_buffer_count_default; SettingsMigration.migrateMultiFrame stores it). */
+    public static final int ZSL_BUFFER_DEFAULT = 50;
+    /**
+     * P680 (performance audit): the ring a phone of the low memory class ({@link com.scamera.app.util.RamClass}: 8 GB or less, or a
+     * low-RAM device) gets while «Кадры ZSL» stays at its default - 38 frames of 24 MB instead of 50 (900 MB of memfd instead of
+     * 1.2 GB); the merge's own frame count still keeps the ring at least that long (CaptureController.zslRingCapacity).
+     */
+    public static final int ZSL_BUFFER_LOW_RAM = 38;
+
+    /**
+     * P680: the ring's frame count of a {@code stored} «Кадры ZSL» value: the value the user set as it is; the default
+     * ({@link #ZSL_BUFFER_DEFAULT}, the value every install stores) on a phone of the low memory class becomes
+     * {@link #ZSL_BUFFER_LOW_RAM}.
+     */
+    public static int zslBufferCount(int stored, boolean lowRam) {
+        return lowRam && stored == ZSL_BUFFER_DEFAULT ? ZSL_BUFFER_LOW_RAM : stored;
     }
 
     public static int getAlignMethodValue() {

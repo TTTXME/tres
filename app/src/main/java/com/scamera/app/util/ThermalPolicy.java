@@ -120,6 +120,11 @@ public final class ThermalPolicy {
         return defaultBusyVfFps == 30 && busy(android.os.SystemClock.elapsedRealtimeNanos());
     }
 
+    /** P683: a shot is being processed now (on any device; {@link #reducedRawViewfinder} only where the busy viewfinder keeps 30 fps). */
+    public static boolean processingNow() {
+        return busy(android.os.SystemClock.elapsedRealtimeNanos());
+    }
+
     /** P353: a shot is being processed (set less than {@link #BUSY_MAX_NS} ago). */
     static boolean busy(long nowNs) {
         final long since = busySinceNs;

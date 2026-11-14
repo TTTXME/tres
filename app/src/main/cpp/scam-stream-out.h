@@ -74,12 +74,14 @@ public:
     }
     // The fast merge route (hybridFinalHalvesHook): rows [y0, y1) already as halves (src: the GPU's mapped buffer), copied on all
     // cores with their sum / max; y0 == 0 starts the stream; src null with y0 < 0 commits identity as the result. false: not taken.
+    // P685: src null, y0 0, y1 -1 prepares a sparse reservation (any size; the memfd sized, its pages come as the rows are copied):
+    // the fast route's row bands above 1 GiB, whose rows come band by band (no whole reservation beside the merge's peak)
     bool halves(const uint16_t* src,int width,int height,int y0,int y1,const float* identity) noexcept {
         std::lock_guard<std::mutex> guard(lock);
         try{
-            if(!src&&y0==0&&y1==0){ // prepare (a thread beside the merge): the reservation and its mapping with every page in place
-                reset(width,height);data=identity;
-                if(!failed&&!map)open(true);
+            if(!src&&y0==0&&(y1==0||y1==-1)){ // prepare (a thread beside the merge): the reservation and its mapping with every page in place
+                reset(width,height,y1==-1);data=identity;
+                if(!failed&&!map)open(y1==0);
                 return !failed;
             }
             if(!src){committed=!failed&&y0<0&&identity==data&&done==h&&h>0&&width==w&&height==h;return committed;}
@@ -131,17 +133,17 @@ public:
     std::string reason() const {return why;}
     int rows() const {return done;}
 private:
-    void reset(int width,int height){
+    void reset(int width,int height,bool sparseOk=false){
         const size_t want=width>0&&height>0?size_t(width)*size_t(height)*6:0;
-        if(want!=bytes)dropLocked();
-        w=width;h=height;bytes=want;data=nullptr;done=0;sum=0;maximum=0;committed=false;failed=false;why.clear();
-        if(want==0||want>kMaxBytes)fail(want?"the RGB above 1 GiB":"no size");
+        if(want!=bytes||sparseOk!=sparse)dropLocked();
+        w=width;h=height;bytes=want;data=nullptr;done=0;sum=0;maximum=0;committed=false;failed=false;why.clear();sparse=sparseOk;
+        if(want==0||(want>kMaxBytes&&!sparse))fail(want?"the RGB above 1 GiB":"no size");
     }
     bool open(bool populate=false){
         struct stat st{};
         if(fd<0||fstat(fd,&st)!=0||!S_ISREG(st.st_mode)||st.st_size!=0||lseek(fd,0,SEEK_CUR)!=0){fail("the output is not an empty memfd");return false;}
         sized=true; // (empty until now: a failed reservation leaves it empty)
-        if(fallocate(fd,0,0,off_t(bytes))!=0){fail("no reservation");dropLocked();return false;}
+        if((sparse?ftruncate(fd,off_t(bytes)):fallocate(fd,0,0,off_t(bytes)))!=0){fail("no reservation");dropLocked();return false;}
         void* p=mmap(nullptr,bytes,PROT_READ|PROT_WRITE,MAP_SHARED|(populate?MAP_POPULATE:0),fd,0);
         if(p==MAP_FAILED){fail("no mapping");dropLocked();return false;}
         map=static_cast<uint16_t*>(p);
@@ -159,6 +161,7 @@ private:
     const float* data=nullptr;int w=0,h=0,done=0;
     double sum=0;float maximum=0;
     bool committed=false,failed=false,taken=false,sized=false; // sized: this stream reserved the memfd
+    bool sparse=false; // P685: sized, not allocated (pages as written)
     std::string why;
 };
 } // namespace scam
