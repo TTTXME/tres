@@ -74,7 +74,7 @@ final class LutTrayModel {
     }
     var anyOn: Bool { tabsOn.contains(true) }
 
-    static func number(_ text: String, _ fallback: Double) -> Double {
+    nonisolated static func number(_ text: String, _ fallback: Double) -> Double {
         Double(text.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: ",", with: ".")) ?? fallback
     }
 
