@@ -31,7 +31,7 @@ import com.scamera.app.util.Log;
  *     decode MP3 (it crashes natively), so it had no shutter sound at all and a synthesized beep for the timer, whatever the
  *     switches said. There the same two sounds play from 16-bit PCM ({@code sound_shutter_pcm.raw} / {@code sound_timer_pcm.raw},
  *     mono 24 kHz, decoded from the MP3s) through a static {@link AudioTrack} - no extractor, no decoder - under the same
- *     switches.</li>
+ *     switches. P683: only the CTS build carries the PCM files (app/src/cts/res, build.gradle).</li>
  * </ul>
  */
 public final class CameraSounds {
@@ -76,6 +76,14 @@ public final class CameraSounds {
         return out;
     }
 
+    /**
+     * P683 (APK size): a PCM sound's raw resource, by name - only the CTS build carries them (app/src/cts/res, build.gradle), the
+     * only package that plays them; 0 (no sound, logged) in a build without them.
+     */
+    private int pcm(String name) {
+        return context.getResources().getIdentifier(name, "raw", context.getPackageName());
+    }
+
     /** A static AudioTrack holding raw resource {@code id} (16-bit mono PCM at PCM_RATE), or null. */
     private AudioTrack pcmTrack(int id) {
         try (InputStream in = context.getResources().openRawResource(id)) {
@@ -115,8 +123,8 @@ public final class CameraSounds {
     public synchronized void load() {
         // PD2454's CTS media path crashes natively in MP3 extraction, including an explicit AOSP decoder: PCM there (P247)
         if (synthesized()) {
-            if (pcmShutter == null) pcmShutter = pcmTrack(R.raw.sound_shutter_pcm);
-            if (pcmTimer == null) pcmTimer = pcmTrack(R.raw.sound_timer_pcm);
+            if (pcmShutter == null) pcmShutter = pcmTrack(pcm("sound_shutter_pcm"));
+            if (pcmTimer == null) pcmTimer = pcmTrack(pcm("sound_timer_pcm"));
             return;
         }
         if (pool == null) {

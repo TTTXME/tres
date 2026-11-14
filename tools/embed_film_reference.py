@@ -1,5 +1,12 @@
 from pathlib import Path
-import argparse,hashlib,json,struct,subprocess
+import argparse,hashlib,json,struct,subprocess,sys
+sys.path.insert(0,str(Path(__file__).resolve().parent))
+import film_pack
+
+# P683 (APK and install size): resources stored with tools/film_pack.py's codec (delta + shuffle + deflate of 4-byte words;
+# film-reference-resources.cpp decodes them at their first use into the same bytes). With useLegacyPackaging the library is
+# also extracted on install: the Hanatos spectra were 11.94 MB of its rodata, 2.49 MB now.
+PACKED=('SpektraHanatos2025Spectra.f32',)
 
 def resource_id(name):
     value=0xcbf29ce484222325
@@ -33,13 +40,18 @@ def main():
         if identity in identities:raise ValueError('Resource ID collision')
         identities.add(identity)
         bundle.extend(bytes((-len(bundle))%16))
-        rows.append(dict(name=name,id=f'{identity:016x}',offset=len(bundle),bytes=len(data),sha256=hashlib.sha256(data).hexdigest()))
-        bundle.extend(data)
+        codec,stored=0,data
+        if name in PACKED:
+            codec,stored=1,film_pack.encode(data,4)
+            if film_pack.decode(stored,4,len(data)//4)!=data:raise ValueError('Packed resource does not decode: '+name)
+        rows.append(dict(name=name,id=f'{identity:016x}',offset=len(bundle),bytes=len(stored),codec=codec,plainBytes=len(data),
+                         sha256=hashlib.sha256(data).hexdigest()))
+        bundle.extend(stored)
     target=args.output/'embedded_film_data.bin';target.write_bytes(bundle)
-    index='#pragma once\nstruct FilmResourceIndex { uint64_t id; size_t offset, bytes; };\n'
+    index='#pragma once\nstruct FilmResourceIndex { uint64_t id; size_t offset, bytes; uint32_t codec; size_t plain; };\n'
     index+='static constexpr size_t kFilmResourceBytes='+str(len(bundle))+';\n'
     index+='static constexpr FilmResourceIndex kFilmResourceIndex[] = {\n'
-    index+=''.join('    {0x'+row['id']+'ull, '+str(row['offset'])+', '+str(row['bytes'])+'},\n' for row in rows)+'};\n'
+    index+=''.join('    {0x'+row['id']+'ull, '+str(row['offset'])+', '+str(row['bytes'])+', '+str(row['codec'])+', '+str(row['plainBytes'])+'},\n' for row in rows)+'};\n'
     (args.output/'embedded_film_index.h').write_bytes(index.encode())
     path=target.resolve().as_posix().replace('"','\\"')
     assembly='''asm(R"scamera(
@@ -55,7 +67,7 @@ scamera_film_blob:
 )scamera");
 '''
     (args.output/'embedded_film_data.cpp').write_bytes(assembly.encode())
-    manifest=dict(format=1,bundleBytes=len(bundle),bundleSha256=hashlib.sha256(bundle).hexdigest(),resources=rows)
+    manifest=dict(format=2,bundleBytes=len(bundle),bundleSha256=hashlib.sha256(bundle).hexdigest(),resources=rows)
     (args.output/'embedded_film_manifest.json').write_text(json.dumps(manifest,indent=2),encoding='utf-8')
     print(json.dumps(dict(resources=len(rows),bytes=len(bundle),sha256=manifest['bundleSha256'])))
 

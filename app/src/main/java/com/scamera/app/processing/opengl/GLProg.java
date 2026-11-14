@@ -187,7 +187,7 @@ public class GLProg implements AutoCloseable {
         final GLProgramDiskCache cache = disk();
         if (cache == null) return;
         GLContext context = null;
-        int done = 0, failed = 0, wanted = 0, built = 0, recipeKeys = 0;
+        int done = 0, failed = 0, wanted = 0, built = 0, recipeKeys = 0, defaultKeys = 0;
         final long t0 = android.os.SystemClock.elapsedRealtime();
         warmTid = android.os.Process.myTid(); // P371 (review m5): a shot waiting for one of its compiles raises this thread
         // P662 (item 3): the shared context the first shot takes (GLContext(w, h, true)) is made here: the recipes' programs linked
@@ -206,9 +206,18 @@ public class GLProg implements AutoCloseable {
             // install compiled every one of them: 46 in 836 ms on the X8U), then the kept sources this driver lacks (P237)
             final java.util.LinkedHashSet<String> keys = new java.util.LinkedHashSet<>();
             if (recipesOn()) {
-                for (String recipe : cache.recipes(RECIPE_WARM_UP_LIMIT)) {
+                final java.util.List<String> kept = cache.recipes(RECIPE_WARM_UP_LIMIT);
+                for (String recipe : kept) {
                     final String key = recipeKey(recipe, GLProg::assetSource);
                     if (key != null && keys.add(key)) recipeKeys++;
+                }
+                // P683: a clean install has kept none («50 compiled in 2004 ms ... disk 0 hit / 50 miss» on its first shot): the
+                // APK's default recipes (assets/shaders/default_recipes.txt, read off the code by tools/make_default_recipes.py)
+                if (kept.isEmpty()) {
+                    for (String recipe : defaultRecipes(assetSource(DEFAULT_RECIPES))) {
+                        final String key = recipeKey(recipe, GLProg::assetSource);
+                        if (key != null && keys.add(key)) defaultKeys++;
+                    }
                 }
             }
             keys.addAll(cache.missingSources(id, WARM_UP_LIMIT));
@@ -256,7 +265,7 @@ public class GLProg implements AutoCloseable {
         }
         Log.i(TAG, "program warm-up: " + done + " of " + wanted + " missing binaries compiled in idle time in "
                 + (android.os.SystemClock.elapsedRealtime() - t0) + " ms" + (failed > 0 ? ", " + failed + " failed" : "")
-                + " (" + recipeKeys + " programs from kept recipes, " + built + " built)"
+                + " (" + recipeKeys + " programs from kept recipes, " + defaultKeys + " from the APK's defaults, " + built + " built)"
                 + (intoShared ? "; shared context: " + linkedShared + " programs linked from driver binaries in " + linkMs + " ms, checks "
                 + (checks.isEmpty() ? "none" : checks) + " in " + checksMs + " ms" : ""));
     }
@@ -393,6 +402,36 @@ public class GLProg implements AutoCloseable {
         } catch (RuntimeException e) {
             return null; // an asset this APK no longer has, an #import gone
         }
+    }
+
+    /** P683: the APK's default recipes (tools/make_default_recipes.py). */
+    static final String DEFAULT_RECIPES = "shaders/default_recipes.txt";
+
+    /**
+     * P683: the recipes of {@code text} - one per line, "<kind A|U> <name> <compute 0|1> NAME=VALUE ..." ('-': no defines; '#':
+     * a comment) - as {@link #recipe} makes them; a damaged line is left out. None for null.
+     */
+    static java.util.List<String> defaultRecipes(String text) {
+        final java.util.List<String> out = new java.util.ArrayList<>();
+        if (text == null) return out;
+        for (String line : text.split("\n")) {
+            line = line.trim();
+            if (line.isEmpty() || line.startsWith("#")) continue;
+            final String[] f = line.split("\\s+");
+            if (f.length < 4 || f[0].length() != 1 || !"AU".contains(f[0]) || !("0".equals(f[2]) || "1".equals(f[2]))) continue;
+            java.util.ArrayList<String[]> defines = null;
+            if (!(f.length == 4 && "-".equals(f[3]))) {
+                defines = new java.util.ArrayList<>();
+                for (int i = 3; i < f.length; i++) {
+                    final int eq = f[i].indexOf('=');
+                    if (eq <= 0) { defines = null; break; }
+                    defines.add(new String[]{f[i].substring(0, eq), f[i].substring(eq + 1)});
+                }
+                if (defines == null) continue;
+            }
+            out.add(recipe(f[0].charAt(0), f[1], "1".equals(f[2]), defines));
+        }
+        return out;
     }
 
     private static String assetSource(String path) {

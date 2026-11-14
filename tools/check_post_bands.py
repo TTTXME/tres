@@ -9,6 +9,8 @@ viewport: its pixel positions come from gl_FragCoord (window-absolute) and its t
 Every fragment shader of the post's asset folders that llvmpipe compiles is rendered with deterministic random textures and
 uniforms over a frame of 200 rows in one draw (the 256-row band of before), then in bands of 16, 48 and 112 rows (each starting on
 a 16-row boundary, the last one shorter) - the RGBA32F bytes must be equal. why/combine also with the photo's defines.
+P683: and in bands of 8 rows - the tiles a picture under 8 MP was drawn in until P683 (PostPipeline then set TILE_ROWS 8), now
+256 as for every other picture: the same pixels prove that change keeps the photo bit for bit.
 """
 import os
 import re
@@ -23,7 +25,7 @@ SH = ROOT / 'app/src/main/assets/shaders'
 DIRS = ['why', 'scamdn', 'scamhdr', 'hlrecovery', 'chromadn', 'scamlc', 'resolvedn', 'film', 'portrait', 'lensgauss',
         'RotateWatermark', 'ultrahdr', 'utils']
 W, H = 96, 200
-BANDS = [16, 48, 112]
+BANDS = [8, 16, 48, 112]
 FAILURES = []
 VS = '#version 310 es\nin vec4 vPosition;\nvoid main(){gl_Position=vPosition;}\n'
 

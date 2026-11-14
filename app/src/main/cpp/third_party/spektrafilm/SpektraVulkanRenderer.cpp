@@ -225,12 +225,15 @@ std::vector<float> readFloatResourceFile(
 std::vector<uint32_t> readShaderResource(const char* name, std::string& error) {
 #if defined(SCAMERA_EMBEDDED_FILM)
   const FilmResource resource = embeddedFilmResource(name);
-  if (!resource.data || !resource.bytes || resource.bytes % sizeof(uint32_t)) {
+  if (!resource.data || !resource.plainBytes || resource.plainBytes % sizeof(uint32_t)) {
     error = "Embedded Vulkan shader is unavailable or invalid.";
     return {};
   }
-  std::vector<uint32_t> data(resource.bytes / sizeof(uint32_t));
-  std::memcpy(data.data(), resource.data, resource.bytes);
+  std::vector<uint32_t> data(resource.plainBytes / sizeof(uint32_t));
+  if (!decodeFilmResource(resource, reinterpret_cast<uint8_t*>(data.data()), resource.plainBytes)) {
+    error = "Embedded Vulkan shader is damaged.";
+    return {};
+  }
   return data;
 #else
   const auto path = findResourcePath(name);
@@ -242,12 +245,17 @@ std::vector<uint32_t> readShaderResource(const char* name, std::string& error) {
 std::vector<float> readFloatResource(const char* name, uint32_t count, std::string& error) {
 #if defined(SCAMERA_EMBEDDED_FILM)
   const FilmResource resource = embeddedFilmResource(name);
-  if (!resource.data || !count || resource.bytes != uint64_t(count) * sizeof(float)) {
+  if (!resource.data || !count || resource.plainBytes != uint64_t(count) * sizeof(float)) {
     error = "Embedded Vulkan float resource is unavailable or invalid.";
     return {};
   }
+  // P683: the Hanatos spectra are stored packed (tools/film_pack.py: 11.9 MB -> 2.5 MB of the library), decoded here at their
+  // first use into the same bytes
   std::vector<float> data(count);
-  std::memcpy(data.data(), resource.data, resource.bytes);
+  if (!decodeFilmResource(resource, reinterpret_cast<uint8_t*>(data.data()), resource.plainBytes)) {
+    error = "Embedded Vulkan float resource is damaged.";
+    return {};
+  }
   return data;
 #else
   const auto path = findResourcePath(name);

@@ -48,7 +48,7 @@ add_custom_command(
            ${FILM_GENERATED}/embedded_film_data.bin ${FILM_GENERATED}/embedded_film_manifest.json
     COMMAND ${Python3_EXECUTABLE} ${FILM_GENERATOR} --compiler ${FILM_SHADER_COMPILER}
             --shaders ${FILM_DIR}/shaders --floats ${FILM_FLOATS} --output ${FILM_GENERATED}
-    DEPENDS ${FILM_GENERATOR} ${FILM_SHADER_SOURCES}
+    DEPENDS ${FILM_GENERATOR} ${SRC_DIR}/../../../../tools/film_pack.py ${FILM_SHADER_SOURCES}
             ${FILM_FLOATS}/SpektraHanatos2025Spectra.f32 ${FILM_FLOATS}/SpektraOutputGamutCompression.f32
     VERBATIM)
 add_library(scameraFilm SHARED film-reference-jni.cpp film-reference-resources.cpp
@@ -61,7 +61,8 @@ target_compile_options(scameraFilm PRIVATE -O2 -fvisibility=hidden -fvisibility-
 target_link_options(scameraFilm PRIVATE -Wl,--exclude-libs,ALL -Wl,--gc-sections
     -Wl,--version-script=${SRC_DIR}/film-reference-exports.map)
 set_property(TARGET scameraFilm APPEND PROPERTY LINK_DEPENDS ${SRC_DIR}/film-reference-exports.map)
-target_link_libraries(scameraFilm PRIVATE vulkan dl log)
+# P683: zlib for the packed Hanatos spectra (film-reference-resources.cpp)
+target_link_libraries(scameraFilm PRIVATE vulkan dl log z)
 
 # P129: scamAe (SCAM HDR's stock AE observer) and the scamProbe launch check went with SCAM HDR; scam-probe.cpp stays
 # (the worker includes it). P175: scamNeuralProbe (the neural remosaic's model probe, loaded by nothing) went with the

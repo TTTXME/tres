@@ -364,6 +364,11 @@ public class MainRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFr
                 final long dropped = com.scamera.app.processing.LiveRawFrame.droppedFrames();
                 if (mVfRawAtNs != 0) {
                     final double s = (now - mVfRawAtNs) / 1e9;
+                    // P683: the window's pace decides the next windows' tone size (RawPreviewLoad: logged when it switches)
+                    final double drawMs = com.scamera.app.processing.VfStages.meanMs(com.scamera.app.processing.VfStages.Stage.DRAW);
+                    if (adaptiveTone() && mToneLoad.window(drawMs, mVfRawFresh / s, (mVfRawFresh + dropped - mVfRawDropped0) / s,
+                            (long) tone[0] * tone[1], mToneFullPixels, com.scamera.app.util.ThermalPolicy.processingNow()))
+                        Log.i("VF_RAW", mToneLoad.last());
                     // P365: the passes of the tone and the camera thread's copies per frame (LiveRawFrame.copyStats)
                     Log.i("VF_RAW", String.format(java.util.Locale.ROOT, "fresh %.1f/s toned %.1f/s reused %.1f/s dropped %.1f/s tone %dx%d passes=%d %s",
                             mVfRawFresh / s, mVfRawToned / s, mVfRawReused / s, (dropped - mVfRawDropped0) / s, tone[0], tone[1], mVfRawPasses,
@@ -630,7 +635,12 @@ public class MainRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFr
         GLES20.glGetIntegerv(GLES20.GL_VIEWPORT, mViewport, 0);
         final com.scamera.app.processing.LiveWhyMeter.View v = mRawRenderer.lastView();
         final boolean busy = com.scamera.app.util.ThermalPolicy.reducedRawViewfinder();
-        if (v == null) return RawPreviewBudget.size(mViewport[2], mViewport[3], busy);
+        // P683: a tone that did not keep up on this GPU at full size (RawPreviewLoad) is drawn at ~1.1 MP
+        final boolean reduced = mToneLoad.reduced() && adaptiveTone();
+        if (v == null) {
+            mToneFullPixels = (long) Math.max(1, mViewport[2]) * Math.max(1, mViewport[3]);
+            return RawPreviewBudget.size(mViewport[2], mViewport[3], busy, reduced);
+        }
         // the crop fitted to the screen, not the one drawn last: that one was fitted to the previous target's rounded aspect, and
         // the two could flip each other every frame (review: 139 of ~84k viewport / frame / zoom cases in a 2-cycle)
         final boolean quarterTurn = Math.abs(turn[1]) > Math.abs(turn[0]);
@@ -638,7 +648,18 @@ public class MainRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFr
         // P616: a zoomed view keeps the whole frame while a shot is processed (LiveRawFrame.viewCap halves only an unzoomed one)
         com.scamera.app.processing.LiveRawFrame.setBusyHalfFits(LiveRawRenderer.halfFits(crop, v.frame.width, v.frame.height));
         final int[] size = LiveRawRenderer.toneSize(mViewport[2], mViewport[3], crop[2], crop[3], v.frame.cfaBlock, quarterTurn);
-        return RawPreviewBudget.size(size[0], size[1], busy);
+        mToneFullPixels = (long) Math.max(1, size[0]) * Math.max(1, size[1]);
+        return RawPreviewBudget.size(size[0], size[1], busy, reduced);
+    }
+
+    /** P683: the RAW viewfinder's tone size follows the GPU's pace (RawPreviewLoad); the full size before a slow window. */
+    private final RawPreviewLoad mToneLoad = new RawPreviewLoad();
+    /** P683: the tone's size before RawPreviewBudget (the last toneSizeNow). */
+    private long mToneFullPixels;
+
+    /** P683: scam_dev vf_adaptive_tone (on by default; 0: the full size whatever the GPU's pace, as before). */
+    private static boolean adaptiveTone() {
+        return com.scamera.app.settings.PreferenceKeys.scamDevSwitch("vf_adaptive_tone", true);
     }
 
     /** P365: the off-screen target goes while the fused tone is drawn straight to the screen (11 MB at 1440 x 1920). */

@@ -203,6 +203,9 @@ def buildScamNeuralWorker = tasks.register('buildScamNeuralWorker', Exec) {
     }
 }
 android.sourceSets.main.jniLibs.srcDir(neuralLibs)
+// P683 (APK size): the PCM copies of the shutter and timer sounds (0.34 MB in the APK) are played only by the CTS package
+// (CameraSounds.synthesized: PD2454's android.camera.cts cannot decode MP3), so only that build carries them
+if (providers.gradleProperty('scameraCtsNativeRaw').orNull == 'true') android.sourceSets.main.res.srcDir('src/cts/res')
 
 tasks.configureEach {
     if (name.startsWith('merge') && name.endsWith('JniLibFolders')) dependsOn(buildScamNeuralWorker)
