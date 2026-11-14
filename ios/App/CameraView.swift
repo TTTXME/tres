@@ -337,7 +337,7 @@ struct CameraView: View {
         }
     }
 
-    private var shutterEnabled: Bool { camera.activity == .idle && camera.status == .running }
+    private var shutterEnabled: Bool { camera.shutterAvailable }
 
     /// The shutter button, and the volume buttons (CameraActivity.dispatchKeyEvent: a click of the shutter while it can be clicked)
     private func pressShutter() {
@@ -359,7 +359,7 @@ struct CameraView: View {
                 .frame(width: 58, height: 58)
                 .background(Color.white.opacity(0.1))
                 .clipShape(RoundedRectangle(cornerRadius: 14))
-                .overlay { if camera.activity != .idle { ProgressView().tint(.white) } }
+                .overlay { if camera.busy { ProgressView().tint(.white) } }
                 .contentShape(Rectangle())
                 .onTapGesture { showingGallery = true }
                 .accessibilityLabel(L("bottom.gallery"))

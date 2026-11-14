@@ -620,6 +620,20 @@ change: `scam-crash.h` keeps only the stage marks on Apple.
 - To see on the phone: Photos takes our DNG as the RAW resource and shows its preview; Lightroom / Apple's RAW decode of it; the
   DNG's time and lens tags; LJ92 with «DNG без потерь»; the shot's extra memory (the mosaic: 2 B a sensor pixel; the file).
 
+## Shot queue (CaptureController's SCAM_PROCESSING, 2026-11-14)
+- An SHDR shot's capture ends when its frames are handed to processing (CameraModel.enqueue: «queued for processing pending=N»,
+  the burst's MB): the camera takes the next shot while it is merged, processed and saved. The shots are processed one at a time
+  in press order (a Task chain; SCAMShot / SCAMDevelop keep processLock for the C++), each one's error said and the queue going on.
+- A press while a burst is captured is kept (at most 4, mScamQueuedShots) and fires when that burst is handed over; a press while
+  shots are processed is taken only when os_proc_available_memory() leaves the next burst (the last burst's frame size x
+  («Кадров для склейки» + 4)) plus 1.5 GB (Android's scamQueueMemoryAvailable margin) - logged as «queue: ...»; otherwise, and for
+  a press while the camera's own photo is saved, Android's note «Предыдущий снимок ещё обрабатывается. Дождитесь завершения.»
+  A 12 MP iPhone burst is 24 MB a frame: 20 N frames + extras ~ 0.5 GB held per queued shot.
+- State for the UI (ProcessingRing is another worktree's): CameraModel.shots ([QueuedShot]: id, press time, stage waiting /
+  processing / saving, bytes), queuedPresses, busy (the gallery button's spinner), shutterAvailable. Settings are read when the
+  shot is processed (as Android's ScamProcessor does), RAW saving at the press. Each shot holds a background task's time
+  (ProcessingKeepAlive: what iOS gives, ~30 s).
+
 ## Re-sync with main P665-P679 (2026-11-14)
 - Ported (output): P666 the shadows' texture test of why_resolve (PostSnr.shadowBand / shadowTexture, flatShadowU, the log's
   «shadow lo..hi»); P672 the fusion without the noise model by default (WhyTone.fusionNoiseModel), bracket_denoise by V2's rule

@@ -3,6 +3,7 @@
 "camera.failed" = "The camera could not start.";
 "camera.interrupted" = "The camera is in use by another app";
 "capture.shutter" = "Take photo";
+"capture.busy" = "The previous shot is still processing. Wait until it finishes.";
 "raw.title" = "RAW";
 "raw.off" = "Off";
 "raw.short_off" = "RAW off";

@@ -1,6 +1,8 @@
 import AVFoundation
 import ImageIO
+import os
 import SwiftUI
+import UIKit
 import UniformTypeIdentifiers
 
 /// Observable state of the camera screen (AVCam CameraModel). Every AVFoundation call goes through CaptureService.
@@ -205,10 +207,82 @@ final class CameraModel {
         await captureService.applyManual(m)
     }
 
+    // MARK: the shot queue (CaptureController: SCAM_PROCESSING, sScamPending, mScamQueuedShots)
+
+    /// A shot handed to processing (its frames captured): waiting behind the shot before it, merged and processed, or saved.
+    struct QueuedShot: Identifiable, Equatable {
+        enum Stage: Equatable { case waiting, processing, saving }
+        let id: UUID
+        let pressed: Date
+        var stage: Stage
+        /// what it holds in memory until it is processed (its frames, DNG and HEIC)
+        let bytes: Int
+    }
+
+    /// The shots handed to processing and not saved yet, oldest first (sScamPending): the first is processed, the others wait.
+    /// One at a time (SCAM_PROCESSING is one thread; SCAMShot's process lock as well), while the camera takes the next shot.
+    private(set) var shots: [QueuedShot] = []
+    /// Presses kept while a burst is being captured (mScamQueuedShots), fired one by one when it is handed to processing.
+    private(set) var queuedPresses = 0
+    /// CaptureController.takePicture: at most this many presses are kept behind a capture.
+    static let maxQueuedPresses = 4
+    /// scamQueueMemoryAvailable: the memory left free beside the next burst for a press while a shot is processed (1.5 GB)
+    static let queueMemoryMargin = 1536 * 1_048_576
+    /// The camera captures or a shot is still processed (the gallery button's spinner).
+    var busy: Bool { activity != .idle || !shots.isEmpty }
+    /// The shutter answers a press (the press itself is then taken, kept behind the capture or refused with a note).
+    var shutterAvailable: Bool { status == .running }
+    private var processingTail: Task<Void, Never>?
+    private var capturingShdr = false
+    /// one frame of the last SHDR burst (bytes), for the next burst's size
+    private var lastFrameBytes = 12_000_000 * 2
+
+    /// The memory a burst of the shot about to be pressed takes (the last burst's frame size x «Кадров для склейки» + its extras).
+    private var nextBurstBytes: Int { lastFrameBytes * (burstFrames + 4) }
+
+    /// CaptureController.scamQueueMemoryAvailable: a press while shots are processed only when the next burst fits beside the
+    /// queue with the margin (os_proc_available_memory: what this process may still take)
+    private func queueMemoryAvailable() -> Bool {
+        let available = Int(os_proc_available_memory())
+        let held = shots.reduce(0) { $0 + $1.bytes }
+        let ok = available <= 0 || available > nextBurstBytes + Self.queueMemoryMargin
+        SessionLog.i("Shot", "queue: \(shots.count) shot(s) processing, \(held / 1_048_576) MB held, available \(available / 1_048_576) MB, "
+                     + "next burst ~\(nextBurstBytes / 1_048_576) MB + margin \(Self.queueMemoryMargin / 1_048_576) MB: "
+                     + (ok ? "the press is taken" : "refused") + ", \(memoryFootprint())")
+        return ok
+    }
+
+    /// The shutter (CaptureController.takePicture): taken when the camera is free (also while earlier shots are processed, when the
+    /// memory allows it), kept behind an SHDR burst being captured (at most four presses), otherwise refused with a note.
     func capture() async {
-        guard activity == .idle, status == .running else { return }
+        guard status == .running else { return }
+        if activity != .idle {
+            if activity == .capturing && capturingShdr && queuedPresses < Self.maxQueuedPresses {
+                queuedPresses += 1
+                SessionLog.i("Shot", "shutter queued behind current capture pending=\(queuedPresses)")
+                return
+            }
+            say(L("capture.busy"))
+            return
+        }
+        if !shots.isEmpty && !queueMemoryAvailable() {
+            queuedPresses = 0
+            say(L("capture.busy"))
+            return
+        }
         activity = .capturing
-        defer { activity = .idle }
+        await shoot()
+        activity = .idle
+        capturingShdr = false
+        // «shutter free»: a press kept behind the capture fires now
+        if queuedPresses > 0 {
+            queuedPresses -= 1
+            SessionLog.i("Shot", "queued shutter fires, \(queuedPresses) more kept")
+            Task { await capture() }
+        }
+    }
+
+    private func shoot() async {
         let started = Date()
         // one shutter sound for the shot at the press (CameraSounds; the system's own where it cannot be silenced)
         CameraSounds.shared.shutter(systemPlays: !lens.suppressesShutterSound)
@@ -237,9 +311,11 @@ final class CameraModel {
         }
     }
 
-    /// SHDR: Bayer series → NCH → the Android merge on the GPU → white balance / colour → «Why» V2 → HEIC (+ the first DNG).
-    /// A flash shot is one fresh frame with the flash (FlashMode.Shot), merged as a one-frame shot.
+    /// SHDR: Bayer series → NCH → the Android merge on the GPU → white balance / colour → «Why» V2 → HEIC (+ the merged DNG).
+    /// A flash shot is one fresh frame with the flash (FlashMode.Shot), merged as a one-frame shot. The capture ends when the frames
+    /// are handed to the processing queue: the camera takes the next shot while this one is merged, processed and saved.
     private func captureShdr(started: Date, facts: ShotExif, flash: Bool) async {
+        capturingShdr = true
         do {
             let burst: BayerBurst
             if flash, let one = try await captureService.captureFlashFrame() {
@@ -256,14 +332,51 @@ final class CameraModel {
             } else {
                 burst = try await captureService.captureBayerBurst(count: burstFrames)
             }
-            activity = .saving
+            enqueue(burst, started: started, facts: facts)
+        } catch {
+            SessionLog.e("SHDR", "failed: \(error.localizedDescription)")
+            show(error.localizedDescription)
+        }
+    }
+
+    /// The burst into the processing queue (CaptureController: «queued for processing pending=N»); processed after the shots before it.
+    private func enqueue(_ burst: BayerBurst, started: Date, facts: ShotExif) {
+        let frameBytes = burst.frames.first.map { $0.raw.count } ?? 0
+        if frameBytes > 0 { lastFrameBytes = frameBytes }
+        let bytes = burst.frames.reduce(0) { $0 + $1.raw.count } + burst.dng.count + (burst.processed?.count ?? 0)
+        let shot = QueuedShot(id: UUID(), pressed: started, stage: .waiting, bytes: bytes)
+        shots.append(shot)
+        SessionLog.i("SHDR", "queued for processing pending=\(shots.count), burst \(bytes / 1_048_576) MB "
+                     + "(\(burst.frames.count) frames of \(frameBytes / 1_048_576) MB), \(memoryFootprint())")
+        // the RAW saving of the press (ScamProcessor.configure at the shot)
+        let wantDng = raw != .off
+        let previous = processingTail
+        processingTail = Task { [weak self] in
+            await previous?.value
+            await self?.process(shot.id, burst: burst, started: started, facts: facts, wantDng: wantDng)
+        }
+    }
+
+    private func setStage(_ id: UUID, _ stage: QueuedShot.Stage) {
+        if let i = shots.firstIndex(where: { $0.id == id }) { shots[i].stage = stage }
+    }
+
+    /// One queued shot: merged and processed off the main actor, its DNG and photo saved; a failure is said (processingFailed) and
+    /// the queue goes on. The app may go to the background meanwhile (ProcessingKeepAlive: as long as iOS gives it time).
+    private func process(_ id: UUID, burst: BayerBurst, started: Date, facts: ShotExif, wantDng: Bool) async {
+        let keepAlive = BackgroundTime()
+        keepAlive.id = UIApplication.shared.beginBackgroundTask(withName: "SCAMERA shot") { MainActor.assumeIsolated { keepAlive.end() } }
+        defer {
+            shots.removeAll { $0.id == id }
+            keepAlive.end()
+        }
+        setStage(id, .processing)
+        do {
             // ShotExif / ParseExif.syncWithParameters + describeFilm: the frames merged, the camera, the film's recipe, the route
             var described = facts
             described.frames = burst.frames.count
             described.merged = true
             let base = described
-            // P165: a merged DNG when RAW is saved (ScamProcessor: rawSaving >= 1)
-            let wantDng = raw != .off
             let result: (heic: Data?, uti: String, log: [String], error: String?, mergedDng: Data?) = await Task.detached(priority: .userInitiated) {
                 var shot = base
                 shot.filmRecipe = ViewfinderNative.filmRecipe()
@@ -276,6 +389,7 @@ final class CameraModel {
                     metadata[kCGImagePropertyExifDictionary as String] = exif
                 }
                 do {
+                    // P165: a merged DNG when RAW is saved (ScamProcessor: rawSaving >= 1)
                     let r = try BurstProcessor.process(burst, metadata: metadata, zoom: burst.zoom,
                                                        dngFacts: wantDng ? BurstProcessor.dngFacts(metadata: metadata, shot: shot) : nil)
                     return (r.heic, r.uti, r.log, nil, r.dng)
@@ -283,9 +397,10 @@ final class CameraModel {
                     return (nil, UTType.heic.identifier, burst.report, error.localizedDescription, nil)
                 }
             }.value
+            setStage(id, .saving)
             result.log.forEach { SessionLog.i("SHDR", $0) }
             var rawFile: URL?
-            if !burst.dng.isEmpty {
+            if wantDng && !burst.dng.isEmpty {
                 let url = FileManager.default.temporaryDirectory.appendingPathComponent("SCAM_\(UUID().uuidString).dng")
                 // P165: the merged DNG (its preview and develop record in it); the camera's DNG of the reference frame only when
                 // the merge gave none
@@ -300,10 +415,9 @@ final class CameraModel {
             }
             let heic = result.heic ?? burst.processed
             if let heic { thumbnail = MediaLibrary.thumbnail(of: heic) }
-            let saveRaw = raw != .off ? rawFile : nil
             try await mediaLibrary.save(CapturedPhoto(processed: heic, processedUTI: result.heic != nil ? result.uti : UTType.heic.identifier,
-                                                      rawFile: saveRaw, report: []))
-            SessionLog.i("SHDR", "saved in \(Int(Date().timeIntervalSince(started) * 1000)) ms, \(memoryFootprint())")
+                                                      rawFile: rawFile, report: []))
+            SessionLog.i("SHDR", "saved in \(Int(Date().timeIntervalSince(started) * 1000)) ms, \(shots.count - 1) more queued, \(memoryFootprint())")
         } catch {
             SessionLog.e("SHDR", "failed: \(error.localizedDescription)")
             show(error.localizedDescription)
@@ -370,6 +484,16 @@ final class CameraModel {
 }
 
 /// Resident memory of the app (phys_footprint), as the shot log on Android reports it.
+/// A background task's time for a shot being processed (ended once, by the shot or when iOS takes the time back).
+final class BackgroundTime: @unchecked Sendable {
+    var id = UIBackgroundTaskIdentifier.invalid
+    @MainActor func end() {
+        guard id != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(id)
+        id = .invalid
+    }
+}
+
 func memoryFootprint() -> String {
     var info = task_vm_info_data_t()
     var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<integer_t>.size)

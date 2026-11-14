@@ -3,6 +3,7 @@
 "camera.failed" = "Камера не запустилась.";
 "camera.interrupted" = "Камера занята другим приложением";
 "capture.shutter" = "Снять";
+"capture.busy" = "Предыдущий снимок ещё обрабатывается. Дождитесь завершения.";
 "raw.title" = "RAW";
 "raw.off" = "Выкл.";
 "raw.short_off" = "RAW выкл.";
