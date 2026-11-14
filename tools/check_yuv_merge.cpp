@@ -6,6 +6,9 @@
 //  3. Ours, measured (printed) and bounded: the alignment, the burst's own noise LUT against the truth and against fixed LUTs, the
 //     sharpest base, the guided chroma, the bracket in linear light on a synthetic HDR scene with motion (highlights recovered, no
 //     ghost, unclipped areas unchanged within noise, shadows less noisy) and the linearity check of a wrong capture curve.
+//  4. P691: the 8-bit decode against the scene's light for the app's capture curve on a camera that honours the points' inputs
+//     and on one that takes their outputs at evenly spaced inputs (the vivo X200 Ultra), and the curve check that measures the
+//     decode's power from the bracket.
 // Build: g++ -std=c++17 -O2 -ffp-contract=off -Iapp/src/main/cpp -Itools/yuv-merge-ref tools/check_yuv_merge.cpp
 #include "scam-yuv-merge.h"
 #include "yuv_burst_merge.hpp"
@@ -356,12 +359,15 @@ static Owned<uint8_t> encode(const std::vector<float>& lin, int w, int h, const 
 
 static float srgbEncode(float x) { return x <= 0.0031308f ? 12.92f * x : 1.055f * std::pow(x, 1.f / 2.4f) - 0.055f; }
 
-/** The capture curve the app asks for: 64 points of the sRGB curve (CaptureController's tonemap), piecewise linear. */
-static Transfer pointsCurve(std::vector<float>& in, std::vector<float>& out) {
+/**
+ * The capture curve the app asks for (YuvMergeRoute.curvePairs): 64 points of the sRGB curve at evenly spaced inputs (P691),
+ * piecewise linear; {@code dense}: the curve before P691, its inputs (i / 63)^2.2 (denser in the shadows).
+ */
+static Transfer pointsCurve(std::vector<float>& in, std::vector<float>& out, bool dense = false) {
     in.clear();
     out.clear();
     for (int i = 0; i < 64; ++i) {
-        const float x = std::pow(float(i) / 63.f, 2.2f);
+        const float x = dense ? std::pow(float(i) / 63.f, 2.2f) : float(i) / 63.f;
         in.push_back(x);
         out.push_back(srgbEncode(x));
     }
@@ -379,6 +385,167 @@ static std::function<float(float)> pointsEncoder(const std::vector<float>& in, c
             if (x <= in[i]) return out[i - 1] + (x - in[i - 1]) / (in[i] - in[i - 1]) * (out[i] - out[i - 1]);
         return out.back();
     };
+}
+
+/**
+ * P691: a camera that takes only the points' outputs, at evenly spaced inputs (its gamma table indexed by the point's number):
+ * the vivo X200 Ultra's frames of the curve before P691 decoded to 1/25 of the scene's light (WHY V2 stats p50 0.00195 where the
+ * RAW route's shots of the scene gave 0.044 - 0.066).
+ */
+static std::function<float(float)> evenInputsEncoder(const std::vector<float>& out) {
+    return [out](float x) {
+        const float p = std::clamp(x, 0.f, 1.f) * float(out.size() - 1);
+        const int i = std::min(int(out.size()) - 2, int(p));
+        return out[i] + (p - float(i)) * (out[i + 1] - out[i]);
+    };
+}
+
+static float percentile(std::vector<float> v, float q) {
+    const std::size_t k = std::min(v.size() - 1, std::size_t(q * float(v.size())));
+    std::nth_element(v.begin(), v.begin() + k, v.end());
+    return v[k];
+}
+
+/**
+ * P691: the 8-bit YUV route's decode (mergeBurst: JFIF full range, the inverse of the capture curve) against the scene's linear
+ * light. A scene of the owner's shot's statistics (lognormal 8 x 8 blocks, median 0.067, p10 0.012 of the white); frames
+ * encoded by a camera that honours the points' inputs and by one that takes their outputs at evenly spaced inputs. The app's
+ * curve (evenly spaced inputs) decodes to the scene under both; the curve before P691 decodes to ~1/25 of it under the second
+ * (the regression). Then the curve check: a bracket of frames of the old curve on that camera (decoded light = scene^2.2)
+ * finds the power and decodes the scene back; a curve no power explains stays refused (checkBracket's S-curve).
+ */
+static void checkCaptureCurve() {
+    const int w = 512, h = 384;
+    std::mt19937 r(691);
+    std::normal_distribution<float> nd(0.f, 1.f);
+    std::vector<float> lin(std::size_t(w) * h * 3);
+    for (int by = 0; by < h / 8; ++by)
+        for (int bx = 0; bx < w / 8; ++bx) {
+            const float l = 0.067f * std::exp(1.376f * nd(r));
+            const float tint[3] = {1.f + 0.08f * nd(r), 1.f, 1.f + 0.08f * nd(r)};
+            for (int y = 0; y < 8; ++y)
+                for (int x = 0; x < 8; ++x)
+                    for (int k = 0; k < 3; ++k) lin[(std::size_t(by * 8 + y) * w + bx * 8 + x) * 3 + k] = std::max(0.f, l * tint[k]);
+        }
+    std::vector<float> truth;
+    for (std::size_t p = 0; p < std::size_t(w) * h; ++p) truth.push_back(std::min(1.f, luminance(&lin[p * 3])));
+    const float t10 = percentile(truth, 0.1f), t50 = percentile(truth, 0.5f), t90 = percentile(truth, 0.9f);
+    Settings set;
+    set.threads = 3;
+    const NoiseFallback camera{5e-5f, 1e-6f};
+    auto decoded = [&](bool dense, bool evenInputs, float shot) {
+        std::vector<float> in, out;
+        const Transfer t = pointsCurve(in, out, dense);
+        const auto enc = evenInputs ? evenInputsEncoder(out) : pointsEncoder(in, out);
+        std::vector<Owned<uint8_t>> frames;
+        for (int j = 0; j < 3; ++j) frames.push_back(encode(lin, w, h, enc, shot, shot * 0.02f, 6910 + j));
+        std::vector<Frame420<uint8_t>> views;
+        for (auto& f : frames) views.push_back(f.view());
+        std::vector<FrameInfo> info(frames.size(), FrameInfo{Role::Normal, 1.f});
+        std::vector<float> o(std::size_t(w) * h * 3);
+        mergeBurst(views, info, set, t, Decoder{}, camera, o.data());
+        std::vector<float> l;
+        for (std::size_t p = 0; p < std::size_t(w) * h; ++p) l.push_back(luminance(&o[p * 3]));
+        return l;
+    };
+    for (int dense = 0; dense < 2; ++dense)
+        for (int even = 0; even < 2; ++even) {
+            const std::vector<float> l = decoded(dense, even, 0.f);
+            const float d10 = percentile(l, 0.1f), d50 = percentile(l, 0.5f), d90 = percentile(l, 0.9f);
+            std::printf("capture curve %s, camera %s: scene p10 %.5f p50 %.5f p90 %.4f -> decoded p10 %.5f p50 %.5f p90 %.4f "
+                        "(p50 x%.3f)\n", dense ? "before P691 (inputs (i/63)^2.2)" : "P691 (inputs i/63)",
+                        even ? "takes the outputs at even inputs" : "honours the inputs", t10, t50, t90, d10, d50, d90, d50 / t50);
+            if (!dense) {
+                CHECK(std::fabs(d50 / t50 - 1.f) < 0.02f);
+                CHECK(std::fabs(d10 / t10 - 1.f) < 0.05f);
+                CHECK(std::fabs(d90 / t90 - 1.f) < 0.02f);
+            } else if (!even) {
+                CHECK(std::fabs(d50 / t50 - 1.f) < 0.02f);
+            } else {
+                CHECK(d50 / t50 < 0.1f);  // the regression the owner's shot shows (x0.03 there)
+            }
+        }
+    // the curve check: the curve before P691 on the camera that takes the outputs at even inputs, with a bracket
+    {
+        std::vector<float> in, out;
+        const Transfer t = pointsCurve(in, out, true);
+        const auto enc = evenInputsEncoder(out);
+        const float shot = 0.0004f, read = 1e-6f;
+        Scene s(320, 256, true, 691);
+        auto scaled = [&](float k) {
+            std::vector<float> o(s.rgb);
+            for (float& v : o) v *= k;
+            return o;
+        };
+        std::vector<Owned<uint8_t>> frames;
+        std::vector<FrameInfo> info;
+        for (int j = 0; j < 4; ++j) {
+            frames.push_back(encode(s.rgb, s.w, s.h, enc, shot, read, 6920 + j));
+            info.push_back({Role::Normal, 1.f});
+        }
+        frames.push_back(encode(scaled(0.125f), s.w, s.h, enc, shot, read, 6930));
+        info.push_back({Role::Short, 0.125f});
+        // L at x2: at x4 two thirds of this scene's L frame clip and its alignment fails; the check then refuses (below)
+        frames.push_back(encode(scaled(2.f), s.w, s.h, enc, shot, read, 6931));
+        info.push_back({Role::Long, 2.f});
+        std::vector<Frame420<uint8_t>> views;
+        for (auto& f : frames) views.push_back(f.view());
+        std::vector<float> o(std::size_t(s.w) * s.h * 3);
+        const Report rep = mergeBurst(views, info, set, t, Decoder{}, camera, o.data());
+        std::printf("curve check: %s\n", rep.text().c_str());
+        std::vector<float> ratios;
+        for (std::size_t p = 0; p < std::size_t(s.w) * s.h; ++p) {
+            const float tr = luminance(&s.rgb[p * 3]);
+            if (tr > 0.03f && tr < 0.8f) ratios.push_back(luminance(&o[p * 3]) / tr);
+        }
+        const float mid = percentile(ratios, 0.5f);
+        std::printf("curve check: power %.3f, mid tones decoded x%.3f of the scene\n", rep.curvePower, mid);
+        CHECK(std::fabs(rep.curvePower - 2.2f) < 0.25f);
+        CHECK(rep.bracketUsed);
+        CHECK(std::fabs(mid - 1.f) < 0.1f);
+        for (float l : rep.linearity) CHECK(l > 0.8f && l < 1.25f);
+        // frames of the app's curve on either camera: nothing to correct
+        std::vector<float> in2, out2;
+        const Transfer t2 = pointsCurve(in2, out2);
+        for (int even = 0; even < 2; ++even) {
+            const auto enc2 = even ? evenInputsEncoder(out2) : pointsEncoder(in2, out2);
+            std::vector<Owned<uint8_t>> f2;
+            for (int j = 0; j < 4; ++j) f2.push_back(encode(s.rgb, s.w, s.h, enc2, shot, read, 6940 + j));
+            f2.push_back(encode(scaled(0.125f), s.w, s.h, enc2, shot, read, 6950));
+            f2.push_back(encode(scaled(2.f), s.w, s.h, enc2, shot, read, 6951));
+            std::vector<Frame420<uint8_t>> v2;
+            for (auto& f : f2) v2.push_back(f.view());
+            const Report r2 = mergeBurst(v2, info, set, t2, Decoder{}, camera, o.data());
+            std::printf("curve check, the app's curve (camera %s): power %.3f, linearity", even ? "even inputs" : "honours inputs", r2.curvePower);
+            for (float l : r2.linearity) std::printf(" x%.3f", l);
+            std::printf("\n");
+            CHECK(r2.curvePower == 1.f);
+            CHECK(r2.bracketUsed);
+        }
+        // the curve check refused: the L frame at x4 (two thirds clipped) misaligned, its linearity fails with the power too -
+        // the decode as asked, the bracket refused, as before P691
+        frames.back() = encode(scaled(4.f), s.w, s.h, enc, shot, read, 6932);
+        info.back().ratio = 4.f;
+        std::vector<Frame420<uint8_t>> v3;
+        for (auto& f : frames) v3.push_back(f.view());
+        std::vector<float> asked(o.size());
+        const Report r3 = mergeBurst(v3, info, set, t, Decoder{}, camera, o.data());
+        std::printf("curve check refused: %s\n", r3.text().c_str());
+        CHECK(r3.curvePower == 1.f);
+        CHECK(!r3.curveWhy.empty());
+        CHECK(!r3.bracketUsed);
+        Settings noBracket = set;
+        noBracket.bracket = false;
+        mergeBurst(v3, info, noBracket, t, Decoder{}, camera, asked.data());
+        // the decode as asked: the light of the merge without the bracket (the normals' merge itself may differ a little: its
+        // fallback noise curve went through the measured power)
+        std::vector<float> lr;
+        for (std::size_t p = 0; p < std::size_t(s.w) * s.h; ++p)
+            if (luminance(&asked[p * 3]) > 0.002f) lr.push_back(luminance(&o[p * 3]) / luminance(&asked[p * 3]));
+        const float lmid = percentile(lr, 0.5f);
+        std::printf("curve check refused: light against the merge without the bracket x%.4f (median)\n", lmid);
+        CHECK(std::fabs(lmid - 1.f) < 0.01f);
+    }
 }
 
 static void checkAlignment() {
@@ -936,6 +1103,7 @@ int main() {
     checkSharpestBase();
     checkGuidedChroma();
     checkBracket();
+    checkCaptureCurve();
     checkTenBitHlg();
     checkHlgMatchesEightBit();
     if (failures) {

@@ -756,7 +756,16 @@ struct Transfer {
         const float a = 0.17883277f, b = 0.28466892f, c = 0.55991073f;
         return e <= 0.5f ? e * e / 3.f : (std::exp((e - c) / a) + b) / 12.f;
     }
+    /**
+     * P691: the frames' light measured from the bracket follows decoded^power (the camera applied another curve than the one
+     * decoded): the decode is raised to 1 / power (1: as asked). See mergeBurst's curve check.
+     */
+    float power = 1.f;
     float decodeExact(float e) const {
+        const float v = decodeAsked(e);
+        return power == 1.f ? v : std::pow(std::max(0.f, v), 1.f / power);
+    }
+    float decodeAsked(float e) const {
         e = std::clamp(e, 0.f, 1.f);
         switch (kind) {
             case LINEAR: return e;
@@ -938,6 +947,8 @@ struct Report {
     double meanCount = 1, disabledShare = 0;
     double meanCountAll = 1;
     std::vector<float> linearity;  // measured / expected ratio of every bracket frame (0: not measured)
+    float curvePower = 1.f;        // P691: the decode's power measured from the bracket (1: the curve as asked)
+    std::string curveNote, curveWhy;  // P691: the curve check's measured powers; why its power was refused
     bool bracketUsed = false;
     std::string bracketWhy;
     double esShare = 0, longShare = 0;
@@ -960,6 +971,8 @@ struct Report {
             o << " linearity";
             for (float l : linearity) o << " x" << l;
         }
+        if (!curveNote.empty())
+            o << " curve check: " << curveNote << (curvePower != 1.f ? ", the decode raised to 1/power" : curveWhy.empty() ? ", as asked" : ", " + curveWhy);
         o << " ES pixels " << esShare << " L pixels " << longShare << " median frames " << medianCount;
         if (!decodeNote.empty()) o << " decode " << decodeNote;
         return o.str();
@@ -1007,8 +1020,9 @@ inline float smoothstep(float a, float b, float x) {
  */
 template <typename S>
 Report mergeBurst(const std::vector<Frame420<S>>& frames, const std::vector<FrameInfo>& info, const Settings& set,
-                  const Transfer& transfer, const Decoder& decoderIn, const NoiseFallback& fallback, float* out,
+                  const Transfer& transferIn, const Decoder& decoderIn, const NoiseFallback& fallback, float* out,
                   uint8_t* counts = nullptr) {
+    Transfer transfer = transferIn;  // P691: the curve check may raise its decode to a measured power
     if (frames.empty() || frames.size() != info.size()) throw std::invalid_argument("no frames");
     const Frame420<S>& first = frames[0];
     const int w = first.width, h = first.height, bits = first.bits, down = bits - 8, maxCode = first.maxCode();
@@ -1060,6 +1074,67 @@ Report mergeBurst(const std::vector<Frame420<S>>& frames, const std::vector<Fram
     rep.workX = ((w - rep.workW) / 2) & ~1;
     rep.workY = ((h - rep.workH) / 2) & ~1;
     const int nx = rep.workW / kTile, ny = rep.workH / kTile;
+
+    // P691: the curve check. A camera that applies another curve than the one asked for gives every bracket frame the light
+    // ratio^k instead of its exposure ratio (the vivo X200 Ultra with the curve before P691: the 64 points of a curve dense in
+    // the shadows taken at evenly spaced inputs, the frames ~linear, decoded as scene^2.2: the scene's median at 1/25). Measured
+    // without the alignment: the decoded Y of a bracket frame against the first normal frame's at the same quantiles (the same
+    // scene; clipped and the darkest quantiles left out). Where every bracket frame agrees on one power k (1.3..3.5 or its inverse,
+    // within 8 %) the decode is raised to 1 / k for the alignment and the output; kept only when every bracket frame then passes
+    // the linearity check (after the merge).
+    if (set.bracket && transfer.kind != Transfer::HLG && (!shorts.empty() || !longs.empty())) {
+        auto decodedY = [&](int i) {
+            std::vector<float> v;
+            const Frame420<S>& f = frames[i];
+            for (int y = 1; y < h; y += 4)
+                for (int x = 1; x < w; x += 4) {
+                    const float e = float(int(f.y.at(x, y)) >> down) / 255.f;
+                    v.push_back(e > 0.92f ? 2.f : transfer.decode(e));  // 2: clipped (sorted to the top, never mid-range)
+                }
+            std::sort(v.begin(), v.end());
+            return v;
+        };
+        const std::vector<float> ref = decodedY(normals[0]);
+        std::vector<int> brackets = shorts;
+        brackets.insert(brackets.end(), longs.begin(), longs.end());
+        std::vector<float> ks;
+        for (int i : brackets) {
+            const float r = info[i].ratio;
+            if (!(r > 0.f) || std::fabs(std::log(r)) < std::log(1.5f)) {
+                ks.clear();
+                break;
+            }
+            const std::vector<float> fv = decodedY(i);
+            std::vector<float> ratios;
+            for (int q = 1; q < 100; ++q) {
+                const std::size_t k = ref.size() * std::size_t(q) / 100;
+                const float b = ref[k], f = fv[std::min(fv.size() - 1, k)];
+                if (b < 0.003f || b > 0.8f || f < 0.0015f || f > 1.f) continue;
+                ratios.push_back(f / b);
+            }
+            if (ratios.size() < 6) {
+                ks.clear();
+                break;
+            }
+            std::nth_element(ratios.begin(), ratios.begin() + ratios.size() / 2, ratios.end());
+            ks.push_back(std::log(ratios[ratios.size() / 2]) / std::log(r));
+        }
+        std::sort(ks.begin(), ks.end());
+        const bool agree = !ks.empty() && ks.front() > 0.f && ks.back() / ks.front() <= 1.08f;
+        const float power = agree ? ks[ks.size() / 2] : 1.f;
+        if (agree && ((power >= 1.3f && power <= 3.5f) || (power >= 1.f / 3.5f && power <= 1.f / 1.3f))) {
+            transfer.power = power;
+            transfer.build();
+        }
+        if (!ks.empty()) {
+            std::ostringstream o;
+            o.setf(std::ios::fixed);
+            o.precision(3);
+            o << "light ratio power";
+            for (float k : ks) o << " " << k;
+            rep.curveNote = o.str();
+        }
+    }
 
     // luma of every frame on the 8-bit scale (bracket frames remapped to the normal exposure for the alignment)
     std::vector<Luma> lumas(frames.size());
@@ -1241,50 +1316,54 @@ Report mergeBurst(const std::vector<Frame420<S>>& frames, const std::vector<Fram
     const std::size_t wn = std::size_t(rep.workW) * rep.workH;
     const Frame420<S>& bf = frames[base];
     const bool vu = first.order == ChromaOrder::VU;
-    parallelRows(h, set.threads, [&](int y) {
-        for (int x = 0; x < w; ++x) {
-            int Y, U, V;
-            const int wx = x - rep.workX, wy = y - rep.workY;
-            if (wx >= 0 && wy >= 0 && wx < rep.workW && wy < rep.workH) {
-                const std::size_t p = std::size_t(wy) * rep.workW + wx;
-                Y = merged.planar[p];
-                U = merged.planar[wn + p];
-                V = merged.planar[2 * wn + p];
-            } else {
-                Y = bf.y.at(x, y);
-                U = vu ? bf.c1.at(x / 2, y / 2) : bf.c0.at(x / 2, y / 2);
-                V = vu ? bf.c0.at(x / 2, y / 2) : bf.c1.at(x / 2, y / 2);
+    // P691: a function of the transfer (the curve check below may decode again at a measured power)
+    auto decodeOut = [&]() {
+        parallelRows(h, set.threads, [&](int y) {
+            for (int x = 0; x < w; ++x) {
+                int Y, U, V;
+                const int wx = x - rep.workX, wy = y - rep.workY;
+                if (wx >= 0 && wy >= 0 && wx < rep.workW && wy < rep.workH) {
+                    const std::size_t p = std::size_t(wy) * rep.workW + wx;
+                    Y = merged.planar[p];
+                    U = merged.planar[wn + p];
+                    V = merged.planar[2 * wn + p];
+                } else {
+                    Y = bf.y.at(x, y);
+                    U = vu ? bf.c1.at(x / 2, y / 2) : bf.c0.at(x / 2, y / 2);
+                    V = vu ? bf.c0.at(x / 2, y / 2) : bf.c1.at(x / 2, y / 2);
+                }
+                float* o = out + (std::size_t(y) * w + x) * 3;
+                decoder.rgbPrime(Y, U, V, o);
+                for (int c = 0; c < 3; ++c) o[c] = transfer.decode(o[c]) * outScale;
+                if (decoder.bt2020) bt2020To709(o);
             }
-            float* o = out + (std::size_t(y) * w + x) * 3;
-            decoder.rgbPrime(Y, U, V, o);
-            for (int c = 0; c < 3; ++c) o[c] = transfer.decode(o[c]) * outScale;
-            if (decoder.bt2020) bt2020To709(o);
+        });
+        // the merged frame's noise in linear light: variance of one frame s x + o fitted on the curve (the post pipeline's model)
+        {
+            double sxx = 0, sx = 0, sy = 0, sxy = 0;
+            int n = 0;
+            for (int b = 2; b < 30; ++b) {
+                const float e = (float(b) * 8.f + 4.f) / 255.f;
+                const float x = transfer.decode(e) * outScale;
+                const float sl = transfer.slope(e) * outScale * rep.noise.sigma[b] / float(maxCode);
+                const double var = double(sl) * sl;
+                sxx += double(x) * x;
+                sx += x;
+                sy += var;
+                sxy += double(x) * var;
+                ++n;
+            }
+            const double det = n * sxx - sx * sx;
+            double s = det != 0 ? (n * sxy - sx * sy) / det : 0, o = det != 0 ? (sy - s * sx) / n : sy / std::max(1, n);
+            if (s < 0) {
+                s = 0;
+                o = sy / std::max(1, n);
+            }
+            rep.linS = float(s);
+            rep.linO = float(std::max(0.0, o));
         }
-    });
-    // the merged frame's noise in linear light: variance of one frame s x + o fitted on the curve (the post pipeline's model)
-    {
-        double sxx = 0, sx = 0, sy = 0, sxy = 0;
-        int n = 0;
-        for (int b = 2; b < 30; ++b) {
-            const float e = (float(b) * 8.f + 4.f) / 255.f;
-            const float x = transfer.decode(e) * outScale;
-            const float sl = transfer.slope(e) * outScale * rep.noise.sigma[b] / float(maxCode);
-            const double var = double(sl) * sl;
-            sxx += double(x) * x;
-            sx += x;
-            sy += var;
-            sxy += double(x) * var;
-            ++n;
-        }
-        const double det = n * sxx - sx * sx;
-        double s = det != 0 ? (n * sxy - sx * sy) / det : 0, o = det != 0 ? (sy - s * sx) / n : sy / std::max(1, n);
-        if (s < 0) {
-            s = 0;
-            o = sy / std::max(1, n);
-        }
-        rep.linS = float(s);
-        rep.linO = float(std::max(0.0, o));
-    }
+    };
+    decodeOut();
 
     // ---- the bracket in linear light -------------------------------------------------------------------------------------
     std::vector<int> brackets = shorts;
@@ -1311,35 +1390,62 @@ Report mergeBurst(const std::vector<Frame420<S>>& frames, const std::vector<Fram
         return m;  // the frame's own largest R'G'B' (its clip)
     };
     // linearity: the bracket frame's light against the base's where both are mid-range (median of the per-pixel ratios)
-    for (int i : brackets) {
-        std::vector<float> ratios;
-        for (int ty = 0; ty < ny; ++ty)
-            for (int tx = 0; tx < nx; ++tx) {
-                const Shift o = origin(i, tx, ty);
-                if (!readable(o.x, o.y, w, h)) continue;
-                for (int j = 1; j < kTile; j += 4)
-                    for (int k = 1; k < kTile; k += 4) {
-                        const int bx = rep.workX + tx * kTile + k, by = rep.workY + ty * kTile + j;
-                        const float* bc = out + (std::size_t(by) * w + bx) * 3;
-                        float fc[3];
-                        const float clip = frameLinear(i, o.x + k, o.y + j, fc);
-                        const float lb = luminance(bc) / outScale, lf = luminance(fc) / outScale;  // of the decoded clip
-                        const float lbExpected = lb * info[i].ratio;
-                        if (lb < 0.02f || lb > 0.7f || clip > 0.92f || lf < 0.01f || lbExpected > 0.7f || lbExpected < 0.01f) continue;
-                        ratios.push_back(lf / lb);
-                    }
+    auto measureLinearity = [&]() {
+        std::vector<float> linearity;
+        for (int i : brackets) {
+            std::vector<float> ratios;
+            for (int ty = 0; ty < ny; ++ty)
+                for (int tx = 0; tx < nx; ++tx) {
+                    const Shift o = origin(i, tx, ty);
+                    if (!readable(o.x, o.y, w, h)) continue;
+                    for (int j = 1; j < kTile; j += 4)
+                        for (int k = 1; k < kTile; k += 4) {
+                            const int bx = rep.workX + tx * kTile + k, by = rep.workY + ty * kTile + j;
+                            const float* bc = out + (std::size_t(by) * w + bx) * 3;
+                            float fc[3];
+                            const float clip = frameLinear(i, o.x + k, o.y + j, fc);
+                            const float lb = luminance(bc) / outScale, lf = luminance(fc) / outScale;  // of the decoded clip
+                            const float lbExpected = lb * info[i].ratio;
+                            if (lb < 0.02f || lb > 0.7f || clip > 0.92f || lf < 0.01f || lbExpected > 0.7f || lbExpected < 0.01f) continue;
+                            ratios.push_back(lf / lb);
+                        }
+                }
+            float measured = 0;
+            if (ratios.size() >= 48) {
+                std::nth_element(ratios.begin(), ratios.begin() + ratios.size() / 2, ratios.end());
+                measured = ratios[ratios.size() / 2] / info[i].ratio;
             }
-        float measured = 0;
-        if (ratios.size() >= 48) {
-            std::nth_element(ratios.begin(), ratios.begin() + ratios.size() / 2, ratios.end());
-            measured = ratios[ratios.size() / 2] / info[i].ratio;
+            linearity.push_back(measured);
         }
-        rep.linearity.push_back(measured);
-    }
-    std::vector<int> usable;
-    for (std::size_t k = 0; k < brackets.size(); ++k) {
-        const float m = rep.linearity[k];
-        if (m > 0 && std::fabs(std::log(m)) < std::log(1.25f)) usable.push_back(brackets[k]);
+        return linearity;
+    };
+    auto usableOf = [&](const std::vector<float>& linearity) {
+        std::vector<int> usable;
+        for (std::size_t k = 0; k < brackets.size(); ++k) {
+            const float m = linearity[k];
+            if (m > 0 && std::fabs(std::log(m)) < std::log(1.25f)) usable.push_back(brackets[k]);
+        }
+        return usable;
+    };
+    rep.linearity = measureLinearity();
+    std::vector<int> usable = usableOf(rep.linearity);
+    // P691: the curve check's power (below, before the alignment) must hold here too: every bracket frame passes the linearity
+    // check with it, else the decode as asked (the bracket then judged as before)
+    if (transfer.power != 1.f && usable.size() < brackets.size()) {
+        std::ostringstream why;
+        why.setf(std::ios::fixed);
+        why.precision(3);
+        why << "refused (linearity";
+        for (float l : rep.linearity) why << " x" << l;
+        why << ")";
+        rep.curveWhy = why.str();
+        transfer.power = 1.f;
+        transfer.build();
+        decodeOut();
+        rep.linearity = measureLinearity();
+        usable = usableOf(rep.linearity);
+    } else if (transfer.power != 1.f) {
+        rep.curvePower = transfer.power;
     }
     if (usable.empty()) {
         rep.bracketWhy = "the frames' light does not follow their exposure (the capture curve is not the one asked for)";
