@@ -50,8 +50,9 @@ enum ShotProcessor {
         return buffer
     }
 
-    /// `watermark` (nil: none): the photo is upright (orientation 1) and gets the stored settings' watermark (PhotoWatermark),
-    /// its log line given to the closure.
+    /// `watermark` (nil: none): the photo is upright (orientation 1) and gets the stored settings' watermark (PhotoWatermark) with
+    /// its record at the end of the file (P633, as BurstProcessor: the gallery's «Убрать» / «Изменить»), the log lines given to
+    /// the closure.
     static func encode(_ texture: MTLTexture, metadata: [String: Any], orientation: Int = 1,
                        watermark: ((String) -> Void)? = nil) throws -> Data {
         let w = texture.width, h = texture.height
@@ -59,10 +60,14 @@ enum ShotProcessor {
         bytes.withUnsafeMutableBytes { raw in
             texture.getBytes(raw.baseAddress!, bytesPerRow: w * 4, from: MTLRegionMake2D(0, 0, w, h), mipmapLevel: 0)
         }
+        var record: SCAMWatermarkRecord?
         if let watermark, orientation == 1, PhotoWatermark.on() {
-            PhotoWatermark.apply(&bytes, width: w, height: h, metadata: metadata, dng: nil, shotTime: Date(), log: watermark)
+            record = PhotoWatermark.applyRecorded(&bytes, width: w, height: h, metadata: metadata, dng: nil, shotTime: Date(),
+                                                  log: watermark).record
         }
-        return try encode(rgba: bytes, width: w, height: h, metadata: metadata, orientation: orientation)
+        let file = try encode(rgba: bytes, width: w, height: h, metadata: metadata, orientation: orientation)
+        if let record, let watermark { return PhotoWatermark.appendRecord(record, to: file, log: watermark) }
+        return file
     }
 
     /// RGBA8 sRGB rows top-down (the pipeline's photo) → HEIC with the camera's EXIF.
@@ -167,8 +172,8 @@ enum ShotProcessor {
         properties[kCGImagePropertyOrientation as String] = orientation
         var tiff = properties[kCGImagePropertyTIFFDictionary as String] as? [String: Any] ?? [:]
         tiff[kCGImagePropertyTIFFOrientation as String] = orientation
-        if tiff[kCGImagePropertyTIFFSoftware as String] == nil { // ShotExif writes Android's Software tag; else ours
-            tiff[kCGImagePropertyTIFFSoftware as String] = "SCAMERA iOS \(BuildInfo.version)"
+        if tiff[kCGImagePropertyTIFFSoftware as String] == nil { // ShotExif writes Android's Software tag; the same when it did not
+            tiff[kCGImagePropertyTIFFSoftware as String] = ShotExif.software
         }
         properties[kCGImagePropertyTIFFDictionary as String] = tiff
         properties[kCGImageDestinationLossyCompressionQuality as String] = format.quality

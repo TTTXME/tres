@@ -98,7 +98,7 @@ enum PhotoDecode {
                        shouldInterpolate: true, intent: .defaultIntent)
     }
 
-    /// EditExporter.writeCopy: JPEG quality 95 with the original's EXIF / GPS, the orientation reset, the new size, Software SCAMERA.
+    /// EditExporter.writeCopy: JPEG quality 95 with the original's EXIF / GPS, the orientation reset, the new size, the app as Software.
     static func jpeg(_ image: CGImage, original: Data) -> Data? {
         var props: [CFString: Any] = [:]
         if let src = CGImageSourceCreateWithData(original as CFData, nil),
@@ -113,7 +113,7 @@ enum PhotoDecode {
         props[kCGImagePropertyExifDictionary] = exif
         var tiff = props[kCGImagePropertyTIFFDictionary] as? [CFString: Any] ?? [:]
         tiff[kCGImagePropertyTIFFOrientation] = 1
-        tiff[kCGImagePropertyTIFFSoftware] = "SCAMERA"
+        tiff[kCGImagePropertyTIFFSoftware] = ShotExif.software // EditExporter.software: DngMetadata.software
         props[kCGImagePropertyTIFFDictionary] = tiff
         props[kCGImagePropertyOrientation] = 1
         props[kCGImageDestinationLossyCompressionQuality] = 0.95
