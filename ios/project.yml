@@ -105,10 +105,13 @@ targets:
         CFBundleLocalizations: [en, ru]
         LSRequiresIPhoneOS: true
         UIRequiredDeviceCapabilities: [arm64]
+        # the camera owns the whole screen and stays portrait on every device, as Android's CameraActivity
+        # (SCREEN_ORIENTATION_PORTRAIT): on an iPad full screen (no Split View / Slide Over), so portrait alone is allowed there
         UIRequiresFullScreen: true
         UIStatusBarHidden: true
         UIViewControllerBasedStatusBarAppearance: true
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        "UISupportedInterfaceOrientations~ipad": [UIInterfaceOrientationPortrait]
         UILaunchScreen:
           UIColorName: ""
         UIFileSharingEnabled: true
@@ -129,7 +132,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.scamera.ios
         PRODUCT_NAME: SCAMERA
-        TARGETED_DEVICE_FAMILY: "1"
+        # iPhone and iPad: a native iPad app (with "1" alone the iPad ran it as a phone-sized window in the middle)
+        TARGETED_DEVICE_FAMILY: "1,2"
         SWIFT_OBJC_BRIDGING_HEADER: Bridge/SCAMERA-Bridging-Header.h
         HEADER_SEARCH_PATHS: ["$(inherited)", "$(SRCROOT)/Engine", "$(SRCROOT)/ScamGL/include", "$(SRCROOT)/ScamGL",
                               "$(SRCROOT)/../app/src/main/cpp", "$(SRCROOT)/../app/src/main/cpp/third_party/tone_port/include",
