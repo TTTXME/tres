@@ -267,6 +267,8 @@ struct TopRowSheet: View {
                         if d.translation.height < -60 || d.predictedEndTranslation.height < -160 { close() }
                         else { withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { drag = 0 } }
                     })
+                // an iPad: the card in a phone sheet's width under the top row, not stretched over the screen
+                .tabletColumn(600)
                 .padding(.horizontal, 8)
                 .padding(.top, 8)
                 .transition(.move(edge: .top))

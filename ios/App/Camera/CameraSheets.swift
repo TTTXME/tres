@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// CameraSheets.formatAndSize (P574 / P583 / P592): one floating sheet (#1C1C1E, 36 pt corners, 8 pt from the screen's sides and
 /// bottom, the grab) for the top row's «JPEG / 12 Мп» badge - the tabs «Формат | Размер» over the format's two controls or the size
@@ -29,7 +30,9 @@ struct FormatSizeSheet: View {
         .padding(.horizontal, 14).padding(.top, 12).padding(.bottom, 18)
         .background(RoundedRectangle(cornerRadius: 36).fill(CameraStyle.control))
         .padding(.horizontal, 8).padding(.bottom, 8)
-        .frame(maxHeight: .infinity, alignment: .bottom)
+        // an iPad shows a sheet as a card in the middle of the screen (no detents there): the card in its middle, not at the
+        // bottom of an empty card
+        .frame(maxHeight: .infinity, alignment: UIDevice.current.userInterfaceIdiom == .pad ? .center : .bottom)
         .presentationBackground(.clear)
         .presentationDetents([.height(tab == 0 ? 410 : 300)])
         .presentationDragIndicator(.hidden)

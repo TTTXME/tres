@@ -91,6 +91,8 @@ struct FirstRunDialog: View {
                 }
                 .padding(24)
                 .background(CameraStyle.control, in: RoundedRectangle(cornerRadius: 28))
+                // an iPad: a dialog's width, not the screen's (a phone's room is narrower than this)
+                .frame(maxWidth: 480)
                 .padding(.horizontal, 32)
             }
             .transition(.opacity)

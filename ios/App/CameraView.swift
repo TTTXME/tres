@@ -25,6 +25,7 @@ struct CameraView: View {
     @State private var flipTurn = 0.0
     @State private var exposurePoint: CGPoint?
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.horizontalSizeClass) private var sizeClass
 
     private var lut: LutTrayModel { LutTrayModel.shared }
     private var shade: ShadeModel { ShadeModel.shared }
@@ -38,6 +39,49 @@ struct CameraView: View {
         var pulse = false
         var hide: Task<Void, Never>?
         static let radius: CGFloat = 35
+    }
+
+    /// An iPad (a regular-width window): the stage's column and the larger focus ring (values-sw500dp)
+    private var tablet: Bool { sizeClass == .regular }
+
+    /// The focus ring's radius: 35 pt, on an iPad as values-sw500dp's 100 dp over values' 76 dp
+    private var ringRadius: CGFloat { tablet ? FocusMark.radius * Tablet.focusRingScale : FocusMark.radius }
+
+    /// The stage under the top row: the 3:4 viewfinder from its top, the bottom bar's height under it and the column the bar,
+    /// the panels and the quick settings take.
+    /// - iPhone: the viewfinder the screen's width; a screen shorter than the bar needs (the iPhone's 19.5:9 under its safe
+    ///   areas) floats the band and the lens strip over the preview's bottom, as Android's bar does on a 16:9 screen, with the
+    ///   bar's gaps closed up.
+    /// - iPad (portrait, as Android's camera on a tablet): the largest 3:4 frame that leaves the bar's solid part (the shutter
+    ///   row, the bottom row, the grabber) under it - the band and the lens strip float over the preview's bottom as on the
+    ///   iPhone - centred, with the bar, the panels and the shade in its width instead of a phone layout stretched sideways.
+    struct Stage {
+        let column: CGFloat
+        let vfHeight: CGFloat
+        let barHeight: CGFloat
+        let compact: Bool
+
+        /// The bar's height with Android's gaps, and with them closed up
+        static let barNeed: CGFloat = 282, barCompact: CGFloat = 260
+        /// The bar's part that stays under the viewfinder on an iPad: the shutter row (86), its gap (18), the bottom row (52),
+        /// the grabber's gap (8) and the grabber (18); the band (26 + 8) and the lens strip (44 + 6, its 16 pt gap) float over
+        static let barSolid: CGFloat = 182
+
+        init(_ size: CGSize, tablet: Bool) {
+            if tablet {
+                let vf = Swift.max(0, Swift.min(size.width * 4 / 3, size.height - Self.barSolid))
+                vfHeight = vf
+                column = Swift.min(size.width, vf * 3 / 4)
+                compact = false
+                barHeight = Swift.min(size.height, Swift.max(size.height - vf, Self.barNeed))
+            } else {
+                let vf = Swift.min(size.width * 4 / 3, size.height)
+                vfHeight = vf
+                column = size.width
+                compact = size.height - vf < Self.barNeed
+                barHeight = Swift.min(size.height, Swift.max(size.height - vf, compact ? Self.barCompact : Self.barNeed))
+            }
+        }
     }
 
     var body: some View {
@@ -133,6 +177,7 @@ struct CameraView: View {
                  camera.activity, camera.thumbnail, camera.activeModuleID, ZoomReadoutModel.shared.visible, proOpen, focus.visible,
                  focus.point, focus.dimmed, focus.pulse, exposurePoint, sunEv, flipTurn)
         let _ = hudMode > 0 ? CameraHud.shared.sample : nil
+        let _ = tablet
         return VStack(spacing: 0) {
             ZStack(alignment: .top) {
                 TopRowBar(camera: camera, chrome: chrome, lutOn: lut.anyOn, lutOpen: lut.open,
@@ -143,32 +188,32 @@ struct CameraView: View {
                 if shade.level == .full { scrim.frame(height: 64) }
             }
             GeometryReader { g in
-                let vfHeight = min(g.size.width * 4 / 3, g.size.height)
-                // a screen shorter than the bar needs (the iPhone's 19.5:9 under its safe areas): the band and the lens strip float
-                // over the preview's bottom, as Android's bar does on a 16:9 screen, with the bar's gaps closed up
-                let compact = g.size.height - vfHeight < Self.barNeed
-                let barHeight = min(g.size.height, max(g.size.height - vfHeight, compact ? Self.barCompact : Self.barNeed))
-                ZStack(alignment: .top) {
-                    viewfinder(width: g.size.width, height: vfHeight)
-                    if shade.level == .full { scrim.frame(height: g.size.height - barHeight) }
-                    bottomBar(compact: compact)
-                        .frame(width: g.size.width, height: barHeight)
-                        .offset(y: g.size.height - barHeight)
-                    panels(width: g.size.width)
-                        .frame(width: g.size.width, height: g.size.height - barHeight, alignment: .bottom)
-                    if shade.level != .hidden {
-                        QuickShade(camera: camera, chrome: chrome, maxHeight: min(vfHeight * 0.86, g.size.height - barHeight),
-                                   onFormat: { size in formatTab = size ? 1 : 0 },
-                                   onSettings: { showingSettings = true })
-                            .frame(width: g.size.width, height: g.size.height - barHeight, alignment: .bottom)
-                            .transition(.move(edge: .bottom).combined(with: .opacity))
-                            .zIndex(3)
-                    }
-                }
-                .frame(width: g.size.width, height: g.size.height, alignment: .top)
-                .clipped()
+                stage(g.size, Stage(g.size, tablet: tablet))
             }
         }
+    }
+
+    /// The stage's layers in its column (centred; the whole width on an iPhone), the FULL shade's scrim over the whole width
+    private func stage(_ size: CGSize, _ s: Stage) -> some View {
+        ZStack(alignment: .top) {
+            viewfinder(width: s.column, height: s.vfHeight)
+            if shade.level == .full { scrim.frame(height: size.height - s.barHeight) }
+            bottomBar(compact: s.compact)
+                .frame(width: s.column, height: s.barHeight)
+                .offset(y: size.height - s.barHeight)
+            panels(width: s.column)
+                .frame(width: s.column, height: size.height - s.barHeight, alignment: .bottom)
+            if shade.level != .hidden {
+                QuickShade(camera: camera, chrome: chrome, maxHeight: min(s.vfHeight * 0.86, size.height - s.barHeight),
+                           onFormat: { big in formatTab = big ? 1 : 0 },
+                           onSettings: { showingSettings = true })
+                    .frame(width: s.column, height: size.height - s.barHeight, alignment: .bottom)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .zIndex(3)
+            }
+        }
+        .frame(width: size.width, height: size.height, alignment: .top)
+        .clipped()
     }
 
     /// The FULL shade's dimming over the viewfinder and the top row (a tap lowers the shade to PEEK)
@@ -301,7 +346,7 @@ struct CameraView: View {
         }
         // a running track gives way to the tap focus
         if FrameAnalysis.shared.tracking { FrameAnalysis.shared.stopTracking() }
-        if focus.visible, let p = focus.point, hypot(p.x - point.x, p.y - point.y) <= FocusMark.radius {
+        if focus.visible, let p = focus.point, hypot(p.x - point.x, p.y - point.y) <= ringRadius {
             hideRing(now: true)
             exposurePoint = nil
             Task { await camera.resetFocus() }
@@ -406,7 +451,7 @@ struct CameraView: View {
                         })
             }
             if focus.visible, let p = focus.point {
-                let r = FocusMark.radius
+                let r = ringRadius
                 let manual = ManualSettings.load()
                 Circle().stroke(Color.white, lineWidth: 1.5)
                     .frame(width: 2 * r, height: 2 * r)
@@ -458,9 +503,7 @@ struct CameraView: View {
 
     /// camera_bottom_bar: from the bottom edge up - the shade's grabber, the shutter row with the bottom row (lifted 18 pt), the
     /// lens strip 16 pt over it and the message band over the strip
-    /// The bar's height with Android's gaps, and with them closed up
-    static let barNeed: CGFloat = 282, barCompact: CGFloat = 260
-
+    /// (the bar's heights: Stage.barNeed, Stage.barCompact, Stage.barSolid)
     private func bottomBar(compact: Bool) -> some View {
         VStack(spacing: 0) {
             Spacer(minLength: 0)
