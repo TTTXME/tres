@@ -101,7 +101,7 @@ struct GalleryView: View {
                     Text(L("gallery.photos")).font(.app(28, 700)).foregroundStyle(.white)
                         .scaleEffect(1 - 0.3 * t, anchor: .leading)
                     if library.access == .granted {
-                        Text(Self.countText(shown.count)).font(.app(13)).foregroundStyle(GalleryStyle.muted)
+                        Text(verbatim: Self.countText(shown.count)).font(Font.app(13)).foregroundStyle(GalleryStyle.muted)
                             .opacity(1 - min(1, t * 1.6))
                     }
                 }

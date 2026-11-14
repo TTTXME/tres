@@ -18,18 +18,15 @@ struct SamplePixels {
     func mixed(with after: SamplePixels, _ strength: Double) -> SamplePixels {
         let k = Float(max(0, min(1, strength)))
         guard after.rgba.count == rgba.count, k < 1 else { return k >= 1 ? after : self }
-        var out = Data(count: rgba.count)
-        out.withUnsafeMutableBytes { o in
-            rgba.withUnsafeBytes { a in
-                after.rgba.withUnsafeBytes { b in
-                    for i in 0..<rgba.count {
-                        let x = Float(a[i]), y = Float(b[i])
-                        o[i] = UInt8(max(0, min(255, (x + (y - x) * k).rounded())))
-                    }
-                }
-            }
+        let a: [UInt8] = [UInt8](rgba), b: [UInt8] = [UInt8](after.rgba)
+        var out: [UInt8] = [UInt8](repeating: 0, count: a.count)
+        for i in 0..<a.count {
+            let x: Float = Float(a[i])
+            let y: Float = Float(b[i])
+            let v: Float = (x + (y - x) * k).rounded()
+            out[i] = UInt8(Swift.max(Float(0), Swift.min(Float(255), v)))
         }
-        return SamplePixels(rgba: out, width: width, height: height)
+        return SamplePixels(rgba: Data(out), width: width, height: height)
     }
 }
 
