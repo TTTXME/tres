@@ -53,15 +53,57 @@ enum BurstProcessor {
     /// SabreCrop's window of the frames before the merge and the photo's crop after the pipeline (Engine/post/ShotRun.hpp).
     /// dngFacts (P165): the facts for the merged DNG (dngFacts(metadata:shot:)), nil when no RAW is saved.
     /// rawOnly («Только RAW», pref_save_raw_key 2): the merge and its DNG only (ScamProcessor returns after the DNG): no photo.
+    /// How many times the frames' codes exceed the DNG's levels (1, 2, 4, ... ; nil when it cannot be told): the noise of two N frames
+    /// measured against the DNG's NoiseProfile (variance ∝ the code scale), else the dark sites against the DNG's black.
+    static func bufferScale(_ burst: BayerBurst, info: DngInfo, log: (String) -> Void) -> Float? {
+        let black = info.black.reduce(0, +) / 4
+        guard info.white > black + 16, let first = burst.frames.first else { return nil }
+        let normals = burst.frames.indices.filter { burst.frames[$0].role == NchWriter.roleNormal }
+        var ratio: Float?
+        var how = ""
+        if let profile = info.noise, profile.0 > 0, normals.count >= 2,
+           let measured = NoiseEstimate.fromPair(burst.frames[normals[0]].raw, burst.frames[normals[1]].raw, width: burst.width,
+                                                 height: burst.height, cfa: burst.cfa, black: black, white: info.white),
+           measured.0 > 0 {
+            let iso0 = Float(max(first.iso, 1)), iso = Float(max(burst.frames[normals[0]].iso, 1))
+            ratio = measured.0 / (profile.0 * iso / iso0)
+            how = "noise slope measured / NoiseProfile"
+        } else {
+            // the 0.1 % darkest sites sit at the black level plus its noise
+            var samples: [UInt16] = []
+            first.raw.withUnsafeBytes { p in
+                let v = p.bindMemory(to: UInt16.self)
+                var i = 0
+                while i < v.count { samples.append(v[i]); i += 97 }
+            }
+            samples.sort()
+            if !samples.isEmpty, black > 0 {
+                ratio = Float(samples[samples.count / 1000]) / black
+                how = "darkest sites / black"
+            }
+        }
+        guard let r = ratio, r.isFinite, r > 0 else { return nil }
+        // only whole extra bits, and only with clear evidence (a NoiseProfile 1.5x off must not move the levels)
+        let k: Float = r >= 2.8 ? Float(1 << min(4, max(1, Int((log2(r)).rounded())))) : 1
+        log("frame codes against the DNG levels (\(black) / \(info.white)): \(how) = \(String(format: "%.2f", r)) -> levels x\(Int(k))")
+        return k
+    }
+
     static func process(_ burst: BayerBurst, metadata: [String: Any], zoom: Double? = nil, dngFacts: [String: Any]? = nil,
                         rawOnly: Bool = false) throws -> Result {
         guard MetalEngine.shared != nil else { throw EngineError.noDevice }
         guard burst.frames.count >= 1, burst.width >= 64, burst.height >= 64 else { throw EngineError.decode("empty burst") }
         var log = burst.report
         let started = Date()
-        let info = DngInfo(dng: burst.dng)
+        var info = DngInfo(dng: burst.dng)
         log += info.notes.map { "dng: " + $0 }
         var frames = burst.frames
+        // the frames' own scale: AVFoundation's 14-bit Bayer buffer ('rgg4') against the DNG's levels of the same photo (12-bit
+        // 528 / 4095 on the iPad and the iPhones) - the levels go to the buffer's units
+        if let k = Self.bufferScale(burst, info: info, log: { log.append($0) }), k != 1 {
+            info.black = info.black.map { $0 * k }
+            info.white *= k
+        }
         let blackMean = info.black.reduce(0, +) / 4
         // the frame the DNG is (the series' first); the noise of the others is its profile at their ISO (Camera2 gives each frame its
         // own SENSOR_NOISE_PROFILE; the iPhone's DNG profile is the first frame's)
