@@ -279,24 +279,7 @@ inline FastShift fastThumbShiftFixed(const FastThumbNorm& rn,const FastThumbNorm
 }
 inline FastShift fastThumbShift(const FastThumbNorm& rn,const FastThumbNorm& cn){return fastThumbShiftFixed(rn,cn);}
 inline FastShift fastThumbShift(const FastThumb& ref,const FastThumb& cur){return fastThumbShift(FastThumbNorm(ref),FastThumbNorm(cur));}
-// P662: body(i) for i in [0, n) on min(n, cores, 8) threads (this one among them), one index at a time: the selector's thumbnails
-// and shifts (each index computes alone, so any thread order gives the same values); was a thread per frame (21 on 8 cores)
-inline void fastParallelFor(int n,const std::function<void(int)>& body){
-    if(n<=0)return;
-    const int threads=std::max(1,std::min({n,int(std::thread::hardware_concurrency()),8}));
-    std::atomic<int> next{0};
-    std::exception_ptr error;std::mutex errorLock;
-    auto run=[&]{
-        for(int i=next.fetch_add(1);i<n;i=next.fetch_add(1)){
-            try{body(i);}catch(...){std::lock_guard<std::mutex> l(errorLock);if(!error)error=std::current_exception();}
-        }
-    };
-    std::vector<std::thread> team;
-    for(int t=1;t<threads;++t){try{team.emplace_back(run);}catch(const std::exception&){break;}} // fewer threads: shared indices
-    run();
-    for(auto& t:team)t.join();
-    if(error)std::rethrow_exception(error);
-}
+// P662 / P682: fastParallelFor is in scam-merge.h (the clipped lights' notch takes it too)
 
 // P627: a frame past one of the GPU's limits for the fast route (texture / viewport size, the storage block of a strip's ring):
 // maxW - the widest frame (RAW px) the limit takes at this height (0: the height itself is past it)
@@ -617,7 +600,9 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
     const bool mosaicChroma=quad&&tune.fastMosaicChroma!=0&&tune.mosaicChroma;
     // P564: its GPU context builds during the merge; P610: with the Quad lattice's programs when the lattice follows the median
     const bool latticeAfter=quad&&sensorType==1&&tune.fastQuadLattice!=0&&tune.chromaGpu>0;
-    if(mosaicChroma&&tune.chromaGpu>0)chromaPrewarm(false,latticeAfter);
+    // P682: the Tetra few-frame pass (P634) on the median's context (ChromaMedianGpu::mosaicPost): its programs built ahead too
+    const bool tetraPostGpu=quad&&sensorType==2&&tune.fastTetraPost!=0&&tune.mosaicAlongEdge>0.f&&tune.fastTetraAlongEdgeK>0.f&&tune.chromaGpu>0;
+    if(mosaicChroma&&tune.chromaGpu>0)chromaPrewarm(tetraPostGpu,latticeAfter);
     const bool streamWanted=hybridFinalHalvesHook()&&!(mergedDng&&input.mergedDng)&&!std::getenv("SCAM_NO_STREAM_OUT")&&!mosaicChroma;
     // P662: a result the stream prepared for is only reserved (its data pointer names the stream; nothing reads its floats when the
     // stream takes the halves): no 600 MB of zeroed pages at 50 MP; a stream that refuses (at the preparation, or later) gets the
@@ -706,6 +691,7 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
     }
     // profile 2: a glFinish at every boundary and the CPU clock (Adreno's timestamps read 0 around compute passes); replays only
     const bool syncProfile=tune.profile==2;
+    chromaGpuSyncTimes()=syncProfile; // P682
     const bool profile=syncProfile||(queryCounter&&queryResult);
     std::array<double,16> stageMs{}; // profile: see the profile line
     std::vector<std::pair<GLuint,int>> stamps; // (query, stage that ends at it)
@@ -1557,12 +1543,16 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
         // P596: the de-grid's «flat» from the merged noise, its line notch where few frames merged (Quad; Tetra as before)
         g.u4f(A::pOutput,"u_flat_noise",S,O,quad&&sensorType==1?std::clamp(tune.fastQuadFlatNoise,0.f,8.f):0.f,quad&&sensorType==1?std::clamp(tune.fastQuadLineFrames,0.f,64.f):0.f);
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER,2,bEff);
+        // P682: a fence after each band's output pass, flushed: the readback below takes band b once it is written (readBuffer's done)
+        struct BandFences { std::vector<GLsync> f; ~BandFences(){for(GLsync s:f)if(s)glDeleteSync(s);} } bandDone;
+        bandDone.f.assign(size_t(bands),nullptr);
         for(int b=0;b<bands;++b){
             const int y0=b*bandRows,rows=std::min(bandRows,OH-y0);
             bRgb[size_t(b)]=g.readBuffer(size_t(OW)*rows*6);bFlags[size_t(b)]=g.readBuffer(size_t(OW)*rows);
             glBindBufferBase(GL_SHADER_STORAGE_BUFFER,0,bRgb[size_t(b)]);glBindBufferBase(GL_SHADER_STORAGE_BUFFER,1,bFlags[size_t(b)]);
             g.u1i(A::pOutput,"u_row0",y0);g.u1i(A::pOutput,"u_rows",rows);
             g.dispatch(A::pOutput,(OW/4+63)/64,rows);
+            if(bands>1){bandDone.f[size_t(b)]=glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE,0);glFlush();}
         }
         // P480: the base highlight mask (0x530) for the app's dezipper pass, only with the highlight path on (none: no pass, no trailer)
         if(hlMaskOut&&bento){ // (P501: the sensor's HALF grid at any sabre_scale: the app's dezipper samples it in uv)
@@ -1591,7 +1581,7 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
             g.readBuffer(bRgb[size_t(b)],size_t(OW)*rows*6,[&](const void* m){
                 if(b==0)waitMs=ms(t0,Clock::now());
                 streamed=halvesHook(static_cast<const uint16_t*>(m),OW,OH,y0,y0+rows,out.data());
-            });
+            },bandDone.f[size_t(b)]);
         }
         if(streamed)streamed=halvesHook(nullptr,OW,OH,-1,-1,out.data());
         outNote=streamed?"halves streamed into the output":"floats";
@@ -1616,8 +1606,8 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
                     for(size_t i=a;i<e;++i)d[i]=hybridHalfToFloat(src[i]);
     #endif
                 });
-            });
-            if(clipFlags)g.readBuffer(bFlags[size_t(b)],size_t(OW)*rows,[&](const void* m){std::memcpy(clipFlags->data()+size_t(y0)*OW,m,size_t(OW)*rows);});
+            },bandDone.f[size_t(b)]);
+            if(clipFlags)g.readBuffer(bFlags[size_t(b)],size_t(OW)*rows,[&](const void* m){std::memcpy(clipFlags->data()+size_t(y0)*OW,m,size_t(OW)*rows);},bandDone.f[size_t(b)]);
         }
     // ---- phase B (row strips): see the strip decision above
     } else {
@@ -1964,13 +1954,15 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
     report("HYBRID STAGES ms: align=0 localAlign=0 mask=0 merge="+std::to_string(stats.mergeMs)+" total="+std::to_string(ms(started,finished))
         +" merged="+std::to_string(N)+" droppedBracketed="+std::to_string(longsDropped)+" bento=0 (fast merge)");
     HybridLatticeFuse fuse; // P662
+    // P634: the Tetra few-frame pass below runs (P682: it takes the chroma median's context when tetraPostGpu)
+    const bool tetraPass=tetraPost&&!streamed&&eff.size()==size_t(w2)*h2&&tune.mosaicAlongEdge>0.f&&tune.fastTetraAlongEdgeK>0.f;
     if(mosaicChroma&&!streamed){
         // P563: the native merge's chroma median (dual 5-point, taps max(1, b / 2) output px; the false-colour suppression on the
         // luma's oscillation): the blocks' colour lattice of the per-frame merge (R / B at 1/4 cycles / px 2-3x the quality route's)
         const auto c0=Clock::now();
         const int b=std::max(1,int(std::lround(double(mosaicBlock)*OW/std::max(W,1))));
         std::string how;
-        chromaKeepNext(latticeAfter); // P610: the lattice below takes the median's context (not torn down and made again)
+        chromaKeepNext(latticeAfter||(tetraPostGpu&&tetraPass)); // P610: the lattice below takes the median's context (not torn down and made again); P682: the Tetra pass
         // P662: in the median's GPU bands (50 MP) the lattice follows there, each band's result on the GPU
         if(latticeAfter){fuse.relative=tune.fastQuadLattice>=2;fuse.clipK=2.5f;}
         mosaicChromaMedian(out,OW,OH,b,nullptr,tune.chromaGpu>0,&how,0,nullptr,latticeAfter?&fuse:nullptr);
@@ -1978,7 +1970,7 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
         report("HYBRID FAST MERGE MOSAIC: chroma median (dual 5-point, taps "+std::to_string(std::max(1,b/2))+" px of the "+std::to_string(OW)+"x"
             +std::to_string(OH)+" result, "+how+") "+std::to_string(int(ms(c0,Clock::now())))+" ms (P563)");
     }
-    if(tetraPost&&!streamed&&eff.size()==size_t(w2)*h2&&tune.mosaicAlongEdge>0.f&&tune.fastTetraAlongEdgeK>0.f){
+    if(tetraPass){
         // P634 (owner, 2026-11-12: «Займись улучшением результата на Tetra»; «максимум детализации, при этом не ухудшив движущиеся
         // объекты и не добавив новых артефактов»): where this route merged the base frame nearly alone (a moving subject: 1 - 2
         // frames in its map against 15 - 30 beside it) the 4x4 blocks' one-frame reconstruction keeps 4 / 8 px stair-steps along
@@ -1987,23 +1979,49 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
         // edge only, across it and in texture nothing; pixels of 4 frames and more are not touched. (The motion smoothing of
         // P603 was tried here as well: the splash's noise -22 % but its texture -8 % - not taken.)
         const auto c0=Clock::now();
-        std::vector<float> ef(size_t(OW)*OH);
-        mergeRowBands(OH,[&](int y0,int y1){
+        // P682: the frame map's rows per band of the pass (bilinear from the half grid, the same floats), no W x H map (200 MB at 50 MP)
+        auto efRows=[&](int y0,int y1,float* dst){
             for(int y=y0;y<y1;++y){
                 const float fy=std::clamp((float(y)+0.5f)*float(h2)/float(OH)-0.5f,0.f,float(h2-1));
                 const int ya=int(fy),yb=std::min(ya+1,h2-1);const float ty=fy-float(ya);
-                const float* ra=eff.data()+size_t(ya)*w2;const float* rb=eff.data()+size_t(yb)*w2;float* d=ef.data()+size_t(y)*OW;
+                const float* ra=eff.data()+size_t(ya)*w2;const float* rb=eff.data()+size_t(yb)*w2;float* d=dst+size_t(y-y0)*OW;
                 for(int x=0;x<OW;++x){
                     const float fx=std::clamp((float(x)+0.5f)*float(w2)/float(OW)-0.5f,0.f,float(w2-1));
                     const int xa=int(fx),xb=std::min(xa+1,w2-1);const float tx=fx-float(xa);
                     d[x]=(ra[xa]*(1.f-tx)+ra[xb]*tx)*(1.f-ty)+(rb[xa]*(1.f-tx)+rb[xb]*tx)*ty;
                 }
             }
-        });
-        const size_t nEdge=hybridAlongEdge(out,OW,OH,ef,0,0,tune.fastTetraAlongEdgeK,tune.mosaicAlongEdge,2);
-        char line[220];
-        std::snprintf(line,sizeof(line),"HYBRID FAST MERGE MOSAIC: Tetra few-frame pass (P634): along-edge smoothing (K %.0f, step 2) %zu px (%.2f %%), cpu, %d ms",
-            double(tune.fastTetraAlongEdgeK),nEdge,100.0*double(nEdge)/std::max(1.0,double(OW)*OH),int(ms(c0,Clock::now())));
+        };
+        // P682 (speed): on the GPU (ChromaMedianGpu::mosaicPost's along-edge pass, the CPU's twin: P531; the frame map's rows per
+        // strip from efRows), the CPU twin below when the GPU is off, short of memory or fails before writing a row
+        size_t nEdge=0;std::string how="cpu";bool done=false;
+        if(tetraPostGpu&&tetraPass){
+            try{
+                auto gpu=chromaTake(); // the median's context (chromaKeepNext above)
+                gpu->releaseBuffers(); // the median's result kept for a lattice: not read here
+                const uint64_t avail=hybridMemAvailable();
+                if(avail==0||ChromaMedianGpu::postBytesFor(OW,OH)<avail/4){
+                    gpu->times.clear();
+                    gpu->postStrip=512; // strips of 512 rows (+ 2 x 32 halo): 44 B a pixel, ~200 MB at 8192 px wide (the same result)
+                    const std::function<void(int,int,float*)> rows=efRows;
+                    size_t changed[2]{0,0};
+                    try{
+                        gpu->mosaicPost(out,OW,OH,std::vector<float>(),0,0,tune.fastTetraAlongEdgeK,tune.mosaicAlongEdge,2,nullptr,nullptr,nullptr,nullptr,changed,
+                                        10,6,1.2f,2.5f,nullptr,nullptr,&rows);
+                    }catch(const std::exception& e){
+                        // rows written back already: the CPU twin would pass over them twice (and read them as its input)
+                        if(gpu->postCommitted>0){how=std::string("gpu failed after ")+std::to_string(gpu->postCommitted)+" rows, the rest left as merged ("+e.what()+")";done=true;}
+                        throw;
+                    }
+                    nEdge=changed[0];how="gpu:"+gpu->times+" ms";done=true;
+                }else how="cpu (size)";
+                chromaGiveBack(std::move(gpu)); // torn down on its thread, as after the median before
+            }catch(const std::exception& e){if(!done)how=std::string("cpu (")+e.what()+")";}
+        }
+        if(!done)nEdge=hybridAlongEdgeRows(out,OW,OH,efRows,tune.fastTetraAlongEdgeK,tune.mosaicAlongEdge,2);
+        char line[400];
+        std::snprintf(line,sizeof(line),"HYBRID FAST MERGE MOSAIC: Tetra few-frame pass (P634): along-edge smoothing (K %.0f, step 2) %zu px (%.2f %%), %s, %d ms",
+            double(tune.fastTetraAlongEdgeK),nEdge,100.0*double(nEdge)/std::max(1.0,double(OW)*OH),how.c_str(),int(ms(c0,Clock::now())));
         report(line);
     }
     if(quad&&sensorType==2&&!streamed&&tune.fastTetraClipNotch!=0&&tune.mosaicTetraNotchClipReach>0.f&&OW==W&&clipFlags&&clipFlags->size()==size_t(OW)*OH){

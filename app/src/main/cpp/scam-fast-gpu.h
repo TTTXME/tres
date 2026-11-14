@@ -770,12 +770,20 @@ public:
     // A buffer read back whole from offset 0 (Adreno 750 returns NULL from some maps without a GL error, see HybridGpu::getBuffer):
     // the map, after a finish, or a staging copy into a fresh GL_DYNAMIC_READ buffer
     double mapMs=0,useMs=0,unmapMs=0; // readBuffer's time in the map, the caller's use of it, the unmap
-    template<class F> void readBuffer(GLuint b,size_t bytes,const F& use){
+    // P682: done - a fence placed right after the commands that write b (the output bands): the hardware buffer's view waits for it
+    // alone, so the CPU takes this band while the GPU still writes the next ones (glFinish waited for every band)
+    template<class F> void readBuffer(GLuint b,size_t bytes,const F& use,GLsync done=nullptr){
         scam_progress::FenceWait fw; // P509b: a hung GPU shows here as a fence
         const auto t0=std::chrono::steady_clock::now();
         const auto ah=ahbOf.find(b);
         if(ah!=ahbOf.end()){ // GPU work done first (the lock takes no fence of ours), then the cached view
-            glFinish();
+            bool waited=false;
+            if(done)for(GLbitfield flags=GL_SYNC_FLUSH_COMMANDS_BIT;;flags=0){
+                const GLenum r=glClientWaitSync(done,flags,GLuint64(100)*1000*1000);
+                if(r==GL_ALREADY_SIGNALED||r==GL_CONDITION_SATISFIED){waited=true;break;}
+                if(r!=GL_TIMEOUT_EXPIRED){glGetError();break;} // GL_WAIT_FAILED: the finish below
+            }
+            if(!waited)glFinish();
             void* p=nullptr;
             if(ahb.lock(ah->second,AHARDWAREBUFFER_USAGE_CPU_READ_OFTEN,-1,nullptr,&p)!=0||!p)throw std::runtime_error("FAST MERGE GPU: readback buffer not locked");
             const auto t1=std::chrono::steady_clock::now();

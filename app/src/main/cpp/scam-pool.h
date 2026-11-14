@@ -6,17 +6,54 @@
 // and the time change.
 #include <algorithm>
 #include <atomic>
+#include <cerrno>
 #include <condition_variable>
 #include <deque>
 #include <exception>
+#include <fstream>
 #include <functional>
 #include <future>
 #include <memory>
 #include <mutex>
+#include <string>
 #include <thread>
 #include <vector>
+#if defined(__linux__)
+#include <sys/resource.h>
+#include <sys/syscall.h>
+#include <unistd.h>
+#endif
 
 namespace scam {
+
+// P682 (speed on the weak SoCs): the CPUs of at least half the largest capacity (sysfs cpu_capacity; P213b's count, which
+// mosaicChromaThreads takes), 0 when the kernel does not tell the capacities.
+inline int scamBigCores(){
+    static const int big=[]{
+        const int n=int(std::clamp(std::thread::hardware_concurrency(),1u,64u));
+        std::vector<long> capacity;
+        for(int c=0;c<n;++c){
+            std::ifstream f("/sys/devices/system/cpu/cpu"+std::to_string(c)+"/cpu_capacity");long v=0;
+            if(!(f>>v)||v<=0)return 0;
+            capacity.push_back(v);
+        }
+        const long top=*std::max_element(capacity.begin(),capacity.end());
+        return int(std::count_if(capacity.begin(),capacity.end(),[&](long v){return 2*v>=top;}));
+    }();
+    return big;
+}
+// P682: the threads of a stage spread over the cores (mergeRowBands, fastParallelFor, ScamPool): the big cores (scamBigCores),
+// at least 4 (a 2 + 6 SoC: its two big cores and two of the little ones, the other four left to the camera and the viewfinder;
+// the rows go out in small chunks, so a little core holds no other), at most 8; without capacities min(8, hardware threads) as
+// before. Every SoC whose cores all reach half the largest (the 8 Elite, the Dimensity 9x00) keeps 8.
+inline int scamComputeThreads(){
+    static const int threads=[]{
+        const int n=int(std::clamp(std::thread::hardware_concurrency(),1u,64u)),big=scamBigCores();
+        if(big<=0)return std::min(n,8);
+        return std::clamp(std::max(big,std::min(n,4)),1,8);
+    }();
+    return threads;
+}
 
 class ScamPool {
     std::mutex lock;
@@ -40,7 +77,8 @@ public:
     // Hardware threads - 2, 1..6: the calling thread aligns meanwhile and the camera preview keeps running in the app (replays on
     // the OPPO with the preview on: 6 threads aligned as fast as 7, the CRE thread less often slowed). Never destroyed: the threads
     // wait for work until the process exits (no join at exit, no task outliving its data: every caller waits for its own tasks).
-    static ScamPool& get(){static ScamPool* pool=new ScamPool(std::clamp(int(std::thread::hardware_concurrency())-2,1,6));return *pool;}
+    // P682: at most scamComputeThreads() - 1 (with the aligning thread, the stage's threads): 6 on the 8 Elite as before.
+    static ScamPool& get(){static ScamPool* pool=new ScamPool(std::clamp(std::min(int(std::thread::hardware_concurrency())-2,scamComputeThreads()-1),1,6));return *pool;}
     // True on a pool thread: mergeRowBands then spreads its rows over the pool instead of starting threads of its own.
     static bool inWorker(){return workerFlag();}
     int size() const {return int(threads.size());}
@@ -87,6 +125,71 @@ public:
         if(st->error)std::rethrow_exception(st->error);
     }
 };
+
+// P682 (speed): persistent helpers for the stages spread over the cores from a thread outside the pool (mergeRowBands ~90 call
+// sites, fastParallelFor, the clipped lights' notch): each call started up to 8 threads (~0.1 ms a call on x86, more on the
+// phone) and gave them back. The team's threads wait for a call; job() runs on `workers` threads, the caller among them, and run
+// returns once each has returned from it. The callers hand out their work themselves (an atomic counter: the same chunks of the
+// same rows whatever thread takes them), so the results are those of the threads they started before, bit for bit. One call at a
+// time: a call on a team thread (nested), during another one, on a pool thread or from a thread of another nice value (the threads
+// they started inherited it) gets false and starts its threads as before. Never destroyed (as ScamPool).
+class ScamRowTeam {
+    std::mutex callers,m;
+    std::condition_variable wake,done;
+    std::vector<std::thread> threads;
+    const std::function<void()>* job=nullptr;
+    unsigned long long gen=0;
+    int want=0,left=0,nice=0;
+    static bool& memberFlag(){static thread_local bool flag=false;return flag;}
+    static int currentNice(){
+#if defined(__linux__)
+        errno=0;const int v=getpriority(PRIO_PROCESS,id_t(syscall(SYS_gettid)));
+        return errno?0:v;
+#else
+        return 0;
+#endif
+    }
+    explicit ScamRowTeam(int n):nice(currentNice()){
+        for(int i=0;i<n;++i){
+            try{threads.emplace_back([this,i]{
+                memberFlag()=true;
+                unsigned long long seen=0;
+                for(;;){
+                    const std::function<void()>* f=nullptr;
+                    {std::unique_lock<std::mutex> l(m);wake.wait(l,[&]{return gen!=seen;});seen=gen;if(i>=want)continue;f=job;}
+                    try{(*f)();}catch(...){} // the callers' jobs keep their own exceptions
+                    {std::lock_guard<std::mutex> l(m);if(--left==0)done.notify_all();}
+                }
+            });}catch(const std::exception&){break;} // fewer threads: the work is shared
+        }
+    }
+public:
+    static ScamRowTeam& get(){static ScamRowTeam* team=new ScamRowTeam(scamComputeThreads()-1);return *team;}
+    // job on min(workers - 1, team) team threads and this one; false (job not run) when the team cannot take the call
+    bool run(int workers,const std::function<void()>& fn){
+        if(memberFlag()||ScamPool::inWorker())return false;
+        std::unique_lock<std::mutex> call(callers,std::try_to_lock);
+        if(!call.owns_lock()||currentNice()!=nice)return false;
+        const int helpers=std::min(workers-1,int(threads.size()));
+        if(helpers>0){
+            {std::lock_guard<std::mutex> l(m);job=&fn;want=helpers;left=helpers;++gen;}
+            wake.notify_all();
+        }
+        try{fn();}catch(...){}
+        if(helpers>0){std::unique_lock<std::mutex> l(m);done.wait(l,[&]{return left==0;});job=nullptr;}
+        return true;
+    }
+};
+// P682: job() on `workers` threads (this one among them): the team's when it takes the call, else threads started for it. job
+// must take its share of the work from a shared counter and must not throw.
+inline void scamRunTeam(int workers,const std::function<void()>& job){
+    if(workers<=1){job();return;}
+    if(ScamRowTeam::get().run(workers,job))return;
+    std::vector<std::thread> pool;
+    for(int t=1;t<workers;++t){try{pool.emplace_back(job);}catch(const std::exception&){break;}} // fewer threads: the work is shared
+    job();
+    for(auto& t:pool)t.join();
+}
 
 // Tasks of one caller: every task is waited for before the group goes (also when the caller leaves by an exception), so a task
 // may use the caller's locals declared before the group.
