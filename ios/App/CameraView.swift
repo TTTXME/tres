@@ -137,17 +137,20 @@ struct CameraView: View {
             }
             GeometryReader { g in
                 let vfHeight = min(g.size.width * 4 / 3, g.size.height)
-                let barHeight = max(g.size.height - vfHeight, min(250, g.size.height))
+                // a screen shorter than the bar needs (the iPhone's 19.5:9 under its safe areas): the band and the lens strip float
+                // over the preview's bottom, as Android's bar does on a 16:9 screen, with the bar's gaps closed up
+                let compact = g.size.height - vfHeight < Self.barNeed
+                let barHeight = min(g.size.height, max(g.size.height - vfHeight, compact ? Self.barCompact : Self.barNeed))
                 ZStack(alignment: .top) {
                     viewfinder(width: g.size.width, height: vfHeight)
                     if shade.level == .full { scrim.frame(height: g.size.height - barHeight) }
-                    bottomBar
+                    bottomBar(compact: compact)
                         .frame(width: g.size.width, height: barHeight)
                         .offset(y: g.size.height - barHeight)
                     panels(width: g.size.width)
                         .frame(width: g.size.width, height: g.size.height - barHeight, alignment: .bottom)
                     if shade.level != .hidden {
-                        QuickShade(camera: camera, chrome: chrome, maxHeight: vfHeight * 0.86,
+                        QuickShade(camera: camera, chrome: chrome, maxHeight: min(vfHeight * 0.86, g.size.height - barHeight),
                                    onFormat: { size in formatTab = size ? 1 : 0 },
                                    onSettings: { showingSettings = true })
                             .frame(width: g.size.width, height: g.size.height - barHeight, alignment: .bottom)
@@ -448,7 +451,10 @@ struct CameraView: View {
 
     /// camera_bottom_bar: from the bottom edge up - the shade's grabber, the shutter row with the bottom row (lifted 18 pt), the
     /// lens strip 16 pt over it and the message band over the strip
-    private var bottomBar: some View {
+    /// The bar's height with Android's gaps, and with them closed up
+    static let barNeed: CGFloat = 282, barCompact: CGFloat = 260
+
+    private func bottomBar(compact: Bool) -> some View {
         VStack(spacing: 0) {
             Spacer(minLength: 0)
             ZStack {
@@ -463,10 +469,10 @@ struct CameraView: View {
             .padding(.bottom, 8)
             LensStrip(camera: camera, onZoomChange: { ZoomReadoutModel.shared.show($0) })
                 .padding(.horizontal, 6)
-                .padding(.bottom, 16)
+                .padding(.bottom, compact ? 8 : 16)
             shutterRow
-            bottomRow.padding(.top, 18)
-            moreGrabber.padding(.top, 8)
+            bottomRow.padding(.top, compact ? 10 : 18)
+            moreGrabber.padding(.top, compact ? 2 : 8)
         }
         .foregroundStyle(.white)
     }

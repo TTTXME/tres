@@ -359,6 +359,8 @@ struct QuickShade: View {
                 .padding(.bottom, 12)
             }
             .scrollDisabled(model.level != .full)
+            // PEEK: as tall as the tiles (and the slider card), FULL: the room the level gives
+            .fixedSize(horizontal: false, vertical: model.level != .full)
         }
         .padding(.horizontal, 8)
         .frame(maxWidth: .infinity)
