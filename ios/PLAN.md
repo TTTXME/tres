@@ -607,3 +607,59 @@ change: `scam-crash.h` keeps only the stage marks on Apple.
 - Checks (Mesa, references by the new Android code, hybrid_replay from the new shared C++), post_node_check full, each 0 of
   36-37.7M values: vivo_room, lenta, v2 (jbu=0.1/1), night (shadow 1.6..4.0), night_off, texture, os2, uhdr, p_v1 (v2Colour,
   detail=1.0), v2tex, f_v2. shot_params_check / shot_run_check compile.
+
+## Camera screen UI port: top row, LUT tray, shade, Pro, «Oldstyle», HUD (2026-11-14)
+`App/Camera/` holds the camera screen's Android UI one to one where iOS allows; `App/CameraView.swift` lays it out as
+camera_screen: the top row (64 pt) with its grabber, the 3:4 viewfinder from the stage's top, the bottom bar in the room under it.
+- Top row (TopRow / TopRowSheet / CameraSheets, `TopRow.swift`, `CameraSheets.swift`): ui_top_row (format and LUT required, at most
+  six, the gaps close when it does not fit), the «Верхняя строка» card from the top (a tap or a pull on the grabber, a swipe down
+  from the upper half of the viewfinder; «−» badges, «ДОБАВИТЬ» grid, «Вернуть основные», Отмена / Готово, swipe up / tap beside to
+  close). The format badge opens «Формат | Размер» (long press: «Размер»): Фото JPEG / HEIC, RAW (DNG) Нет / + RAW / Только RAW
+  (pref_save_raw_key 0/1/2 over the camera's RAW kind), the sizes of the open lens with the accent tick, help on long press. WebP /
+  AVIF are not offered: the app carries no encoder for them (a line says so). «Сохранится: …» is the accessibility label, as
+  Android's P592 left it.
+- LUT tray and swipe (LutTray / TrayAdjust / Swipe / LutWipeView, `LutTray.swift`): LUT · Фильтр · Плёнка · Цвет with dots and
+  the double-tap reset (undo on the hint line), cards with still thumbnails (SampleScene through SCAMFilm.lookThumbnail; the lens
+  filters show the plain scene: no filter renderer outside the pipeline), strength, the filter's Tune 1..4, the film's strength /
+  print / format / diffusion / grain / halation / softness / exposure / contrast / print exposure, Тепло / Оттенок, «Все ›» to
+  FilmLutPage / LensFilterPage / FilmSimPage. A horizontal fling on the viewfinder steps the LUT with the wipe (snapshotView of the
+  preview, cut away from the swipe's side; ViewfinderRenderer.refreshNow so the new look is drawn at once). Parameter help on a
+  long press is the settings row's summary (Android's ParamHelp texts are not ported). No reorder of the cards (StripReorder).
+- Shade (SettingsBarLayout / ShadeCatalogView / ConfigMenu, `QuickShade.swift`): HIDDEN / PEEK / FULL (86 % of the viewfinder,
+  scrim over the viewfinder and the top row), the default pins of ShadeCatalog.DEFAULT_TILES without «Стиль» (PhotoStyle is a
+  settings page here), 4 x 2 pages with dots, toggles / short lists step, long lists open their list, sliders their card
+  (SliderGrid), the edit mode (long press: «×», drag to reorder), FULL's four groups with an inline control and a pin, «Добавить в
+  шторку» (every switch / list / slider of the settings tree, searchable), the config chip and menu (ProfileLibrary). Strings from
+  values*/shade_strings.xml as "a.<name>". The config menu is a sheet (Android: a popup card under the chip); lens pins (P606) and
+  the Camera2 metering tile are not on the iPhone.
+- Pro panel (ExpandingManualPanel / ManualChipView / LinearScaleView, `ManualPanel.swift`): inline over the bar, the ruler card
+  over the six chips, the open spring and the rising tiles; ManualStops' third stops on the lens's ranges, EV in thirds, focus as
+  the lens position (the iPhone gives no distance: «0,62», 1 = ∞), white balance 2000-10000 K; the accent dot on «Про». The chips'
+  auto values are the lens's readings (DeviceHudMonitor now publishes whatever the HUD mode).
+- «Oldstyle» (OldstyleControls, `OldstyleControls.swift`): the manual row stays open, «Про» steps aside; the style button, «Палитра»
+  pad with its HUD, «Расширенные» ruler and twelve chips, reset with a question, the menu (reset, V1 ↔ V2, help);
+  pref_oldstyle_style_* feed the photo's OldstyleStyleNode. Not live in the viewfinder: Viewfinder.metal has no port of
+  import_oldstyle_adjust.glsl yet.
+- Lens strip / zoom (AuxButtonsLayout / LensButton / ZoomReadoutView, `LensStrip.swift`): one capsule, 48 x 44 stops, the gliding
+  pill, the live zoom label, drag zoom (x2 per 70 pt, eased, a tick on a module change), the readout pill in the message band
+  (it replaces the zoom ruler card, as on Android). Orientation (`DeviceTurn` in `CameraKit.swift`): UIDevice's orientation turns
+  icons and labels in 350 ms (the system's rotation lock keeps them, as Android's auto-rotate switch does).
+- Level (HorizonIndicatorView, `HorizonLevel.swift`), message card / history (MessageCard / MessageLog / MessageHistorySheet,
+  `Messages.swift`; camera.say / show post to it; Application Support/scam_messages.txt; the history also from the gear's context
+  menu), processing ring (P158, `ProcessingRing.swift`; it runs on time between .saving and .idle: the iPhone pipeline reports no
+  milestones or merge heartbeat), the self-timer's count in the viewfinder's middle.
+- HUD mode 2 histogram and «[TRIPOD]» (`SubjectTracking.swift`: FrameAnalysis on the live look's video frames, which now run while
+  the histogram or the tracking wants them even with no look to draw; TripodDetector on the gyroscope). No OIS row: iOS reports no
+  OIS state.
+- Faces / tracking / split AF-AE (`SubjectTracking.swift`): AVCaptureMetadataOutput faces (brackets, the largest primary),
+  pref_tracking_af_mode (long press / tap) with VNTrackObjectRequest moving the continuous focus and exposure point
+  (CaptureService.track), pref_split_af_ae's exposure square (CaptureService.expose).
+- First-run compile and quick action (`FirstRunCompile.swift`, `Bridge/ScamWarmUp.mm`, ScamGL recipes): the dialog after an
+  install / update / new iOS builds the merge's programs (hybridPrewarmGpu, block 1: the iPhone's Bayer bursts) and the post
+  programs ScamGL recorded in earlier runs (Application Support/scamgl_programs.bin, saved when the app goes to the background);
+  later launches warm them quietly. ScamGL's link cache is per process: what persists between launches is Metal's own shader
+  cache. The Home Screen quick action «Настройки» (UIApplicationShortcutItems, a scene delegate) opens the settings.
+- Hooks for the others: «Только RAW» stores pref_save_raw_key 2, but CameraModel's save path still writes the photo with the DNG
+  (it has to skip the processed photo); the settings row «Последние сообщения» (scam_recent_messages) can now open
+  MessageHistorySheet. Swift not compiled here: CI must build it; check on a phone the wipe's snapshot (snapshotView of the
+  preview layer), the shade's paging and drag reorder, the face boxes' mapping and the tracking.
