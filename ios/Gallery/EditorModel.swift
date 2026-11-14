@@ -197,6 +197,14 @@ final class EditorModel {
     private var styleBase: EditState?
     private(set) var orientedSize = CGSize(width: 1, height: 1)
     private(set) var isRaw = false
+    /// P367 EditZoom: the view's zoom (px), the full-resolution window over the picture (view points), its key and source
+    private(set) var zoom = EditZoom()
+    private(set) var zoomDetail: UIImage?
+    private(set) var zoomDetailRect = CGRect.zero
+    private var zoomKey = ""
+    private var zoomSource = ZoomSource.none
+    enum ZoomSource { case none, loading, ready, unavailable }
+    private var zoomAnimation: Task<Void, Never>?
 
     private let engine = EditEngine()
     private var original = Data()
@@ -318,7 +326,11 @@ final class EditorModel {
         guard pendingRender, !busy, viewPixels.width > 0, viewPixels.height > 0, engine.session != nil else { return }
         pendingRender = false
         busy = true
+        zoomFrame(keep: true)
         let json = state.json, crop = cropMode, before = before
+        // P367: zoomed, the displayed crop at its place (EditZoom.placement), past the view's edges
+        let zoomed = !crop && zoom.isZoomed
+        let place = zoom.placement
         let w = Int(viewPixels.width), h = Int(viewPixels.height)
         let margin = Double(Self.margin(crop) * (viewPixels.width / max(1, viewSizePoints.width)))
         let engine = self.engine
@@ -329,7 +341,10 @@ final class EditorModel {
                 Task { @MainActor in self.busy = false }
                 return
             }
-            let frame = s.renderState(json, width: w, height: h, margin: margin, cropMode: crop, before: before, background: bg)
+            let frame = zoomed
+                ? s.renderZoom(json, width: w, height: h, left: place.0, top: place.1, displayWidth: place.2, displayHeight: place.3,
+                               before: before, background: bg)
+                : s.renderState(json, width: w, height: h, margin: margin, cropMode: crop, before: before, background: bg)
             let hist = crop ? nil : s.histogram(forState: json, before: before)
             var image: UIImage?
             if let frame, let cg = PhotoDecode.cgImage(rgba: frame.rgba, width: frame.width, height: frame.height) {
@@ -341,6 +356,7 @@ final class EditorModel {
                 if let counts { self.histogram = counts }
                 self.busy = false
                 self.pump()
+                self.requestZoomWindow()
             }
         }
     }
@@ -599,7 +615,8 @@ final class EditorModel {
     /// PhotoEditorFragment.updateWatermark: the state's watermark laid out for the copy's size, over the picture (not in «Кадр», not
     /// while the long press shows the original); «Авто» from a small picture of the edited crop, asked again when it changed.
     func updateWatermark() {
-        guard let spec = state.watermark, tab != .crop, !before, engine.session != nil, viewPixels.width > 0, viewPixels.height > 0 else {
+        guard let spec = state.watermark, tab != .crop, !before, !zoom.isZoomed, engine.session != nil, viewPixels.width > 0,
+              viewPixels.height > 0 else {
             watermarkOverlay = nil
             return
         }
@@ -924,4 +941,177 @@ final class EditorModel {
     /// the state the last copy was saved with (leaving after it asks nothing)
     private var savedState: EditState?
     var hasChanges: Bool { state != (savedState ?? history.states[0]) }
+}
+
+// ---------------------------------------------------------------- P367 the view zoom (EditZoom, EditZoomLoader)
+
+extension EditorModel {
+    /// view px per point
+    private var pixelsPerPoint: Double { Double(viewPixels.width / Swift.max(1, viewSizePoints.width)) }
+
+    /// EditZoom.frame: the view, the fit of the crop in it (EditorView.canvas), the crop in the original's pixels and the copy's
+    /// size; a zoomed view keeps its zoom (`keep`), the crop tab has none.
+    func zoomFrame(keep: Bool) {
+        guard viewPixels.width > 0, viewPixels.height > 0 else { return }
+        var z = zoom
+        if tab == .crop {
+            z.reset()
+        } else {
+            let margin = Double(Self.margin(false)) * pixelsPerPoint
+            let r = CropMath.canvas(Double(viewPixels.width), Double(viewPixels.height), margin, state, Double(orientedSize.width),
+                                    Double(orientedSize.height), false)
+            let crop = CropMath.cropPixels(state, Double(fullOriented.width), Double(fullOriented.height))
+            z.frame(viewW: Double(viewPixels.width), viewH: Double(viewPixels.height), fitL: r.minX, fitT: r.minY, fitW: r.width,
+                    fitH: r.height, cropW: crop.0, cropH: crop.1, keep: keep)
+            let size = Self.outputSize(crop.0, crop.1, watermarkOutMax)
+            z.copySize(size.0, size.1)
+        }
+        if z != zoom { zoom = z }
+    }
+
+    /// A pinch by `factor` about a point of the picture (view points).
+    func zoomPinch(_ factor: Double, at p: CGPoint) {
+        guard tab != .crop, !loading, failure == nil else { return }
+        var z = zoom
+        let k = pixelsPerPoint
+        if z.zoomAbout(factor, Double(p.x) * k, Double(p.y) * k) { zoomTo(z) }
+    }
+
+    /// A pan by dx, dy view points (zoomed only).
+    func zoomPan(_ dx: Double, _ dy: Double) {
+        guard zoom.isZoomed else { return }
+        var z = zoom
+        let k = pixelsPerPoint
+        z.panBy(dx * k, dy * k)
+        if z != zoom { zoomTo(z) }
+    }
+
+    /// EditorView's double tap: zoomed -> the fit, at the fit -> 100 % there (MEDIUM, the standard curve).
+    func zoomDoubleTap(at p: CGPoint) {
+        guard tab != .crop, !loading, failure == nil else { return }
+        let k = pixelsPerPoint
+        let from = zoom, to = zoom.toggleTarget(Double(p.x) * k, Double(p.y) * k)
+        guard from != to else { return }
+        zoomAnimation?.cancel()
+        guard EditMotion.on else {
+            zoomTo(to)
+            return
+        }
+        zoomAnimation = Task { @MainActor in
+            let steps = 10
+            for i in 1...steps {
+                if Task.isCancelled { return }
+                // EditMotion.MOVE (0.2, 0, 0, 1) as a curve in t
+                let t = Double(i) / Double(steps), e = 1 - pow(1 - t, 3)
+                var z = to
+                z.scale = from.scale + (to.scale - from.scale) * e
+                z.left = from.left + (to.left - from.left) * e
+                z.top = from.top + (to.top - from.top) * e
+                zoomTo(i == steps ? to : z)
+                try? await Task.sleep(nanoseconds: UInt64(EditMotion.medium / Double(steps) * 1e9))
+            }
+        }
+    }
+
+    /// «100 %» pill text, nil at the fit
+    var zoomPercent: String? { zoom.isZoomed && tab != .crop ? "\(Int(zoom.percent.rounded())) %" : nil }
+
+    private func zoomTo(_ z: EditZoom) {
+        zoom = z
+        zoomDetail = nil
+        zoomKey = ""
+        requestRender()
+        updateWatermark()
+        if !z.isZoomed { releaseZoomSource() }
+    }
+
+    /// The window of the view the screen shows past the preview's resolution, rendered from the original (EditZoomLoader) once the
+    /// zoom settles; the preview's zoomed frame stays under it meanwhile.
+    func requestZoomWindow() {
+        let previewPerOriginal = Double(orientedSize.width) / Swift.max(1, Double(fullOriented.width))
+        guard tab != .crop, !before, !showingDeveloped, zoom.isZoomed, zoomSource != .unavailable,
+              EditZoom.fullResWanted(zoom.scale, previewPerOriginal) else {
+            if zoomDetail != nil { zoomDetail = nil }
+            return
+        }
+        let place = zoom.placement
+        let vw = Double(viewPixels.width), vh = Double(viewPixels.height)
+        let l = Swift.max(0, place.0), t = Swift.max(0, place.1)
+        let r = Swift.min(vw, place.0 + place.2), b = Swift.min(vh, place.1 + place.3)
+        guard r - l >= 1, b - t >= 1 else { return }
+        let x = Int(l.rounded(.up)), y = Int(t.rounded(.up))
+        let w = Int(r.rounded(.down)) - x, h = Int(b.rounded(.down)) - y
+        guard w > 0, h > 0 else { return }
+        let json = state.json
+        let key = "\(json)|\(place)|\(x),\(y),\(w),\(h)"
+        if key == zoomKey { return }
+        zoomKey = key
+        let engine = self.engine, k = pixelsPerPoint
+        Task { @MainActor in
+            // the zoom settles first (a pinch or a pan in progress asks again)
+            try? await Task.sleep(nanoseconds: 150_000_000)
+            guard self.zoomKey == key else { return }
+            guard await self.loadZoomSource() else { return }
+            let detail: UIImage? = await withCheckedContinuation { cont in
+                engine.queue.async {
+                    guard let s = engine.session,
+                          let out = s.renderZoomWindow(json, left: place.0, top: place.1, displayWidth: place.2, displayHeight: place.3,
+                                                       x: x, y: y, width: w, height: h),
+                          let cg = PhotoDecode.cgImage(rgba: out.rgba, width: out.width, height: out.height) else {
+                        cont.resume(returning: nil)
+                        return
+                    }
+                    cont.resume(returning: UIImage(cgImage: cg, scale: CGFloat(k), orientation: .up))
+                }
+            }
+            guard self.zoomKey == key, let detail else { return }
+            self.zoomDetailRect = CGRect(x: Double(x) / k, y: Double(y) / k, width: Double(w) / k, height: Double(h) / k)
+            self.zoomDetail = detail
+        }
+    }
+
+    /// EditZoomLoader's reader: the original decoded once (a photo at its full size, a RAW's DNG again) when memory allows; false:
+    /// the zoom stays the preview's.
+    private func loadZoomSource() async -> Bool {
+        switch zoomSource {
+        case .ready: return true
+        case .unavailable: return false
+        case .loading:
+            while zoomSource == .loading { try? await Task.sleep(nanoseconds: 50_000_000) }
+            return zoomSource == .ready
+        case .none: break
+        }
+        zoomSource = .loading
+        let engine = self.engine, data = original, raw = isRaw, info = self.info
+        let budget = PhotoDecode.memoryBudget()
+        let ok: Bool = await withCheckedContinuation { cont in
+            engine.queue.async {
+                guard let s = engine.session else {
+                    cont.resume(returning: false)
+                    return
+                }
+                if raw {
+                    cont.resume(returning: s.setZoomDNG(data, budget: budget))
+                    return
+                }
+                // a photo: its stored pixels (twice when the watermark's pixels go back) within the memory there is
+                guard let i = info, Int64(i.width) * Int64(i.height) * 8 < budget,
+                      let full = PhotoDecode.decode(data, longSide: Swift.max(i.width, i.height), p3: i.p3) else {
+                    cont.resume(returning: false)
+                    return
+                }
+                cont.resume(returning: s.setZoomPicture(full.rgba, width: full.width, height: full.height))
+            }
+        }
+        zoomSource = ok ? .ready : .unavailable
+        if !ok { SessionLog.i("Editor", "zoom: no full-resolution source (memory or decode), the preview is zoomed") }
+        return ok
+    }
+
+    private func releaseZoomSource() {
+        guard zoomSource == .ready else { return }
+        zoomSource = .none
+        let engine = self.engine
+        engine.queue.async { engine.session?.releaseZoom() }
+    }
 }

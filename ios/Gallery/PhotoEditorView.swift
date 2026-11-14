@@ -15,6 +15,9 @@ struct PhotoEditorView: View {
     @State private var panelDirection = 0
     @State private var stagger = StaggerClock()
     @State private var iconScale: [Int: CGFloat] = [:]
+    /// P367: the pinch's and the pan's last values (the zoom takes their steps)
+    @State private var pinchLast: CGFloat?
+    @State private var panLast: CGSize?
     @GestureState private var holding = false
     @Environment(\.dismiss) private var dismiss
     @Environment(\.displayScale) private var displayScale
@@ -92,6 +95,14 @@ struct PhotoEditorView: View {
                 if let picture = model.picture {
                     Image(uiImage: picture).resizable().frame(width: geo.size.width, height: geo.size.height)
                 }
+                // P367: past the preview's resolution, the visible part from the original
+                if let detail = model.zoomDetail, model.tab != .crop {
+                    Image(uiImage: detail).resizable().interpolation(.none)
+                        .frame(width: model.zoomDetailRect.width, height: model.zoomDetailRect.height)
+                        .position(x: model.zoomDetailRect.midX, y: model.zoomDetailRect.midY)
+                        .allowsHitTesting(false)
+                        .transition(.opacity.animation(EditMotion.move(EditMotion.short)))
+                }
                 // P633: the watermark's live preview over the picture (WatermarkOverlayView)
                 if let overlay = model.watermarkOverlay {
                     Image(uiImage: overlay).resizable()
@@ -127,6 +138,15 @@ struct PhotoEditorView: View {
                             }
                     } else if let note = model.note { GalleryPill(text: note).padding(.bottom, 12).transition(EditMotion.show(dy: 12)) }
                 }
+                // P367 the zoom pill («100 %»)
+                VStack {
+                    if let p = model.zoomPercent {
+                        GalleryPill(text: p).padding(.top, 12).transition(EditMotion.show(dy: -6))
+                    }
+                    Spacer()
+                }
+                .animation(EditMotion.enter(), value: model.zoomPercent != nil)
+                .allowsHitTesting(false)
                 // EditMotion.enter: the cover the picture is revealed from
                 Color.black.opacity(arrived ? 0 : 1).allowsHitTesting(false)
                     .animation(EditMotion.on ? EditMotion.move(EditMotion.long + 0.08) : nil, value: arrived)
@@ -140,6 +160,23 @@ struct PhotoEditorView: View {
                 .updating($holding) { value, state, _ in
                     if case .second(true, _) = value { state = true }
                 }, including: model.tab == .crop ? .subviews : .all)
+            // P367 EditorView's zoom: pinch about the fingers, one finger pans the zoomed picture, a double tap toggles fit / 100 %
+            .simultaneousGesture(MagnifyGesture()
+                .onChanged { v in
+                    let last = pinchLast ?? 1
+                    pinchLast = v.magnification
+                    model.zoomPinch(Double(v.magnification / max(0.01, last)), at: v.startLocation)
+                }
+                .onEnded { _ in pinchLast = nil }, including: model.tab == .crop ? .subviews : .all)
+            .simultaneousGesture(DragGesture(minimumDistance: 8)
+                .onChanged { v in
+                    let last = panLast ?? .zero
+                    panLast = v.translation
+                    model.zoomPan(Double(v.translation.width - last.width), Double(v.translation.height - last.height))
+                }
+                .onEnded { _ in panLast = nil }, including: model.tab == .crop || !model.zoom.isZoomed ? .subviews : .all)
+            .simultaneousGesture(SpatialTapGesture(count: 2).onEnded { v in model.zoomDoubleTap(at: v.location) },
+                                 including: model.tab == .crop ? .subviews : .all)
             .onAppear {
                 model.setViewPoints(geo.size)
                 model.setViewSize(geo.size, scale: displayScale)

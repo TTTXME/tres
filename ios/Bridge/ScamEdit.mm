@@ -182,6 +182,11 @@ static const scam_edit::wm::Codec &appleCodec() {
     std::shared_ptr<scam_edit::wm::Patch> _record;
     std::vector<uint8_t> _dirtyPreview, _cleanPreview;
     BOOL _shownClean;
+    // P367: the zoom's full-resolution source (a photo's picture, its copy with the watermark's pixels back, or a RAW) and renderer
+    std::vector<uint8_t> _zoomPicture, _zoomClean;
+    int _zoomW, _zoomH;
+    std::shared_ptr<scam_edit::DngRaw::Image> _zoomRaw;
+    std::unique_ptr<scam_edit::EditRenderer> _zoomRenderer;
 }
 
 - (BOOL)makeContext:(NSString *)shaders error:(NSError **)error {
@@ -277,8 +282,10 @@ static const scam_edit::wm::Codec &appleCodec() {
         if (_ownTex) scam_edit::EditGl::deleteTexture(_sourceTex);
         _view.release();
         _renderer->release();
+        if (_zoomRenderer) _zoomRenderer->release();
         glFinish();
     }
+    _zoomRenderer.reset();
     _renderer.reset();
     eglMakeCurrent(_display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
     if (_surface) eglDestroySurface(_display, _surface);
@@ -524,6 +531,119 @@ static bool parseState(NSString *json, bool before, scam_edit::EditState &out) {
         if (error) *error = editError(e.what());
         return nil;
     }
+}
+
+// ---------------------------------------------------------------- P367 the view zoom
+
+- (nullable SCAMEditImage *)renderZoom:(NSString *)json width:(NSInteger)width height:(NSInteger)height left:(double)left top:(double)top
+                          displayWidth:(double)displayWidth displayHeight:(double)displayHeight before:(BOOL)before
+                            background:(NSArray<NSNumber *> *)background {
+    scam_edit::EditState st, tone;
+    if (!parseState(json, false, st) || width <= 0 || height <= 0 || displayWidth <= 0 || displayHeight <= 0 || ![self current]) return nil;
+    tone = before ? st.withNeutralTone() : st;
+    try {
+        [self showClean:st.wmRemove];
+        const auto u = [self prepare:tone];
+        const auto o = _source.oriented();
+        float bg[3] = {0, 0, 0};
+        for (NSUInteger i = 0; i < 3 && i < background.count; i++) bg[i] = background[i].floatValue;
+        const int w = int(width), h = int(height);
+        _view.ensure(w, h, GL_RGBA8, false, 1);
+        // EditorView with EditZoom: the canvas is the displayed crop (it may reach past the view)
+        const scam_edit::Rect c{float(left), float(top), float(left + displayWidth), float(top + displayHeight)};
+        scam_edit::EditRenderer::Finish f = scam_edit::finishFor(*_renderer, st, c, false, o, _source.orientation, bg);
+        f.fbo = _view.fbo;
+        f.w = w;
+        f.h = h;
+        const GLfloat clear[4] = {bg[0], bg[1], bg[2], 1.f};
+        glBindFramebuffer(GL_FRAMEBUFFER, _view.fbo);
+        glClearBufferfv(GL_COLOR, 0, clear);
+        _renderer->finish(f, st, u);
+        return imageOf(scam_edit::readTarget(w, h), w, h, false);
+    } catch (const std::exception &e) {
+        NSLog(@"SCAMEdit zoom: %s", e.what());
+        return nil;
+    }
+}
+
+- (BOOL)setZoomPicture:(NSData *)rgba width:(NSInteger)width height:(NSInteger)height {
+    if (_source.raw || (NSInteger)rgba.length < width * height * 4 || width <= 0 || height <= 0) return NO;
+    const uint8_t *p = static_cast<const uint8_t *>(rgba.bytes);
+    _zoomPicture.assign(p, p + size_t(width) * size_t(height) * 4);
+    _zoomClean.clear();
+    _zoomW = int(width);
+    _zoomH = int(height);
+    return YES;
+}
+
+- (BOOL)setZoomDNG:(NSData *)dng budget:(long long)budget {
+    if (!_source.raw) return NO;
+    try {
+        bool binned = false;
+        _zoomRaw = std::make_shared<scam_edit::DngRaw::Image>(
+            scam_edit::decodeDngForExport(static_cast<const uint8_t *>(dng.bytes), dng.length, budget, &binned));
+        return YES;
+    } catch (const std::exception &e) {
+        NSLog(@"SCAMEdit zoom DNG: %s", e.what());
+        _zoomRaw.reset();
+        return NO;
+    }
+}
+
+- (BOOL)hasZoomSource { return !_zoomPicture.empty() || _zoomRaw != nullptr; }
+
+- (nullable SCAMEditImage *)renderZoomWindow:(NSString *)json left:(double)left top:(double)top displayWidth:(double)displayWidth
+                               displayHeight:(double)displayHeight x:(NSInteger)x y:(NSInteger)y width:(NSInteger)width
+                                      height:(NSInteger)height {
+    scam_edit::EditState st;
+    if (!parseState(json, false, st) || width <= 0 || height <= 0 || ![self current] || !self.hasZoomSource) return nil;
+    try {
+        [self showClean:st.wmRemove];
+        if (!_zoomRenderer) {
+            _zoomRenderer.reset(new scam_edit::EditRenderer());
+            _zoomRenderer->init(_shaders);
+        }
+        const int W = std::max(1, int(std::lround(displayWidth))), H = std::max(1, int(std::lround(displayHeight)));
+        const int ox = int(x) - int(std::lround(left)), oy = int(y) - int(std::lround(top));
+        scam_edit::ExportResult res;
+        if (_zoomRaw) {
+            const auto *colour = dynamic_cast<const scam_edit::RawColour *>(_source.colour.get());
+            if (!colour) return nil;
+            scam_edit::RawReader reader(*_zoomRaw, *colour);
+            res = scam_edit::renderWindow(*_zoomRenderer, _source, reader, st, _source.orientation, W, H, ox, oy, int(width), int(height));
+        } else {
+            const std::vector<uint8_t> *picture = &_zoomPicture;
+            // P633: «Убрать» / «Изменить»: the pixels under the photo's own watermark back, as the copy has them
+            if (_record && st.wmRemove) {
+                if (_zoomClean.empty()) {
+                    _zoomClean = _zoomPicture;
+                    scam_edit::wm::restorePicture(_zoomClean, _zoomW, _zoomH, *_record, appleCodec());
+                }
+                picture = &_zoomClean;
+            }
+            scam_edit::PictureReader reader(picture->data(), _zoomW, _zoomH, _source.p3);
+            res = scam_edit::renderWindow(*_zoomRenderer, _source, reader, st, _source.orientation, W, H, ox, oy, int(width), int(height));
+        }
+        glFinish();
+        if (res.W <= 0 || res.H <= 0) return nil;
+        return imageOf(std::move(res.rgba), res.W, res.H, false);
+    } catch (const std::exception &e) {
+        NSLog(@"SCAMEdit zoom window: %s", e.what());
+        return nil;
+    }
+}
+
+- (void)releaseZoom {
+    _zoomPicture.clear();
+    _zoomPicture.shrink_to_fit();
+    _zoomClean.clear();
+    _zoomClean.shrink_to_fit();
+    _zoomRaw.reset();
+    if (_zoomRenderer && [self current]) {
+        _zoomRenderer->release();
+        glFinish();
+    }
+    _zoomRenderer.reset();
 }
 
 + (long long)outMaxForBudget:(long long)budget { return scam_edit::outMax(budget); }
