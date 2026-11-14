@@ -46,6 +46,10 @@ ASAN_OPTIONS=detect_leaks=0 /tmp/check-dng-mosaic-cfa
 # every IFD sorted with each tag once, no PhotonCamera string, the image and the colour tags as without them
 g++ -std=c++17 -O1 -fsanitize=address,undefined -fno-sanitize-recover=bounds -I/tmp/native-engine-host -Itools/host-include -Iapp/src/main/cpp/deps tools/check_dng_metadata.cpp -ldl -o /tmp/check-dng-metadata
 ASAN_OPTIONS=detect_leaks=0 /tmp/check-dng-metadata
+# P681: the DNG streamed in three parts (header and metadata, the strip in place, the IFD) is byte for byte the in-memory file
+# of before: 16-bit and lossless JPEG, with and without the GainMap opcodes, the Exif IFD, the crop, Bayer / Quad / Tetra
+g++ -std=c++17 -O1 -fsanitize=address,undefined -fno-sanitize-recover=bounds -I/tmp/native-engine-host -Itools/host-include -Iapp/src/main/cpp/deps tools/check_dng_stream.cpp -ldl -o /tmp/check-dng-stream
+/tmp/check-dng-stream /tmp
 # P371: the merge client reads the worker's result in place (allocator.cpp arenaAdopt: views of the memfd, the RGB view's
 # free punches its pages, unmapped after the last view; review B1: the trailers between the views survive the release)
 g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined -I/tmp/native-engine-host -Itools/host-include tools/check_allocator_adopt.cpp -o /tmp/check-allocator-adopt

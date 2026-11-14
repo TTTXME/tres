@@ -36,6 +36,62 @@ public final class ScamHybridBurst implements ScamTransport {
      * frame count; the frames of the merge are {@link #lastMergeFrames}.
      */
     public static volatile java.nio.ByteBuffer lastEffectiveFrames;
+    /**
+     * P681: the native frame map the client read (a view of the worker's result memfd, else an Allocator copy), until it is
+     * dropped: the end of the shot it came with ({@link #dropEffectiveFrames(java.nio.ByteBuffer)}), the next shot's read, a lab
+     * run's end. {@link #lastEffectiveFrames} may point elsewhere meanwhile (the gallery developer's map, a YUV shot's): only
+     * this one is freed, once. Before it, the map was a Java heap buffer (1 B per output pixel, 50 MB at 50 MP) the GC returned
+     * whenever it ran.
+     */
+    private static java.nio.ByteBuffer nativeEffectiveFrames;
+
+    /** P681: {@code eff} (native) becomes the frame map of the shot just merged; an earlier native one goes. */
+    static synchronized void keepNativeEffectiveFrames(java.nio.ByteBuffer eff) {
+        dropEffectiveFrames();
+        nativeEffectiveFrames = eff;
+        lastEffectiveFrames = eff;
+    }
+
+    /** P681: the end of the shot whose merge returned {@code eff}: no longer the frame map, freed when it is the native one. */
+    public static synchronized void dropEffectiveFrames(java.nio.ByteBuffer eff) {
+        if (eff == null) return;
+        if (lastEffectiveFrames == eff) lastEffectiveFrames = null;
+        if (eff == nativeEffectiveFrames) {
+            nativeEffectiveFrames = null;
+            com.scamera.app.util.Allocator.free(eff);
+        }
+    }
+
+    /** P681: the native frame map freed if one is left (a shot that failed before it took its map); the others stay. */
+    public static synchronized void releaseNativeEffectiveFrames() {
+        dropEffectiveFrames(nativeEffectiveFrames);
+    }
+
+    /** P681: no frame map any more (the next read, a lab run's end, the CPU fallback): the native one is freed. */
+    public static synchronized void dropEffectiveFrames() {
+        final java.nio.ByteBuffer native_ = nativeEffectiveFrames;
+        nativeEffectiveFrames = null;
+        if (lastEffectiveFrames == native_) lastEffectiveFrames = null;
+        if (native_ != null) com.scamera.app.util.Allocator.free(native_);
+        lastEffectiveFrames = null;
+    }
+
+    /**
+     * P681: the merged DNG no shot took (a lab run, the next read, the CPU fallback) is freed - a view of the worker's result
+     * memfd would keep the whole memfd mapped, an Allocator copy its 2 B per sensor pixel; null afterwards.
+     */
+    public static synchronized void dropMergedDng() {
+        final java.nio.ByteBuffer dng = lastMergedDng;
+        lastMergedDng = null;
+        if (dng != null) com.scamera.app.util.Allocator.free(dng);
+    }
+
+    /** P681: the merged DNG of the shot just merged, handed to the caller (who frees it); null when there is none. */
+    public static synchronized java.nio.ByteBuffer takeMergedDng() {
+        final java.nio.ByteBuffer dng = lastMergedDng;
+        lastMergedDng = null;
+        return dng;
+    }
     /** P212h (A5 = M5): the coverage (frames) code 64 of {@link #lastEffectiveFrames} stands for; NaN when the worker gave none. */
     public static volatile float lastEffectiveMedian = Float.NaN;
     /**
@@ -1821,11 +1877,11 @@ public final class ScamHybridBurst implements ScamTransport {
         lastDcgNoise = null;
         lastMergeFrames = Double.NaN;
         ScamRgb.dropClipFlags();
-        lastEffectiveFrames = null;
+        dropEffectiveFrames(); // P681: freed when native
         lastHlMask = null; // P480
         lastEffectiveMedian = Float.NaN;
         lastNormals = 1;
-        lastMergedDng = null;
+        dropMergedDng(); // P681
         lastMergeTier = "cpu-single";
         Log.w("SCAM_HDR", "Hybrid fallback=cpu-single: base frame " + burst.base.number + " " + w + "x" + h + " block " + block
                 + " demosaicked on the CPU in " + (android.os.SystemClock.elapsedRealtime() - start) + " ms");

@@ -156,9 +156,49 @@ public:
         gainMapPlaced_ = true;
     }
 
-    /** The whole file for a w x h 16-bit mosaic (malloc'ed; the caller frees it), nullptr on failure. */
+    ~DngFile() { free(encoded_); }
+
+    /**
+     * The whole file for a w x h 16-bit mosaic (malloc'ed; the caller frees it), nullptr on failure. P681: the reference
+     * layout of the host checks (tools/check_dng_stream.cpp); the app streams the same bytes through layoutDng.
+     */
     void *createDng(void *mosaic, int w, int h, size_t &size) {
         tdw::DNGWriter writer(false);
+        if (!prepare(mosaic, w, h, false)) return nullptr;
+        writer.AddImage(image_.get());
+        std::string error;
+        size_t stripOffset = 0;
+        void *file = writer.WriteToMemory(&size, &error, &stripOffset);
+        if (!error.empty()) DNG_FAIL("layout failed: %s", error.c_str());
+        return file;
+    }
+
+    /**
+     * P681: createDng's file without building it in memory - {@link #head} (the TIFF header and the metadata), the strip (the
+     * caller's mosaic itself, or the lossless JPEG encoded here; alive until this writer is deleted), {@link #tail} (the IFD).
+     * The same bytes in the same order; the mosaic must stay unchanged until they are written. False on failure (logged).
+     */
+    bool layoutDng(void *mosaic, int w, int h) {
+        tdw::DNGWriter writer(false);
+        if (!prepare(mosaic, w, h, true)) return false;
+        writer.AddImage(image_.get());
+        std::string error;
+        if (!writer.Layout(&head_, &strip_, &stripBytes_, &tail_, &error)) {
+            DNG_FAIL("layout failed: %s", error.c_str());
+            return false;
+        }
+        return true;
+    }
+
+    const std::string &head() const { return head_; }
+    const std::string &tail() const { return tail_; }
+    const unsigned char *strip() const { return strip_; }
+    size_t stripBytes() const { return stripBytes_; }
+    bool lossless() const { return encoded_ != nullptr; }
+
+private:
+    /** Every tag of the file and its strip: copied into the data area, or (P681 `reference`) referenced in place. */
+    bool prepare(void *mosaic, int w, int h, bool reference) {
         const unsigned short bitsPerSample = 16;
         const unsigned int width = static_cast<unsigned>(w), height = static_cast<unsigned>(h);
         image_->SetBitsPerSample(1, &bitsPerSample);
@@ -194,19 +234,18 @@ public:
         }
         if (!image_->WriteExifIFD()) DNG_FAIL("Exif IFD not written: %s", image_->Error().c_str());
 
-        if (!(lossless_ && writeLosslessJpeg(mosaic, w, h))) {
+        if (!(lossless_ && writeLosslessJpeg(mosaic, w, h, reference))) {
             image_->SetCompression(tdw::COMPRESSION_NONE);
-            image_->SetImageData(static_cast<const unsigned char *>(mosaic), static_cast<size_t>(width) * height * 2);
+            const auto *samples = static_cast<const unsigned char *>(mosaic);
+            const size_t bytes = static_cast<size_t>(width) * height * 2;
+            if (!(reference ? image_->SetImageDataRef(samples, bytes) : image_->SetImageData(samples, bytes))) {
+                DNG_FAIL("strip of %zu bytes not set: %s", bytes, image_->Error().c_str());
+                return false;
+            }
         }
-        writer.AddImage(image_.get());
-        std::string error;
-        size_t stripOffset = 0;
-        void *file = writer.WriteToMemory(&size, &error, &stripOffset);
-        if (!error.empty()) DNG_FAIL("layout failed: %s", error.c_str());
-        return file;
+        return true;
     }
 
-private:
     /** The 2x2 site (y * 2 + x) whose colour the pixel (x, y) of a block-b mosaic has. */
     static int siteOf(int x, int y, int b) { return ((y / b) & 1) * 2 + ((x / b) & 1); }
 
@@ -252,7 +291,7 @@ private:
      * P24: DNG compression 7 - the mosaic's row pairs as one 2W x H/2 component (LibRaw decodes it bit-exact). Encoded
      * before the tag is set, so a failure leaves the caller to store the samples uncompressed.
      */
-    bool writeLosslessJpeg(void *mosaic, int w, int h) {
+    bool writeLosslessJpeg(void *mosaic, int w, int h, bool reference) {
         if (w % 2 != 0 || h % 2 != 0) return false;
         uint8_t *encoded = nullptr;
         int encodedSize = 0;
@@ -261,12 +300,19 @@ private:
         bool stored = false;
         if (rc == tdw::detail::LJ92_ERROR_NONE && encoded != nullptr && encodedSize > 0) {
             image_->SetCompression(tdw::COMPRESSION_NEW_JPEG);
-            stored = image_->SetImageData(encoded, static_cast<size_t>(encodedSize));
+            // P681: a referenced strip is the encoder's buffer itself, kept until this writer goes (no copy in the data area)
+            stored = reference ? image_->SetImageDataRef(encoded, static_cast<size_t>(encodedSize))
+                               : image_->SetImageData(encoded, static_cast<size_t>(encodedSize));
             DNG_INFO("LJ92 %d x %d: %d bytes", w, h, encodedSize);
         } else {
             DNG_FAIL("LJ92 failed (%d): stored uncompressed", rc);
         }
-        free(encoded);
+        if (reference && stored) {
+            free(encoded_);
+            encoded_ = encoded;
+        } else {
+            free(encoded);
+        }
         return stored;
     }
 
@@ -286,6 +332,11 @@ private:
     int block_ = 1;
     bool gainMapPlaced_ = false;
     std::array<unsigned int, 4> crop_{};
+    // P681: layoutDng's parts; encoded_ the lossless JPEG strip they reference (malloc'ed by lj92_encode)
+    std::string head_, tail_;
+    const unsigned char *strip_ = nullptr;
+    size_t stripBytes_ = 0;
+    uint8_t *encoded_ = nullptr;
 };
 
 }  // namespace scamdng
@@ -469,22 +520,54 @@ JNIEXPORT void JNICALL Java_com_scamera_app_processing_DngCreator_nCrop(JNIEnv *
     if (DngCreator *f = file(handle)) f->setDefaultCrop(x, y, w, h);
 }
 
-JNIEXPORT jobject JNICALL Java_com_scamera_app_processing_DngCreator_nBuild(JNIEnv *env, jclass, jlong handle, jint w,
-                                                                            jint h, jobject mosaic) {
+/**
+ * P681: lays out the file around `mosaic` (a direct buffer of w x h 16-bit samples, left unchanged until the strip is written)
+ * without building it: nHead / nStrip / nTail give its three parts. False on failure (logged).
+ */
+JNIEXPORT jboolean JNICALL Java_com_scamera_app_processing_DngCreator_nLayout(JNIEnv *env, jclass, jlong handle, jint w,
+                                                                             jint h, jobject mosaic) {
     DngCreator *f = file(handle);
     void *samples = mosaic != nullptr ? env->GetDirectBufferAddress(mosaic) : nullptr;
-    if (f == nullptr || samples == nullptr) {
-        DNG_FAIL("no writer or no direct mosaic buffer");
-        return nullptr;
+    const jlong capacity = mosaic != nullptr ? env->GetDirectBufferCapacity(mosaic) : 0;
+    if (f == nullptr || samples == nullptr || w <= 0 || h <= 0 || capacity < 2LL * w * h) {
+        DNG_FAIL("no writer, no direct mosaic buffer or one smaller than %d x %d samples", w, h);
+        return JNI_FALSE;
     }
-    size_t size = 0;
-    void *bytes = f->createDng(samples, w, h, size);
-    return bytes != nullptr ? env->NewDirectByteBuffer(bytes, static_cast<jlong>(size)) : nullptr;
+    return f->layoutDng(samples, w, h) ? JNI_TRUE : JNI_FALSE;
 }
 
-/** P187: frees a file nBuild returned (WriteToMemory's malloc) once it has been written out. */
-JNIEXPORT void JNICALL Java_com_scamera_app_processing_DngCreator_nDrop(JNIEnv *env, jclass, jobject bytes) {
-    if (bytes != nullptr) free(env->GetDirectBufferAddress(bytes));
+namespace {
+jbyteArray bytesOf(JNIEnv *env, const std::string &s) {
+    jbyteArray out = env->NewByteArray(static_cast<jsize>(s.size()));
+    if (out != nullptr && !s.empty())
+        env->SetByteArrayRegion(out, 0, static_cast<jsize>(s.size()), reinterpret_cast<const jbyte *>(s.data()));
+    return out;
+}
+}  // namespace
+
+/** P681: the TIFF header and the metadata in front of the strip (nLayout's). */
+JNIEXPORT jbyteArray JNICALL Java_com_scamera_app_processing_DngCreator_nHead(JNIEnv *env, jclass, jlong handle) {
+    DngCreator *f = file(handle);
+    return f != nullptr ? bytesOf(env, f->head()) : nullptr;
+}
+
+/** P681: the strip's pad byte and the IFD after it (nLayout's). */
+JNIEXPORT jbyteArray JNICALL Java_com_scamera_app_processing_DngCreator_nTail(JNIEnv *env, jclass, jlong handle) {
+    DngCreator *f = file(handle);
+    return f != nullptr ? bytesOf(env, f->tail()) : nullptr;
+}
+
+/** P681: the strip in place (the mosaic, or the writer's lossless JPEG: valid until nClose). */
+JNIEXPORT jobject JNICALL Java_com_scamera_app_processing_DngCreator_nStrip(JNIEnv *env, jclass, jlong handle) {
+    DngCreator *f = file(handle);
+    if (f == nullptr || f->strip() == nullptr || f->stripBytes() == 0) return nullptr;
+    return env->NewDirectByteBuffer(const_cast<unsigned char *>(f->strip()), static_cast<jlong>(f->stripBytes()));
+}
+
+/** P681: whether the strip is the lossless JPEG (nLayout's), for the write's log line. */
+JNIEXPORT jboolean JNICALL Java_com_scamera_app_processing_DngCreator_nLossless(JNIEnv *, jclass, jlong handle) {
+    DngCreator *f = file(handle);
+    return f != nullptr && f->lossless() ? JNI_TRUE : JNI_FALSE;
 }
 
 }  // extern "C"

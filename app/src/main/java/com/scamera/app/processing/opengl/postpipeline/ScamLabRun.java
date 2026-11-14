@@ -508,9 +508,9 @@ public final class ScamLabRun {
             // ScamRgb frees the worker RGB after its upload and leaves a small copy (ScamProcessor's rule)
             if (rgb != null && (p == null || p.scamRgb == rgb)) Allocator.free(rgb);
             ScamRgb.dropClipFlags();
-            ScamHybridBurst.lastEffectiveFrames = null;
+            ScamHybridBurst.dropEffectiveFrames(); // P681: freed (a view of the result memfd, or a native copy)
             ScamHybridBurst.lastHlMask = null; // P480
-            ScamHybridBurst.lastMergedDng = null;
+            ScamHybridBurst.dropMergedDng(); // P681: freed, not left to keep the result memfd mapped
             ScamNeuralClient.lastStages = null;
         }
     }

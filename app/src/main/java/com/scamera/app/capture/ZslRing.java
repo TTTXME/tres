@@ -510,9 +510,11 @@ public final class ZslRing {
             ringOwned[slot] = true;
         }
         prefaultAhead(slot); // P680: the next window ahead of the camera
+        final long copyStart = System.nanoTime();
         final ByteBuffer view = unpacking
                 ? Allocator.arenaCopyUnpack(id, offset(slot), src, 0, format, width, plane.getRowStride(), height)
                 : Allocator.arenaCopy(id, offset(slot), src, 0, bytes);
+        if (view != null) STORE_PERF.copied(System.nanoTime() - copyStart, need, unpacking);
         if (view == null) {
             synchronized (this) { ringOwned[slot] = false; }
             return null;
@@ -522,6 +524,37 @@ public final class ZslRing {
                 : new Frame(slot, view, image.getTimestamp(), format, width, height, plane.getRowStride(), plane.getPixelStride(), format);
         image.close();
         return f;
+    }
+
+    /** P681: the ring copies' times (the camera thread's), one PERF line per {@link StorePerf#EVERY_MS} at most. */
+    private static final StorePerf STORE_PERF = new StorePerf();
+
+    /** P681: the ZSL store copy time per frame, summed and logged rate-limited (a line per frame would flood the log at 30 fps). */
+    static final class StorePerf {
+        static final long EVERY_MS = 10_000;
+        private long frames, totalNs, maxNs, bytes, lastLogMs;
+        private boolean unpacked;
+
+        synchronized void copied(long ns, long frameBytes, boolean unpack) {
+            frames++;
+            totalNs += ns;
+            maxNs = Math.max(maxNs, ns);
+            bytes = frameBytes;
+            unpacked |= unpack;
+            final long now = android.os.SystemClock.elapsedRealtime();
+            if (lastLogMs == 0) lastLogMs = now;
+            if (now - lastLogMs < EVERY_MS) return;
+            Log.i(TAG, line());
+            lastLogMs = now;
+            frames = totalNs = maxNs = 0;
+            unpacked = false;
+        }
+
+        /** The PERF line of the frames since the last one. */
+        String line() {
+            return String.format(java.util.Locale.ROOT, "PERF ZSL store: %d frames x %d MB%s, copy avg %.2f ms, max %.2f ms",
+                    frames, bytes >> 20, unpacked ? " (unpacked)" : "", frames == 0 ? 0.0 : totalNs / 1e6 / frames, maxNs / 1e6);
+        }
     }
 
     /** P365: a stream format the ring unpacks into its slot (MIPI RAW10 / RAW12 of whole 4-pixel groups). */
