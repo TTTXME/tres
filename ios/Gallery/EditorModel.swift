@@ -1,0 +1,1117 @@
+import Foundation
+import ImageIO
+import os
+import Photos
+import SwiftUI
+import UIKit
+import UniformTypeIdentifiers
+
+/// A decoded picture for the editor: RGBA8 rows top-down in sRGB or Display P3, as stored (the EXIF orientation not applied).
+struct DecodedPicture {
+    let rgba: Data
+    let width: Int
+    let height: Int
+    let p3: Bool
+}
+
+/// EditSource's decoding on the iPhone (ImageIO): the JPEG route's power-of-two preview, the other formats' 2048 px preview, the
+/// export's full picture (EditSource.RegionReader's sample / BitmapReader's memory scale), in the file's own colour (Display P3
+/// kept, anything else drawn into sRGB).
+enum PhotoDecode {
+    struct Info { let width: Int; let height: Int; let orientation: Int; let jpeg: Bool; let p3: Bool }
+
+    static func info(_ data: Data) -> Info? {
+        guard let src = CGImageSourceCreateWithData(data as CFData, nil),
+              let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any],
+              let w = (props[kCGImagePropertyPixelWidth] as? NSNumber)?.intValue,
+              let h = (props[kCGImagePropertyPixelHeight] as? NSNumber)?.intValue, w > 0, h > 0 else { return nil }
+        let o = (props[kCGImagePropertyOrientation] as? NSNumber)?.intValue ?? 1
+        let type = (CGImageSourceGetType(src) as String?) ?? ""
+        let jpeg = UTType(type)?.conforms(to: .jpeg) ?? false
+        let profile = (props[kCGImagePropertyProfileName] as? String ?? "").lowercased()
+        return Info(width: w, height: h, orientation: (1...8).contains(o) ? o : 1, jpeg: jpeg, p3: profile.contains("p3"))
+    }
+
+    /// The JPEG route's sample (EditSource.openJpeg) / the decoder route's scale: the preview's long side.
+    static func previewSide(_ i: Info) -> Int {
+        let full = max(i.width, i.height), side = Int(SCAMEditSession.previewSide())
+        if i.jpeg {
+            var sample = 1
+            while full / (sample * 2) >= side { sample *= 2 }
+            return (full + sample - 1) / sample
+        }
+        return min(full, side)
+    }
+
+    /// The export's long side for an output of at most outMax pixels of a crop covering cropFraction (EditSource.openReader).
+    static func exportSide(_ i: Info, cropFraction: Double, outMax: Int64, budget: Int64) -> Int {
+        let full = max(i.width, i.height)
+        if i.jpeg {
+            let crop = Double(i.width) * Double(i.height) * cropFraction
+            var s = 1
+            while crop / Double(s * s) > Double(outMax) * 4 && s < 1 << 12 { s *= 2 }
+            return full / s
+        }
+        var k = min(1.0, (Double(outMax) / (Double(i.width) * Double(i.height))).squareRoot())
+        let bytes = Double(i.width) * k * Double(i.height) * k * 8
+        if bytes > Double(budget) { k *= (Double(budget) / bytes).squareRoot() }
+        return max(1, Int((Double(full) * k).rounded()))
+    }
+
+    static func decode(_ data: Data, longSide: Int, p3: Bool) -> DecodedPicture? {
+        guard let src = CGImageSourceCreateWithData(data as CFData, nil),
+              let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any] else { return nil }
+        let w = (props[kCGImagePropertyPixelWidth] as? NSNumber)?.intValue ?? 0, h = (props[kCGImagePropertyPixelHeight] as? NSNumber)?.intValue ?? 0
+        let image: CGImage?
+        if longSide >= max(w, h) {
+            image = CGImageSourceCreateImageAtIndex(src, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary)
+        } else {
+            let options: [CFString: Any] = [kCGImageSourceCreateThumbnailFromImageAlways: true,
+                                            kCGImageSourceCreateThumbnailWithTransform: false,
+                                            kCGImageSourceThumbnailMaxPixelSize: longSide,
+                                            kCGImageSourceShouldCacheImmediately: true]
+            image = CGImageSourceCreateThumbnailAtIndex(src, 0, options as CFDictionary)
+        }
+        guard let image else { return nil }
+        return draw(image, p3: p3)
+    }
+
+    static func draw(_ image: CGImage, p3: Bool) -> DecodedPicture? {
+        let w = image.width, h = image.height
+        guard let space = CGColorSpace(name: p3 ? CGColorSpace.displayP3 : CGColorSpace.sRGB) else { return nil }
+        var bytes = Data(count: w * h * 4)
+        let ok = bytes.withUnsafeMutableBytes { raw -> Bool in
+            guard let ctx = CGContext(data: raw.baseAddress, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4, space: space,
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+            ctx.setFillColor(red: 0, green: 0, blue: 0, alpha: 1)
+            ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
+            ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
+            return true
+        }
+        return ok ? DecodedPicture(rgba: bytes, width: w, height: h, p3: p3) : nil
+    }
+
+    static func cgImage(rgba: Data, width: Int, height: Int) -> CGImage? {
+        guard let provider = CGDataProvider(data: rgba as CFData), let space = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
+        return CGImage(width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: width * 4, space: space,
+                       bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipLast.rawValue), provider: provider, decode: nil,
+                       shouldInterpolate: true, intent: .defaultIntent)
+    }
+
+    /// EditExporter.writeCopy: JPEG quality 95 with the original's EXIF / GPS, the orientation reset, the new size, the app as Software.
+    static func jpeg(_ image: CGImage, original: Data) -> Data? {
+        var props: [CFString: Any] = [:]
+        if let src = CGImageSourceCreateWithData(original as CFData, nil),
+           let p = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any] {
+            for key in [kCGImagePropertyExifDictionary, kCGImagePropertyGPSDictionary, kCGImagePropertyTIFFDictionary] {
+                if let d = p[key] { props[key] = d }
+            }
+        }
+        var exif = props[kCGImagePropertyExifDictionary] as? [CFString: Any] ?? [:]
+        exif[kCGImagePropertyExifPixelXDimension] = image.width
+        exif[kCGImagePropertyExifPixelYDimension] = image.height
+        props[kCGImagePropertyExifDictionary] = exif
+        var tiff = props[kCGImagePropertyTIFFDictionary] as? [CFString: Any] ?? [:]
+        tiff[kCGImagePropertyTIFFOrientation] = 1
+        tiff[kCGImagePropertyTIFFSoftware] = ShotExif.software // EditExporter.software: DngMetadata.software
+        props[kCGImagePropertyTIFFDictionary] = tiff
+        props[kCGImagePropertyOrientation] = 1
+        props[kCGImageDestinationLossyCompressionQuality] = 0.95
+        let out = NSMutableData()
+        guard let dst = CGImageDestinationCreateWithData(out as CFMutableData, UTType.jpeg.identifier as CFString, 1, nil) else { return nil }
+        CGImageDestinationAddImage(dst, image, props as CFDictionary)
+        return CGImageDestinationFinalize(dst) ? out as Data : nil
+    }
+
+    /// EditSource.memoryBudget: a bit under the memory this process may still take
+    static func memoryBudget() -> Int64 {
+        let avail = Int64(os_proc_available_memory())
+        return Int64(Double(avail > 0 ? avail : 1 << 30) * 0.45)
+    }
+}
+
+/// The session on its queue (SCAMEditSession is not thread safe; GL work stays on one serial queue). P665: the photo as opened
+/// (`opened`) and its camera develop (`developed`); `session` is the one shown.
+final class EditEngine: @unchecked Sendable {
+    let queue = DispatchQueue(label: "scam.editor", qos: .userInitiated)
+    var session: SCAMEditSession?
+    var opened: SCAMEditSession?
+    var developed: SCAMEditSession?
+}
+
+/// P665: the camera's develop on its own queue (SCAMDevelop is not thread safe), and the changes' key the editor wants now (a
+/// develop that a newer request overtook before it started is skipped).
+final class DevelopEngine: @unchecked Sendable {
+    let queue = DispatchQueue(label: "scam.develop", qos: .userInitiated)
+    let developer: SCAMDevelop
+    private let lock = NSLock()
+    private var wantedKey: String?
+    init(_ developer: SCAMDevelop) { self.developer = developer }
+    var wanted: String? {
+        get { lock.lock(); defer { lock.unlock() }; return wantedKey }
+        set { lock.lock(); wantedKey = newValue; lock.unlock() }
+    }
+}
+
+/// P665: the values the «Проявка» tab's settings rows show and change (SettingsRow's source): the shot's settings with the
+/// editor's changes over them; a change goes to the editor (EditorModel.setDevelopValue).
+final class DevelopValues: SettingsValues {
+    let values: [String: Any]
+    private let onSet: @MainActor (String, Any?) -> Void
+    init(values: [String: Any], onSet: @escaping @MainActor (String, Any?) -> Void) {
+        self.values = values
+        self.onSet = onSet
+    }
+    func bool(_ key: String, _ fallback: Bool) -> Bool { PrefValue.bool(values[key], fallback) }
+    func string(_ key: String, _ fallback: String) -> String { values[key].map { PrefValue.text($0) } ?? fallback }
+    func set(_ key: String, _ value: Any?) {
+        let f = onSet
+        MainActor.assumeIsolated { f(key, value) }
+    }
+}
+
+/// PhotoEditorFragment + EditorViewModel: the photo, its state and history, the tab, the rendered frame, the histogram, the copy.
+@MainActor
+@Observable
+final class EditorModel {
+    /// P665: «Проявка» after «Кадр», as Android's TAB_ORDER
+    enum Tab: Int, CaseIterable { case crop, develop, styles, look, light, colour, effects, detail, mark }
+
+    let asset: PHAsset
+    let editRaw: Bool
+    private(set) var name = ""
+    private(set) var loading = true
+    private(set) var failure: String?
+    private(set) var note: String?
+    private(set) var picture: UIImage?
+    private(set) var histogram: [[Int]]?
+    private(set) var exporting = false
+    private(set) var exportProgress: Float = 0
+    private(set) var savedMessage: String?
+    var state = EditState()
+    private(set) var history = EditHistory(EditState())
+    var tab: Tab = .light { didSet { requestRender(); updateWatermark() } }
+    var before = false { didSet { if oldValue != before { requestRender(); updateWatermark() } } }
+    var styleIndex = -1
+    var styleAmount: Float = 1
+    private var styleBase: EditState?
+    private(set) var orientedSize = CGSize(width: 1, height: 1)
+    private(set) var isRaw = false
+    /// P367 EditZoom: the view's zoom (px), the full-resolution window over the picture (view points), its key and source
+    private(set) var zoom = EditZoom()
+    private(set) var zoomDetail: UIImage?
+    private(set) var zoomDetailRect = CGRect.zero
+    private var zoomKey = ""
+    private var zoomSource = ZoomSource.none
+    enum ZoomSource { case none, loading, ready, unavailable }
+    private var zoomAnimation: Task<Void, Never>?
+
+    private let engine = EditEngine()
+    private var original = Data()
+    private var info: PhotoDecode.Info?
+    private var viewPixels = CGSize.zero
+    private var busy = false
+    private var pendingRender = false
+    static var clipboard: EditState?
+
+    /// PhotoEditorFragment.margin: 10dp, 28dp in the crop tab
+    static func margin(_ crop: Bool) -> CGFloat { crop ? 28 : 10 }
+    static let background: [NSNumber] = [NSNumber(value: Float(0x1C) / 255), NSNumber(value: Float(0x1C) / 255), NSNumber(value: Float(0x1E) / 255)]
+
+    nonisolated init(asset: PHAsset, raw: Bool) {
+        self.asset = asset
+        self.editRaw = raw
+    }
+
+    var cropMode: Bool { tab == .crop }
+
+    func open(scale: CGFloat) async {
+        let res = GalleryLibrary.resources(asset)
+        guard let resource = editRaw ? (res.raw ?? res.photo) : (res.photo ?? res.raw) else {
+            failure = L("editor.open_failed")
+            loading = false
+            return
+        }
+        name = resource.originalFilename
+        do {
+            original = try await GalleryLibrary.data(of: resource)
+        } catch {
+            failure = L("editor.open_failed") + " " + error.localizedDescription
+            loading = false
+            return
+        }
+        let shaders = Bundle.main.bundleURL.appendingPathComponent("shaders").path
+        let data = original
+        let raw = res.raw != nil && (resource == res.raw)
+        let pictureInfo = raw ? nil : PhotoDecode.info(data)
+        info = pictureInfo
+        // P633: the watermark's facts from the photo's own EXIF (an unknown one stays unknown)
+        watermarkInfo = WatermarkExif.info(WatermarkExif.properties(of: data) ?? [:])
+        let engine = self.engine
+        let result: (SCAMEditSession?, String?, SCAMWatermarkRecord?) = await withCheckedContinuation { cont in
+            engine.queue.async {
+                var session: SCAMEditSession?
+                var why: String?
+                var record: SCAMWatermarkRecord?
+                do {
+                    if raw {
+                        session = try SCAMEditSession(dng: data, shaders: shaders)
+                        engine.opened = session
+                    } else if let i = pictureInfo, let p = PhotoDecode.decode(data, longSide: PhotoDecode.previewSide(i), p3: i.p3) {
+                        session = try SCAMEditSession(preview: p.rgba, width: p.width, height: p.height, displayP3: p.p3,
+                                                      orientation: i.orientation, fullWidth: i.width, fullHeight: i.height, shaders: shaders)
+                        // P633 EditSource.readWatermark: the record at the end of the file, kept when it is this photo's and reads back
+                        if let s = session, let r = WatermarkStore.read(data), s.setWatermarkRecord(r) { record = r }
+                    }
+                } catch {
+                    why = error.localizedDescription
+                }
+                engine.session = session
+                cont.resume(returning: (session, why, record))
+            }
+        }
+        loading = false
+        guard let session = result.0 else {
+            failure = L("editor.open_failed") + " " + (result.1 ?? "")
+            return
+        }
+        watermarkRecord = result.2
+        isRaw = session.isRaw
+        if raw { await openDevelop(data, shaders: shaders) }
+        if session.quadHalf { note = L("editor.note.quad") }
+        let w = Double(session.previewWidth), h = Double(session.previewHeight)
+        orientedSize = CropMath.swapsSides(session.orientation) ? CGSize(width: h, height: w) : CGSize(width: w, height: h)
+        let fw = Double(session.fullWidth), fh = Double(session.fullHeight)
+        fullOriented = CropMath.swapsSides(session.orientation) ? CGSize(width: fh, height: fw) : CGSize(width: fw, height: fh)
+        openedGeometry = (orientedSize, fullOriented, session.isRaw)
+        openedRaw = session.isRaw
+        watermarkOutMax = SCAMEditSession.outMax(forBudget: PhotoDecode.memoryBudget())
+        history = EditHistory(state)
+        requestRender()
+        updateWatermark()
+    }
+
+    func close() {
+        let engine = self.engine
+        developTask?.cancel()
+        if let d = develop {
+            d.wanted = nil
+            d.queue.async { d.developer.releaseCaches() }
+        }
+        engine.queue.async {
+            engine.session = nil
+            engine.opened = nil
+            engine.developed = nil
+        }
+    }
+
+    // ---------------------------------------------------------------- rendering
+
+    func setViewSize(_ size: CGSize, scale: CGFloat) {
+        let px = CGSize(width: (size.width * scale).rounded(), height: (size.height * scale).rounded())
+        displayScale = scale
+        if px != viewPixels {
+            viewPixels = px
+            requestRender()
+            updateWatermark()
+        }
+    }
+
+    func requestRender() {
+        pendingRender = true
+        pump()
+    }
+
+    private func pump() {
+        guard pendingRender, !busy, viewPixels.width > 0, viewPixels.height > 0, engine.session != nil else { return }
+        pendingRender = false
+        busy = true
+        zoomFrame(keep: true)
+        let json = state.json, crop = cropMode, before = before
+        // P367: zoomed, the displayed crop at its place (EditZoom.placement), past the view's edges
+        let zoomed = !crop && zoom.isZoomed
+        let place = zoom.placement
+        let w = Int(viewPixels.width), h = Int(viewPixels.height)
+        let margin = Double(Self.margin(crop) * (viewPixels.width / max(1, viewSizePoints.width)))
+        let engine = self.engine
+        let bg = Self.background
+        let scale = viewPixels.width / max(1, viewSizePoints.width)
+        engine.queue.async {
+            guard let s = engine.session else {
+                Task { @MainActor in self.busy = false }
+                return
+            }
+            let frame = zoomed
+                ? s.renderZoom(json, width: w, height: h, left: place.0, top: place.1, displayWidth: place.2, displayHeight: place.3,
+                               before: before, background: bg)
+                : s.renderState(json, width: w, height: h, margin: margin, cropMode: crop, before: before, background: bg)
+            let hist = crop ? nil : s.histogram(forState: json, before: before)
+            var image: UIImage?
+            if let frame, let cg = PhotoDecode.cgImage(rgba: frame.rgba, width: frame.width, height: frame.height) {
+                image = UIImage(cgImage: cg, scale: scale, orientation: .up)
+            }
+            let counts = hist?.map { $0.map(\.intValue) }
+            Task { @MainActor in
+                self.picture = image
+                if let counts { self.histogram = counts }
+                self.busy = false
+                self.pump()
+                self.requestZoomWindow()
+            }
+        }
+    }
+
+    private(set) var viewSizePoints = CGSize(width: 1, height: 1)
+    func setViewPoints(_ size: CGSize) { viewSizePoints = size }
+
+    /// A RAW's white balance in K («Как снято · 5200 K») / a photo's relative numbers (EditPanels.wbText)
+    func wbText(_ p: EditParam, _ v: Float) -> String {
+        if isRaw, let s = engine.session, let w = s.white(forState: state.json), w.count >= 2 {
+            let asShot = state[.temperature] == 0 && state[.tint] == 0 ? L("editor.as_shot") + " · " : ""
+            if p == .temperature { return asShot + "\(Int((w[0].doubleValue / 50).rounded()) * 50) K" }
+            return (v > 0 ? "+" : "") + "\(EditParam.javaRound(v))"
+        }
+        let i = EditParam.javaRound(v)
+        return i > 0 ? "+\(i)" : "\(i)"
+    }
+
+    // ---------------------------------------------------------------- state
+
+    /// EditPanels.Host.changed: the state changed; commit: one undo step
+    func changed(commit: Bool) {
+        if !applyingStyle { styleBase = nil }
+        syncDevelop()
+        requestRender()
+        updateWatermark()
+        if commit { history.commit(state) }
+    }
+
+    private var applyingStyle = false
+
+    func set(_ p: EditParam, _ v: Float, commit: Bool) {
+        state[p] = v
+        changed(commit: commit)
+    }
+
+    func undo() {
+        guard history.canUndo else { return }
+        state = history.undo()
+        afterJump()
+    }
+
+    func redo() {
+        guard history.canRedo else { return }
+        state = history.redo()
+        afterJump()
+    }
+
+    private func afterJump() {
+        styleBase = nil
+        styleIndex = -1
+        syncDevelop()
+        requestRender()
+        updateWatermark()
+    }
+
+    func resetAll() {
+        state = EditState()
+        changed(commit: true)
+        afterJump()
+    }
+
+    func copySettings() {
+        Self.clipboard = state
+    }
+
+    func pasteSettings() {
+        guard let c = Self.clipboard else { return }
+        state.copyTone(c)
+        changed(commit: true)
+        afterJump()
+    }
+
+    func rotate() {
+        CropMath.rotateClockwise(&state)
+        changed(commit: true)
+    }
+
+    func flip() {
+        CropMath.flipHorizontal(&state)
+        changed(commit: true)
+    }
+
+    func resetCrop() {
+        state.resetGeometry()
+        changed(commit: true)
+    }
+
+    func aspect(_ ratio: Float) {
+        state.aspect = ratio
+        CropMath.applyAspect(&state, Double(orientedSize.width), Double(orientedSize.height))
+        changed(commit: true)
+    }
+
+    private var straightenAnchor: [Float]?
+
+    func straighten(_ degrees: Float, commit: Bool) {
+        if straightenAnchor == nil { straightenAnchor = [state.cropL, state.cropT, state.cropR, state.cropB] }
+        state.straighten = degrees
+        let b = CropMath.baseSize(Double(orientedSize.width), Double(orientedSize.height), state.quarterTurns)
+        let r = CropMath.inset(straightenAnchor!, b.0, b.1, Double(degrees))
+        state.cropL = r[0]; state.cropT = r[1]; state.cropR = r[2]; state.cropB = r[3]
+        if commit {
+            straightenAnchor = nil
+            changed(commit: true)
+        } else {
+            requestRender()
+        }
+    }
+
+    func crop(_ r: [Float], done: Bool) {
+        state.cropL = r[0]; state.cropT = r[1]; state.cropR = r[2]; state.cropB = r[3]
+        if done { changed(commit: true) } else { requestRender() }
+    }
+
+    func style(_ index: Int, amount: Float, commit: Bool) {
+        if styleBase == nil { styleBase = state }
+        let base = styleBase!
+        let next = index < 0 ? base : EditPresets.apply(base, index, amount)
+        state.copyTone(next)
+        applyingStyle = true
+        changed(commit: commit)
+        applyingStyle = false
+        if index < 0 { styleBase = nil }
+    }
+
+    func setCurve(_ channel: Int, _ points: [Float]?, done: Bool) {
+        state.curves[channel] = points
+        changed(commit: done)
+    }
+
+    // ---------------------------------------------------------------- P619 «LUT»
+
+    /// EditPanels.lutPage: a LUT card chosen (its strength 100 when it was 0)
+    func setLut(_ value: String) {
+        state.lut = value
+        if !value.isEmpty && state[.lutAmount] <= 0 { state[.lutAmount] = 100 }
+        changed(commit: true)
+    }
+
+    /// EditPanels.filmPage: a film card chosen (its strength 100 when it was 0)
+    func setFilm(_ id: String) {
+        state.film = id
+        if !id.isEmpty && state[.filmAmount] <= 0 { state[.filmAmount] = 100 }
+        changed(commit: true)
+    }
+
+    func setFilmPrint(_ id: String) {
+        state.filmPrint = id
+        changed(commit: true)
+    }
+
+    func setFilmFormat(_ id: String) {
+        state.filmFormat = id
+        changed(commit: true)
+    }
+
+    /// EditLookThumbs: the cards' pictures - the photo's picture as edited without the look (EditorView.thumbnail, 160 px), through
+    /// each LUT / stock at full strength; keyed "lut|value" / "film|id"
+    private(set) var lookThumbs: [String: UIImage] = [:]
+    private var lookThumbsVersion = 0
+
+    func loadLookThumbs(luts: [String], stocks: [String]) {
+        guard engine.session != nil else { return }
+        lookThumbsVersion += 1
+        let version = lookThumbsVersion, json = state.json, engine = self.engine
+        engine.queue.async {
+            guard let s = engine.session, let base = s.thumbnail(forState: json, side: 160) else { return }
+            let jobs = luts.map { ("lut|" + $0, $0, "") } + stocks.map { ("film|" + $0, "", $0) }
+            for (key, lut, film) in jobs {
+                let data = lut.isEmpty && film.isEmpty ? base.rgba
+                    : SCAMFilm.lookThumbnail(base.rgba, width: base.width, height: base.height, lut: lut, film: film) ?? base.rgba
+                guard let cg = PhotoDecode.cgImage(rgba: data, width: base.width, height: base.height) else { continue }
+                let image = UIImage(cgImage: cg)
+                Task { @MainActor in
+                    if version == self.lookThumbsVersion { self.lookThumbs[key] = image }
+                }
+            }
+        }
+    }
+
+    // ---------------------------------------------------------------- P633 «Знак»
+
+    /// EditWatermarkPanel's modes: the photo as it is, its own watermark taken off, a watermark drawn («Изменить» / «Добавить»).
+    enum WatermarkMode: Int { case keep, remove, draw }
+
+    /// The photo's own watermark record (EditSource.watermark), nil for none - an older photo, another app's, a re-encoded one.
+    private(set) var watermarkRecord: SCAMWatermarkRecord?
+    /// The watermark's facts of this photo from its own EXIF.
+    private(set) var watermarkInfo = WatermarkText.Info()
+    /// The live preview (WatermarkOverlayView): the state's watermark laid out for the copy's size, drawn into where the picture is
+    /// (`watermarkRect`, view points); nil when none is shown.
+    private(set) var watermarkOverlay: UIImage?
+    private(set) var watermarkRect = CGRect.zero
+    /// A line shown over the picture for a moment (GalleryToast), nil for none.
+    var notice: String?
+    private var fullOriented = CGSize(width: 1, height: 1)
+    private var watermarkOutMax: Int64 = 4_000_000
+    private var displayScale: CGFloat = 1
+    private var watermarkPlan: WatermarkPainter.Plan?
+    private var watermarkPlanKey = ""
+    private var inkPicture: (rgba: Data, width: Int, height: Int)?
+    private var inkKey: String?
+
+    var watermarkMode: WatermarkMode { !state.wm.isEmpty ? .draw : state.wmRemove ? .remove : .keep }
+
+    /// EditWatermarkPanel.pick: «Убрать» needs the record (greyed without: why, and the mode stays), «Изменить» takes the old one off
+    /// first.
+    func pickWatermarkMode(_ m: WatermarkMode) {
+        if m == .remove && watermarkRecord == nil {
+            notice = L("editor.wm.no_record")
+            return
+        }
+        if m == watermarkMode { return }
+        switch m {
+        case .keep:
+            state.wmRemove = false
+            state.wm = ""
+        case .remove:
+            state.wmRemove = true
+            state.wm = ""
+        case .draw:
+            state.wmRemove = watermarkRecord != nil
+            state.wm = initialWatermark().toJson()
+        }
+        changed(commit: true)
+    }
+
+    /// A new watermark starts as the photo's own (its record's spec) or as the camera's settings.
+    func initialWatermark() -> WatermarkSpec {
+        watermarkRecord.flatMap { WatermarkSpec.fromJson($0.spec) } ?? WatermarkSpec.stored()
+    }
+
+    /// The watermark the panel shows: the state's, else the one a new watermark would start as.
+    var watermarkSpec: WatermarkSpec { state.watermark ?? initialWatermark() }
+
+    func editWatermark(commit: Bool, _ change: (inout WatermarkSpec) -> Void) {
+        var s = watermarkSpec
+        change(&s)
+        state.wm = s.toJson()
+        changed(commit: commit)
+    }
+
+    /// «Как в настройках камеры»: the camera's watermark settings, as new photos get it.
+    func watermarkAsCamera() {
+        state.wm = WatermarkSpec.stored().toJson()
+        changed(commit: true)
+    }
+
+    /// EditExporter.outputSize: the copy's size for a crop of cropW x cropH px and the pixel limit.
+    static func outputSize(_ cropW: Double, _ cropH: Double, _ outMax: Int64) -> (Int, Int) {
+        let k = Swift.min(1.0, (Double(outMax) / Swift.max(1.0, cropW * cropH)).squareRoot())
+        return (Swift.max(1, Int((cropW * k + 0.5).rounded(.down))), Swift.max(1, Int((cropH * k + 0.5).rounded(.down))))
+    }
+
+    /// PhotoEditorFragment.updateWatermark: the state's watermark laid out for the copy's size, over the picture (not in «Кадр», not
+    /// while the long press shows the original); «Авто» from a small picture of the edited crop, asked again when it changed.
+    func updateWatermark() {
+        guard let spec = state.watermark, tab != .crop, !before, !zoom.isZoomed, engine.session != nil, viewPixels.width > 0,
+              viewPixels.height > 0 else {
+            watermarkOverlay = nil
+            return
+        }
+        let crop = CropMath.cropPixels(state, Double(fullOriented.width), Double(fullOriented.height))
+        let size = Self.outputSize(crop.0, crop.1, watermarkOutMax)
+        let key = spec.toJson() + "|\(size.0)x\(size.1)"
+        if key != watermarkPlanKey {
+            watermarkPlanKey = key
+            let plan = WatermarkPainter.plan(spec, WatermarkText.of(spec, watermarkInfo), width: size.0, height: size.1, fonts: WatermarkFonts.shared)
+            watermarkPlan = plan.empty ? nil : plan
+        }
+        guard var plan = watermarkPlan else {
+            watermarkOverlay = nil
+            return
+        }
+        if spec.colour == .auto {
+            var picture = state
+            picture.wm = ""
+            let k = picture.json
+            if k != inkKey {
+                inkKey = k
+                let engine = self.engine
+                engine.queue.async {
+                    guard let s = engine.session, let t = s.thumbnail(forState: k, side: 160) else { return }
+                    let shot = (rgba: t.rgba, width: t.width, height: t.height)
+                    Task { @MainActor in
+                        if self.inkKey == k {
+                            self.inkPicture = shot
+                            self.updateWatermark()
+                        }
+                    }
+                }
+            }
+            if var ink = inkPicture?.rgba, let w = inkPicture?.width, let h = inkPicture?.height {
+                ink.withUnsafeMutableBytes { raw in
+                    guard let base = raw.bindMemory(to: UInt8.self).baseAddress else { return }
+                    WatermarkPainter.chooseInkScaled(&plan, spec, small: WatermarkRows(base: base, width: w, height: h, bytesPerRow: w * 4))
+                }
+            } else {
+                WatermarkPainter.chooseInkScaled(&plan, spec, small: nil)
+            }
+        } else {
+            WatermarkPainter.chooseInk(&plan, spec, rows: nil)
+        }
+        let margin = Double(Self.margin(false) * (viewPixels.width / Swift.max(1, viewSizePoints.width)))
+        let r = CropMath.canvas(Double(viewPixels.width), Double(viewPixels.height), margin, state, Double(orientedSize.width),
+                                Double(orientedSize.height), false)
+        let pw = Int(r.width.rounded()), ph = Int(r.height.rounded())
+        guard pw > 0, ph > 0, let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let ctx = CGContext(data: nil, width: pw, height: ph, bitsPerComponent: 8, bytesPerRow: 0, space: space,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
+            watermarkOverlay = nil
+            return
+        }
+        ctx.clear(CGRect(x: 0, y: 0, width: pw, height: ph))
+        ctx.translateBy(x: 0, y: CGFloat(ph))
+        ctx.scaleBy(x: 1, y: -1)
+        ctx.scaleBy(x: CGFloat(pw) / CGFloat(plan.width), y: CGFloat(ph) / CGFloat(plan.height))
+        WatermarkPainter.draw(ctx, plan, spec, fonts: WatermarkFonts.shared)
+        guard let image = ctx.makeImage() else {
+            watermarkOverlay = nil
+            return
+        }
+        let k = Swift.max(displayScale, 1)
+        watermarkOverlay = UIImage(cgImage: image, scale: k, orientation: .up)
+        watermarkRect = CGRect(x: r.minX / k, y: r.minY / k, width: CGFloat(pw) / k, height: CGFloat(ph) / k)
+    }
+
+    // ---------------------------------------------------------------- P665 «Проявка»
+
+    /// The camera's develop of this photo (a DNG of ours with its develop record), nil: none offered.
+    private(set) var develop: DevelopEngine?
+    /// The shot's settings as the develop reads them (DevelopRun.shotValues), empty without a develop.
+    private(set) var developShot: [String: Any] = [:]
+    /// The tab's groups (DevelopCatalog, made once).
+    private(set) var developGroups: [DevelopCatalog.Group] = []
+    /// What the develop is doing now («Проявляю…», its failure), nil when idle.
+    private(set) var developStatus: String?
+    /// The developed picture is the one shown and edited (the state's develop on and a develop done).
+    private(set) var showingDeveloped = false
+    private(set) var openedRaw = false
+    private var developedKey: String?
+    private var developTask: Task<Void, Never>?
+    private var openedGeometry: (oriented: CGSize, full: CGSize, raw: Bool)?
+    private var developedGeometry: (oriented: CGSize, full: CGSize, raw: Bool)?
+
+    /// EditDevelop.open: the DNG's develop record, if it has one
+    private func openDevelop(_ data: Data, shaders: String) async {
+        let d: SCAMDevelop? = await withCheckedContinuation { cont in
+            DispatchQueue.global(qos: .userInitiated).async { cont.resume(returning: SCAMDevelop(dng: data, shaders: shaders)) }
+        }
+        guard let d else { return }
+        SessionLog.i("Editor", d.summary + " (" + name + ")")
+        develop = DevelopEngine(d)
+        developShot = d.shotValues
+        developGroups = DevelopCatalog.groups(shot: developShot)
+    }
+
+    func loadDevelopGroups() {
+        if developGroups.isEmpty { developGroups = DevelopCatalog.groups(shot: developShot) }
+    }
+
+    /// EditDevelopPanel.unavailable: why the develop is not offered for this photo, nil when it is
+    var developUnavailable: String? {
+        if develop != nil { return nil }
+        return openedRaw ? L("editor.develop.no_record") : L("editor.develop.finished")
+    }
+
+    /// EditDevelopPanel.statusText
+    var developStatusText: String {
+        if let developStatus { return developStatus }
+        return state.develop ? L("editor.develop.done") : L("editor.develop.switch_hint")
+    }
+
+    /// The values the tab's rows show: the shot's settings with the changes over them.
+    var developValues: [String: Any] {
+        var v = developShot
+        for (k, c) in state.devChanges { v[k] = c.json }
+        return v
+    }
+
+    func setDevelop(_ on: Bool) {
+        state.develop = on
+        changed(commit: true)
+    }
+
+    /// EditDevelopPanel.set: the row's value kept as a change unless it is the shot's; the develop runs once the value rests
+    /// (one undo step a gesture).
+    func setDevelopValue(_ row: DevelopCatalog.Row, _ value: Any?) {
+        let asShot = developShot[row.key] ?? row.def
+        if let value {
+            let same: Bool
+            switch row.kind {
+            case .toggle: same = DevelopCatalog.on(value) == DevelopCatalog.on(asShot)
+            default:
+                let a = PrefValue.text(value), b = PrefValue.text(asShot)
+                let x = PrefValue.number(value, .nan), y = PrefValue.number(asShot, .nan)
+                same = a == b || (row.kind == .slider && x == y)
+            }
+            if same { state.devChanges[row.key] = nil }
+            else { state.devChanges[row.key] = row.kind == .toggle ? .on(DevelopCatalog.on(value)) : .text(PrefValue.text(value)) }
+        } else {
+            state.devChanges[row.key] = nil
+        }
+        styleBase = nil
+        requestRender()
+        updateWatermark()
+        developTask?.cancel()
+        developTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 450_000_000)
+            guard let self, !Task.isCancelled else { return }
+            self.history.commit(self.state)
+            self.syncDevelop()
+        }
+    }
+
+    /// PhotoEditorFragment.syncDevelop: the picture the editor works on - the developed one while the develop is on (the last
+    /// developed: a new develop replaces it when it is done), else the photo as opened - and the develop asked for the state's
+    /// settings.
+    private func syncDevelop() {
+        guard let d = develop else { return }
+        if state.develop { requestDevelop(d) }
+        let show = state.develop && developedGeometry != nil
+        if show != showingDeveloped { swapSource(show) }
+    }
+
+    private func swapSource(_ show: Bool) {
+        showingDeveloped = show
+        if let g = show ? developedGeometry : openedGeometry {
+            orientedSize = g.oriented
+            fullOriented = g.full
+            isRaw = g.raw
+        }
+        let engine = self.engine
+        engine.queue.async { engine.session = show ? engine.developed : engine.opened }
+        requestRender()
+        updateWatermark()
+    }
+
+    /// EditorViewModel.requestDevelop: the preview developed with the state's camera settings unless the picture shown or the
+    /// develop asked for is already that one.
+    private func requestDevelop(_ d: DevelopEngine) {
+        let key = state.devChangesJson
+        if key == developedKey && developedGeometry != nil { return }
+        if key == d.wanted { return }
+        d.wanted = key
+        developStatus = L("editor.develop.busy")
+        let engine = self.engine
+        let shaders = Bundle.main.bundleURL.appendingPathComponent("shaders").path
+        d.queue.async {
+            guard d.wanted == key else { return } // overtaken
+            do {
+                let picture = try d.developer.preview(changes: key)
+                let k = d.developer.scale
+                let fw = Int((Double(picture.width) * k).rounded()), fh = Int((Double(picture.height) * k).rounded())
+                guard d.wanted == key else { return }
+                engine.queue.async {
+                    do {
+                        let session = try SCAMEditSession(preview: picture.rgba, width: picture.width, height: picture.height, displayP3: false,
+                                                          orientation: 1, fullWidth: fw, fullHeight: fh, shaders: shaders)
+                        Task { @MainActor in self.developDone(key, session, picture.width, picture.height, fw, fh) }
+                    } catch {
+                        Task { @MainActor in self.developFailed(key, error) }
+                    }
+                }
+            } catch {
+                Task { @MainActor in self.developFailed(key, error) }
+            }
+        }
+    }
+
+    private func developDone(_ key: String, _ session: SCAMEditSession, _ w: Int, _ h: Int, _ fw: Int, _ fh: Int) {
+        guard let d = develop, d.wanted == key else { return }
+        developedKey = key
+        developStatus = nil
+        developedGeometry = (CGSize(width: w, height: h), CGSize(width: fw, height: fh), false)
+        let show = state.develop
+        let engine = self.engine
+        engine.queue.async {
+            engine.developed = session
+            if show { engine.session = session }
+        }
+        if show {
+            showingDeveloped = false
+            swapSource(true)
+        }
+    }
+
+    private func developFailed(_ key: String, _ error: Error) {
+        guard let d = develop, d.wanted == key else { return }
+        d.wanted = nil // the same settings may be tried again
+        developStatus = L("editor.develop.failed") + " " + error.localizedDescription
+        SessionLog.e("Editor", "develop: " + error.localizedDescription)
+    }
+
+    // ---------------------------------------------------------------- the copy
+
+    /// «Сохранить копию»: EditExporter.export at full resolution, then a new JPEG in the library.
+    func save() async {
+        guard !exporting, engine.session != nil else { return }
+        // P665: the copy of a developed DNG is the whole DNG developed with the state's camera settings (EditDevelop.full)
+        let developing = develop != nil && state.develop
+        if developing && !showingDeveloped {
+            savedMessage = L("editor.develop.wait")
+            return
+        }
+        exporting = true
+        exportProgress = 0
+        let json = state.json, data = original, info = self.info, raw = isRaw, name = name
+        let develop = developing ? self.develop : nil, changes = state.devChangesJson
+        // P633: the «Знак» tab's watermark drawn on the finished copy with this photo's facts, its record kept
+        let wmSpec = state.watermark, wmInfo = watermarkInfo
+        let cropFraction = max(1e-6, Double((state.cropR - state.cropL) * (state.cropB - state.cropT)))
+        let budget = PhotoDecode.memoryBudget()
+        let outMax = SCAMEditSession.outMax(forBudget: budget)
+        let engine = self.engine
+        let progress: @Sendable (Float) -> Void = { [weak self] p in Task { @MainActor in self?.exportProgress = p } }
+        let result: Result<(Data, SCAMEditImage), Error> = await withCheckedContinuation { cont in
+            engine.queue.async {
+                do {
+                    guard let s = engine.session else { throw NSError(domain: "SCAMEdit", code: 1) }
+                    let copy: SCAMEditImage
+                    if let develop {
+                        var picture: SCAMDevelopPicture?
+                        var failure: Error?
+                        develop.queue.sync {
+                            do { picture = try develop.developer.full(changes: changes) } catch { failure = error }
+                        }
+                        if let failure { throw failure }
+                        guard let full = picture else { throw NSError(domain: "SCAMEdit", code: 5) }
+                        copy = try s.exportState(json, picture: full.rgba, width: full.width, height: full.height, outMax: outMax,
+                                                 progress: progress)
+                    } else if raw {
+                        copy = try s.exportState(json, dng: data, budget: budget, outMax: outMax, progress: progress)
+                    } else {
+                        guard let i = info else { throw NSError(domain: "SCAMEdit", code: 2) }
+                        let side = PhotoDecode.exportSide(i, cropFraction: cropFraction, outMax: outMax, budget: budget)
+                        guard let full = PhotoDecode.decode(data, longSide: side, p3: i.p3) else {
+                            throw NSError(domain: "SCAMEdit", code: 3, userInfo: [NSLocalizedDescriptionKey: L("editor.open_failed")])
+                        }
+                        copy = try s.exportState(json, picture: full.rgba, width: full.width, height: full.height, outMax: outMax,
+                                                 progress: progress)
+                    }
+                    // P633 EditExporter.drawWatermark: drawn as the camera draws it (upright, the chosen corner, on the short
+                    // side), the pixels under it kept so this copy's watermark can come off again
+                    var rgba = copy.rgba
+                    var record: SCAMWatermarkRecord?
+                    if let wmSpec {
+                        record = PhotoWatermark.drawRecorded(&rgba, width: copy.width, height: copy.height, spec: wmSpec, info: wmInfo,
+                                                             record: true, log: { NSLog("SCAMEdit %@", $0) }).record
+                    }
+                    guard let cg = PhotoDecode.cgImage(rgba: rgba, width: copy.width, height: copy.height),
+                          var jpeg = PhotoDecode.jpeg(cg, original: data) else { throw NSError(domain: "SCAMEdit", code: 4) }
+                    // EditExporter.writeCopy: the record at the end of the JPEG, after its EXIF (a copy without a watermark carries none)
+                    if let record { jpeg = PhotoWatermark.appendRecord(record, to: jpeg, log: { NSLog("SCAMEdit %@", $0) }) }
+                    cont.resume(returning: .success((jpeg, copy)))
+                } catch {
+                    cont.resume(returning: .failure(error))
+                }
+            }
+        }
+        var message: String
+        switch result {
+        case .success(let (jpeg, copy)):
+            do {
+                try await GalleryLibrary.saveCopy(jpeg, name: name)
+                message = L("editor.saved") + " " + GalleryLibrary.copyName(name)
+                if copy.shrunk { message += " (\(copy.width)×\(copy.height), " + L("editor.memory_limit") + ")" }
+                savedState = state
+            } catch {
+                message = L("editor.save_failed") + " " + error.localizedDescription
+            }
+        case .failure(let error):
+            message = L("editor.save_failed") + " " + error.localizedDescription
+        }
+        exporting = false
+        exportProgress = 1
+        savedMessage = message
+    }
+
+    func clearMessage() { savedMessage = nil }
+    /// the state the last copy was saved with (leaving after it asks nothing)
+    private var savedState: EditState?
+    var hasChanges: Bool { state != (savedState ?? history.states[0]) }
+}
+
+// ---------------------------------------------------------------- P367 the view zoom (EditZoom, EditZoomLoader)
+
+extension EditorModel {
+    /// view px per point
+    private var pixelsPerPoint: Double { Double(viewPixels.width / Swift.max(1, viewSizePoints.width)) }
+
+    /// EditZoom.frame: the view, the fit of the crop in it (EditorView.canvas), the crop in the original's pixels and the copy's
+    /// size; a zoomed view keeps its zoom (`keep`), the crop tab has none.
+    func zoomFrame(keep: Bool) {
+        guard viewPixels.width > 0, viewPixels.height > 0 else { return }
+        var z = zoom
+        if tab == .crop {
+            z.reset()
+        } else {
+            let margin = Double(Self.margin(false)) * pixelsPerPoint
+            let r = CropMath.canvas(Double(viewPixels.width), Double(viewPixels.height), margin, state, Double(orientedSize.width),
+                                    Double(orientedSize.height), false)
+            let crop = CropMath.cropPixels(state, Double(fullOriented.width), Double(fullOriented.height))
+            z.frame(viewW: Double(viewPixels.width), viewH: Double(viewPixels.height), fitL: r.minX, fitT: r.minY, fitW: r.width,
+                    fitH: r.height, cropW: crop.0, cropH: crop.1, keep: keep)
+            let size = Self.outputSize(crop.0, crop.1, watermarkOutMax)
+            z.copySize(size.0, size.1)
+        }
+        if z != zoom { zoom = z }
+    }
+
+    /// A pinch by `factor` about a point of the picture (view points).
+    func zoomPinch(_ factor: Double, at p: CGPoint) {
+        guard tab != .crop, !loading, failure == nil else { return }
+        var z = zoom
+        let k = pixelsPerPoint
+        if z.zoomAbout(factor, Double(p.x) * k, Double(p.y) * k) { zoomTo(z) }
+    }
+
+    /// A pan by dx, dy view points (zoomed only).
+    func zoomPan(_ dx: Double, _ dy: Double) {
+        guard zoom.isZoomed else { return }
+        var z = zoom
+        let k = pixelsPerPoint
+        z.panBy(dx * k, dy * k)
+        if z != zoom { zoomTo(z) }
+    }
+
+    /// EditorView's double tap: zoomed -> the fit, at the fit -> 100 % there (MEDIUM, the standard curve).
+    func zoomDoubleTap(at p: CGPoint) {
+        guard tab != .crop, !loading, failure == nil else { return }
+        let k = pixelsPerPoint
+        let from = zoom, to = zoom.toggleTarget(Double(p.x) * k, Double(p.y) * k)
+        guard from != to else { return }
+        zoomAnimation?.cancel()
+        guard EditMotion.on else {
+            zoomTo(to)
+            return
+        }
+        zoomAnimation = Task { @MainActor in
+            let steps = 10
+            for i in 1...steps {
+                if Task.isCancelled { return }
+                // EditMotion.MOVE (0.2, 0, 0, 1) as a curve in t
+                let t = Double(i) / Double(steps), e = 1 - pow(1 - t, 3)
+                var z = to
+                z.scale = from.scale + (to.scale - from.scale) * e
+                z.left = from.left + (to.left - from.left) * e
+                z.top = from.top + (to.top - from.top) * e
+                zoomTo(i == steps ? to : z)
+                try? await Task.sleep(nanoseconds: UInt64(EditMotion.medium / Double(steps) * 1e9))
+            }
+        }
+    }
+
+    /// «100 %» pill text, nil at the fit
+    var zoomPercent: String? { zoom.isZoomed && tab != .crop ? "\(Int(zoom.percent.rounded())) %" : nil }
+
+    private func zoomTo(_ z: EditZoom) {
+        zoom = z
+        zoomDetail = nil
+        zoomKey = ""
+        requestRender()
+        updateWatermark()
+        if !z.isZoomed { releaseZoomSource() }
+    }
+
+    /// The window of the view the screen shows past the preview's resolution, rendered from the original (EditZoomLoader) once the
+    /// zoom settles; the preview's zoomed frame stays under it meanwhile.
+    func requestZoomWindow() {
+        let previewPerOriginal = Double(orientedSize.width) / Swift.max(1, Double(fullOriented.width))
+        guard tab != .crop, !before, !showingDeveloped, zoom.isZoomed, zoomSource != .unavailable,
+              EditZoom.fullResWanted(zoom.scale, previewPerOriginal) else {
+            if zoomDetail != nil { zoomDetail = nil }
+            return
+        }
+        let place = zoom.placement
+        let vw = Double(viewPixels.width), vh = Double(viewPixels.height)
+        let l = Swift.max(0, place.0), t = Swift.max(0, place.1)
+        let r = Swift.min(vw, place.0 + place.2), b = Swift.min(vh, place.1 + place.3)
+        guard r - l >= 1, b - t >= 1 else { return }
+        let x = Int(l.rounded(.up)), y = Int(t.rounded(.up))
+        let w = Int(r.rounded(.down)) - x, h = Int(b.rounded(.down)) - y
+        guard w > 0, h > 0 else { return }
+        let json = state.json
+        let key = "\(json)|\(place)|\(x),\(y),\(w),\(h)"
+        if key == zoomKey { return }
+        zoomKey = key
+        let engine = self.engine, k = pixelsPerPoint
+        Task { @MainActor in
+            // the zoom settles first (a pinch or a pan in progress asks again)
+            try? await Task.sleep(nanoseconds: 150_000_000)
+            guard self.zoomKey == key else { return }
+            guard await self.loadZoomSource() else { return }
+            let detail: UIImage? = await withCheckedContinuation { cont in
+                engine.queue.async {
+                    guard let s = engine.session,
+                          let out = s.renderZoomWindow(json, left: place.0, top: place.1, displayWidth: place.2, displayHeight: place.3,
+                                                       x: x, y: y, width: w, height: h),
+                          let cg = PhotoDecode.cgImage(rgba: out.rgba, width: out.width, height: out.height) else {
+                        cont.resume(returning: nil)
+                        return
+                    }
+                    cont.resume(returning: UIImage(cgImage: cg, scale: CGFloat(k), orientation: .up))
+                }
+            }
+            guard self.zoomKey == key, let detail else { return }
+            self.zoomDetailRect = CGRect(x: Double(x) / k, y: Double(y) / k, width: Double(w) / k, height: Double(h) / k)
+            self.zoomDetail = detail
+        }
+    }
+
+    /// EditZoomLoader's reader: the original decoded once (a photo at its full size, a RAW's DNG again) when memory allows; false:
+    /// the zoom stays the preview's.
+    private func loadZoomSource() async -> Bool {
+        switch zoomSource {
+        case .ready: return true
+        case .unavailable: return false
+        case .loading:
+            while zoomSource == .loading { try? await Task.sleep(nanoseconds: 50_000_000) }
+            return zoomSource == .ready
+        case .none: break
+        }
+        zoomSource = .loading
+        let engine = self.engine, data = original, raw = isRaw, info = self.info
+        let budget = PhotoDecode.memoryBudget()
+        let ok: Bool = await withCheckedContinuation { cont in
+            engine.queue.async {
+                guard let s = engine.session else {
+                    cont.resume(returning: false)
+                    return
+                }
+                if raw {
+                    cont.resume(returning: s.setZoomDNG(data, budget: budget))
+                    return
+                }
+                // a photo: its stored pixels (twice when the watermark's pixels go back) within the memory there is
+                guard let i = info, Int64(i.width) * Int64(i.height) * 8 < budget,
+                      let full = PhotoDecode.decode(data, longSide: Swift.max(i.width, i.height), p3: i.p3) else {
+                    cont.resume(returning: false)
+                    return
+                }
+                cont.resume(returning: s.setZoomPicture(full.rgba, width: full.width, height: full.height))
+            }
+        }
+        zoomSource = ok ? .ready : .unavailable
+        if !ok { SessionLog.i("Editor", "zoom: no full-resolution source (memory or decode), the preview is zoomed") }
+        return ok
+    }
+
+    private func releaseZoomSource() {
+        guard zoomSource == .ready else { return }
+        zoomSource = .none
+        let engine = self.engine
+        engine.queue.async { engine.session?.releaseZoom() }
+    }
+}

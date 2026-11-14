@@ -1,0 +1,184 @@
+name: SCAMERA
+options:
+  bundleIdPrefix: com.scamera
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+  developmentLanguage: en
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "0.1"
+    CURRENT_PROJECT_VERSION: "1"
+    SCAM_GIT_SHA: local
+    CLANG_CXX_LANGUAGE_STANDARD: c++17
+    CLANG_CXX_LIBRARY: libc++
+    GCC_C_LANGUAGE_STANDARD: gnu11
+    ENABLE_BITCODE: NO
+targets:
+  SCAMERA:
+    type: application
+    platform: iOS
+    sources:
+      - path: App
+      - path: Capture
+      - path: Viewfinder
+      - path: Bridge
+      - path: Engine
+      - path: Editor
+      - path: ScamGL
+      - path: Gallery
+      - path: Video
+      - path: Support
+      - path: Resources
+      - path: LICENSE-AVCam.txt
+        buildPhase: resources
+      # the merge tuning of the replays (tools/replay_tuning.txt: the Android app's hybrid_tuning.txt of a shot)
+      - path: ../tools/replay_tuning.txt
+        buildPhase: resources
+      # «Oldstyle»: the owner's tone-port module as the Android app builds it (Engine/post/oldstyle/ToneNative.cpp calls it)
+      - path: ../app/src/main/cpp/third_party/tone_port/src/curves.cpp
+      - path: ../app/src/main/cpp/third_party/tone_port/src/processing.cpp
+      - path: ../app/src/main/cpp/third_party/tone_port/src/rgb8_hdr.cpp
+      - path: ../app/src/main/cpp/third_party/tone_port/src/linear_hdr31.cpp
+      - path: ../app/src/main/cpp/third_party/tone_port/src/raw_tone.cpp
+      - path: ../app/src/main/cpp/third_party/tone_port/src/raw_finish31.cpp
+      - path: ../app/src/main/cpp/third_party/tone_port/src/parallel.cpp
+      # the spectral film engine of the reference film route (spektrafilm's Vulkan renderer, the Android libscameraFilm's sources,
+      # Bridge/ScamFilmEngine.mm sets it): on MoltenVK (tools/build_moltenvk.sh). Android builds it with clang's default
+      # contraction (fp-contract on), so these two do too
+      - path: ../app/src/main/cpp/third_party/spektrafilm/SpektraVulkanRenderer.cpp
+        compilerFlags: ["-ffp-contract=on"]
+      - path: ../app/src/main/cpp/third_party/spektrafilm/SpektraGeneratedProfileCurves.cpp
+        compilerFlags: ["-ffp-contract=on"]
+      # the Android app's shutter and self-timer sounds (CameraSounds), taken from its res/raw as they are
+      - path: ../app/src/main/res/raw/sound_shutter.mp3
+        buildPhase: resources
+      - path: ../app/src/main/res/raw/sound_timer.mp3
+        buildPhase: resources
+      # the Android app's interface font, Roboto Flex (circularbarlib res/font, static instances 400 .. 800), taken as it is (AppFont)
+      - path: ../circularbarlib/src/main/res/font/roboto_flex_400.ttf
+        buildPhase: resources
+      - path: ../circularbarlib/src/main/res/font/roboto_flex_500.ttf
+        buildPhase: resources
+      - path: ../circularbarlib/src/main/res/font/roboto_flex_600.ttf
+        buildPhase: resources
+      - path: ../circularbarlib/src/main/res/font/roboto_flex_700.ttf
+        buildPhase: resources
+      - path: ../circularbarlib/src/main/res/font/roboto_flex_800.ttf
+        buildPhase: resources
+      # the Android app's shaders: the post pipeline (Engine/post) loads them as the app's assets
+      - path: ../app/src/main/assets/shaders
+        type: folder
+        buildPhase: resources
+      # the film simulation's arrays (FilmSpectral: spektrafilm's film / paper profiles, assets/film/*.bin with their licences),
+      # read beside the shaders as the Android app reads its assets
+      - path: ../app/src/main/assets/film
+        type: folder
+        buildPhase: resources
+    postCompileScripts:
+      # the film engine's resources as the Android build embeds them (tools/embed_film_reference.py): the compute shaders compiled
+      # to SPIR-V for Vulkan 1.0 (glslangValidator built by tools/build_moltenvk.sh) and the two float tables, in the bundle's
+      # "spektrafilm" folder (SpektraFilmEngine reads them from there)
+      - name: Spectral film shaders (SPIR-V)
+        basedOnDependencyAnalysis: false
+        script: |
+          set -euo pipefail
+          glslang="$SCAM_DEPS/moltenvk-host/bin/glslangValidator"
+          [ -x "$glslang" ] || { echo "error: $glslang is missing (ios/tools/build_moltenvk.sh ios \"$SCAM_DEPS\")"; exit 1; }
+          out="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/spektrafilm"
+          rm -rf "$out"
+          mkdir -p "$out/shaders"
+          for shader in "$SRCROOT"/../app/src/main/cpp/third_party/spektrafilm/shaders/*.comp; do
+            "$glslang" -V --target-env vulkan1.0 -o "$out/shaders/$(basename "$shader").spv" "$shader" > /dev/null
+          done
+          cp "$SRCROOT"/../app/src/main/assets/film-reference/SpektraHanatos2025Spectra.f32 \
+             "$SRCROOT"/../app/src/main/assets/film-reference/SpektraOutputGamutCompression.f32 "$out/"
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: SCAMERA
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        SCAMGitSHA: $(SCAM_GIT_SHA)
+        CFBundleDevelopmentRegion: en
+        CFBundleLocalizations: [en, ru]
+        LSRequiresIPhoneOS: true
+        UIRequiredDeviceCapabilities: [arm64]
+        # the camera owns the whole screen and stays portrait on every device, as Android's CameraActivity
+        # (SCREEN_ORIENTATION_PORTRAIT): on an iPad full screen (no Split View / Slide Over), so portrait alone is allowed there
+        UIRequiresFullScreen: true
+        UIStatusBarHidden: true
+        UIViewControllerBasedStatusBarAppearance: true
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        "UISupportedInterfaceOrientations~ipad": [UIInterfaceOrientationPortrait]
+        UILaunchScreen:
+          UIColorName: ""
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+        NSCameraUsageDescription: SCAMERA uses the camera to take photos.
+        NSPhotoLibraryAddUsageDescription: SCAMERA saves the photos you take to your library.
+        NSPhotoLibraryUsageDescription: SCAMERA shows your photos in its gallery and saves edited copies.
+        # the Home Screen quick action «Настройки» (Android's launcher shortcut, res/xml/shortcuts.xml); the title from InfoPlist.strings
+        UIApplicationShortcutItems:
+          - UIApplicationShortcutItemType: com.scamera.ios.settings
+            UIApplicationShortcutItemTitle: shortcut_settings_short
+            UIApplicationShortcutItemIconSymbolName: gearshape
+        # the five Roboto Flex files share one PostScript name: the 400 one is registered, AppFont makes every weight from its file
+        UIAppFonts: [roboto_flex_400.ttf]
+        # the gallery's video player: «Фоновое воспроизведение» and picture in picture (VideoPlayerModel)
+        UIBackgroundModes: [audio]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.scamera.ios
+        PRODUCT_NAME: SCAMERA
+        # iPhone and iPad: a native iPad app (with "1" alone the iPad ran it as a phone-sized window in the middle)
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SWIFT_OBJC_BRIDGING_HEADER: Bridge/SCAMERA-Bridging-Header.h
+        HEADER_SEARCH_PATHS: ["$(inherited)", "$(SRCROOT)/Engine", "$(SRCROOT)/ScamGL/include", "$(SRCROOT)/ScamGL",
+                              "$(SRCROOT)/../app/src/main/cpp", "$(SRCROOT)/../app/src/main/cpp/third_party/tone_port/include",
+                              "$(SCAM_DEPS)/$(SCAM_DEPS_PLATFORM)/include",
+                              "$(SCAM_DEPS)/$(SCAM_DEPS_PLATFORM)/include/spirv_cross",
+                              "$(SCAM_DEPS)/moltenvk-$(SCAM_DEPS_PLATFORM)/include"]
+        # glslang / SPIRV-Cross static libraries (tools/build_shader_deps.sh; CI passes SCAM_DEPS), MoltenVK's (tools/build_moltenvk.sh)
+        SCAM_DEPS: $(SRCROOT)/build/deps
+        "SCAM_DEPS_PLATFORM[sdk=iphoneos*]": ios
+        "SCAM_DEPS_PLATFORM[sdk=iphonesimulator*]": iossim
+        LIBRARY_SEARCH_PATHS: ["$(inherited)", "$(SCAM_DEPS)/$(SCAM_DEPS_PLATFORM)/lib", "$(SCAM_DEPS)/moltenvk-$(SCAM_DEPS_PLATFORM)/lib"]
+        OTHER_LDFLAGS: ["$(inherited)", "-lglslang", "-lMachineIndependent", "-lGenericCodeGen", "-lOSDependent", "-lSPIRV",
+                        "-lglslang-default-resource-limits", "-lspirv-cross-msl", "-lspirv-cross-glsl", "-lspirv-cross-core",
+                        "-lMoltenVK", "-lc++", "-framework", "Metal", "-framework", "IOSurface", "-framework", "QuartzCore",
+                        "-framework", "CoreGraphics", "-framework", "UIKit", "-framework", "Foundation"]
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+        CLANG_ENABLE_OBJC_ARC: YES
+        MTL_HEADER_SEARCH_PATHS: ["$(inherited)", "$(SRCROOT)/Engine"]
+        MTL_FAST_MATH: NO
+        GCC_PREPROCESSOR_DEFINITIONS: ["$(inherited)", "SCAM_IOS=1"]
+        OTHER_CPLUSPLUSFLAGS: ["$(inherited)", "-ffp-contract=off"]
+        ASSETCATALOG_COMPILER_APPICON_NAME: ""
+        CODE_SIGN_STYLE: Automatic
+        INFOPLIST_KEY_CFBundleDisplayName: SCAMERA
+  SCAMERATests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests
+    dependencies:
+      - target: SCAMERA
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.scamera.ios.tests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: $(BUILT_PRODUCTS_DIR)/SCAMERA.app/SCAMERA
+        BUNDLE_LOADER: $(TEST_HOST)
+schemes:
+  SCAMERA:
+    build:
+      targets:
+        SCAMERA: all
+        SCAMERATests: [test]
+    test:
+      targets: [SCAMERATests]
+      gatherCoverageData: false
+    archive:
+      config: Release

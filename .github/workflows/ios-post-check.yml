@@ -1,0 +1,283 @@
+name: iOS post pipeline vs Android
+
+# The C++ port of the photo pipeline (ios/Engine/post) against the Android pipeline itself: the reference is the app's own Java
+# nodes and shaders run on the host GPU (Mesa) under Robolectric (ios/tools/android-host) on a full phone shot of the owner's
+# Drive; the port must match it bit for bit on Mesa, and on Metal (ScamGL, the iPhone's path) within a PSNR bound.
+on:
+  push:
+    branches: [ 'claude/ios-camera-app-port-idgljn' ]
+    paths: [ 'ios/Engine/**', 'ios/ScamGL/**', 'ios/tools/android-host/**', 'ios/tools/post_node_check.cpp', 'ios/tools/shot_params_check.cpp', 'ios/tools/make_test_dng.py', 'ios/tools/shot_run_check.cpp', 'ios/tools/hybrid_replay.cpp',
+             'app/src/main/assets/shaders/**', 'app/src/main/cpp/third_party/spektrafilm/**', 'app/src/main/cpp/film-reference-*',
+             'app/src/main/assets/film-reference/**', 'ios/tools/build_moltenvk.sh', '.github/workflows/ios-post-check.yml' ]
+  workflow_dispatch:
+
+concurrency:
+  group: ios-post-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  SHOT_BURST: 1V4nQzqb-jK_R1J70w-FCMUS2hQogtwvG
+  SHOT_META: 10404cy6HFm28-ugZkf7kUNnqqhfYxLU7
+
+jobs:
+  android-reference:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: ''
+      - name: Android SDK
+        run: sdkmanager --install "ndk;27.2.12479018" "cmake;3.22.1" "platforms;android-36" "build-tools;36.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      # the shot from Drive once, then from the cache (Drive refuses a file downloaded too often: «Quota exceeded»)
+      - uses: actions/cache/restore@v4
+        id: shot
+        with:
+          path: ${{ runner.temp }}/shot
+          key: drive-shot-${{ env.SHOT_META }}-${{ env.SHOT_BURST }}
+      - name: Mesa and the shot
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libegl-dev libgles-dev libegl1 libegl-mesa0 libgles2 libgl1-mesa-dri
+          if [ ! -s "$RUNNER_TEMP/shot/burst.nch" ]; then
+            mkdir -p "$RUNNER_TEMP/shot"
+            python3 ios/tools/drive_fetch.py "$SHOT_META" "$RUNNER_TEMP/shot/meta.json"
+            python3 ios/tools/drive_fetch.py "$SHOT_BURST" "$RUNNER_TEMP/shot/burst.nch"
+          fi
+      - uses: actions/cache/save@v4
+        if: steps.shot.outputs.cache-hit != 'true'
+        with:
+          path: ${{ runner.temp }}/shot
+          key: drive-shot-${{ env.SHOT_META }}-${{ env.SHOT_BURST }}
+      - name: The merge on Mesa
+        run: g++ -pthread -std=c++17 -O2 -Iapp/src/main/cpp ios/tools/hybrid_replay.cpp -ldl -lEGL -lGLESv2 -o "$RUNNER_TEMP/hybrid_replay"
+      - name: The Android pipeline on the host (Robolectric + Mesa)
+        env:
+          SCAM_HOST_OUT: ${{ runner.temp }}/android-host
+          EGL_PLATFORM: surfaceless
+          LIBGL_ALWAYS_SOFTWARE: '1'
+        run: |
+          mkdir -p "$RUNNER_TEMP/reference"
+          ios/tools/android-host/run.sh HostPostRender SHOT="$RUNNER_TEMP/shot" REPLAY="$RUNNER_TEMP/hybrid_replay" RESULT="$RUNNER_TEMP/reference" \
+            > "$RUNNER_TEMP/reference/host.log" 2>&1 || { tail -60 "$RUNNER_TEMP/reference/host.log"; exit 1; }
+          ls -la "$RUNNER_TEMP/reference"
+      - name: The shot's parameters (colour chain, merge tuning) as the app builds them
+        run: |
+          g++ -std=c++17 -O1 -ffp-contract=off -Iios/ScamGL/include ios/tools/shot_params_check.cpp -lEGL -lGLESv2 -o "$RUNNER_TEMP/shot_params_check"
+          python3 -I ios/tools/make_test_dng.py "$RUNNER_TEMP/shot/meta.json" "$RUNNER_TEMP/shot.dng"
+          "$RUNNER_TEMP/shot_params_check" "$RUNNER_TEMP/shot/meta.json" "$RUNNER_TEMP/reference/tuning.txt" --dng "$RUNNER_TEMP/shot.dng"
+      - name: The C++ port on Mesa (bit for bit)
+        env:
+          EGL_PLATFORM: surfaceless
+          LIBGL_ALWAYS_SOFTWARE: '1'
+        run: |
+          g++ -std=c++17 -O2 -ffp-contract=off -Iios/ScamGL/include -Iapp/src/main/cpp -Iapp/src/main/cpp/third_party/tone_port/include ios/tools/post_node_check.cpp -lEGL -lGLESv2 -pthread -o "$RUNNER_TEMP/post_node_check"
+          "$RUNNER_TEMP/post_node_check" app/src/main/assets/shaders "$RUNNER_TEMP/shot" "$RUNNER_TEMP/reference" full | tee "$RUNNER_TEMP/reference/mesa.txt" | tail -3
+          { echo '### iOS post port vs the Android pipeline (Mesa)'; echo '```'; grep "^photo" "$RUNNER_TEMP/reference/mesa.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          head -c 128 "$RUNNER_TEMP/shot/burst.nch" > "$RUNNER_TEMP/reference/burst.nch"
+          cp "$RUNNER_TEMP/shot/meta.json" "$RUNNER_TEMP/reference/meta.json"
+      - name: The app's whole shot on Mesa (transport, merge, DNG parameters, post)
+        env:
+          EGL_PLATFORM: surfaceless
+          LIBGL_ALWAYS_SOFTWARE: '1'
+        run: |
+          g++ -pthread -std=c++17 -O2 -ffp-contract=off -Iios/ScamGL/include -Iapp/src/main/cpp -Iapp/src/main/cpp/third_party/tone_port/include ios/tools/shot_run_check.cpp ios/Engine/post/DngWriter.cpp -ldl -lEGL -lGLESv2 \
+            -o "$RUNNER_TEMP/shot_run_check"
+          cp "$RUNNER_TEMP/shot/burst.nch" "$RUNNER_TEMP/app-burst.nch"
+          "$RUNNER_TEMP/shot_run_check" app/src/main/assets/shaders "$RUNNER_TEMP/shot/meta.json" "$RUNNER_TEMP/app-burst.nch" "$RUNNER_TEMP/shot.dng" \
+            "$RUNNER_TEMP/reference/photo.rgba" 2>&1 | grep -v "^SCAM_PIPELINE\|^PostPipeline" | tee "$RUNNER_TEMP/reference/app-shot.txt" | tail -6
+          grep -q "^shot:" "$RUNNER_TEMP/reference/app-shot.txt"
+          rm -f "$RUNNER_TEMP/app-burst.nch"
+      # The reference film route: spektrafilm's Vulkan engine (the Android libscameraFilm, run.sh SCAM_HOST_FILM=1) on Mesa lavapipe
+      # for two measured films of ios/PLAN.md - Portra 400 at 100 % on V1 (grain, halation, softness) and Velvia 100 at 70 % on V2
+      # with «Кино 500» 60 % on its print (645) - then the C++ port with the app's own engine glue (SpektraFilmEngine.hpp) on the
+      # same driver and the Android build's SPIR-V: bit for bit. The macOS job renders the same on MoltenVK.
+      - name: The reference film route on lavapipe (Android pipeline, then the C++ port)
+        env:
+          SCAM_HOST_OUT: ${{ runner.temp }}/android-host
+          SCAM_HOST_FILM: '1'
+          EGL_PLATFORM: surfaceless
+          LIBGL_ALWAYS_SOFTWARE: '1'
+        run: |
+          sudo apt-get install -y -qq mesa-vulkan-drivers libvulkan-dev
+          F=app/src/main/cpp/third_party/spektrafilm
+          # the renderer compiled as run.sh compiles the reference's libscameraFilm, the port as the Mesa check above
+          g++ -std=c++17 -O2 -I$F -Iapp/src/main/cpp -c $F/SpektraVulkanRenderer.cpp -o "$RUNNER_TEMP/svr.o"
+          g++ -std=c++17 -O2 -I$F -c $F/SpektraGeneratedProfileCurves.cpp -o "$RUNNER_TEMP/sgpc.o"
+          g++ -std=c++17 -O2 -ffp-contract=off -DSCAM_FILM_ENGINE=1 -Iios/ScamGL/include -Iapp/src/main/cpp -Iapp/src/main/cpp/third_party/tone_port/include \
+            ios/tools/post_node_check.cpp "$RUNNER_TEMP/svr.o" "$RUNNER_TEMP/sgpc.o" -lEGL -lGLESv2 -lvulkan -ldl -pthread \
+            -o "$RUNNER_TEMP/post_node_check_film"
+          set -o pipefail
+          for v in portra velvia; do
+            S="$RUNNER_TEMP/film-shot/$v"; R="$RUNNER_TEMP/reference/film/$v"
+            mkdir -p "$S" "$R"
+            python3 -I - "$RUNNER_TEMP/shot/meta.json" "$S/meta.json" "$v" <<'EOF'
+          import json, sys
+          variants = {
+              'portra': {'pref_film_sim_stock': 'kodak_portra_400', 'pref_film_sim_grain': '60', 'pref_film_sim_halation': '100',
+                         'pref_film_sim_softness': '50'},
+              'velvia': {'pref_scam_hybrid_tone_version': 'v2', 'pref_film_sim_stock': 'fujifilm_velvia_100', 'pref_film_sim_strength': '70',
+                         'pref_film_lut': 'scam:cine500', 'pref_film_lut_strength': '60', 'pref_film_sim_format': '645',
+                         'pref_film_sim_grain': '40'},
+          }
+          meta = json.load(open(sys.argv[1]))
+          for key, value in variants[sys.argv[3]].items():
+              meta['prefs'][key] = ['s', value]
+          json.dump(meta, open(sys.argv[2], 'w'))
+          EOF
+            ln -sf "$RUNNER_TEMP/shot/burst.nch" "$S/burst.nch"
+            ios/tools/android-host/run.sh HostPostRender SHOT="$S" REPLAY="$RUNNER_TEMP/hybrid_replay" RESULT="$R" > "$R/host.log" 2>&1 \
+              || { tail -60 "$R/host.log"; exit 1; }
+            grep -ho "spectral film[^<]*" app/build/test-results/testDebugUnitTest/*HostPostRender*.xml | cut -c1-240 || true
+            # the engine glue on the Android build's SPIR-V (run.sh's film-gen): the reference's own bytes
+            mkdir -p "$RUNNER_TEMP/film-res/shaders"
+            cp "$SCAM_HOST_OUT"/film-gen/shaders/*.spv "$RUNNER_TEMP/film-res/shaders/"
+            cp app/src/main/assets/film-reference/*.f32 "$RUNNER_TEMP/film-res/"
+            # bit for bit locally; lavapipe on the runner has left 2 values 1 apart: a 100 dB bound (the old film route is at 24.9 dB)
+            SCAM_POST_MIN_PSNR=100 SCAM_FILM_RESOURCES="$RUNNER_TEMP/film-res" "$RUNNER_TEMP/post_node_check_film" app/src/main/assets/shaders "$S" "$R" full 2>&1 \
+              | grep "^photo\|spectral film" | cut -c1-240 | tee "$R/mesa.txt"
+            grep -q "spectral film ms=" "$R/mesa.txt"
+            { echo "### Reference film ($v) on lavapipe: the C++ port vs the Android pipeline"; echo '```'; grep "^photo" "$R/mesa.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+            # what the macOS job needs: the variant's settings, the burst header, the photo; the merge only when it differs
+            head -c 128 "$RUNNER_TEMP/shot/burst.nch" > "$R/burst.nch"
+            cp "$S/meta.json" "$R/meta.json"
+            if cmp -s "$R/worker.out" "$RUNNER_TEMP/reference/worker.out"; then rm -f "$R/worker.out"; fi
+            rm -rf "$R/merge.f32" "$R/job" "$R/film-cache"
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: post-reference
+          path: |
+            ${{ runner.temp }}/reference/meta.json
+            ${{ runner.temp }}/reference/burst.nch
+            ${{ runner.temp }}/reference/worker.out
+            ${{ runner.temp }}/reference/report.txt
+            ${{ runner.temp }}/reference/photo.rgba
+            ${{ runner.temp }}/reference/*.txt
+            ${{ runner.temp }}/reference/host.log
+            ${{ runner.temp }}/reference/film/
+          retention-days: 3
+
+  # MoltenVK for macOS (tools/build_moltenvk.sh macos, cached on the script) for the film check of the metal job
+  moltenvk:
+    runs-on: macos-15
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache/restore@v4
+        id: mvk
+        with:
+          path: |
+            ${{ runner.temp }}/deps/moltenvk-macos
+            ${{ runner.temp }}/deps/moltenvk-host
+          key: moltenvk-macos-${{ hashFiles('ios/tools/build_moltenvk.sh') }}
+          lookup-only: true
+      - name: MoltenVK for macOS
+        if: steps.mvk.outputs.cache-hit != 'true'
+        run: ios/tools/build_moltenvk.sh macos "$RUNNER_TEMP/deps"
+      - uses: actions/cache/save@v4
+        if: steps.mvk.outputs.cache-hit != 'true'
+        with:
+          path: |
+            ${{ runner.temp }}/deps/moltenvk-macos
+            ${{ runner.temp }}/deps/moltenvk-host
+          key: moltenvk-macos-${{ hashFiles('ios/tools/build_moltenvk.sh') }}
+
+  metal:
+    needs: [android-reference, moltenvk]
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache/restore@v4
+        id: deps
+        with:
+          path: ${{ runner.temp }}/deps/macos
+          key: shader-deps-macos-${{ hashFiles('ios/tools/build_shader_deps.sh') }}
+      - name: Shader translators (glslang, SPIRV-Cross)
+        if: steps.deps.outputs.cache-hit != 'true'
+        run: ios/tools/build_shader_deps.sh macos "$RUNNER_TEMP/deps"
+      - uses: actions/cache/save@v4
+        if: steps.deps.outputs.cache-hit != 'true'
+        with:
+          path: ${{ runner.temp }}/deps/macos
+          key: shader-deps-macos-${{ hashFiles('ios/tools/build_shader_deps.sh') }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: post-reference
+          path: ${{ runner.temp }}/reference
+      - name: The C++ port on Metal (ScamGL)
+        env:
+          SCAM_POST_MIN_PSNR: '40'
+        run: |
+          D="$RUNNER_TEMP/deps/macos"
+          clang++ -std=c++17 -O2 -ffp-contract=off -fobjc-arc -Iios/ScamGL/include -Iios/ScamGL -I"$D/include" -I"$D/include/spirv_cross" -Iapp/src/main/cpp -Iapp/src/main/cpp/third_party/tone_port/include \
+            ios/tools/post_node_check.cpp ios/ScamGL/ScamGL.mm ios/ScamGL/ScamGLCompiler.cpp -L"$D/lib" \
+            -lglslang -lMachineIndependent -lGenericCodeGen -lOSDependent -lSPIRV -lglslang-default-resource-limits \
+            -lspirv-cross-msl -lspirv-cross-glsl -lspirv-cross-core -framework Metal -framework Foundation \
+            -o "$RUNNER_TEMP/post_node_check" > "$RUNNER_TEMP/build.log" 2>&1 || { grep -E "error|Undefined" "$RUNNER_TEMP/build.log" | head -40; exit 1; }
+          mkdir -p "$RUNNER_TEMP/metal"
+          set -o pipefail
+          "$RUNNER_TEMP/post_node_check" app/src/main/assets/shaders "$RUNNER_TEMP/reference" "$RUNNER_TEMP/reference" full --save "$RUNNER_TEMP/metal" \
+            2>&1 | tee "$RUNNER_TEMP/metal/metal.txt" | tail -5
+          { echo '### iOS post port on Metal vs the Android pipeline'; echo '```'; grep "^photo" "$RUNNER_TEMP/metal/metal.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/cache/restore@v4
+        id: mvk
+        with:
+          path: |
+            ${{ runner.temp }}/deps/moltenvk-macos
+            ${{ runner.temp }}/deps/moltenvk-host
+          key: moltenvk-macos-${{ hashFiles('ios/tools/build_moltenvk.sh') }}
+      - name: MoltenVK (not cached)
+        if: steps.mvk.outputs.cache-hit != 'true'
+        run: ios/tools/build_moltenvk.sh macos "$RUNNER_TEMP/deps"
+      # The reference film route on MoltenVK: the app's engine glue (SpektraFilmEngine.hpp) and spektrafilm's renderer on Metal, its
+      # shaders compiled as the app's build phase compiles them (glslangValidator, Vulkan 1.0), the rest of the post port on ScamGL;
+      # against the Android pipeline's photo with the engine on lavapipe (a GPU other than the reference's: a PSNR bound)
+      - name: The reference film route on MoltenVK vs the Android pipeline
+        env:
+          SCAM_POST_MIN_PSNR: '50' # first runs: Portra 63.1 dB, Velvia 58.3 dB (the old film route: 24.9 dB)
+        run: |
+          D="$RUNNER_TEMP/deps/macos"; M="$RUNNER_TEMP/deps/moltenvk-macos"; F=app/src/main/cpp/third_party/spektrafilm
+          res="$RUNNER_TEMP/spektrafilm"
+          mkdir -p "$res/shaders"
+          for shader in $F/shaders/*.comp; do
+            "$RUNNER_TEMP/deps/moltenvk-host/bin/glslangValidator" -V --target-env vulkan1.0 -o "$res/shaders/$(basename "$shader").spv" "$shader" > /dev/null
+          done
+          cp app/src/main/assets/film-reference/*.f32 "$res/"
+          clang++ -std=c++17 -O2 -ffp-contract=on -I$F -Iapp/src/main/cpp -I"$M/include" -c $F/SpektraVulkanRenderer.cpp -o "$RUNNER_TEMP/svr.o"
+          clang++ -std=c++17 -O2 -ffp-contract=on -I$F -c $F/SpektraGeneratedProfileCurves.cpp -o "$RUNNER_TEMP/sgpc.o"
+          clang++ -std=c++17 -O2 -ffp-contract=off -fobjc-arc -DSCAM_FILM_ENGINE=1 -Iios/ScamGL/include -Iios/ScamGL -I"$D/include" -I"$D/include/spirv_cross" \
+            -Iapp/src/main/cpp -Iapp/src/main/cpp/third_party/tone_port/include \
+            ios/tools/post_node_check.cpp ios/ScamGL/ScamGL.mm ios/ScamGL/ScamGLCompiler.cpp "$RUNNER_TEMP/svr.o" "$RUNNER_TEMP/sgpc.o" -L"$D/lib" -L"$M/lib" \
+            -lglslang -lMachineIndependent -lGenericCodeGen -lOSDependent -lSPIRV -lglslang-default-resource-limits \
+            -lspirv-cross-msl -lspirv-cross-glsl -lspirv-cross-core -lMoltenVK -lc++ -framework Metal -framework Foundation -framework IOSurface \
+            -framework QuartzCore -framework CoreGraphics -framework IOKit -framework AppKit \
+            -o "$RUNNER_TEMP/post_node_check_film" > "$RUNNER_TEMP/film-build.log" 2>&1 || { grep -E "error|Undefined|ld:" "$RUNNER_TEMP/film-build.log" | head -40; exit 1; }
+          set -o pipefail
+          status=0
+          for v in portra velvia; do
+            d="$RUNNER_TEMP/reference/film/$v"
+            [ -f "$d/worker.out" ] || ln -s ../../worker.out "$d/worker.out"
+            SCAM_FILM_RESOURCES="$res" "$RUNNER_TEMP/post_node_check_film" app/src/main/assets/shaders "$d" "$d" full > "$RUNNER_TEMP/metal/film-$v.txt" 2>&1 || status=1
+            grep -h "spectral film\|^photo\|FAILED\|\[mvk-" "$RUNNER_TEMP/metal/film-$v.txt" | cut -c1-300
+            grep -q "spectral film ms=" "$RUNNER_TEMP/metal/film-$v.txt" || { echo "film $v: the engine did not render"; status=1; }
+            { echo "### Reference film ($v) on MoltenVK vs the Android pipeline (lavapipe)"; echo '```'; grep -h "spectral film ms=\|^photo" "$RUNNER_TEMP/metal/film-$v.txt" | cut -c1-300; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          done
+          exit $status
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: post-metal
+          path: |
+            ${{ runner.temp }}/metal/*
+          retention-days: 3

@@ -1,0 +1,10 @@
+SCAMERA.xcodeproj/
+App/Info.plist
+build/
+DerivedData/
+*.ipa
+*.p12
+*.mobileprovision
+*.cer
+__pycache__/
+Tests/Resources/

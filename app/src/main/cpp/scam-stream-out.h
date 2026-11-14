@@ -12,6 +12,12 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#if defined(__APPLE__) // the iOS port (ios/): no fallocate / MAP_POPULATE; ftruncate sizes the file
+#ifndef MAP_POPULATE
+#define MAP_POPULATE 0
+#endif
+static inline int fallocate(int fd, int, off_t, off_t length) { return ftruncate(fd, length); }
+#endif
 
 namespace scam {
 // P80 / P153: n floats as IEEE half floats (round to nearest even); stats: their sum and maximum (from 0) on the way (P371).

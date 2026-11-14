@@ -1,0 +1,19 @@
+// The Android post pipeline on the host (ios/tools/android-host/run.sh): the harness and the generated host-GL shadows join :app's
+// unit tests for this run only; nothing in app/ changes. SCAM_HOST_GEN = the generated sources, SCAM_HOST_LIB = libscamhostgl.so's
+// folder, SCAM_HOST_* = the harness's inputs.
+gradle.beforeProject { p ->
+    if (p.path != ':app') return
+    p.pluginManager.withPlugin('com.android.application') {
+        def here = new File(System.getenv('SCAM_HOST_DIR'))
+        p.android.sourceSets.test.java.srcDirs += [new File(here, 'java'), new File(System.getenv('SCAM_HOST_GEN'), 'java')]
+        p.tasks.withType(Test).configureEach { t ->
+            t.environment 'EGL_PLATFORM', 'surfaceless'
+            t.environment 'LIBGL_ALWAYS_SOFTWARE', '1'
+            t.systemProperty 'java.library.path', System.getenv('SCAM_HOST_LIB')
+            System.getenv().each { k, v -> if (k.startsWith('SCAM_HOST_')) t.environment k, v }
+            t.maxHeapSize = System.getenv('SCAM_HOST_HEAP') ?: '12g'
+            t.testLogging { showStandardStreams = true; exceptionFormat = 'full' }
+            t.outputs.upToDateWhen { false }
+        }
+    }
+}

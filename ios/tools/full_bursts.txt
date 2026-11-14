@@ -1,0 +1,3 @@
+# Full-size phone bursts (owner's Google Drive, BURSTS_ALL) replayed by .github/workflows/ios-burst-replay.yml:
+# <drive file id> <name>. A change of this file starts the replay (Mesa reference vs ScamGL on Metal).
+1V4nQzqb-jK_R1J70w-FCMUS2hQogtwvG lenta-x200u

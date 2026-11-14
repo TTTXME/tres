@@ -1,0 +1,8 @@
+#import "SCAMObjC.h"
+#import "ShaderTypes.h"
+#import "ScamMerge.h"
+#import "ScamShot.h"
+#import "ScamEdit.h"
+#import "ScamDevelop.h"
+#import "ScamFilm.h"
+#import "ScamWarmUp.h"

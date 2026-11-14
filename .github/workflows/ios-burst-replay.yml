@@ -1,0 +1,101 @@
+name: iOS merge replay of full bursts
+
+# The SHDR merge of full-size phone bursts (ios/tools/full_bursts.txt, the owner's Drive) on Mesa (llvmpipe, the reference)
+# and on Metal through ScamGL, compared. Started by a change of the burst list or by hand.
+on:
+  push:
+    branches: [ main, 'claude/ios-camera-app-port-idgljn' ]
+    paths: [ 'ios/tools/full_bursts.txt', '.github/workflows/ios-burst-replay.yml' ]
+  workflow_dispatch:
+
+concurrency:
+  group: ios-burst-replay-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  reference:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Bursts
+        run: |
+          mkdir -p "$RUNNER_TEMP/bursts"
+          grep -v '^#' ios/tools/full_bursts.txt | while read -r id name; do
+            [ -n "$id" ] && python3 ios/tools/drive_fetch.py "$id" "$RUNNER_TEMP/bursts/$name.nch"
+          done
+      - name: Build the replay on Mesa
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libegl-dev libgles-dev libegl1 libegl-mesa0 libgles2 libgl1-mesa-dri python3-numpy
+          g++ -pthread -std=c++17 -O2 -Iapp/src/main/cpp ios/tools/hybrid_replay.cpp -ldl -lEGL -lGLESv2 -o "$RUNNER_TEMP/hybrid_replay"
+      - name: Merge
+        env:
+          EGL_PLATFORM: surfaceless
+          LIBGL_ALWAYS_SOFTWARE: '1'
+          GALLIUM_DRIVER: llvmpipe
+        run: python3 ios/tools/replay_bursts.py run "$RUNNER_TEMP/hybrid_replay" "$RUNNER_TEMP/bursts" "$RUNNER_TEMP/reference"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: full-reference
+          path: |
+            ${{ runner.temp }}/reference/*.f32
+            ${{ runner.temp }}/reference/*.log
+          retention-days: 1
+
+  metal:
+    needs: reference
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Bursts
+        run: |
+          mkdir -p "$RUNNER_TEMP/bursts"
+          grep -v '^#' ios/tools/full_bursts.txt | while read -r id name; do
+            [ -n "$id" ] && python3 ios/tools/drive_fetch.py "$id" "$RUNNER_TEMP/bursts/$name.nch"
+          done
+      - uses: actions/cache/restore@v4
+        id: deps
+        with:
+          path: ${{ runner.temp }}/deps/macos
+          key: shader-deps-macos-${{ hashFiles('ios/tools/build_shader_deps.sh') }}
+      - name: Shader translators (glslang, SPIRV-Cross)
+        if: steps.deps.outputs.cache-hit != 'true'
+        run: ios/tools/build_shader_deps.sh macos "$RUNNER_TEMP/deps"
+      - name: Build the replay on Metal (ScamGL)
+        run: |
+          D="$RUNNER_TEMP/deps/macos"
+          clang++ -std=c++17 -O2 -fobjc-arc -Iios/ScamGL/include -Iios/ScamGL -Iapp/src/main/cpp -I"$D/include" -I"$D/include/spirv_cross" \
+            ios/tools/hybrid_replay.cpp ios/ScamGL/ScamGL.mm ios/ScamGL/ScamGLCompiler.cpp -L"$D/lib" \
+            -lglslang -lMachineIndependent -lGenericCodeGen -lOSDependent -lSPIRV -lglslang-default-resource-limits \
+            -lspirv-cross-msl -lspirv-cross-glsl -lspirv-cross-core -framework Metal -framework Foundation \
+            -o "$RUNNER_TEMP/hybrid_replay" > "$RUNNER_TEMP/build.log" 2>&1 || true
+          grep -E "error|Undefined|ld: " "$RUNNER_TEMP/build.log" | head -40 || true
+          test -x "$RUNNER_TEMP/hybrid_replay"
+      - name: Merge
+        run: |
+          python3 -m pip install -q --break-system-packages numpy==2.3.5 || python3 -m pip install -q numpy==2.3.5
+          sysctl -n hw.memsize
+          python3 ios/tools/replay_bursts.py run "$RUNNER_TEMP/hybrid_replay" "$RUNNER_TEMP/bursts" "$RUNNER_TEMP/metal"
+      - uses: actions/download-artifact@v4
+        with:
+          name: full-reference
+          path: ${{ runner.temp }}/reference
+      - name: Compare with Mesa
+        run: |
+          set -o pipefail
+          python3 ios/tools/replay_bursts.py compare "$RUNNER_TEMP/reference" "$RUNNER_TEMP/metal" --max-psnr-drop 80 | tee "$RUNNER_TEMP/compare.txt"
+          { echo '### Full bursts: merge on Metal vs Mesa'; echo '```'; cat "$RUNNER_TEMP/compare.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: full-metal
+          path: |
+            ${{ runner.temp }}/metal/*.log
+            ${{ runner.temp }}/compare.txt
+          retention-days: 3

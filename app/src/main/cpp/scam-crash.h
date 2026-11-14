@@ -12,9 +12,11 @@
 #include <dlfcn.h>
 #include <unistd.h>
 #include <fcntl.h>
+#if !defined(__APPLE__)
 #include <sys/prctl.h>
 #include <sys/syscall.h>
 #include <ucontext.h>
+#endif
 #include <atomic>
 #include <cstdint>
 #include <cstring>
@@ -51,6 +53,12 @@ struct Stage {
     Stage(const Stage&)=delete;Stage& operator=(const Stage&)=delete;
 };
 
+#if defined(__APPLE__)
+// iOS / macOS builds (ScamGL): the stage marks above only; the platform reports crashes itself.
+inline void install(){
+    if(!detail::stageKeyReady.load()&&pthread_key_create(&detail::stageKey,nullptr)==0)detail::stageKeyReady.store(true,std::memory_order_release);
+}
+#else
 namespace detail {
 inline int probe[2]={-1,-1};
 inline char altStack[64*1024];
@@ -186,4 +194,5 @@ inline void install(){
     struct sigaction sa{};sa.sa_sigaction=detail::handler;sa.sa_flags=SA_SIGINFO|SA_ONSTACK;sigemptyset(&sa.sa_mask);
     for(int sig:{SIGSEGV,SIGBUS,SIGFPE,SIGILL,SIGABRT,SIGTRAP})sigaction(sig,&sa,&detail::previous[sig]);
 }
+#endif
 } // namespace worker_crash

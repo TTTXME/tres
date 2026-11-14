@@ -1,0 +1,396 @@
+name: Build SCAMERA iOS IPA
+
+# Signed when the IOS_* signing secrets exist, otherwise an unsigned IPA for re-signing (Sideloadly, AltStore).
+# Not posted to Telegram.
+on:
+  push:
+    branches: [ main, 'claude/ios-camera-app-port-idgljn' ]
+    paths: [ 'ios/**', 'app/src/main/cpp/**', 'app/src/main/assets/shaders/**', 'app/src/main/assets/film-reference/**', '.github/workflows/build-ios-ipa.yml' ]
+  workflow_dispatch:
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # The SHDR merge («Качество») of real bursts (branch replay/p335, research/replay-bursts) through the same C++:
+  # merge-reference on Mesa (llvmpipe, as tools/replay_hybrid_ab.py), merge-metal on Metal through ScamGL; then compared.
+  merge-reference:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Settings and Parameters tables match the Android sources
+        run: |
+          python3 ios/tools/gen_settings_tables.py --check
+          python3 ios/tools/gen_parameters.py --check
+          python3 ios/tools/gen_ccm_presets.py --check
+          python3 ios/tools/gen_settings_ui.py --check
+      - name: The gallery developer's record and demosaic (P665), the merged DNG's writer and tags (P165)
+        run: |
+          g++ -std=c++17 -O1 -ffp-contract=off -Iios/ScamGL/include -Iapp/src/main/cpp -Iapp/src/main/cpp/third_party/tone_port/include \
+            ios/tools/develop_check.cpp -lz -pthread -o "$RUNNER_TEMP/develop_check"
+          "$RUNNER_TEMP/develop_check"
+          g++ -std=c++17 -O1 -w -ffp-contract=off -Iios/ScamGL/include -Iapp/src/main/cpp -c ios/Engine/post/DngWriter.cpp -o "$RUNNER_TEMP/dng_writer.o"
+      - name: Bursts
+        run: |
+          git fetch -q --depth 1 origin replay/p335
+          mkdir -p "$RUNNER_TEMP/bursts"
+          for f in $(git ls-tree --name-only FETCH_HEAD research/replay-bursts/ | grep '\.nch\.xz$'); do
+            git show "FETCH_HEAD:$f" > "$RUNNER_TEMP/bursts/$(basename "$f")"
+          done
+          ls -la "$RUNNER_TEMP/bursts"
+      - name: Build the replay on Mesa
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libegl-dev libgles-dev libegl1 libegl-mesa0 libgles2 libgl1-mesa-dri python3-numpy
+          g++ -pthread -std=c++17 -O2 -Iapp/src/main/cpp ios/tools/hybrid_replay.cpp -ldl -lEGL -lGLESv2 -o "$RUNNER_TEMP/hybrid_replay"
+      - name: Post shaders on Mesa
+        env:
+          EGL_PLATFORM: surfaceless
+          LIBGL_ALWAYS_SOFTWARE: '1'
+        run: |
+          g++ -std=c++17 -O1 ios/tools/post_shader_check.cpp -lEGL -lGLESv2 -o "$RUNNER_TEMP/post_shader_check"
+          "$RUNNER_TEMP/post_shader_check" app/src/main/assets/shaders | tail -5
+          g++ -std=c++17 -O1 -Iios/ScamGL/include ios/tools/post_pass_check.cpp -lEGL -lGLESv2 -o "$RUNNER_TEMP/post_pass_check"
+          mkdir -p "$RUNNER_TEMP/reference/post"
+          "$RUNNER_TEMP/post_pass_check" app/src/main/assets/shaders "$RUNNER_TEMP/reference/post"
+      - name: Merge
+        env:
+          EGL_PLATFORM: surfaceless
+          LIBGL_ALWAYS_SOFTWARE: '1'
+          GALLIUM_DRIVER: llvmpipe
+        run: |
+          python3 ios/tools/replay_bursts.py run "$RUNNER_TEMP/hybrid_replay" "$RUNNER_TEMP/bursts" "$RUNNER_TEMP/reference"
+          # the app's default route: «Быстрый» (fastMerge 1), as the phone runs it
+          printf 'fastMerge 1\n' > "$RUNNER_TEMP/fast.txt"
+          python3 ios/tools/replay_bursts.py run "$RUNNER_TEMP/hybrid_replay" "$RUNNER_TEMP/bursts" "$RUNNER_TEMP/reference/fast" "$RUNNER_TEMP/fast.txt"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: merge-reference
+          path: |
+            ${{ runner.temp }}/reference/*.f32
+            ${{ runner.temp }}/reference/*.log
+            ${{ runner.temp }}/reference/post/*.f32
+            ${{ runner.temp }}/reference/fast/*.f32
+            ${{ runner.temp }}/reference/fast/*.log
+          retention-days: 3
+
+  merge-metal:
+    needs: merge-reference
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Bursts
+        run: |
+          git fetch -q --depth 1 origin replay/p335
+          mkdir -p "$RUNNER_TEMP/bursts"
+          for f in $(git ls-tree --name-only FETCH_HEAD research/replay-bursts/ | grep '\.nch\.xz$'); do
+            git show "FETCH_HEAD:$f" > "$RUNNER_TEMP/bursts/$(basename "$f")"
+          done
+      - uses: actions/cache/restore@v4
+        id: deps
+        with:
+          path: ${{ runner.temp }}/deps/macos
+          key: shader-deps-macos-${{ hashFiles('ios/tools/build_shader_deps.sh') }}
+      - name: Shader translators (glslang, SPIRV-Cross)
+        if: steps.deps.outputs.cache-hit != 'true'
+        run: ios/tools/build_shader_deps.sh macos "$RUNNER_TEMP/deps"
+      - uses: actions/cache/save@v4
+        if: steps.deps.outputs.cache-hit != 'true'
+        with:
+          path: ${{ runner.temp }}/deps/macos
+          key: shader-deps-macos-${{ hashFiles('ios/tools/build_shader_deps.sh') }}
+      - name: Build the replay on Metal (ScamGL)
+        run: |
+          D="$RUNNER_TEMP/deps/macos"
+          clang++ -std=c++17 -O2 -fobjc-arc -Iios/ScamGL/include -Iios/ScamGL -Iapp/src/main/cpp -I"$D/include" -I"$D/include/spirv_cross" \
+            ios/tools/hybrid_replay.cpp ios/ScamGL/ScamGL.mm ios/ScamGL/ScamGLCompiler.cpp -L"$D/lib" \
+            -lglslang -lMachineIndependent -lGenericCodeGen -lOSDependent -lSPIRV -lglslang-default-resource-limits \
+            -lspirv-cross-msl -lspirv-cross-glsl -lspirv-cross-core -framework Metal -framework Foundation \
+            -o "$RUNNER_TEMP/hybrid_replay" > "$RUNNER_TEMP/build.log" 2>&1 || true
+          grep -E "error|Undefined|ld: |^  \"_|referenced from" "$RUNNER_TEMP/build.log" | head -80 || true
+          test -x "$RUNNER_TEMP/hybrid_replay"
+      - name: Post shaders on Metal (ScamGL)
+        run: |
+          D="$RUNNER_TEMP/deps/macos"
+          clang++ -std=c++17 -O1 -fobjc-arc -Iios/ScamGL/include -Iios/ScamGL -I"$D/include" -I"$D/include/spirv_cross" \
+            ios/tools/post_shader_check.cpp ios/ScamGL/ScamGL.mm ios/ScamGL/ScamGLCompiler.cpp -L"$D/lib" \
+            -lglslang -lMachineIndependent -lGenericCodeGen -lOSDependent -lSPIRV -lglslang-default-resource-limits \
+            -lspirv-cross-msl -lspirv-cross-glsl -lspirv-cross-core -framework Metal -framework Foundation \
+            -o "$RUNNER_TEMP/post_shader_check" > "$RUNNER_TEMP/post-build.log" 2>&1 || { grep -E "error|Undefined" "$RUNNER_TEMP/post-build.log" | head -30; exit 1; }
+          "$RUNNER_TEMP/post_shader_check" app/src/main/assets/shaders | grep -v "^SKIP" | tee "$RUNNER_TEMP/post-shaders.txt"
+          clang++ -std=c++17 -O1 -fobjc-arc -Iios/ScamGL/include -Iios/ScamGL -I"$D/include" -I"$D/include/spirv_cross" \
+            ios/tools/post_pass_check.cpp ios/ScamGL/ScamGL.mm ios/ScamGL/ScamGLCompiler.cpp -L"$D/lib" \
+            -lglslang -lMachineIndependent -lGenericCodeGen -lOSDependent -lSPIRV -lglslang-default-resource-limits \
+            -lspirv-cross-msl -lspirv-cross-glsl -lspirv-cross-core -framework Metal -framework Foundation \
+            -o "$RUNNER_TEMP/post_pass_check" > "$RUNNER_TEMP/pass-build.log" 2>&1 || { grep -E "error|Undefined" "$RUNNER_TEMP/pass-build.log" | head -30; exit 1; }
+          mkdir -p "$RUNNER_TEMP/metal/post"
+          "$RUNNER_TEMP/post_pass_check" app/src/main/assets/shaders "$RUNNER_TEMP/metal/post"
+      - name: Merge
+        run: |
+          python3 -m pip install -q --break-system-packages numpy==2.3.5 || python3 -m pip install -q numpy==2.3.5
+          python3 ios/tools/replay_bursts.py run "$RUNNER_TEMP/hybrid_replay" "$RUNNER_TEMP/bursts" "$RUNNER_TEMP/metal"
+          printf 'fastMerge 1\n' > "$RUNNER_TEMP/fast.txt"
+          python3 ios/tools/replay_bursts.py run "$RUNNER_TEMP/hybrid_replay" "$RUNNER_TEMP/bursts" "$RUNNER_TEMP/metal/fast" "$RUNNER_TEMP/fast.txt"
+      - uses: actions/download-artifact@v4
+        with:
+          name: merge-reference
+          path: ${{ runner.temp }}/reference
+      - name: Compare with Mesa
+        run: |
+          set -o pipefail
+          python3 ios/tools/replay_bursts.py compare "$RUNNER_TEMP/reference" "$RUNNER_TEMP/metal" --max-psnr-drop 70 --max-off-share 0.0005 | tee "$RUNNER_TEMP/compare.txt"
+          echo "post passes (Why V2 shaders through Engine/post/GLCore.hpp):" | tee -a "$RUNNER_TEMP/compare.txt"
+          python3 ios/tools/replay_bursts.py compare "$RUNNER_TEMP/reference/post" "$RUNNER_TEMP/metal/post" --max-psnr-drop 70 | tee -a "$RUNNER_TEMP/compare.txt"
+          echo "«Быстрый» route (fastMerge 1, the app's default):" | tee -a "$RUNNER_TEMP/compare.txt"
+          python3 ios/tools/replay_bursts.py compare "$RUNNER_TEMP/reference/fast" "$RUNNER_TEMP/metal/fast" --max-psnr-drop 70 --max-off-share 0.0005 | tee -a "$RUNNER_TEMP/compare.txt"
+          { echo '### Merge on Metal vs Mesa'; echo '```'; cat "$RUNNER_TEMP/compare.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: merge-metal
+          path: |
+            ${{ runner.temp }}/metal/*.log
+            ${{ runner.temp }}/metal/fast/*.log
+            ${{ runner.temp }}/compare.txt
+          retention-days: 3
+
+  # MoltenVK (Vulkan on Metal) for the spectral film engine and the host glslangValidator for its shaders, built from the pinned
+  # sources once (tools/build_moltenvk.sh) and cached on the script; the ipa job restores it
+  moltenvk:
+    runs-on: macos-15
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache/restore@v4
+        id: mvk
+        with:
+          path: |
+            ${{ runner.temp }}/deps/moltenvk-ios
+            ${{ runner.temp }}/deps/moltenvk-iossim
+            ${{ runner.temp }}/deps/moltenvk-host
+          key: moltenvk-ios-${{ hashFiles('ios/tools/build_moltenvk.sh') }}
+          lookup-only: true
+      - name: MoltenVK for iPhone and the simulator
+        if: steps.mvk.outputs.cache-hit != 'true'
+        run: ios/tools/build_moltenvk.sh ios "$RUNNER_TEMP/deps"
+      - uses: actions/cache/save@v4
+        if: steps.mvk.outputs.cache-hit != 'true'
+        with:
+          path: |
+            ${{ runner.temp }}/deps/moltenvk-ios
+            ${{ runner.temp }}/deps/moltenvk-iossim
+            ${{ runner.temp }}/deps/moltenvk-host
+          key: moltenvk-ios-${{ hashFiles('ios/tools/build_moltenvk.sh') }}
+
+  ipa:
+    needs: [merge-reference, moltenvk]
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      HAS_SIGNING: ${{ secrets.IOS_CERT_P12 != '' && secrets.IOS_PROVISION_PROFILE != '' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Toolchain
+        run: |
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+          brew install xcodegen
+          xcodegen --version
+
+      - name: Check interface strings (en, ru)
+        run: python3 ios/tools/check_strings.py
+
+      - name: Version
+        id: ver
+        run: |
+          count=$(git rev-list --count HEAD -- ios)
+          echo "build=$count" >> "$GITHUB_OUTPUT"
+          echo "version=0.1.$count" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse --short=10 HEAD)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache/restore@v4
+        id: deps
+        with:
+          path: |
+            ${{ runner.temp }}/deps/ios
+            ${{ runner.temp }}/deps/iossim
+          key: shader-deps-ios-${{ hashFiles('ios/tools/build_shader_deps.sh') }}
+      - name: Shader translators for iPhone and the simulator (glslang, SPIRV-Cross)
+        if: steps.deps.outputs.cache-hit != 'true'
+        run: |
+          ios/tools/build_shader_deps.sh ios "$RUNNER_TEMP/deps"
+          ios/tools/build_shader_deps.sh iossim "$RUNNER_TEMP/deps"
+      - uses: actions/cache/save@v4
+        if: steps.deps.outputs.cache-hit != 'true'
+        with:
+          path: |
+            ${{ runner.temp }}/deps/ios
+            ${{ runner.temp }}/deps/iossim
+          key: shader-deps-ios-${{ hashFiles('ios/tools/build_shader_deps.sh') }}
+      - uses: actions/cache/restore@v4
+        id: mvk
+        with:
+          path: |
+            ${{ runner.temp }}/deps/moltenvk-ios
+            ${{ runner.temp }}/deps/moltenvk-iossim
+            ${{ runner.temp }}/deps/moltenvk-host
+          key: moltenvk-ios-${{ hashFiles('ios/tools/build_moltenvk.sh') }}
+      - name: MoltenVK (not cached)
+        if: steps.mvk.outputs.cache-hit != 'true'
+        run: ios/tools/build_moltenvk.sh ios "$RUNNER_TEMP/deps"
+      - uses: actions/download-artifact@v4
+        with:
+          name: merge-reference
+          path: ${{ runner.temp }}/reference
+      - name: Test resources (a real burst crop and its Mesa merge)
+        run: |
+          python3 -m pip install -q --break-system-packages numpy==2.3.5 || python3 -m pip install -q numpy==2.3.5
+          git fetch -q --depth 1 origin replay/p335
+          mkdir -p ios/Tests/Resources
+          git show FETCH_HEAD:research/replay-bursts/n124513b.nch.xz > "$RUNNER_TEMP/n124513b.nch.xz"
+          python3 -c "import sys; sys.path.insert(0, 'ios/tools'); import replay_bursts as r; from pathlib import Path; Path('ios/Tests/Resources/n124513b.nch').write_bytes(r.unpack(Path(sys.argv[1])))" "$RUNNER_TEMP/n124513b.nch.xz"
+          cp tools/replay_tuning.txt ios/Tests/Resources/replay_tuning.txt
+          cp "$RUNNER_TEMP/reference/n124513b.f32" ios/Tests/Resources/n124513b.reference.f32
+          ls -la ios/Tests/Resources
+
+      - name: Generate project
+        working-directory: ios
+        run: xcodegen generate --spec project.yml
+
+      - name: Unit tests (simulator, no camera)
+        working-directory: ios
+        run: |
+          udid=$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          devices = json.load(sys.stdin)["devices"]
+          ios = sorted((k for k in devices if "iOS" in k), reverse=True)
+          print(next(d["udid"] for k in ios for d in devices[k] if d["name"].startswith("iPhone")))')
+          echo "simulator $udid"
+          xcodebuild test -project SCAMERA.xcodeproj -scheme SCAMERA -destination "id=$udid" \
+            CODE_SIGNING_ALLOWED=NO SCAM_GIT_SHA=${{ steps.ver.outputs.sha }} SCAM_DEPS="$RUNNER_TEMP/deps" | tee /tmp/test.log \
+            | grep -E "error:|Test Case|Executed|MERGE TEST|\*\* TEST" || true
+          grep -q "\*\* TEST SUCCEEDED \*\*" /tmp/test.log || { tail -120 /tmp/test.log; exit 1; }
+
+      - name: Import signing identity
+        if: env.HAS_SIGNING == 'true'
+        env:
+          CERT_P12: ${{ secrets.IOS_CERT_P12 }}
+          CERT_PASSWORD: ${{ secrets.IOS_CERT_PASSWORD }}
+          PROFILE: ${{ secrets.IOS_PROVISION_PROFILE }}
+        run: |
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          pass=$(uuidgen)
+          security create-keychain -p "$pass" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$pass" "$keychain"
+          echo "$CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -P "$CERT_PASSWORD" -A -t cert -f pkcs12 -k "$keychain" > /dev/null
+          security set-key-partition-list -S apple-tool:,apple: -k "$pass" "$keychain" > /dev/null
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          rm -f "$RUNNER_TEMP/cert.p12"
+          echo "$PROFILE" | base64 --decode > "$RUNNER_TEMP/profile.mobileprovision"
+          security cms -D -i "$RUNNER_TEMP/profile.mobileprovision" > "$RUNNER_TEMP/profile.plist"
+          uuid=$(/usr/libexec/PlistBuddy -c "Print UUID" "$RUNNER_TEMP/profile.plist")
+          name=$(/usr/libexec/PlistBuddy -c "Print Name" "$RUNNER_TEMP/profile.plist")
+          appid=$(/usr/libexec/PlistBuddy -c "Print Entitlements:application-identifier" "$RUNNER_TEMP/profile.plist")
+          team=$(/usr/libexec/PlistBuddy -c "Print TeamIdentifier:0" "$RUNNER_TEMP/profile.plist")
+          bundle="${appid#*.}"
+          if [ "$bundle" = "*" ] || [ -z "$bundle" ]; then bundle=com.scamera.ios; fi
+          if /usr/libexec/PlistBuddy -c "Print ProvisionedDevices" "$RUNNER_TEMP/profile.plist" > /dev/null 2>&1; then
+            if [ "$(/usr/libexec/PlistBuddy -c 'Print Entitlements:get-task-allow' "$RUNNER_TEMP/profile.plist")" = "true" ]; then
+              method=debugging; else method=release-testing; fi
+          elif /usr/libexec/PlistBuddy -c "Print ProvisionsAllDevices" "$RUNNER_TEMP/profile.plist" > /dev/null 2>&1; then
+            method=enterprise
+          else
+            method=app-store-connect
+          fi
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          cp "$RUNNER_TEMP/profile.mobileprovision" "$HOME/Library/MobileDevice/Provisioning Profiles/$uuid.mobileprovision"
+          rm -f "$RUNNER_TEMP/profile.mobileprovision"
+          echo "PROFILE_NAME=$name" >> "$GITHUB_ENV"
+          echo "BUNDLE_ID=$bundle" >> "$GITHUB_ENV"
+          echo "TEAM_ID=${{ secrets.IOS_TEAM_ID }}" >> "$GITHUB_ENV"
+          [ -n "${{ secrets.IOS_TEAM_ID }}" ] || echo "TEAM_ID=$team" >> "$GITHUB_ENV"
+          echo "EXPORT_METHOD=$method" >> "$GITHUB_ENV"
+          if [ "$method" = debugging ]; then identity="Apple Development"; else identity="Apple Distribution"; fi
+          echo "SIGN_IDENTITY=$identity" >> "$GITHUB_ENV"
+          echo "signing: bundle $bundle, export method $method"
+
+      - name: Archive (signed)
+        if: env.HAS_SIGNING == 'true'
+        working-directory: ios
+        run: |
+          xcodebuild archive -project SCAMERA.xcodeproj -scheme SCAMERA -configuration Release \
+            -destination "generic/platform=iOS" -archivePath "$RUNNER_TEMP/SCAMERA.xcarchive" \
+            CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM="$TEAM_ID" PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
+            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" CODE_SIGN_IDENTITY="$SIGN_IDENTITY" \
+            MARKETING_VERSION=0.1 CURRENT_PROJECT_VERSION=${{ steps.ver.outputs.build }} \
+            SCAM_GIT_SHA=${{ steps.ver.outputs.sha }} SCAM_DEPS="$RUNNER_TEMP/deps" | tee /tmp/archive.log | grep -E "error:|\*\* ARCHIVE" || true
+          grep -q "\*\* ARCHIVE SUCCEEDED \*\*" /tmp/archive.log || { tail -120 /tmp/archive.log; exit 1; }
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>method</key><string>$EXPORT_METHOD</string>
+            <key>teamID</key><string>$TEAM_ID</string>
+            <key>signingStyle</key><string>manual</string>
+            <key>provisioningProfiles</key><dict><key>$BUNDLE_ID</key><string>$PROFILE_NAME</string></dict>
+          </dict></plist>
+          EOF
+          xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/SCAMERA.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" -exportPath "$RUNNER_TEMP/export"
+          mkdir -p "$RUNNER_TEMP/out"
+          mv "$RUNNER_TEMP/export/"*.ipa "$RUNNER_TEMP/out/SCAMERA-iOS-${{ steps.ver.outputs.version }}.ipa"
+
+      - name: Archive (unsigned, for re-signing)
+        if: env.HAS_SIGNING != 'true'
+        working-directory: ios
+        run: |
+          xcodebuild archive -project SCAMERA.xcodeproj -scheme SCAMERA -configuration Release \
+            -destination "generic/platform=iOS" -archivePath "$RUNNER_TEMP/SCAMERA.xcarchive" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            MARKETING_VERSION=0.1 CURRENT_PROJECT_VERSION=${{ steps.ver.outputs.build }} \
+            SCAM_GIT_SHA=${{ steps.ver.outputs.sha }} SCAM_DEPS="$RUNNER_TEMP/deps" | tee /tmp/archive.log | grep -E "error:|\*\* ARCHIVE" || true
+          grep -q "\*\* ARCHIVE SUCCEEDED \*\*" /tmp/archive.log || { tail -120 /tmp/archive.log; exit 1; }
+          # -exportArchive needs a signing identity; an unsigned IPA is the archived app in Payload/.
+          mkdir -p "$RUNNER_TEMP/ipa/Payload" "$RUNNER_TEMP/out"
+          cp -R "$RUNNER_TEMP/SCAMERA.xcarchive/Products/Applications/SCAMERA.app" "$RUNNER_TEMP/ipa/Payload/"
+          (cd "$RUNNER_TEMP/ipa" && zip -qry "$RUNNER_TEMP/out/SCAMERA-iOS-${{ steps.ver.outputs.version }}-unsigned.ipa" Payload)
+
+      - name: Checksums
+        working-directory: ${{ runner.temp }}/out
+        run: |
+          app="$RUNNER_TEMP/SCAMERA.xcarchive/Products/Applications/SCAMERA.app"
+          /usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" -c "Print CFBundleVersion" -c "Print SCAMGitSHA" "$app/Info.plist"
+          lipo -info "$app/SCAMERA"
+          # the spectral film engine's resources (SPIR-V shaders, float tables) in the bundle
+          ls -la "$app/spektrafilm" "$app/spektrafilm/shaders"
+          test "$(ls "$app/spektrafilm/shaders" | grep -c '\.comp\.spv$')" -eq 11
+          shasum -a 256 *.ipa > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+          echo "### SCAMERA iOS ${{ steps.ver.outputs.version }}" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          cat SHA256SUMS.txt >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SCAMERA-iOS-${{ steps.ver.outputs.version }}
+          path: |
+            ${{ runner.temp }}/out/*.ipa
+            ${{ runner.temp }}/out/SHA256SUMS.txt
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Remove signing keychain
+        if: always() && env.HAS_SIGNING == 'true'
+        run: security delete-keychain "$RUNNER_TEMP/signing.keychain-db" || true
