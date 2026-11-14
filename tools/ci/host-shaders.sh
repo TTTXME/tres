@@ -102,6 +102,8 @@ LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_hybrid_dezip
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_why_p404.py
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_luma_grain.py
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_why_sharpen.py
+# P687: a Quad shot's sharpening does not lift the merge's grid at straight edges into steps (why/sharp_r1 mode 4); detail kept
+LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_quad_edge_sharpen.py
 # P595: the RL halo clamp within the range at a dark / bright edge (no white dots); the photo's dither triangular (no sky bands)
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_edge_dots.py
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_why_headroom.py

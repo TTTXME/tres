@@ -72,6 +72,25 @@ public class WhySharpenR1Test {
         assertTrue(read("src/main/java/com/scamera/app/settings/DevKeys.java").contains("\"sharpen_quad\", true"));
     }
 
+    @Test public void quadShotsSmoothTheIncrementAlongStraightEdges() throws IOException {
+        // P687: only the Quad lattice source with the boost takes mode 4 (the increment smoothed along straight edges); scam_dev
+        // sharpen_quad_edge 0, a Bayer shot and Tetra's R1 end on mode 2 as before
+        assertTrue(WhyLumaSharpen.quadEdgeAlong(true, true));
+        assertFalse("scam_dev sharpen_quad_edge 0", WhyLumaSharpen.quadEdgeAlong(true, false));
+        assertFalse("no Quad boost (Bayer, Tetra, sharpen_quad 0)", WhyLumaSharpen.quadEdgeAlong(false, true));
+        assertEquals(1f, WhyLumaSharpen.QUAD_EDGE_ALONG, 0f);
+        final String java = read(SHARPEN), glsl = read(SHADER);
+        assertTrue(java.contains("final boolean edgeAlong = quadEdgeAlong(quadBoost, quadBoost && quadEdgeSwitch());"));
+        assertTrue(java.contains("if (edgeAlong) source = src; // P687: read again by the last pass"));
+        assertTrue(java.contains("shaderProg.setVar(\"modeU\", source != null ? 4 : 2);"));
+        assertTrue(java.contains("if (source != null) source.close();"));
+        assertTrue(java.contains("PreferenceKeys.scamDevSwitch(\"sharpen_quad_edge\", true)"));
+        assertTrue(read("src/main/java/com/scamera/app/settings/DevKeys.java").contains("\"sharpen_quad_edge\", true"));
+        // mode 4 starts from mode 2's sum and only replaces it where an edge is found (edgeAlongU 0: mode 2 bit for bit)
+        assertTrue(glsl.contains("if (modeU == 4) {") && glsl.contains("float o = sh + res;") && glsl.contains("if (edgeAlongU > 0.0) {")
+                && glsl.contains("o = src + mix(inc, acc / ws, a) + res;"));
+    }
+
     @Test public void bayerShotsSharpenWithoutTheirLattice() throws IOException {
         // P337: block <= 1 takes the lattice-free source unless switched off; a mosaic shot keeps R1 (B3), never both
         for (int block : new int[]{-1, 0, 1}) {
@@ -200,7 +219,8 @@ public class WhySharpenR1Test {
         final int b = java.indexOf("shaderProg.setVar(\"modeU\", r1 ? 0 : 3);\n            shaderProg.drawBlocks(src);");
         final int d = java.indexOf("shaderProg.drawBlocks(residual);");
         final int compose = java.indexOf("useAssetProgram(\"why/sharp_compose\"");
-        final int last = java.indexOf("shaderProg.setVar(\"modeU\", 2);");
+        // (P687: a Quad shot's last pass is mode 4 - mode 2 with the increment smoothed along straight edges)
+        final int last = java.indexOf("shaderProg.setVar(\"modeU\", source != null ? 4 : 2);");
         assertTrue(b > 0 && d > b && compose > d && last > compose);
     }
 }

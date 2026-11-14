@@ -500,6 +500,9 @@ public final class DevKeys {
         // P542: WhyLumaSharpen.quadSwitch - Quad shots on the lattice-free source with the third RL stage x2
         k.add(s(post, "sharpen_quad", true, Lang.t("Резкость Quad-снимков как у Bayer (без 2-пиксельной решётки) и сильнее третья ступень RL: больше мелких деталей. Выкл — сглаженная яркость (R1), как раньше",
                 "Quad shots sharpened like Bayer ones (without the 2 px lattice) with a stronger third RL stage: more fine detail. Off: the smoothed luma (R1), as before")));
+        // P687: WhyLumaSharpen.quadEdgeSwitch - the Quad sharpening's increment smoothed along straight edges (no 2 - 4 px steps)
+        k.add(s(post, "sharpen_quad_edge", true, Lang.t("Резкость Quad-снимков без ступенек на прямых краях: прибавка резкости вдоль края сглаживается, поперёк остаётся. Выкл — как раньше",
+                "Quad shots sharpened without steps on straight edges: the sharpening's gain smoothed along the edge, kept across it. Off: as before")));
         // P212h (A5 = M5): the gain clamp of the WHY exposure from the merged image's noise
         k.add(n(post, "ae_clamp_stack", "1", Lang.t("Яркость фото: предел усиления по шуму — по числу склеенных кадров N (карта склейки, N^0.4). 1: FULLRES, 2: все снимки, 0: по одному кадру",
                 "Photo brightness: the noise gain clamp from the merged N frames (the merge's frame map, N^0.4). 1: FULLRES, 2: every shot, 0: one frame")));
