@@ -93,16 +93,16 @@ struct GalleryView: View {
 
     private func header(_ shown: [PHAsset]) -> some View {
         // GalleryViews.collapse: in the list and the timeline the title shrinks and the line under it fades as the page scrolls
-        let t = library.prefs.mode == .grid ? 0 : min(1, max(0, collapse / 46))
+        let t: Double = library.prefs.mode == .grid ? 0 : min(1, max(0, Double(collapse) / 46))
         return VStack(spacing: 6) {
             HStack(spacing: 10) {
                 RoundIconButton(icon: "ui_ic_back", label: L("gallery.back")) { dismiss() }
                 VStack(alignment: .leading, spacing: 1) {
                     Text(L("gallery.photos")).font(.app(28, 700)).foregroundStyle(.white)
-                        .scaleEffect(1 - 0.3 * t, anchor: .leading)
+                        .scaleEffect(CGFloat(1 - 0.3 * t), anchor: .leading)
                     if library.access == .granted {
                         Text(verbatim: Self.countText(shown.count)).font(Font.app(13)).foregroundStyle(GalleryStyle.muted)
-                            .opacity(1 - min(1, t * 1.6))
+                            .opacity(1 - min(1.0, t * 1.6))
                     }
                 }
                 Spacer()
