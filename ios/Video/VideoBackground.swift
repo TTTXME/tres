@@ -19,9 +19,9 @@ final class VideoBoost: @unchecked Sendable {
             version: kMTAudioProcessingTapCallbacksVersion_0,
             clientInfo: UnsafeMutableRawPointer(Unmanaged.passRetained(self).toOpaque()),
             init: boostInit, finalize: boostFinalize, prepare: boostPrepare, unprepare: nil, process: boostProcess)
-        var tap: MTAudioProcessingTap?
-        guard MTAudioProcessingTapCreate(kCFAllocatorDefault, &callbacks, kMTAudioProcessingTapCreationFlag_PostEffects, &tap) == noErr,
-              let tap else {
+        var created: Unmanaged<MTAudioProcessingTap>?
+        guard MTAudioProcessingTapCreate(kCFAllocatorDefault, &callbacks, kMTAudioProcessingTapCreationFlag_PostEffects, &created) == noErr,
+              let tap = created?.takeRetainedValue() else {
             Unmanaged<VideoBoost>.fromOpaque(callbacks.clientInfo!).release()
             return nil
         }
