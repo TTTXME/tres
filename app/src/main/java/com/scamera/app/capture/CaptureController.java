@@ -3653,7 +3653,8 @@ public class CaptureController {
         final SensorModePick.Pick modePick = sdkFullRes || mFullResSession || recordingVideo || !isRawFormat(mTargetFormat)
                 ? null : SensorModePick.active(physicalID, characteristics);
         SensorModePick.session(physicalID, modePick);
-        XiaomiSensorRow.armFrameLog(physicalID, modePick); // P631: the session's first frame described once
+        XiaomiSensorRow.armFrameLog(physicalID, modePick); // P631: the session's first frame described once (P695: and a few later)
+        mRowReportedMode = null;
         if (modePick != null) Log.i("SCAM_CAPTURE", "camera " + physicalID + ": the module's sensor mode " + modePick
                 + " (SensorModeTable, P276)");
         // P575: a nubia session watches the mode its results report (the picked row proves itself; a normal one logs its own).
@@ -4231,7 +4232,8 @@ public class CaptureController {
             LiveRawFrame.setEnabled(mLiveRawSession && rawDisplaySession);
             // P13: a module whose stream was measured as a mosaic before starts on the RAW viewfinder at once
             mMosaicMeasure = PreferenceKeys.scamDevSwitch("mosaic_preview", true);
-            com.scamera.app.processing.MosaicStream.startSession(mMosaicMeasure ? mosaicStreamKey() : "off");
+            // P695: a picked row whose block the camera's row map gives (the Xiaomi 15 Ultra periscope's 4x ISZ: Tetra) starts from it
+            com.scamera.app.processing.MosaicStream.startSession(mMosaicMeasure ? mosaicStreamKey() : "off", SensorModePick.rowMapBlock());
             // P60: a vendor module measures its field of view against the plain module of its camera (cached once measured)
             if (photoMode && !XiaomiTeleZoom.phone() && PreferenceKeys.scamDevSwitch("fov_check", true)) try {
                 com.scamera.app.control.FovSelfCheck.get().session(ScameraApp.getAppContext(), physicalID,
@@ -7149,24 +7151,72 @@ public class CaptureController {
     /**
      * P631: the first frame of a picked Xiaomi row's session, described once (XiaomiSensorRow.frameLine): the mode the result
      * reports, the frame's floor and its 2x2 site statistics - a Quad mosaic, the HAL's remosaic, or a binned frame written twice.
+     * P695 (Xiaomi 15 Ultra, the periscope's 4x ISZ row 6: the viewfinder turned to coloured stripes a few seconds in, the pedestal
+     * gone from the frames, the reported exposure 8.7 EV down while the frames' level stayed): since P560 the row's stream is RAW10
+     * and this line was skipped for it - a packed frame is unpacked for it now; a few later frames of the session are described as
+     * well (XiaomiSensorRow.FRAME_LINES, with the frame's exposure and whether its rows or columns repeat), and every change of the
+     * mode the results report. The truth check acts on the first plain 16-bit frame only, as before.
      */
     private void xiaomiRowFrame(Image img, TotalCaptureResult result) {
         final SensorModePick.Pick pick = SensorModePick.session();
-        if (pick == null || img == null || img.getFormat() != ImageFormat.RAW_SENSOR || !XiaomiSensorRow.takeFrameLog(physicalID, pick.mode)) return;
+        if (pick == null || img == null) return;
+        xiaomiRowMode(pick, result);
+        final int format = img.getFormat();
+        final boolean plain = format == ImageFormat.RAW_SENSOR;
+        // a packed frame up to 16 MP is unpacked for its lines (25 MB for the 12.5 MP rows; a 50 / 200 MP one would take 100 / 400 MB)
+        if (!plain && (!com.scamera.app.util.RawUnpack.isPacked(format) || (long) img.getWidth() * img.getHeight() > ROW_LINE_UNPACK_PIXELS)) return;
+        final int line = XiaomiSensorRow.takeFrameLog(physicalID, pick.mode, android.os.SystemClock.uptimeMillis());
+        if (line < 0) return;
         try {
             CameraCharacteristics c = mCameraCharacteristicsMap.get(physicalID);
             if (c == null) c = mCameraCharacteristics;
             final float black = com.scamera.app.processing.RawLevels.current(c, null).meanBlack();
+            final int w = img.getWidth(), h = img.getHeight();
+            java.nio.ByteBuffer data = img.getPlanes()[0].getBuffer();
+            int stride = img.getPlanes()[0].getRowStride();
+            if (!plain) {
+                final int bytes = w * h * 2;
+                java.nio.ByteBuffer into = mRowFrameUnpacked;
+                if (into == null || into.capacity() < bytes)
+                    into = mRowFrameUnpacked = java.nio.ByteBuffer.allocateDirect(bytes).order(java.nio.ByteOrder.nativeOrder());
+                into.clear();
+                if (!com.scamera.app.util.RawUnpack.unpack(data.duplicate(), format, w, h, stride, into)) return;
+                into.position(0);
+                into.limit(bytes);
+                data = into;
+                stride = w * 2;
+            }
+            if (line + 1 >= XiaomiSensorRow.FRAME_LINES) mRowFrameUnpacked = null; // the session's last line: not kept
             Log.i("SCAM_CAPTURE", XiaomiSensorRow.frameLine(String.valueOf(physicalID), pick, SensorModeBand.reportedMode(result),
-                    img.getPlanes()[0].getBuffer(), img.getWidth(), img.getHeight(), img.getPlanes()[0].getRowStride(), black));
+                    data, w, h, stride, black) + XiaomiSensorRow.laterText(line, plain ? null : format,
+                    result.get(CaptureResult.SENSOR_EXPOSURE_TIME), result.get(CaptureResult.SENSOR_SENSITIVITY), data, w, h, stride));
+            if (line > 0) return;
             // P635b: the row's first frame against the truth check - where the buffer holds a picture, its pedestal, its grain
-            final FullResTruth.Result truth = FullResTruth.check(img.getPlanes()[0].getBuffer(), img.getWidth(), img.getHeight(),
-                    img.getPlanes()[0].getRowStride(), black);
+            final FullResTruth.Result truth = FullResTruth.check(data, w, h, stride, black);
             Log.i("SCAM_CAPTURE", truth.line("FULLRES ROW") + " (camera " + physicalID + " " + pick + ", P635b)");
-            if (truth.notReal(true) && PreferenceKeys.scamDevSwitch("fullres_row_truth", true)) rowNotReal(pick, truth);
+            if (plain && truth.notReal(true) && PreferenceKeys.scamDevSwitch("fullres_row_truth", true)) rowNotReal(pick, truth);
         } catch (RuntimeException e) {
             Log.w("SCAM_CAPTURE", "Xiaomi sensor row frame: " + e);
         }
+    }
+
+    /** P695: the largest packed picked-row frame unpacked for its frame lines. */
+    private static final long ROW_LINE_UNPACK_PIXELS = 4096L * 4096L;
+    /** P695: the unpacked frame of a packed picked-row stream for its frame lines (this session only). */
+    private java.nio.ByteBuffer mRowFrameUnpacked;
+    /** P695: the sensor mode the last result of the picked row's session reported (null: none yet). */
+    private Integer mRowReportedMode;
+
+    /** P695: a change of the sensor mode a picked row's results report (the HAL switching its readout inside the session). */
+    private void xiaomiRowMode(SensorModePick.Pick pick, TotalCaptureResult result) {
+        if (!XiaomiSensorRow.device()) return;
+        final Integer now = SensorModeBand.reportedMode(result);
+        if (now == null || now.equals(mRowReportedMode)) return;
+        final Integer was = mRowReportedMode;
+        mRowReportedMode = now;
+        if (was == null && now == pick.mode) return;
+        Log.i("SCAM_CAPTURE", "Xiaomi sensor row camera " + physicalID + " " + pick + ": the results report mode "
+                + (was == null ? "" : was + " -> ") + now + (now != pick.mode ? " (NOT the picked row)" : " (the picked row again)") + " (P695)");
     }
 
     private String mosaicStreamKey() {
