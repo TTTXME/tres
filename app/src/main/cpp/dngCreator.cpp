@@ -58,8 +58,8 @@ public:
         image_->SetPhotometric(tdw::PHOTOMETRIC_CFA);
         image_->SetPlanarConfig(tdw::PLANARCONFIG_CONTIG);
         image_->SetDNGVersion(1, 3, 0, 0);
-        // P618: ExifVersion 2.31 (the version with OffsetTime*) in the Exif IFD, where it belongs
-        image_->SetTag(1, tdw::EXIFTAG_EXIFVERSION, tdw::TIFF_UNDEFINED, 4, "0231");
+        // P698: ExifVersion 0220 in IFD 0, as the DNGs before P618 (an Exif IFD only when a caller sets its tags)
+        image_->SetExifVersion("0220");
     }
 
     // --- what goes straight to the image, in the caller's order ---

@@ -295,20 +295,20 @@ public class DngCreator {
         setDescription(ShotExif.dngDescription(p));
         setSoftware(DngMetadata.software());
 
-        // P618: the shot's time (when it was named, as the photo's EXIF) with its milliseconds and zone in the Exif IFD, the
-        // lens and the exposure (ShotExif); the photo's 4:3 crop of an ISZ / native-mosaic frame as the raw converter's frame
+        // P698 (owner, 2026-11-14: «Верни DNG как было»): the layout of the DNGs before P618, the one raw converters and the
+        // owner's DCP profiles took - ExposureTime, FNumber, ISO and FocalLength in IFD 0 with ExifVersion 0220, no Exif IFD,
+        // no lens tags, no DefaultCrop; the shot's time as DateTime.
         final ShotExif.Facts facts = ShotExif.of(p, p.dngFieldZoom, DeviceName.make(), DeviceName.model());
         setDateTime(facts.dateTime());
-        for (ShotExif.Tag t : ShotExif.dngTags(facts)) setTag(t);
-        if (p.photoAspect4x3 && p.rawSize != null) {
-            final int[] crop = ShotExif.aspectCrop(p.rawSize.x, p.rawSize.y);
-            if (crop != null) setDefaultCrop(crop[0], crop[1], crop[2], crop[3]);
-        }
+        if (facts.iso > 0) setIso((short) Math.min(facts.iso, 65535));
+        if (facts.exposureTime > 0 && !Double.isInfinite(facts.exposureTime)) setExposureTime(facts.exposureTime);
+        if (facts.focalLength > 0 && !Double.isInfinite(facts.focalLength)) setFocalLength(facts.focalLength);
+        if (facts.fNumber > 0 && !Double.isInfinite(facts.fNumber)) setAperture(facts.fNumber);
         final double[] noise = noiseProfile(p);
         if (noise != null) setNoiseProfile(noise);
 
         // P196 / P618: Make / Model as the shot's other files (DeviceName); P696: UniqueCameraModel the phone's DCP key
-        // (ShotExif.uniqueCameraModel). ExposureTime, FNumber, ISO and FocalLength are in the Exif IFD only.
+        // (ShotExif.uniqueCameraModel).
         setMake(facts.make);
         setModel(DeviceName.model());
         setUniqueCameraModel(ShotExif.uniqueCameraModel(Build.MODEL, Build.BRAND, Build.MANUFACTURER));

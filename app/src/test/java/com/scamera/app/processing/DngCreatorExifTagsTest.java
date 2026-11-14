@@ -4,9 +4,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyInt;
-import static org.mockito.ArgumentMatchers.anyShort;
 import static org.mockito.Mockito.doCallRealMethod;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -31,15 +29,13 @@ import org.robolectric.annotation.Implements;
 import org.robolectric.shadows.ShadowBuild;
 import org.robolectric.shadows.ShadowSystemProperties;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.TimeZone;
 
 /**
- * P618: what DngCreator.setParameters gives the native writer besides the colour (DngCreatorColourTagsTest): ShotExif's time,
- * exposure and lens tags (the Exif IFD, LensInfo), the shot's time as DateTime, our UniqueCameraModel and description, the 4:3
- * DefaultCrop of an ISZ photo - and no IFD 0 copy of the exposure / lens tags (exiftool -validate). The native writer is a mock;
- * tools/check_dng_metadata.cpp checks the file it writes.
+ * What DngCreator.setParameters gives the native writer besides the colour (DngCreatorColourTagsTest). P698 (owner,
+ * 2026-11-14: «Верни DNG как было»): the layout of the DNGs before P618 - ExposureTime, FNumber, ISO and FocalLength in IFD 0,
+ * no Exif IFD tags, no lens tags, no DefaultCrop - with the shot's time as DateTime, our description and the DCP key as the
+ * UniqueCameraModel. The native writer is a mock; tools/check_dng_metadata.cpp checks the file it writes.
  */
 @RunWith(RobolectricTestRunner.class)
 @Config(sdk = 35, application = Application.class, shadows = DngCreatorExifTagsTest.NoNativeDng.class,
@@ -113,22 +109,16 @@ public class DngCreatorExifTagsTest {
         return dng;
     }
 
-    @Test public void theShotsTimeLensAndNamesGoToTheWriter() {
+    @Test public void theShotsTimeExposureAndNamesGoToIfd0AsBefore() {
         final Parameters p = shot();
         final DngCreator dng = writer(p);
-        final ArgumentCaptor<ShotExif.Tag> tags = ArgumentCaptor.forClass(ShotExif.Tag.class);
-        verify(dng, org.mockito.Mockito.atLeastOnce()).setTag(tags.capture());
-        final List<String> given = new ArrayList<>();
-        for (ShotExif.Tag t : tags.getAllValues()) given.add(t.toString());
-        final List<String> expected = new ArrayList<>();
-        for (ShotExif.Tag t : ShotExif.dngTags(ShotExif.of(p, 1, "vivo", "vivo X200 Ultra"))) expected.add(t.toString());
-        assertEquals(expected, given);
-        assertTrue(given.toString(), given.contains("Exif 34855=[65535]"));
-        assertTrue(given.toString(), given.contains("Exif 34867=[102400]"));
-        assertTrue(given.toString(), given.contains("Exif 36867=2026:11:11 14:03:07"));
-        assertTrue(given.toString(), given.contains("Exif 37521=042"));
-        assertTrue(given.toString(), given.contains("Exif 36881=+03:00"));
-        assertTrue(given.toString(), given.contains("Exif 42036=vivo X200 Ultra back camera 9.12mm f/1.69"));
+        // P698: the layout of the DNGs before P618 - the exposure in IFD 0, no Exif IFD tags, no lens tags, no crop
+        verify(dng, never()).setTag(any());
+        verify(dng).setIso((short) 65535);
+        verify(dng).setExposureTime(1 / 852.0);
+        verify(dng).setFocalLength((double) 9.12f);
+        verify(dng).setAperture((double) 1.69f);
+        verify(dng, never()).setDefaultCrop(anyInt(), anyInt(), anyInt(), anyInt());
         verify(dng).setDateTime("2026:11:11 14:03:07");
         verify(dng).setUniqueCameraModel("V2454A-vivo-vivo"); // P696: the DCP key
         verify(dng).setMake("vivo");
@@ -136,27 +126,18 @@ public class DngCreatorExifTagsTest {
         final ArgumentCaptor<String> desc = ArgumentCaptor.forClass(String.class);
         verify(dng).setDescription(desc.capture());
         assertEquals("SCAMERA\n Frames=8\n Camera=5\n RAW=merged burst\n Route=SHDR", desc.getValue());
+        assertFalse(desc.getValue(), desc.getValue().toLowerCase(java.util.Locale.ROOT).contains("photon"));
         final ArgumentCaptor<String> software = ArgumentCaptor.forClass(String.class);
         verify(dng).setSoftware(software.capture());
         assertTrue(software.getValue(), software.getValue().startsWith("SCAMERA "));
-        // the exposure and lens are in the Exif IFD only; no DefaultCrop for a photo of the whole frame
-        verify(dng, never()).setIso(anyShort());
-        verify(dng, never()).setExposureTime(anyDouble());
-        verify(dng, never()).setFocalLength(anyDouble());
-        verify(dng, never()).setAperture(anyDouble());
-        verify(dng, never()).setDefaultCrop(anyInt(), anyInt(), anyInt(), anyInt());
-        for (String s : given) assertFalse(s, s.toLowerCase(java.util.Locale.ROOT).contains("photon"));
     }
 
-    @Test public void anIszPhotosCropIsTheDngsDefaultCrop() {
+    @Test public void anIszPhotoKeepsTheWholeFrameAsBefore() {
         final Parameters p = shot();
         p.photoAspect4x3 = true;
         p.dngFieldZoom = 0f;
         final DngCreator dng = writer(p);
-        verify(dng).setDefaultCrop(0, 6, 4080, 3060);
-        // the field of an ISZ frame is not known: no FocalLengthIn35mmFilm
-        final ArgumentCaptor<ShotExif.Tag> tags = ArgumentCaptor.forClass(ShotExif.Tag.class);
-        verify(dng, org.mockito.Mockito.atLeastOnce()).setTag(tags.capture());
-        for (ShotExif.Tag t : tags.getAllValues()) assertFalse(t.toString(), t.tag == ShotExif.FOCAL_LENGTH_35MM);
+        verify(dng, never()).setDefaultCrop(anyInt(), anyInt(), anyInt(), anyInt());
+        verify(dng, never()).setTag(any());
     }
 }

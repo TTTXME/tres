@@ -2,6 +2,8 @@
 // exposure and the lens in an Exif IFD (tag 34665) a raw converter and Android's ExifInterface read, LensInfo and the 4:3
 // DefaultCrop in IFD 0, every IFD sorted with each tag once (a description set twice keeps the last), ExifVersion out of IFD 0,
 // no PhotonCamera string - and the image data and every colour / level tag byte for byte as without these tags.
+// P698: DngCreator.setParameters writes the layout before P618 again (the plain case: the exposure in IFD 0 with ExifVersion
+// 0220, no Exif IFD); the Exif IFD path stays checked for callers that set its tags.
 // Usage: check-dng-metadata [out.dng] (the DNG of the full case is written there, e.g. for exiftool).
 #include <cstdio>
 #include <cstdlib>
@@ -160,7 +162,8 @@ int main(int argc, char **argv) {
     expect(ascii(t0[271]) == "vivo" && ascii(t0[272]) == "vivo X200 Ultra", "Make / Model");
     expect(ascii(t0[50708]) == "V2454A-vivo-vivo", "UniqueCameraModel (P696: the DCP key)");
     expect(ascii(t0[306]) == "2026:11:11 14:03:07", "DateTime");
-    expect(t0.count(36864) == 0, "no ExifVersion in IFD 0");
+    expect(t0.count(36864) && std::string(t0[36864].data.begin(), t0[36864].data.end()) == "0220",
+           "ExifVersion 0220 in IFD 0 (P698: as before P618)");
     expect(t0.count(296) && le(t0[296].data.data(), 2) == 2, "ResolutionUnit 2 (inch, as before)");
     for (unsigned tag : {33434u, 33437u, 34855u, 37386u})
         expect(t0.count(tag) == 0, "tag " + std::to_string(tag) + " in the Exif IFD only (exiftool -validate)");
@@ -179,8 +182,7 @@ int main(int argc, char **argv) {
     checkAligned(ex, "Exif IFD");
     const unsigned exifCount = le(dng + exifAt, 2);
     expect(le(dng + exifAt + 2 + 12 * exifCount, 4) == 0, "Exif IFD has no next IFD");
-    expect(ex.count(36864) && ex[36864].type == 7 && std::string(ex[36864].data.begin(), ex[36864].data.end()) == "0231",
-           "ExifVersion 0231 in the Exif IFD");
+    expect(ex.count(36864) == 0, "ExifVersion in IFD 0 only (P698)");
     expect(ascii(ex[36867]) == "2026:11:11 14:03:07" && ascii(ex[36868]) == "2026:11:11 14:03:07", "DateTimeOriginal / Digitized");
     expect(ascii(ex[36880]) == "+03:00" && ascii(ex[36881]) == "+03:00" && ascii(ex[36882]) == "+03:00", "OffsetTime*");
     expect(ascii(ex[37520]) == "042" && ascii(ex[37521]) == "042" && ascii(ex[37522]) == "042" && ex[37521].inline_,
@@ -216,7 +218,17 @@ int main(int argc, char **argv) {
                    && std::memcmp(plain + plainStrip, raw.data(), raw.size() * 2) == 0,
            "the image data as given");
 
-    // the bare writer: ExifVersion alone in its Exif IFD; a crop outside the image is not written
+    // P698: the DNG DngCreator.setParameters writes - the layout before P618
+    {
+        std::map<unsigned, Tag> q0 = ifd(plain, plainSize, le(plain + 4, 4), &sorted);
+        expect(q0.count(34665) == 0, "as before: no Exif IFD");
+        expect(q0.count(36864) && std::string(q0[36864].data.begin(), q0[36864].data.end()) == "0220", "as before: ExifVersion 0220");
+        expect(q0.count(34855) && le(q0[34855].data.data(), 2) == 36864, "as before: ISO in IFD 0");
+        expect(q0.count(33434) && q0.count(33437) && q0.count(37386), "as before: ExposureTime / FNumber / FocalLength in IFD 0");
+        expect(q0.count(50719) == 0 && q0.count(50720) == 0 && q0.count(50736) == 0, "as before: no DefaultCrop, no LensInfo");
+        expect(ascii(q0[50708]) == "V2454A-vivo-vivo", "as before: UniqueCameraModel");
+    }
+    // the bare writer: no Exif IFD (ExifVersion in IFD 0); a crop outside the image is not written
     {
         DngCreator c;
         c.setDefaultCrop(10, 10, W, H);
@@ -227,8 +239,7 @@ int main(int argc, char **argv) {
         if (d) {
             std::map<unsigned, Tag> b0 = ifd(d, n, le(d + 4, 4), &sorted);
             expect(b0.count(50719) == 0 && b0.count(50720) == 0, "a DefaultCrop outside the image is not written");
-            std::map<unsigned, Tag> be = ifd(d, n, b0.count(34665) ? le(b0[34665].data.data(), 4) : 0, &sorted);
-            expect(be.size() == 1 && be.count(36864), "bare Exif IFD: ExifVersion only");
+            expect(b0.count(34665) == 0 && b0.count(36864), "bare: no Exif IFD, ExifVersion in IFD 0");
             std::free(d);
         }
     }
@@ -237,6 +248,7 @@ int main(int argc, char **argv) {
         DngCreator c;
         expect(!c.setTag(0, 700, tinydngwriter::TIFF_ASCII, 3, "ab"), "3-byte IFD 0 value refused");
         expect(!c.setTag(1, 700, 99, 1, "a"), "unknown type refused");
+        expect(c.setTag(1, 42035, tinydngwriter::TIFF_ASCII, 5, "vivo"), "an Exif tag before the layout");  // P698: lays the IFD out
         std::vector<unsigned short> copy = raw;
         size_t n = 0;
         unsigned char *d = static_cast<unsigned char *>(c.createDng(copy.data(), W, H, n));
