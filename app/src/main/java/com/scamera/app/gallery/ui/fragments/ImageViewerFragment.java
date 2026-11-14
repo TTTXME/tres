@@ -509,7 +509,7 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
         if (root != null) root.performHapticFeedback(android.view.HapticFeedbackConstants.CONTEXT_CLICK);
     }
 
-    /** P498: «Ещё» - slideshow, set as (photos), open with another app. */
+    /** P498: «Ещё» - slideshow, set as (photos), open with another app; P697: move / copy into a folder. */
     private void onMoreClick() {
         GalleryItem item = currentItem();
         if (item == null || getContext() == null || notYet(item)) return;
@@ -525,6 +525,11 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
             actions.add(new GallerySheets.Action(R.drawable.ui_ic_text, Lang.t("Текст на фото", "Text in the photo"),
                     () -> com.scamera.app.gallery.ui.TextSheet.show(c, item.mediaFile())));
         actions.add(new GallerySheets.Action(R.drawable.ui_ic_open, Lang.t("Открыть в другом приложении", "Open in another app"), () -> sendTo(item, Intent.ACTION_VIEW)));
+        // P697: the shown photo or video into a folder (a file of the library: one opened from another app has no row of its own)
+        if (item.mediaFile().rowId() >= 0)
+            for (com.scamera.app.gallery.files.GalleryMoveCopy.Mode mode : com.scamera.app.gallery.files.GalleryMoveCopy.Mode.values())
+                actions.add(new GallerySheets.Action(com.scamera.app.gallery.ui.MoveCopyFlow.icon(mode), com.scamera.app.gallery.ui.MoveCopyFlow.label(mode),
+                        () -> toFolder(item, mode)));
         // P579 (owner, 2026-11-09: «… в ней надо стиль также обновить»): the pull-down menu at the «Ещё» button (the shared menu's look);
         // the sheet of rows when the button is not on screen
         View anchor = chrome != null ? chrome.more : null;
@@ -535,6 +540,15 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
             return;
         }
         GallerySheets.showActions(c, Lang.t("Ещё", "More"), actions);
+    }
+
+    /** P697: {@code item} moved / copied into a folder; the lists are read again when the grid shows (its pending update). */
+    private void toFolder(GalleryItem item, com.scamera.app.gallery.files.GalleryMoveCopy.Mode mode) {
+        if (getActivity() == null) return;
+        final com.scamera.app.gallery.viewmodel.GalleryViewModel vm = library;
+        com.scamera.app.gallery.ui.MoveCopyFlow.start(requireActivity(), mode, Collections.singletonList(item.mediaFile()), () -> {
+            if (vm != null) vm.setUpdatePending(true);
+        });
     }
 
     private void sendTo(GalleryItem item, String action) {
