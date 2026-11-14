@@ -10257,7 +10257,12 @@ public:
 // carries one), on a stored / declared Quad / Tetra block with mosaicPath 1 the native set with the colour passes off
 // (hybridReconstructMosaicNativeMerge) and its merge program for the block's window. The split (mosaicPath 0) merges plain.
 inline void hybridPrewarmGpu(const HybridTuning& tune,int block,const std::function<void(const std::string&)>& report){
-    const auto t0=std::chrono::steady_clock::now();
+    using PrewarmClock=std::chrono::steady_clock;
+    auto msSince=[](PrewarmClock::time_point a){return std::to_string(int(std::chrono::duration<double,std::milli>(PrewarmClock::now()-a).count()));};
+    // P682: the CPU classes measured once (scamCalibrateCpus; kept: a file read), before the compiles (whose driver threads would
+    // share the cores)
+    if(!scamCpuCalibrationPath().empty())report("HYBRID PREWARM: "+scamCalibrateCpus(scamCpuCalibrationPath()));
+    const auto t0=PrewarmClock::now();
     // P195: with «Наш ремозаик» off (mosaicRemosaic 0) a Quad / Tetra module merges its binned Bayer burst on the plain set
     const bool native=block>1&&tune.mosaicRemosaic!=0&&tune.mosaicPath==1&&(block==2||tune.mosaicTetra!=0);
     HybridTuning t=tune;
@@ -10277,17 +10282,27 @@ inline void hybridPrewarmGpu(const HybridTuning& tune,int block,const std::funct
     }
     // P308: the GPU F6's programs as well (laGpu: «Где считать F6» = GPU), in their own context (the merge's made current again
     // by its own cleanup); a failure costs only their compile at the shot
-    std::string laNote;
+    std::string laNote=", merge programs "+msSince(t0)+" ms"; // P682: each phase's time
     if(tune.fastMerge>0){ // the fast merge route's programs (scam-fast-merge.h)
-        try{FastMergeGpu ag(hybridProgramCacheDir());laNote=", fast merge "+ag.cacheNote();}
-        catch(const std::exception& e){laNote=std::string(", fast merge failed: ")+e.what();}
+        const auto p0=PrewarmClock::now();
+        try{FastMergeGpu ag(hybridProgramCacheDir());laNote+=", fast merge "+ag.cacheNote()+" "+msSince(p0)+" ms";}
+        catch(const std::exception& e){laNote+=std::string(", fast merge failed: ")+e.what();}
     }
     if(tune.laGpu!=0&&tune.localAlign>0){
-        try{LaGpu f6(hybridProgramCacheDir());f6.prepareHomography();laNote=", F6"+f6.cacheNote();} // P364: the GPU alignment's too
-        catch(const std::exception& e){laNote=std::string(", F6 failed: ")+e.what();}
+        const auto p0=PrewarmClock::now();
+        try{LaGpu f6(hybridProgramCacheDir());f6.prepareHomography();laNote+=", F6"+f6.cacheNote()+" "+msSince(p0)+" ms";} // P364: the GPU alignment's too
+        catch(const std::exception& e){laNote+=std::string(", F6 failed: ")+e.what();}
+    }
+    // P682: a Quad / Tetra module's chroma median context (ChromaMedianGpu: its 7 programs), the post passes (5: the Q route's
+    // along-edge / notch / Tetra smoothing and the fast Tetra pass) and, Quad, the lattice (7) into the cache too: the first shot
+    // after the install compiles none of them (they cost 217 - 335 ms and 118 - 160 ms of a shot)
+    if(block>1&&tune.chromaGpu>0){
+        const auto p0=PrewarmClock::now();
+        try{ChromaMedianGpu cm;cm.ensurePost();if(block==2)cm.ensureQuadLattice();laNote+=", chroma"+cm.cacheNote()+" "+msSince(p0)+" ms";}
+        catch(const std::exception& e){laNote+=std::string(", chroma failed: ")+e.what();}
     }
     report("HYBRID PREWARM: block "+std::to_string(block)+(native?" native mosaic":" plain")+" programs ready in "
-        +std::to_string(int(std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-t0).count()))+" ms ("+gpu.renderer+";"+gpu.compileMs+laNote+")");
+        +msSince(t0)+" ms ("+gpu.renderer+";"+gpu.compileMs+laNote+")");
 }
 
 // ---------------------------------------------------------------------------------------------
