@@ -148,6 +148,12 @@ jobs:
           echo "post passes (Why V2 shaders through Engine/post/GLCore.hpp):" | tee -a "$RUNNER_TEMP/compare.txt"
           python3 ios/tools/replay_bursts.py compare "$RUNNER_TEMP/reference/post" "$RUNNER_TEMP/metal/post" --max-psnr-drop 70 | tee -a "$RUNNER_TEMP/compare.txt"
           echo "«Быстрый» route (fastMerge 1, the app's default):" | tee -a "$RUNNER_TEMP/compare.txt"
+          # where the two GPUs part on the fast route: the merge reports without their timings
+          for f in "$RUNNER_TEMP/metal/fast/"*.log; do
+            n=$(basename "$f"); echo "=== fast $n: Mesa < > Metal"
+            diff <(sed -E 's/[0-9.]+ ?ms//g; s/thread sum//g' "$RUNNER_TEMP/reference/fast/$n" | grep -v "^--- stderr") \
+                 <(sed -E 's/[0-9.]+ ?ms//g; s/thread sum//g' "$f" | grep -v "^--- stderr") | cut -c1-400 | head -40 || true
+          done
           python3 ios/tools/replay_bursts.py compare "$RUNNER_TEMP/reference/fast" "$RUNNER_TEMP/metal/fast" --max-psnr-drop 70 --max-off-share 0.0005 | tee -a "$RUNNER_TEMP/compare.txt"
           { echo '### Merge on Metal vs Mesa'; echo '```'; cat "$RUNNER_TEMP/compare.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
