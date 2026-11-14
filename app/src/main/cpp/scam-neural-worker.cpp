@@ -52,6 +52,7 @@ int main(int argc,char** argv) {
             if(cache&&std::getline(cache,dir)&&!dir.empty())scam::hybridProgramCacheDir()=dir;
             else if(const char* env=std::getenv("SCAM_GL_CACHE"))scam::hybridProgramCacheDir()=env;
             if(scam::hybridProgramCacheDir().empty())throw std::runtime_error("HYBRID PREWARM: no program cache");
+            scam::scamCpuCalibrationPath()=scam::hybridProgramCacheDir()+"/cpu-classes.txt"; // P682: measured by the prewarm below
             worker_crash::mark("GPU prewarm");
             scam::hybridPrewarmGpu(scam::loadHybridTuning(argv[2],report),integer(argv[3]),report);
             scam_nn::log("SCAM PREWARM OK");return 0;
@@ -75,6 +76,12 @@ int main(int argc,char** argv) {
                 if(logMs){char t[24];std::snprintf(t,sizeof(t),"[%6.0f] ",sinceStart());scam_nn::log(t+line);}
                 else scam_nn::log(line);
             };
+            { // P682: the CPU classes the prewarm measured (beside the program cache): read before any stage sizes its threads
+                std::ifstream cache(std::string(argv[2])+"/gl-cache");std::string dir;
+                if(cache&&std::getline(cache,dir)&&!dir.empty())scam::scamCpuCalibrationPath()=dir+"/cpu-classes.txt";
+                else if(const char* env=std::getenv("SCAM_GL_CACHE"))scam::scamCpuCalibrationPath()=std::string(env)+"/cpu-classes.txt";
+                report("SCAM CPU: "+scam::scamCpuInfo().note+", "+std::to_string(scam::scamComputeThreads())+" threads per stage");
+            }
             // vivo's CRE motion lives in /vendor on vivo only; elsewhere (OPPO etc.)
             // fall back to SCAMERA's own tile alignment instead of failing.
             std::unique_ptr<scam::StockMotion> motion;

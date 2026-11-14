@@ -10,15 +10,30 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
+#include <fstream>
+#include <functional>
 #include <future>
+#include <iterator>
 #include <memory>
 #include <thread>
 #include <stdexcept>
 #include <string>
 #include <vector>
+#include <dirent.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <utime.h>
 
 namespace scam {
+
+// P30: directory of the GPU program binary cache (empty = no cache), set by the worker from the job's "gl-cache" file.
+// Compiling the merge programs cost ~0.6 s of every shot (OPPO Adreno 750: 637 ms of a 702 ms init); a program loaded from
+// its own driver binary runs the identical code. (P682: here, so that the chroma median's context takes the cache too)
+inline std::string& hybridProgramCacheDir(){static std::string dir;return dir;}
+// P682: the chroma GPU's upload timed with a glFinish (tune profile 2), else the passes queue behind the upload
+inline bool& chromaGpuSyncTimes(){static bool sync=false;return sync;}
 
 static const char* kChromaGlslCommon = R"(
 precision highp float; precision highp int;
@@ -479,9 +494,69 @@ class ChromaMedianGpu {
         const GLenum e = glGetError();
         if (e != GL_NO_ERROR) throw std::runtime_error(std::string("CHROMA GPU ") + where + " GL error=" + std::to_string(e));
     }
-    static GLuint compile(const char* defs, const char* body, const char* common2 = "") {
+    // P682 (speed): the program binary cache of FastMergeGpu / LaGpu (hybridProgramCacheDir, key FNV-1a 64 of the driver and the
+    // whole source), files "cm-*.bin" of their own, the newest 48 kept (19 programs: the median 7, the post passes 5, the Quad
+    // lattice 7): the context's init compiled its programs on every shot (217 - 335 ms on the phones, the lattice's 118 - 160 ms)
+    std::string cacheDir, driver;
+    int cacheHits = 0, cacheStores = 0, cacheTrimmed = 0, programs = 0;
+    std::string cacheFile(const std::string& source) {
+        if (cacheDir.empty()) return "";
+        GLint formats = 0; glGetIntegerv(GL_NUM_PROGRAM_BINARY_FORMATS, &formats);
+        if (formats <= 0) return "";
+        uint64_t hash = 1469598103934665603ULL;
+        auto mix = [&](const std::string& text) { for (unsigned char c : text) { hash ^= c; hash *= 1099511628211ULL; } hash ^= 0xff; hash *= 1099511628211ULL; };
+        mix(driver); mix(source);
+        char name[40]; std::snprintf(name, sizeof(name), "cm-%016llx.bin", static_cast<unsigned long long>(hash));
+        return cacheDir + "/" + name;
+    }
+    GLuint loadBinary(const std::string& file) {
+        std::ifstream in(file, std::ios::binary);
+        if (!in) return 0;
+        std::vector<char> data((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        if (data.size() <= sizeof(GLenum)) return 0;
+        GLenum format = 0; std::memcpy(&format, data.data(), sizeof(format));
+        GLuint program = glCreateProgram();
+        glProgramBinary(program, format, data.data() + sizeof(format), GLsizei(data.size() - sizeof(format)));
+        GLint ok = 0; glGetProgramiv(program, GL_LINK_STATUS, &ok);
+        if (!ok || glGetError() != GL_NO_ERROR) { glDeleteProgram(program); std::remove(file.c_str()); return 0; } // another driver: compile again
+        ++cacheHits;
+        utime(file.c_str(), nullptr); // a hit is fresh for trimCache (least recently used goes first)
+        return program;
+    }
+    void storeBinary(GLuint program, const std::string& file) {
+        GLint length = 0; glGetProgramiv(program, GL_PROGRAM_BINARY_LENGTH, &length);
+        if (length <= 0) { glGetError(); return; }
+        std::vector<char> data(sizeof(GLenum) + size_t(length));
+        GLenum format = 0; GLsizei written = 0;
+        glGetProgramBinary(program, length, &written, &format, data.data() + sizeof(GLenum));
+        if (glGetError() != GL_NO_ERROR || written <= 0) return;
+        std::memcpy(data.data(), &format, sizeof(format));
+        const std::string tmp = file + ".tmp" + std::to_string(getpid());
+        { std::ofstream out(tmp, std::ios::binary | std::ios::trunc); if (!out) return; out.write(data.data(), std::streamsize(sizeof(GLenum) + size_t(written))); if (!out) { std::remove(tmp.c_str()); return; } }
+        if (std::rename(tmp.c_str(), file.c_str()) != 0) { std::remove(tmp.c_str()); return; }
+        ++cacheStores;
+    }
+    void trimCache() {
+        if (cacheDir.empty() || cacheStores <= cacheTrimmed) return;
+        cacheTrimmed = cacheStores;
+        DIR* d = opendir(cacheDir.c_str()); if (!d) return;
+        std::vector<std::pair<time_t, std::string>> files;
+        while (dirent* e = readdir(d)) {
+            std::string name = e->d_name; if (name.rfind("cm-", 0) != 0) continue;
+            struct stat st{}; if (stat((cacheDir + "/" + name).c_str(), &st) == 0) files.emplace_back(st.st_mtime, cacheDir + "/" + name);
+        }
+        closedir(d);
+        if (files.size() <= 48) return;
+        std::sort(files.begin(), files.end());
+        for (size_t i = 0; i + 48 < files.size(); ++i) std::remove(files[i].second.c_str());
+    }
+    GLuint compile(const char* defs, const char* body, const char* common2 = "") {
         const char* sources[] = {"#version 310 es\n", defs, kChromaGlslCommon, common2, body};
-        scamGlslDump("chromaGpu", std::string(sources[0]) + sources[1] + sources[2] + sources[3] + sources[4]); // P662
+        const std::string source = std::string(sources[0]) + sources[1] + sources[2] + sources[3] + sources[4];
+        ++programs;
+        const std::string file = cacheFile(source);
+        if (!file.empty()) if (GLuint cached = loadBinary(file)) return cached;
+        scamGlslDump("chromaGpu", source); // P662
         GLuint shader = glCreateShader(GL_COMPUTE_SHADER);
         glShaderSource(shader, 5, sources, nullptr);
         glCompileShader(shader);
@@ -490,10 +565,12 @@ class ChromaMedianGpu {
         if (!ok) { char msg[2048]{}; glGetShaderInfoLog(shader, sizeof(msg), nullptr, msg); glDeleteShader(shader); throw std::runtime_error(std::string("CHROMA GPU shader: ") + msg); }
         GLuint program = glCreateProgram();
         glAttachShader(program, shader);
+        if (!file.empty()) glProgramParameteri(program, GL_PROGRAM_BINARY_RETRIEVABLE_HINT, GL_TRUE);
         glLinkProgram(program);
         glDeleteShader(shader);
         glGetProgramiv(program, GL_LINK_STATUS, &ok);
         if (!ok) { char msg[2048]{}; glGetProgramInfoLog(program, sizeof(msg), nullptr, msg); glDeleteProgram(program); throw std::runtime_error(std::string("CHROMA GPU link: ") + msg); }
+        if (!file.empty()) storeBinary(program, file);
         return program;
     }
     void alloc(int slot, size_t bytes) {
@@ -546,6 +623,8 @@ class ChromaMedianGpu {
     static double ms(Clock::time_point a) { return std::chrono::duration<double, std::milli>(Clock::now() - a).count(); }
 public:
     std::string renderer, times;
+    // P682: " (programs h of n from the cache)" with a cache directory, else empty
+    std::string cacheNote() const { return cacheDir.empty() ? std::string() : " (programs " + std::to_string(cacheHits) + " of " + std::to_string(programs) + " from the cache)"; }
     ChromaMedianGpu() {
         const auto t0 = Clock::now();
         try {
@@ -563,6 +642,8 @@ public:
             if (surface == EGL_NO_SURFACE || !eglMakeCurrent(display, surface, surface, context)) throw std::runtime_error("Cannot activate GLES context");
             const auto* name = glGetString(GL_RENDERER);
             renderer = name ? reinterpret_cast<const char*>(name) : "unknown";
+            cacheDir = hybridProgramCacheDir(); // P682 (the worker set it before any shot)
+            { const auto* version = glGetString(GL_VERSION); driver = renderer + " " + (version ? reinterpret_cast<const char*>(version) : ""); }
             pRatio = compile("", kChromaGlslRatio);
             pMedian = compile("", kChromaGlslMedian);
             pBoxF = compile("#define T float\n#define HIGH_PASS 1\n", kChromaGlslBox);
@@ -572,7 +653,8 @@ public:
             pSmooth = compile("", kChromaGlslSmooth);
             glGenBuffers(kSlots, buf);
             check("init");
-            times = "init " + std::to_string(int(ms(t0)));
+            trimCache();
+            times = "init " + std::to_string(int(ms(t0))) + cacheNote();
         } catch (...) { cleanup(); throw; }
     }
     // P80: the context may be built on one thread (chromaPrewarm, during the merge) and used on another: release() on the first,
@@ -696,6 +778,7 @@ public:
         if (pQl[7]) return;
         for (int m = 1; m <= 7; ++m) pQl[m] = compile(("#define MODE " + std::to_string(m) + "\n").c_str(), kQuadLatticeGlsl);
         check("quad lattice programs");
+        trimCache();
     }
     // P531: the post passes' programs (on the prewarm's thread when chromaPrewarm(true) built the context, else on first use)
     void ensurePost() {
@@ -708,6 +791,7 @@ public:
         }
         if (!pSmoothT) pSmoothT = compile("", kPostGlslSmooth, kPostGlslCommon); // P603
         check("post programs");
+        trimCache();
     }
     // P531: rows of a strip of mosaicPost (its own rows; kPostHalo more each side: the notch after the along-edge pass reads up to 24 + 3 rows)
     static constexpr int kPostStrip = 1024, kPostHalo = 32; // P543: the Tetra notch reads 24 + 3 rows
@@ -723,11 +807,13 @@ public:
     void mosaicPost(std::vector<float>& rgb, int width, int height, const std::vector<float>& eff, int dx, int dy, float alongK,
                     float alongStrength, int alongS, const float* notch, const float* cosT, const float* sinT, const float* gN, size_t* changed,
                     int notchPeriod = 10, int notchR = 6, float notchGateLo = 1.2f, float notchGateHi = 2.5f,
-                    const float* smooth = nullptr, size_t* smoothChanged = nullptr) { // P603: smooth = lo, hi, strength, k, S, O
+                    const float* smooth = nullptr, size_t* smoothChanged = nullptr, // P603: smooth = lo, hi, strength, k, S, O
+                    const std::function<void(int, int, float*)>* effRows = nullptr) { // P682: eff's rows [y0, y1) made per strip (eff unused)
         if (notchPeriod < 2 || notchPeriod > 10 || notchR < 1 || notchR > 24) throw std::runtime_error("POST GPU: notch spec");
         const int W = width, H = height;
         auto t = Clock::now();
-        if (W < 8 || H < 8 || eff.size() < size_t(W) * H || rgb.size() < size_t(W) * H * 3) throw std::runtime_error("POST GPU: sizes");
+        if (W < 8 || H < 8 || (!effRows && eff.size() < size_t(W) * H) || rgb.size() < size_t(W) * H * 3) throw std::runtime_error("POST GPU: sizes");
+        std::vector<float> effStage; // P682: a strip's coverage rows (effRows)
         GLint64 maxBlock = 0;
         glGetInteger64v(GL_MAX_SHADER_STORAGE_BLOCK_SIZE, &maxBlock);
         int strip = std::min(H, std::max(postStrip, 64));
@@ -769,10 +855,13 @@ public:
             glBindBuffer(GL_SHADER_STORAGE_BUFFER, buf[kPostA]);
             glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, GLsizeiptr(size_t(rows) * W * 12), rgb.data() + size_t(ga) * W * 3);
             glBindBuffer(GL_SHADER_STORAGE_BUFFER, buf[kPostEff]);
-            glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, GLsizeiptr(size_t(e1 - e0) * W * 4), eff.data() + size_t(e0) * W);
+            const float* effSrc = eff.data() + size_t(e0) * W;
+            if (effRows) { effStage.resize(size_t(e1 - e0) * W); (*effRows)(e0, e1, effStage.data()); effSrc = effStage.data(); }
+            glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, GLsizeiptr(size_t(e1 - e0) * W * 4), effSrc);
             check("post upload");
             if (pendingY >= 0) { std::copy(pending.begin(), pending.end(), rgb.begin() + std::ptrdiff_t(size_t(pendingY) * W * 3)); postCommitted = y0; }
-            glFinish(); upMs += ms(u); u = Clock::now();
+            if (chromaGpuSyncTimes()) glFinish(); // P682: profile only (the passes queue behind the upload)
+            upMs += ms(u); u = Clock::now();
             w = W; h = rows;
             int cur = kPostA, other = kPostB;
             auto common = [&](GLuint p) {
@@ -869,7 +958,10 @@ public:
         ensure(kOsc, rawOsc ? osc->size() * 4 : 16);
         if (rawOsc) glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, GLsizeiptr(osc->size() * 4), osc->data());
         check("upload");
-        glFinish(); times += " upload " + std::to_string(int(ms(t))); t = Clock::now();
+        // P682: no glFinish after the upload (it held the passes until the copy had landed) unless the merge profiles (tune profile 2:
+        // chromaGpuSyncTimes); the passes' time then counts the copy's GPU side (the map below waits for both, as before)
+        if (chromaGpuSyncTimes()) glFinish();
+        times += " upload " + std::to_string(int(ms(t))); t = Clock::now();
         // ratios and luma
         glUseProgram(pRatio);
         bind(0, kRgb); bind(1, kUv); bind(2, kL);
