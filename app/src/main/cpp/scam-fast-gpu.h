@@ -115,8 +115,20 @@ float refusal(ivec2 p){
 }
 // how clipped the base frame's own quad is: its second-highest channel (both greens for a G-clipped sky) at 90-97 % of the range;
 // a quad the thin wire crosses has one green below - not filled, so the wire keeps its edge (one channel gave a staircase)
+// P686 (owner, 2026-11-14, a 50 MP Quad shot: pink windows with white dots): > 0 = a Quad (1) / Tetra (2) stream, its HALF texel
+// holds four sites of ONE colour (the colours alternate every u_block texels): its own colour and the three others from the cells
+// beside it. Read as one Bayer quad, a refused pixel over an R cell (measured below the clip) was never filled and every ray stopped
+// there: a refused band kept the base's pink partial clip, dotted per cell. 0 = a Bayer quad per texel (as before)
+uniform int u_block;
+float cellAt(ivec2 t){return dot((texelFetch(u_base_bayer,t,0)-u_black)/max(u_white-u_black,vec4(1.0)),vec4(0.25));}
 float baseClip(ivec2 p){
-    vec4 q=(texelFetch(u_base_bayer,p*u_half/u_size,0)-u_black)/max(u_white-u_black,vec4(1.0));
+    vec4 q;
+    if(u_block>0){
+        ivec2 h=p*u_half/u_size;int k=u_block;
+        int xl=max((h.x/k)*k-1,0),xr=min((h.x/k)*k+k,u_half.x-1),yu=max((h.y/k)*k-1,0),yd=min((h.y/k)*k+k,u_half.y-1);
+        q=vec4(cellAt(h),0.5*(cellAt(ivec2(xl,h.y))+cellAt(ivec2(xr,h.y))),0.5*(cellAt(ivec2(h.x,yu))+cellAt(ivec2(h.x,yd))),
+               0.25*(cellAt(ivec2(xl,yu))+cellAt(ivec2(xr,yu))+cellAt(ivec2(xl,yd))+cellAt(ivec2(xr,yd))));
+    } else q=(texelFetch(u_base_bayer,p*u_half/u_size,0)-u_black)/max(u_white-u_black,vec4(1.0));
     float second=max(max(min(q.r,q.g),min(q.b,q.a)),min(max(q.r,q.g),max(q.b,q.a))); // second-highest of four
     return smoothstep(0.90,0.97,second);
 }
@@ -274,8 +286,10 @@ void main(){
         vec4 b=texelFetch(u_accum_weights_gb,p-ivec2(0,u_acc_row0),0);
         vec3 wt=max(vec3(a.a,b.r,b.g),vec3(1.0e-6));
         vec3 v=max(a.rgb/wt*u_inv_wb,vec3(0.0));
+        float af=0.0; // P686: how far the fill below replaced this pixel
         if(u_fill>0){
-            float a=refusal(p)*baseClip(p)*smoothstep(0.8,0.9,max(v.r,max(v.g,v.b)));
+            float rf=refusal(p); // P686: the base's cells read only where the short frames were refused
+            float a=rf>0.0?rf*baseClip(p)*smoothstep(0.8,0.9,max(v.r,max(v.g,v.b))):0.0;
             // across the wire only when nothing else is in reach: a strip the flow left without data between the frame's edge and
             // a wire (SCA_20261104_073312, its top left corner) stayed the base's pink clip
             if(a>0.0){
@@ -285,11 +299,15 @@ void main(){
                     float full=(two?1.0:0.0)*smoothstep(0.95,1.05,fm/max(vm,1.0e-6));
                     fv.rgb=mix(fv.rgb,mix(fv.rgb*(vm/max(fm,1.0e-6)),fv.rgb,full),clamp(u_fill_light,0.0,1.0));
                 }
-                if(fv.a>0.0)v=mix(v,fv.rgb,a);
+                if(fv.a>0.0){v=mix(v,fv.rgb,a);af=a;}
             }
         }
+        vec3 vf=v;
         if(u_quad_lift>0.0)v=quadDeLattice(p,v);
         if(u_moire>0.0)v=deGrid(p,antiMoire(p,v));
+        // P686: the Quad filters read the merge's own (unfilled) neighbours: over a filled band their notch / local mean brought the
+        // refused pixels' partial clip back (the fill had no effect on a Quad stream); the filled light is smooth and kept
+        if(af>0.0&&(u_quad_lift>0.0||u_moire>0.0))v=mix(v,vf,af);
         c[k]=v;
         float cf=b.z/max(b.w,1.0e-6);
         uint f=0u;

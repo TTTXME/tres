@@ -100,6 +100,9 @@ LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_fast_clip_fl
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_fast_quad_detail.py
 # P607: the fast route's hole fill only between two sides of recovered light (kFastOutput fill, u_fill_light): a lamp keeps its falloff
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_fast_light_fill.py
+# P686: the fast route's highlight path on Quad / Tetra (one colour per HALF texel): the short frame's recovery per colour (no 2.15 x
+# white islands), the validation against the base texel's own colour (no pink sky refused by an odd flow), refused bands filled
+LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_fast_quad_highlights.py
 # P607: why/combine HL_LOCAL does not darken a light's falloff (HL_LOCAL_RIM), window detail as before
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_hl_local_rim.py
 # P623: the fast merge's measured light above white on the real-headroom shoulder: the sun's glow without a grey ring

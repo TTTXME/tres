@@ -475,6 +475,8 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
     // stage 4: a 4x4 colour-block stream (Tetra / Quad-Quad) takes the same programs with cfa_sensor_type 2 and merge_quad_quad (sh103)
     const bool quad=mosaicBlock==2||mosaicBlock==4;
     const int sensorType=mosaicBlock==4?2:1; // (quad only)
+    // P686: HALF texels per colour run for the highlight path's own reads of a texel (0: a Bayer quad per texel; Quad 1, Tetra 2)
+    const int hlBlock=quad?(sensorType==2?2:1):0;
     // its white balance: the grey world over whole 4x4 colour periods (hybridBlendWb reads 2x2 Bayer cells)
     auto quadWb=[&]{
         if(tune.wbR>0.f&&tune.wbB>0.f)return hybridBlendWb(input,tune);
@@ -1258,6 +1260,7 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
             g.u1i(A::pShortRecover,"u_width",w2);g.u1i(A::pShortRecover,"u_height",h2);g.u1i(A::pShortRecover,"u_cfa_pattern",cfa);
             g.u4f(A::pShortRecover,"u_black_level",blackSensor);g.u1f(A::pShortRecover,"u_white_level",input.white);
             g.u4f(A::pShortRecover,"u_wb_gains",wb[0],wb[1],wb[2],1.f);
+            g.u1i(A::pShortRecover,"u_block",hlBlock);g.u1i(A::pShortRecover,"u_row1",0); // P686: Quad / Tetra cells of one colour
             lutFrame=&fr;frontEnd(fr.raw,sf.bayer,sf.fGuide,sf.guide,pyrC,fPyrC,next,lf.ev,fr.slope,fr.offset,bayerCur);
         } else {lutFrame=&fr;frontEnd(fr.raw,slotBayer[slot],slotGuideFbo[slot],guideCur,pyrC,fPyrC,next,lf.ev,fr.slope,fr.offset);}
         // global homography (§5.3): KLT of the base corners into the frame's 8-bit L1 guide, RANSAC on the GPU
@@ -1312,6 +1315,7 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
             g.u4f(A::pHlValidate,"u_flow_scale_offset",sfx,sfy,0.f,0.f);g.u4f(A::pHlValidate,"u_black_level",blackSensor);
             g.u1f(A::pHlValidate,"u_white_level",input.white);g.u1f(A::pHlValidate,"u_ev_scale",lf.ev);
             g.u1i(A::pHlValidate,"u_is_first_short",shortsDone==0);g.u1f(A::pHlValidate,"u_err_thresh",0.8f);g.u3f(A::pHlValidate,"u_wb",wb[0],wb[1],wb[2]);
+            g.u1i(A::pHlValidate,"u_block",hlBlock);g.u1i(A::pHlValidate,"u_cfa_pattern",cfa); // P686: the base texel's colour
             g.draw(A::pHlValidate,fHlValid,w2,h2,1);
             // quarantine blocks (sh100) and the safety gate (sh018, sums read back): rejected when the homography failed (inliers
             // < 65 % or a shift > 15 px), motion (invalid / mask) > 0.35 or clip (clipped / mask) > 0.35; then every short frame is off
@@ -1539,7 +1543,7 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
         bEff=g.readBuffer(size_t(w2)*h2*4);
         g.tex(A::pOutput,"u_accum_color_r",0,acc0);g.tex(A::pOutput,"u_accum_weights_gb",1,acc1);g.tex(A::pOutput,"u_frame_weights",2,accW);
         g.u2i(A::pOutput,"u_size",OW,OH);g.u2i(A::pOutput,"u_half",w2,h2);
-        g.u3f(A::pOutput,"u_inv_wb",1.f/wb[0],1.f/wb[1],1.f/wb[2]);g.u1f(A::pOutput,"u_clip",0.94f);g.u1f(A::pOutput,"u_clip_short",validShorts>0?clipShort():0.f);g.u1i(A::pOutput,"u_fill",validShorts>0?outFill:0);g.u1f(A::pOutput,"u_fill_light",std::clamp(tune.fastLightFill,0.f,1.f));g.u1f(A::pOutput,"u_quad_lift",quadLift&&validShorts>0?1.f:0.f);g.u1f(A::pOutput,"u_moire",moire);g.u1f(A::pOutput,"u_step",float(OW)/float(W));g.tex(A::pOutput,"u_hl_base",3,bento?hlBase:zeroMask);g.tex(A::pOutput,"u_hl_final",4,hlMaskTex);g.tex(A::pOutput,"u_base_bayer",5,bayerBase);g.u4f(A::pOutput,"u_black",blackSensor);g.u1f(A::pOutput,"u_white",input.white);
+        g.u3f(A::pOutput,"u_inv_wb",1.f/wb[0],1.f/wb[1],1.f/wb[2]);g.u1f(A::pOutput,"u_clip",0.94f);g.u1f(A::pOutput,"u_clip_short",validShorts>0?clipShort():0.f);g.u1i(A::pOutput,"u_fill",validShorts>0?outFill:0);g.u1f(A::pOutput,"u_fill_light",std::clamp(tune.fastLightFill,0.f,1.f));g.u1f(A::pOutput,"u_quad_lift",quadLift&&validShorts>0?1.f:0.f);g.u1f(A::pOutput,"u_moire",moire);g.u1f(A::pOutput,"u_step",float(OW)/float(W));g.tex(A::pOutput,"u_hl_base",3,bento?hlBase:zeroMask);g.tex(A::pOutput,"u_hl_final",4,hlMaskTex);g.tex(A::pOutput,"u_base_bayer",5,bayerBase);g.u1i(A::pOutput,"u_block",hlBlock);g.u4f(A::pOutput,"u_black",blackSensor);g.u1f(A::pOutput,"u_white",input.white);
         // P596: the de-grid's «flat» from the merged noise, its line notch where few frames merged (Quad; Tetra as before)
         g.u4f(A::pOutput,"u_flat_noise",S,O,quad&&sensorType==1?std::clamp(tune.fastQuadFlatNoise,0.f,8.f):0.f,quad&&sensorType==1?std::clamp(tune.fastQuadLineFrames,0.f,64.f):0.f);
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER,2,bEff);
@@ -1691,9 +1695,9 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
         if(unpackTo){ // a short frame: sh011 over its unpacked rows
             g.tex(A::pShortRecover,"u_input_extracted",0,unpackTo);
             glBindImageTexture(1,bayer,0,GL_FALSE,0,GL_WRITE_ONLY,GL_RGBA16F);
-            g.u1i(A::pShortRecover,"u_row0",qa);
+            g.u1i(A::pShortRecover,"u_row0",qa);g.u1i(A::pShortRecover,"u_row1",qb); // P686: its neighbours within the rows unpacked
             g.dispatch(A::pShortRecover,(w2+15)/16,(qb-qa+15)/16);
-            g.u1i(A::pShortRecover,"u_row0",0);
+            g.u1i(A::pShortRecover,"u_row0",0);g.u1i(A::pShortRecover,"u_row1",0);
             glMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT|GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
         }
         if(profile)lap(13); // P567: phase B's upload + unpack + hot pixels (profile only: no extra flushes)
@@ -1713,7 +1717,7 @@ inline std::vector<float> hybridFastMerge(const HybridInput& input,const HybridT
     const GLuint bRgbS=g.readBuffer(size_t(OW)*stripRows*6),bFlagsS=g.readBuffer(size_t(OW)*stripRows);
     g.tex(A::pOutput,"u_accum_color_r",0,acc0);g.tex(A::pOutput,"u_accum_weights_gb",1,acc1);g.tex(A::pOutput,"u_frame_weights",2,accW);
     g.u2i(A::pOutput,"u_size",OW,OH);g.u2i(A::pOutput,"u_half",w2,h2);
-    g.u3f(A::pOutput,"u_inv_wb",1.f/wb[0],1.f/wb[1],1.f/wb[2]);g.u1f(A::pOutput,"u_clip",0.94f);g.u1f(A::pOutput,"u_clip_short",validShorts>0?clipShort():0.f);g.u1i(A::pOutput,"u_fill",validShorts>0?outFill:0);g.u1f(A::pOutput,"u_fill_light",std::clamp(tune.fastLightFill,0.f,1.f));g.u1f(A::pOutput,"u_quad_lift",quadLift&&validShorts>0?1.f:0.f);g.u1f(A::pOutput,"u_moire",moire);g.u1f(A::pOutput,"u_step",float(OW)/float(W));g.tex(A::pOutput,"u_hl_base",3,bento?hlBase:zeroMask);g.tex(A::pOutput,"u_hl_final",4,hlMaskTex);g.tex(A::pOutput,"u_base_bayer",5,bayerBase);g.u4f(A::pOutput,"u_black",blackSensor);g.u1f(A::pOutput,"u_white",input.white);
+    g.u3f(A::pOutput,"u_inv_wb",1.f/wb[0],1.f/wb[1],1.f/wb[2]);g.u1f(A::pOutput,"u_clip",0.94f);g.u1f(A::pOutput,"u_clip_short",validShorts>0?clipShort():0.f);g.u1i(A::pOutput,"u_fill",validShorts>0?outFill:0);g.u1f(A::pOutput,"u_fill_light",std::clamp(tune.fastLightFill,0.f,1.f));g.u1f(A::pOutput,"u_quad_lift",quadLift&&validShorts>0?1.f:0.f);g.u1f(A::pOutput,"u_moire",moire);g.u1f(A::pOutput,"u_step",float(OW)/float(W));g.tex(A::pOutput,"u_hl_base",3,bento?hlBase:zeroMask);g.tex(A::pOutput,"u_hl_final",4,hlMaskTex);g.tex(A::pOutput,"u_base_bayer",5,bayerBase);g.u1i(A::pOutput,"u_block",hlBlock);g.u4f(A::pOutput,"u_black",blackSensor);g.u1f(A::pOutput,"u_white",input.white);
     // P596: the de-grid's «flat» from the merged noise, its line notch where few frames merged (Quad; Tetra as before)
     g.u4f(A::pOutput,"u_flat_noise",S,O,quad&&sensorType==1?std::clamp(tune.fastQuadFlatNoise,0.f,8.f):0.f,quad&&sensorType==1?std::clamp(tune.fastQuadLineFrames,0.f,64.f):0.f);
     out=outAlloc.get();
