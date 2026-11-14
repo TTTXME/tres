@@ -147,7 +147,8 @@ public class FullResRecipeStoreTest {
                 "putString(SensorModePick.prefKey(slot), \"-1\")", "truth.line(\"FULLRES ROW\")",
                 "включите «Полное разрешение (рецепт)» в настройках объектива", "mainHandler().post(this::restartCamera);");
         ordered(src, "private void xiaomiRowFrame(Image img, TotalCaptureResult result) {", "final FullResTruth.Result truth = FullResTruth.check(",
-                "if (truth.notReal(true) && PreferenceKeys.scamDevSwitch(\"fullres_row_truth\", true)) rowNotReal(pick, truth);");
+                // P695: only a plain 16-bit frame is judged (a RAW10 row is unpacked for the frame lines alone)
+                "if (plain && truth.notReal(true) && PreferenceKeys.scamDevSwitch(\"fullres_row_truth\", true)) rowNotReal(pick, truth);");
         // an unproven recipe: one proof still after the first preview result, its frame judged before the owner shoots
         ordered(src, "if (mRecipeProof == 2 && mRecipePlan != null && !mNativeRawPslCapture && !mScamRouted) {", "recipeProofFrame(proof);",
                 "if (mRecipeProof == 1 && mRecipePlan != null && session == mCaptureSession) sendRecipeProof();",

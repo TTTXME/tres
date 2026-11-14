@@ -28,6 +28,7 @@ English copy of CHANGELOG.md (the Russian file is the one posted to Telegram), f
 
 - Quad and Tetra: windows and sunlit patches without pink and white islands; coloured lights keep their colour.
 - Quad: the sharpening no longer makes steps and a grid on the edges of dark objects on a bright background; detail is kept.
+- Xiaomi 15 Ultra 4x ISZ (16.4x): the viewfinder and the photo are no longer purple.
 
 ## 2026-11-14 — Xiaomi 17 Ultra: LOFIC
 

@@ -122,6 +122,66 @@ public class XiaomiSensorRowTest {
         assertFalse(XiaomiSensorRow.takeFrameLog("2", 11));
     }
 
+    /** P695: the first frame and then one every 3 s, five lines a session; the first-frame API as before. */
+    @Test public void aSessionsFrameLinesComeEveryThreeSeconds() {
+        try {
+            XiaomiSensorRow.armFrameLog("5", SensorModePick.of(6, XiaomiPeriscopeIszTest.PERISCOPE), true);
+            assertEquals("another camera", -1, XiaomiSensorRow.takeFrameLog("4", 6, 1000));
+            assertEquals("another row", -1, XiaomiSensorRow.takeFrameLog("5", 2, 1000));
+            assertEquals(0, XiaomiSensorRow.takeFrameLog("5", 6, 1000));
+            assertEquals(-1, XiaomiSensorRow.takeFrameLog("5", 6, 1100));
+            assertEquals(1, XiaomiSensorRow.takeFrameLog("5", 6, 4000));
+            assertEquals(-1, XiaomiSensorRow.takeFrameLog("5", 6, 6999));
+            assertEquals(2, XiaomiSensorRow.takeFrameLog("5", 6, 7000));
+            assertEquals(3, XiaomiSensorRow.takeFrameLog("5", 6, 10000));
+            assertEquals(4, XiaomiSensorRow.takeFrameLog("5", 6, 13000));
+            assertEquals("five lines a session", -1, XiaomiSensorRow.takeFrameLog("5", 6, 60000));
+            XiaomiSensorRow.armFrameLog("5", SensorModePick.of(6, XiaomiPeriscopeIszTest.PERISCOPE), true);
+            assertTrue("the first-frame call as before", XiaomiSensorRow.takeFrameLog("5", 6));
+            assertFalse(XiaomiSensorRow.takeFrameLog("5", 6));
+            assertEquals(-1, XiaomiSensorRow.takeFrameLog("5", 6, 99000));
+        } finally {
+            XiaomiSensorRow.armFrameLog(null, null, false);
+        }
+    }
+
+    /** A frame whose every row is one line of the scene (rows repeat), or, {@code columns}, whose every column is one. */
+    static ByteBuffer repeated(boolean columns, long seed) {
+        final Random r = new Random(seed);
+        final int[] line = new int[Math.max(W, H)];
+        for (int i = 0; i < line.length; i++) line[i] = 100 + r.nextInt(600);
+        final ByteBuffer b = ByteBuffer.allocateDirect(W * H * 2).order(ByteOrder.LITTLE_ENDIAN);
+        for (int y = 0; y < H; y++) for (int x = 0; x < W; x++) b.putShort((y * W + x) * 2, (short) line[columns ? y : x]);
+        return b;
+    }
+
+    /** P695: the frame line tells a picture from a frame whose rows (or columns) repeat - the stripes of the owner's screenshot. */
+    @Test public void theRepeatStatisticsTellStripesFromAPicture() {
+        assertEquals("a picture", XiaomiSensorRow.repeatText(XiaomiSensorRow.repeatStats(frame(false, 64, 3, 11), W, H, W * 2, 64f)));
+        assertEquals("a picture", XiaomiSensorRow.repeatText(XiaomiSensorRow.repeatStats(frame(true, 64, 3, 12), W, H, W * 2, 64f)));
+        final double[] rows = XiaomiSensorRow.repeatStats(repeated(false, 13), W, H, W * 2, 64f);
+        assertEquals(0.0, rows[0], 0.0);
+        assertTrue(rows[1] > 50);
+        assertEquals("ROWS REPEAT (stripes)", XiaomiSensorRow.repeatText(rows));
+        assertEquals("COLUMNS REPEAT (stripes)", XiaomiSensorRow.repeatText(XiaomiSensorRow.repeatStats(repeated(true, 14), W, H, W * 2, 64f)));
+        final ByteBuffer black = ByteBuffer.allocateDirect(W * H * 2).order(ByteOrder.LITTLE_ENDIAN);
+        assertEquals("too dark to tell", XiaomiSensorRow.repeatText(XiaomiSensorRow.repeatStats(black, W, H, W * 2, 0f)));
+        assertEquals("too dark to tell", XiaomiSensorRow.repeatText(XiaomiSensorRow.repeatStats(null, W, H, W * 2, 0f)));
+    }
+
+    @Test public void aLaterFrameLineHasItsExposure() {
+        final String t = XiaomiSensorRow.laterText(1, 37, 13_027_175L, 100, repeated(false, 15), W, H, W * 2);
+        assertTrue(t, t.contains("frame line 2/5"));
+        assertTrue(t, t.contains("format 37 unpacked"));
+        assertTrue(t, t.contains("exposure 13.027 ms ISO 100"));
+        assertTrue(t, t.contains("ROWS REPEAT"));
+        assertTrue(t, t.contains("P695"));
+        final String plain = XiaomiSensorRow.laterText(0, null, null, null, frame(false, 64, 3, 16), W, H, W * 2);
+        assertFalse(plain, plain.contains("unpacked"));
+        assertTrue(plain, plain.contains("exposure ? ISO ?"));
+        assertTrue(plain, plain.contains("a picture"));
+    }
+
     // ---------------------------------------------------------------- frames
 
     static final int W = 512, H = 384;

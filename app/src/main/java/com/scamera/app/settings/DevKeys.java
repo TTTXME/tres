@@ -722,6 +722,9 @@ public final class DevKeys {
         k.add(n(xiaomi15, "xiaomi_dcg_opmode", String.valueOf(com.scamera.app.capture.XiaomiDcg.OPERATION_MODE), Lang.t("DCG: режим работы сессии (37379 = 0x9203, 0 — без него)", "DCG: session operation mode (37379 = 0x9203, 0 none)")));
         k.add(n(xiaomi15, "xiaomi_dcg_mode", String.valueOf(com.scamera.app.capture.XiaomiDcg.DCG_MODE), Lang.t("DCG: current_mode сенсора (24; -1 — не задавать)", "DCG: sensor current_mode (24; -1 not set)")));
         k.add(n(xiaomi15, "xiaomi_dcg_fps", String.valueOf(com.scamera.app.capture.XiaomiDcg.FPS), Lang.t("DCG: кадров в секунду (0 — как в видоискателе)", "DCG: frames per second (0 as the viewfinder)")));
+        // P695: the periscope's 4x ISZ rows 6 / 17 (the HAL's row map) declared a Tetra block
+        k.add(s(xiaomi15, "xiaomi15_isz_block", true, Lang.t("Перископ: режимы сенсора 6 / 17 (4x ISZ) — мозаика Tetra по карте режимов HAL (кадры всё равно проверяются)",
+                "Periscope: sensor modes 6 / 17 (4x ISZ) are a Tetra mosaic by the HAL's row map (the frames are still measured)")));
         k.add(n(xiaomi15, "dcg_band_crop", "1", Lang.t("DCG (15 Ultra, X200 Ultra): пустые строки под режимом (0 — не резать, 1 — если пустые, 2 — всегда снизу)", "DCG (15 Ultra, X200 Ultra): empty rows under the mode (0 keep, 1 cut when empty, 2 always the bottom)")));
         // vivo
         k.add(s(vivo, "vivo_sdk_fullres", true, Lang.t("X200 Ultra, основная камера 3: SDK RAW 50 Мп, последовательная съёмка после нажатия, Hybrid", "X200 Ultra, main camera 3: SDK 50 MP RAW, serial post-shutter capture, Hybrid")));

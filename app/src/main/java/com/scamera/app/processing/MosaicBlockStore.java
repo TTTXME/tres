@@ -80,6 +80,20 @@ public final class MosaicBlockStore {
         return block;
     }
 
+    /**
+     * P695: the stored block of {@code key} set to {@code block} at once - a session's confident measurements contradicted the stored
+     * block with none for it, or the camera's row map declares another mosaic (MosaicStream). Returns the block stored afterwards.
+     */
+    public synchronized int replace(String key, int block, String source) {
+        if (!storable(key) || (block != 1 && block != 2 && block != 4)) return stored(key);
+        final int current = stored(key);
+        disagreement.remove(key);
+        if (current == block) return block;
+        backing.put(key, block);
+        Log.i(TAG, "block of " + key + " replaced: " + current + " -> " + block + " (" + source + ")");
+        return block;
+    }
+
     // ---- the app's instance -------------------------------------------------------------------------------------------
 
     private static volatile MosaicBlockStore instance;
