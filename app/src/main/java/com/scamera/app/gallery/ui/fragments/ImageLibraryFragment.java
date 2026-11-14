@@ -54,6 +54,8 @@ import com.scamera.app.gallery.ui.GalleryUi;
 import com.scamera.app.gallery.ui.GalleryUndo;
 import com.scamera.app.gallery.ui.LibraryAdapter;
 import com.scamera.app.gallery.ui.SelectionBar;
+import com.scamera.app.gallery.ui.MoveCopyFlow;
+import com.scamera.app.gallery.files.GalleryMoveCopy;
 import com.scamera.app.gallery.viewmodel.GalleryViewModel;
 import com.scamera.app.settings.PreferenceKeys;
 import com.scamera.app.ui.Motion;
@@ -263,7 +265,7 @@ public class ImageLibraryFragment extends Fragment implements LibraryAdapter.Hos
         trash.view.setVisibility(View.GONE);
 
         bar = new SelectionBar(c, this::clearSelection, this::compareSelected, this::shareSelected, this::deleteSelected,
-                this::favouriteSelected, this::selectAll);
+                this::favouriteSelected, this::selectAll, this::folderMenu);
         selectionBar = bar.view;
         root.addView(selectionBar, GalleryTabBar.tabParams(c));
         selectionBar.setVisibility(View.GONE);
@@ -888,6 +890,9 @@ public class ImageLibraryFragment extends Fragment implements LibraryAdapter.Hos
             dragBase = new LinkedHashSet<>(selection.getSelectedItems());
             onSelectionChanged();
         }));
+        // P697: into a folder
+        for (GalleryMoveCopy.Mode mode : GalleryMoveCopy.Mode.values())
+            items.add(new GalleryMenu.Item(MoveCopyFlow.icon(mode), MoveCopyFlow.label(mode), true, () -> only(g, () -> toFolder(mode))));
         items.add(new GalleryMenu.Item(R.drawable.ui_ic_trash, Lang.t("Удалить", "Delete"), true, () -> only(g, this::deleteSelected)));
         GalleryMenu.show(anchor, items);
     }
@@ -1034,6 +1039,29 @@ public class ImageLibraryFragment extends Fragment implements LibraryAdapter.Hos
         share.setType(GalleryUi.shareType(s.stream().map(g -> g.mediaFile().displayName()).collect(Collectors.toList())));
         share.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
         startActivity(Intent.createChooser(share, null));
+    }
+
+    /** P697: the selection bar's «В папку»: «Переместить в папку» / «Копировать в папку» from the button. */
+    private void folderMenu(View anchor) {
+        if (selection.getSelectedItems().isEmpty()) return;
+        List<GalleryMenu.Item> items = new ArrayList<>();
+        for (GalleryMoveCopy.Mode mode : GalleryMoveCopy.Mode.values())
+            items.add(new GalleryMenu.Item(MoveCopyFlow.icon(mode), MoveCopyFlow.label(mode), true, () -> toFolder(mode)));
+        GalleryMenu.show(anchor, items);
+    }
+
+    /**
+     * P697: the selected photos and videos moved / copied into a folder (MoveCopyFlow: the folder sheet, the work, the toasts);
+     * after it the selection is cleared and the lists are read again (the open album too).
+     */
+    private void toFolder(GalleryMoveCopy.Mode mode) {
+        List<MediaFile> files = selection.getSelectedItems().stream().map(GalleryItem::mediaFile).collect(Collectors.toList());
+        if (files.isEmpty() || getActivity() == null) return;
+        final GalleryViewModel vm = library;
+        MoveCopyFlow.start(requireActivity(), mode, files, () -> {
+            if (getView() != null && adapter != null) clearSelection();
+            if (vm != null) vm.setUpdatePending(true);
+        });
     }
 
     private List<GalleryItem> pendingDelete = new ArrayList<>();
