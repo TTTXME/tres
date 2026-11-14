@@ -105,6 +105,11 @@ targets:
         NSCameraUsageDescription: SCAMERA uses the camera to take photos.
         NSPhotoLibraryAddUsageDescription: SCAMERA saves the photos you take to your library.
         NSPhotoLibraryUsageDescription: SCAMERA shows your photos in its gallery and saves edited copies.
+        # the Home Screen quick action «Настройки» (Android's launcher shortcut, res/xml/shortcuts.xml); the title from InfoPlist.strings
+        UIApplicationShortcutItems:
+          - UIApplicationShortcutItemType: com.scamera.ios.settings
+            UIApplicationShortcutItemTitle: shortcut_settings_short
+            UIApplicationShortcutItemIconSymbolName: gearshape
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.scamera.ios

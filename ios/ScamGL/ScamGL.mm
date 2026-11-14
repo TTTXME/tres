@@ -13,6 +13,7 @@
 
 #include "ScamGLCompiler.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <cmath>
@@ -130,6 +131,9 @@ std::unordered_map<GLuint, Shader> gShaders;
 std::unordered_map<GLuint, Program> gPrograms;
 std::unordered_map<GLuint, Framebuffer> gFramebuffers;
 std::unordered_map<std::string, std::shared_ptr<Linked>> gLinkCache;
+// every program linked in this process, in order ("C\n" + compute source, or linkRender's "R\n" key): the first-run compile's
+// recipes (scamgl_save_programs / scamgl_warm_programs)
+std::vector<std::string> gRecorded;
 GLuint gNextName = 1;
 thread_local Context* gCurrent = nullptr;
 
@@ -524,6 +528,7 @@ std::shared_ptr<Linked> linkCompute(const std::string& source) {
         return linked;
     }
     gLinkCache[source] = linked;
+    gRecorded.push_back("C\n" + source);
     note("linked " + linked->compiled.entry + " local " + std::to_string(l[0]) + "x" + std::to_string(l[1]) + "x" + std::to_string(l[2]));
     return linked;
 }
@@ -570,6 +575,7 @@ std::shared_ptr<Linked> linkRender(const std::string& vs, const std::string& fs)
     linked->fragment = functionOf(linked->compiled, linked->log);
     if (!linked->fragment) return linked;
     gLinkCache[key] = linked;
+    gRecorded.push_back(key);
     note("linked render program " + linked->compiled.entry);
     return linked;
 }
@@ -1557,5 +1563,73 @@ void glGenQueries(GLsizei n, GLuint* names) {
     for (GLsizei i = 0; i < n; ++i) names[i] = newName();
 }
 void glDeleteQueries(GLsizei, const GLuint*) {}
+
+// FirstRunCompile (P470 on the iPhone): the programs this process linked are kept as recipes (length-prefixed sources, the
+// ones of earlier recipes first) so a later first-run compile builds them all before the first shot needs one; Metal keeps the
+// compiled functions in its own cache across launches.
+size_t scamgl_program_count(void) {
+    Guard g(gLock);
+    return gRecorded.size();
+}
+
+int scamgl_save_programs(const char* path) {
+    std::vector<std::string> keys;
+    {
+        Guard g(gLock);
+        keys = gRecorded;
+    }
+    std::vector<std::string> all;
+    if (FILE* in = std::fopen(path, "rb")) {
+        uint32_t n = 0;
+        while (std::fread(&n, 4, 1, in) == 1 && n < (64u << 20)) {
+            std::string k(n, '\0');
+            if (n && std::fread(&k[0], 1, n, in) != n) break;
+            all.push_back(k);
+        }
+        std::fclose(in);
+    }
+    for (const auto& k : keys) if (std::find(all.begin(), all.end(), k) == all.end()) all.push_back(k);
+    if (all.size() > 400) all.erase(all.begin(), all.begin() + (all.size() - 400));
+    const std::string tmp = std::string(path) + ".tmp";
+    FILE* out = std::fopen(tmp.c_str(), "wb");
+    if (!out) return -1;
+    for (const auto& k : all) {
+        const uint32_t n = uint32_t(k.size());
+        std::fwrite(&n, 4, 1, out);
+        std::fwrite(k.data(), 1, n, out);
+    }
+    std::fclose(out);
+    std::rename(tmp.c_str(), path);
+    return int(all.size());
+}
+
+int scamgl_warm_programs(const char* path, void (*progress)(int done, int total, void* context), void* context) {
+    std::vector<std::string> keys;
+    if (FILE* in = std::fopen(path, "rb")) {
+        uint32_t n = 0;
+        while (std::fread(&n, 4, 1, in) == 1 && n < (64u << 20)) {
+            std::string k(n, '\0');
+            if (n && std::fread(&k[0], 1, n, in) != n) break;
+            keys.push_back(k);
+        }
+        std::fclose(in);
+    }
+    int built = 0;
+    for (size_t i = 0; i < keys.size(); ++i) {
+        if (progress) progress(int(i), int(keys.size()), context);
+        const std::string& k = keys[i];
+        Guard g(gLock);
+        std::shared_ptr<Linked> l;
+        if (k.rfind("C\n", 0) == 0) {
+            l = linkCompute(k.substr(2));
+        } else if (k.rfind("R\n", 0) == 0) {
+            const size_t cut = k.find('\x01', 2);
+            if (cut != std::string::npos) l = linkRender(k.substr(2, cut - 2), k.substr(cut + 1));
+        }
+        if (l && l->ready()) ++built;
+    }
+    if (progress) progress(int(keys.size()), int(keys.size()), context);
+    return built;
+}
 
 } // extern "C"

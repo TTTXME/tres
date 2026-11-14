@@ -5,6 +5,7 @@
 - Night merge handles moving objects better.
 - Gallery editor: the «Develop» tab develops SCAMERA DNGs again with every processing setting of the camera.
 - RAW saved with an SHDR shot is now the merged burst DNG, as on Android, with the photo as its preview.
+- Camera screen as on Android: LUT tray and swipe, quick settings, inline Pro panel, editable top row, face and subject tracking.
 
 ## 0.2 — the Android photo processing
 - SHDR photos are processed exactly as on Android: the same merge, denoise, sharpening and «Why» tone.

@@ -22,6 +22,15 @@ JAVA = ROOT / 'app/src/main/java/com/scamera/app'
 A = '{http://schemas.android.com/apk/res/android}'
 APP = '{http://schemas.android.com/apk/res-auto}'
 CUSTOM = 'com.scamera.app.ui.settings.custompreferences.'
+# the camera screen's Pro panel glyphs live in the manual-controls library (circularbarlib)
+DRAWABLE_DIRS = [RES / 'drawable', ROOT / 'circularbarlib/src/main/res/drawable']
+
+
+def drawable(name):
+    for d in DRAWABLE_DIRS:
+        if (d / (name + '.xml')).exists():
+            return d / (name + '.xml')
+    return RES / 'drawable' / (name + '.xml')
 
 
 def unescape(text):
@@ -180,7 +189,7 @@ def color(argb):
 
 
 def svg(name):
-    root = ET.parse(RES / 'drawable' / (name + '.xml')).getroot()
+    root = ET.parse(drawable(name)).getroot()
     if root.tag != 'vector':
         return None
     w, h = root.get(A + 'viewportWidth'), root.get(A + 'viewportHeight')
@@ -282,7 +291,7 @@ def render():
     tree = node(ET.parse(RES / 'xml/preferences.xml').getroot())
     if EXTRA_ICONS.exists():
         for line in EXTRA_ICONS.read_text().split():
-            if (RES / 'drawable' / (line + '.xml')).exists():
+            if drawable(line).exists():
                 used_icons.add(line)
 
     def table(strings, arrays, fallback_s, fallback_a):

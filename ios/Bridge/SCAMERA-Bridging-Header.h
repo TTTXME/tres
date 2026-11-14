@@ -5,3 +5,4 @@
 #import "ScamEdit.h"
 #import "ScamDevelop.h"
 #import "ScamFilm.h"
+#import "ScamWarmUp.h"
