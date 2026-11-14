@@ -813,6 +813,9 @@ public final class DevKeys {
         // P198 / P266: «50 Мп: ZSL» (pref_scam_hybrid_fullres50_zsl) is the menu row of fullres_zsl (MENU_BACKED)
         k.add(s(cap, "fullres_plain_merge", true, Lang.t("FULLRES 50 Мп: на время склейки камера в обычном режиме (меньше нагрев и памяти). Выкл — 50 Мп поток идёт и во время склейки",
                 "FULLRES 50 MP: the camera runs its plain session while the shot merges (less heat and memory). Off: the 50 MP stream keeps running")));
+        // P685: a 50 MP «Быстрый» merge does not wait for the camera's close (the worker sizes its memory itself)
+        k.add(s(cap, "fullres_close_wait", false, Lang.t("FULLRES 50 Мп, «Быстрый»: склейка ждёт закрытия камеры (~0,3 с), как до P685. Выкл — склейка начинается сразу, воркер сам меряет память (выше 100 Мп ждёт всегда)",
+                "FULLRES 50 MP, «Быстрый»: the merge waits for the camera's close (~0.3 s), as before P685. Off: the merge starts at once, the worker measures the memory itself (above 100 MP it always waits)")));
         // P222: the stills a native FULLRES series keeps in flight (FullResInFlight)
         k.add(n(cap, "fullres_in_flight", null, Lang.t("FULLRES: сколько кадров серии отправлено камере одновременно (1–8). По умолчанию 6 до 100 Мп, 3 выше 100 Мп и после сбоя серии на этой камере и размере; 3 — как до P222. SDK-путь X200 Ultra всегда по одному",
                 "FULLRES: the stills of a series sent to the camera at once (1-8). Default 6 up to 100 MP, 3 above 100 MP and after a failed series on this camera and size; 3 = as before P222. The X200 Ultra's SDK route always one at a time")));

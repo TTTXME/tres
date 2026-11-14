@@ -7,7 +7,8 @@
 //     retry (the same size or another) starts over;
 //   - with the real plain sink (MosaicChromaOverlap, emitFinal): strips of random height fed by a merge thread, the shift to the
 //     RGGB origin, 1..8 threads, a retry half way, a stop half way: the streamed halves equal the halves of the finished result
-//     byte for byte (every row reaches the hook once final), and a stopped merge leaves nothing taken.
+//     byte for byte (every row reaches the hook once final), and a stopped merge leaves nothing taken;
+//   - P685: the row bands' sparse preparation above 1 GiB (sized, pages as the rows come; unfinished: not taken, emptied).
 //
 // Build (CI):
 //   g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined tools/check_stream_out.cpp -ldl -lEGL -lGLESv2
@@ -219,6 +220,39 @@ static void fastHalves() {
         expect(out.reason().find("1 GiB") != std::string::npos && sizeOf(fd) == 0, "fast route above 1 GiB: the reason, nothing reserved");
         close(fd);
     }
+    { // P685: the row bands' sparse preparation (y1 -1): above 1 GiB taken, the memfd sized but its pages only as the rows come;
+      // rows that never finish are not taken and the memfd is empty again
+        const int fd = memfd_create("t", 0);
+        StreamOut out(dup(fd));
+        std::vector<float> result; result.reserve(16);
+        const int bw = 16384, bh = 12288; const size_t row = size_t(bw) * 3;
+        expect(out.halves(nullptr, bw, bh, 0, -1, result.data()), "sparse above 1 GiB: prepared");
+        struct stat st{}; fstat(fd, &st);
+        expect(st.st_size == off_t(size_t(bw) * bh * 6) && st.st_blocks * 512 < (16 << 20), "sparse above 1 GiB: sized, nothing allocated");
+        std::vector<uint16_t> rows(row * 8, floatToHalf(0.5f));
+        expect(out.halves(rows.data(), bw, bh, 0, 8, result.data()), "sparse above 1 GiB: the first rows taken");
+        fstat(fd, &st);
+        expect(st.st_blocks * 512 >= off_t(row * 8 * 2) && st.st_blocks * 512 < (16 << 20), "sparse above 1 GiB: pages as the rows came");
+        expect(!out.halves(nullptr, bw, bh, -1, -1, result.data()), "sparse above 1 GiB: no commit before the last row");
+        double s0 = 0; float m0 = 0;
+        expect(!out.take(result.data(), size_t(bw) * bh * 3, s0, m0) && sizeOf(fd) == 0, "sparse above 1 GiB: not taken, the memfd empty again");
+        close(fd);
+    }
+    { // P685: a sparse stream of every row is taken as the reserved one (the memfd holds exactly the halves)
+        const int fd = memfd_create("t", 0);
+        StreamOut out(dup(fd));
+        const int sw = 640, sh = 480; const size_t sn = size_t(sw) * sh * 3;
+        std::vector<float> result; result.reserve(sn);
+        expect(out.halves(nullptr, sw, sh, 0, -1, result.data()), "sparse: prepared");
+        for (int y = 0; y < sh; y += 100) expect(out.halves(src.data() + size_t(y) * sw * 3, sw, sh, y, std::min(sh, y + 100), result.data()), "sparse: rows taken");
+        expect(out.halves(nullptr, sw, sh, -1, -1, result.data()), "sparse: committed");
+        double s1 = 0; float m1 = 0;
+        expect(out.take(result.data(), sn, s1, m1), "sparse: taken");
+        std::vector<uint16_t> got(sn);
+        expect(sizeOf(fd) == off_t(sn * 2) && pread(fd, got.data(), sn * 2, 0) == ssize_t(sn * 2)
+               && std::equal(got.begin(), got.end(), src.begin()), "sparse: the memfd holds the halves, that long");
+        close(fd);
+    }
     {
         const int fd = memfd_create("t", 0);
         StreamOut out(dup(fd));
@@ -320,6 +354,6 @@ int main() {
     if (failures) { std::printf("stream out: %d failure(s)\n", failures); return 1; }
     std::printf("stream out: halvesOf == floatToHalf; StreamOut takes only a committed result (refused cases leave its memfd empty, "
                 "another's untouched); the plain sink's streamed halves == the finished result's in %ld merges (retries, stops, "
-                "shifts, 1..8 threads); the fast route's halves above 160 MB taken by their reservation: ok\n", cases);
+                "shifts, 1..8 threads); the fast route's halves above 160 MB taken by their reservation; P685: the row bands' sparse stream above 1 GiB: ok\n", cases);
     return 0;
 }

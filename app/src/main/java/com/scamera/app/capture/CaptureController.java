@@ -1984,6 +1984,19 @@ public class CaptureController {
         Log.i("SCAM_CAPTURE", "PERF FULLRES: camera closed for the merge: " + wait);
     }
 
+    /**
+     * P685: whether a FULLRES merge starts without awaiting the camera's close: below 100 MP on the fast route, which measures its
+     * memory in the worker (row bands while the camera's buffers are not back yet); scam_dev fullres_close_wait 1: never skipped.
+     */
+    private static boolean closeWaitSkipped(boolean hugeShot) {
+        return closeWaitSkipped(hugeShot, com.scamera.app.processing.opengl.postpipeline.ScamHybridBurst.fastRoute(),
+                PreferenceKeys.scamDevSwitch("fullres_close_wait", false));
+    }
+
+    static boolean closeWaitSkipped(boolean hugeShot, boolean fastRoute, boolean forcedWait) {
+        return !hugeShot && fastRoute && !forcedWait;
+    }
+
     /** P662: the longest awaitClosedForProcessing waits after the close (the fixed sleep it replaces). */
     static final long CLOSED_FOR_PROCESSING_MS = 300;
 
@@ -9636,7 +9649,12 @@ public class CaptureController {
                         try {
                             com.scamera.app.processing.MosaicBlockStore.setShotKey(mosaicKey, tetraBin ? 2 : 1);
                             if (plainForMerge) {
-                                awaitClosedForProcessing();
+                                // P685: a 50 MP «Быстрый» shot does not wait for the close (283 - 295 ms of every one on the X200
+                                // Ultra): its worker reads MemAvailable itself and merges in row bands when the camera's buffers
+                                // still hold it; above 100 MP (P179) the merge still starts once they are back
+                                if (closeWaitSkipped(hugeShot)) Log.i("SCAM_CAPTURE", "FULLRES: the merge starts beside the camera's close"
+                                        + " (P685: the fast route sizes its memory itself; scam_dev fullres_close_wait 1: wait as before)");
+                                else awaitClosedForProcessing();
                                 com.scamera.app.processing.ShotTimeline.mark("plain_ready"); // P236
                             }
                             saver.runRaw(characteristics, base, base.getRequest(), shakiness, rotation, exposures);

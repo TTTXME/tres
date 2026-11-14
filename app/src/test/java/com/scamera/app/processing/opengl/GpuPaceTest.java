@@ -260,4 +260,35 @@ public class GpuPaceTest {
         assertTrue(s, s.startsWith("post GPU pace: at most 2 blocks in flight, 6 fences, 4 waits "));
         assertTrue(s, s.contains("0 finishes"));
     }
+
+    /**
+     * P685: while the viewfinder is paused (the gallery, the settings) the post goes unpaced - no fence, no wait, its bands as asked;
+     * from the next block after it draws again the pace is as before.
+     */
+    @Test
+    public void aPausedViewfinderLeavesThePostUnpaced() {
+        GpuPace.forgetBands();
+        final FakeGpu gpu = new FakeGpu(10_000_000L);
+        final boolean[] hidden = {true};
+        final GpuPace.Pacer p = new GpuPace.Pacer(gpu, 2, 10f, () -> hidden[0]);
+        for (int i = 0; i < 20; i++) { gpu.now += 200_000L; gpu.queueBlock(); p.submitted("why/combine", 4096L * 256); }
+        assertEquals("no fence while paused", 0, p.fences);
+        assertEquals(0, p.waits);
+        assertEquals(20, p.unpaced);
+        assertEquals("bands as asked", 256, p.bandRows("why/combine", 4096, 256));
+        assertTrue(p.summary(), p.summary().contains("20 blocks unpaced"));
+        hidden[0] = false;
+        int maxQueued = 0;
+        for (int i = 0; i < 20; i++) {
+            gpu.now += 200_000L;
+            gpu.queueBlock();
+            p.submitted("why/combine", 4096L * 256);
+            maxQueued = Math.max(maxQueued, gpu.queued());
+        }
+        assertTrue("paced again: fences", p.fences >= 20);
+        assertTrue("paced again: waits", p.waits > 0);
+        assertTrue("paced again: at most 2 blocks queued", maxQueued <= 2);
+        GpuPace.forgetBands();
+    }
 }
+
