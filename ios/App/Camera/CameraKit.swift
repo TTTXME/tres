@@ -123,7 +123,7 @@ struct CameraSegmented: View {
                         Capsule().fill(CameraStyle.segThumb).matchedGeometryEffect(id: "thumb", in: thumb).padding(2)
                     }
                     HStack(spacing: 4) {
-                        Text(labels[i]).font(.system(size: 14, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.7)
+                        Text(labels[i]).font(.app(14, 600)).lineLimit(1).minimumScaleFactor(0.7)
                             .foregroundStyle(i == selected ? CameraStyle.accent : CameraStyle.text)
                         if i < dots.count, dots[i] { Circle().fill(CameraStyle.accent).frame(width: 5, height: 5) }
                     }

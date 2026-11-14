@@ -128,17 +128,17 @@ struct ModulesCard: View {
     var body: some View {
         Group {
             if modules.isEmpty {
-                Text(L("set.modules.none")).font(.footnote).foregroundStyle(.secondary)
+                Text(L("set.modules.none")).font(.app(13)).foregroundStyle(.secondary)
             }
             ForEach(modules) { m in
                 DisclosureGroup(isExpanded: Binding(get: { open == m.id }, set: { open = $0 ? m.id : nil })) {
                     rows(m)
                 } label: {
                     HStack(spacing: 12) {
-                        Text(m.label).font(.headline.monospacedDigit()).frame(minWidth: 52, alignment: .leading)
+                        Text(m.label).font(.app(17, 600).monospacedDigit()).frame(minWidth: 52, alignment: .leading)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(kind(m))
-                            Text(state(m)).font(.caption).foregroundStyle(.secondary)
+                            Text(state(m)).font(.app(12)).foregroundStyle(.secondary)
                         }
                     }
                 }
@@ -152,10 +152,10 @@ struct ModulesCard: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(AndroidText.get("module_row_per_lens"))
                     Text(AndroidText.get(ModuleProfiles.on ? "module_row_per_lens_on" : "module_row_per_lens_off").replacingOccurrences(of: " / 200 MP", with: ""))
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(.app(12)).foregroundStyle(.secondary)
                 }
             }
-            Text(L("set.modules.note")).font(.caption).foregroundStyle(.secondary)
+            Text(L("set.modules.note")).font(.app(12)).foregroundStyle(.secondary)
         }
         .task {
             lenses = await Task.detached(priority: .userInitiated) { DeviceLookup.modules() }.value
@@ -243,7 +243,7 @@ struct ModulesCard: View {
     private func row(_ title: String, _ value: String?) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(title).foregroundStyle(.primary)
-            if let value, !value.isEmpty { Text(value).font(.caption).foregroundStyle(.secondary) }
+            if let value, !value.isEmpty { Text(value).font(.app(12)).foregroundStyle(.secondary) }
         }
     }
 

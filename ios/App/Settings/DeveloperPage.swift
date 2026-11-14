@@ -214,7 +214,7 @@ struct DeveloperPage: View {
                 } label: {
                     VStack(alignment: .leading, spacing: 2) {
                         title
-                        Text(state(k)).font(.caption).foregroundStyle(.secondary)
+                        Text(state(k)).font(.app(12)).foregroundStyle(.secondary)
                     }
                 }
             } else {
@@ -227,7 +227,7 @@ struct DeveloperPage: View {
                 })) {
                     VStack(alignment: .leading, spacing: 2) {
                         title
-                        Text(state(k)).font(.caption).foregroundStyle(.secondary)
+                        Text(state(k)).font(.app(12)).foregroundStyle(.secondary)
                     }
                 }
             }

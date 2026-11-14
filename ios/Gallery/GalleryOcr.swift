@@ -328,7 +328,7 @@ struct TextSheet: View {
                     } label: {
                         HStack(spacing: 4) {
                             Text(language.map(OcrEngine.name) ?? L("ocr.auto")).font(.app(16)).foregroundStyle(GalleryStyle.accent)
-                            Image(systemName: "chevron.up.chevron.down").font(.system(size: 12)).foregroundStyle(GalleryStyle.accent)
+                            Image(systemName: "chevron.up.chevron.down").font(.app(12)).foregroundStyle(GalleryStyle.accent)
                         }
                     }
                     .accessibilityIdentifier("ocr_language")

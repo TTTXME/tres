@@ -408,7 +408,7 @@ struct QuickShade: View {
             if !model.editing {
                 Button { config = true } label: {
                     HStack(spacing: 4) {
-                        Text(ConfigState.label()).font(.system(size: 12, weight: .semibold)).lineLimit(1)
+                        Text(ConfigState.label()).font(.app(12, 600)).lineLimit(1)
                         Image("cv_chev_down").renderingMode(.template).resizable().frame(width: 12, height: 12)
                     }
                     .foregroundStyle(CameraStyle.text)
@@ -417,14 +417,14 @@ struct QuickShade: View {
                 }
                 .accessibilityLabel(L("shade.config") + ConfigState.label())
             }
-            Text(L(model.editing ? "a.shade_drag_title" : "a.shade_quick_title")).font(.system(size: 14, weight: .semibold))
+            Text(L(model.editing ? "a.shade_drag_title" : "a.shade_quick_title")).font(.app(14, 600))
                 .foregroundStyle(CameraStyle.text).lineLimit(1)
             Spacer(minLength: 4)
             Button {
                 Haptics.tick()
                 withAnimation(CameraMotion.glide) { model.editing.toggle() }
             } label: {
-                Text(L(model.editing ? "a.shade_done" : "a.shade_edit")).font(.system(size: 14, weight: .semibold))
+                Text(L(model.editing ? "a.shade_done" : "a.shade_edit")).font(.app(14, 600))
                     .foregroundStyle(model.editing ? CameraStyle.ink : CameraStyle.accent)
                     .padding(.horizontal, 12).frame(height: 28)
                     .background(model.editing ? CameraStyle.accent : Color.clear, in: Capsule())
@@ -493,8 +493,8 @@ struct QuickShade: View {
                     Image(e.icon).renderingMode(.template).resizable().scaledToFit().frame(width: 22, height: 22)
                         .foregroundStyle(changed ? CameraStyle.accent : CameraStyle.muted)
                         .turnsWithPhone()
-                    Text(e.title).font(.system(size: 11, weight: .semibold)).foregroundStyle(CameraStyle.text).lineLimit(1).minimumScaleFactor(8 / 11)
-                    Text(ShadeCatalog.valueText(e, camera: camera)).font(.system(size: 10)).lineLimit(1).minimumScaleFactor(0.8)
+                    Text(e.title).font(.app(11, 600)).foregroundStyle(CameraStyle.text).lineLimit(1).minimumScaleFactor(8 / 11)
+                    Text(ShadeCatalog.valueText(e, camera: camera)).font(.app(10)).lineLimit(1).minimumScaleFactor(0.8)
                         .foregroundStyle(changed ? CameraStyle.accent : CameraStyle.muted)
                 }
                 .padding(2)
@@ -507,7 +507,7 @@ struct QuickShade: View {
                 .animation(model.editing ? .easeInOut(duration: 0.13).repeatForever(autoreverses: true) : .default, value: model.editing)
                 if model.editing {
                     Button { Haptics.tick(); withAnimation(CameraMotion.glide) { model.unpin(key) } } label: {
-                        Text("×").font(.system(size: 14, weight: .bold)).foregroundStyle(CameraStyle.control)
+                        Text("×").font(.app(14, 700)).foregroundStyle(CameraStyle.control)
                             .frame(width: 20, height: 20).background(CameraStyle.badge, in: Circle())
                     }
                     .offset(x: 2, y: -2)
@@ -539,7 +539,7 @@ struct QuickShade: View {
     private var addTile: some View {
         VStack(spacing: 2) {
             Image("kb_ic_shade_plus_rest").renderingMode(.template).resizable().frame(width: 22, height: 22).foregroundStyle(CameraStyle.muted)
-            Text(L("a.shade_add")).font(.system(size: 11, weight: .semibold)).foregroundStyle(CameraStyle.text)
+            Text(L("a.shade_add")).font(.app(11, 600)).foregroundStyle(CameraStyle.text)
         }
         .frame(maxWidth: .infinity, minHeight: 84)
         .overlay(RoundedRectangle(cornerRadius: 13).stroke(CameraStyle.line, style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
@@ -582,9 +582,9 @@ struct QuickShade: View {
                               })
         return VStack(alignment: .leading, spacing: 4) {
             HStack {
-                Text(e.longTitle).font(.system(size: 13, weight: .semibold)).foregroundStyle(CameraStyle.text).lineLimit(1)
+                Text(e.longTitle).font(.app(13, 600)).foregroundStyle(CameraStyle.text).lineLimit(1)
                 Spacer()
-                Text(CameraStyle.decimal(stored)).font(.system(size: 13, weight: .semibold)).monospacedDigit().foregroundStyle(CameraStyle.ink)
+                Text(CameraStyle.decimal(stored)).font(.app(13, 600)).monospacedDigit().foregroundStyle(CameraStyle.ink)
                     .padding(.horizontal, 8).frame(height: 22).background(CameraStyle.accent, in: Capsule())
             }
             TraySlider(param: param, track: nil)
@@ -608,7 +608,7 @@ struct QuickShade: View {
             Button { catalog = true } label: {
                 HStack {
                     Image("kb_ic_shade_plus_rest").renderingMode(.template).resizable().frame(width: 20, height: 20)
-                    Text(L("a.shade_catalog_title")).font(.system(size: 15, weight: .semibold))
+                    Text(L("a.shade_catalog_title")).font(.app(15, 600))
                     Spacer()
                 }
                 .foregroundStyle(CameraStyle.accent)
@@ -622,7 +622,7 @@ struct QuickShade: View {
     private func group(_ title: String, keys: [String]) -> some View {
         let entries = keys.compactMap { ShadeCatalog.entry($0) }
         return VStack(alignment: .leading, spacing: 6) {
-            Text(title.uppercased()).font(.system(size: 11.5, weight: .semibold)).kerning(0.8).foregroundStyle(CameraStyle.accent)
+            Text(title.uppercased()).font(.app(11.5, 600)).kerning(0.8).foregroundStyle(CameraStyle.accent)
                 .padding(.leading, 8)
             VStack(spacing: 0) {
                 ForEach(Array(entries.enumerated()), id: \.offset) { i, e in
@@ -642,8 +642,8 @@ struct QuickShade: View {
         return HStack(spacing: 10) {
             Image(e.icon).renderingMode(.template).resizable().scaledToFit().frame(width: 20, height: 20).foregroundStyle(CameraStyle.muted)
             VStack(alignment: .leading, spacing: 1) {
-                Text(e.longTitle).font(.system(size: 14)).foregroundStyle(CameraStyle.text).lineLimit(2)
-                if let reason { Text(reason).font(.system(size: 11)).foregroundStyle(CameraStyle.summary).lineLimit(2) }
+                Text(e.longTitle).font(.app(14)).foregroundStyle(CameraStyle.text).lineLimit(2)
+                if let reason { Text(reason).font(.app(11)).foregroundStyle(CameraStyle.summary).lineLimit(2) }
             }
             Spacer(minLength: 4)
             if e.kind == .toggle {
@@ -651,7 +651,7 @@ struct QuickShade: View {
                                          set: { SettingsStore.shared.set(e.key, $0); ShadeCatalog.written(e, camera: camera) }))
                     .labelsHidden().tint(CameraStyle.accent)
             } else {
-                Text(ShadeCatalog.valueText(e, camera: camera)).font(.system(size: 13, weight: .semibold)).foregroundStyle(CameraStyle.accent)
+                Text(ShadeCatalog.valueText(e, camera: camera)).font(.app(13, 600)).foregroundStyle(CameraStyle.accent)
                     .lineLimit(1).padding(.horizontal, 10).frame(height: 28)
                     .background(CameraStyle.accent.opacity(0.14), in: Capsule())
                     .onTapGesture { tap(e, reason: reason) }
@@ -660,7 +660,7 @@ struct QuickShade: View {
                 Haptics.tick()
                 withAnimation(CameraMotion.glide) { pinned ? model.unpin(e.key) : model.pin(e.key) }
             } label: {
-                Image(systemName: pinned ? "pin.fill" : "pin").font(.system(size: 14))
+                Image(systemName: pinned ? "pin.fill" : "pin").font(.app(14))
                     .foregroundStyle(pinned ? CameraStyle.accent : CameraStyle.muted).frame(width: 30, height: 30)
             }
             .accessibilityLabel(String(format: L(pinned ? "a.shade_unpin" : "a.shade_pin"), e.title))
@@ -690,7 +690,7 @@ struct ShadeCatalogSheet: View {
                 Section {
                     Text(q.isEmpty ? String(format: L("a.shade_catalog_count"), model.pinned.count, total)
                                    : String(format: L("a.shade_catalog_found"), found, model.pinned.count))
-                        .font(.footnote).foregroundStyle(.secondary)
+                        .font(.app(13)).foregroundStyle(.secondary)
                 } footer: { Text(L("a.shade_catalog_note")) }
                 if shown.isEmpty { Text(L("a.shade_catalog_nothing")).foregroundStyle(.secondary) }
                 ForEach(shown, id: \.0) { page in
@@ -740,7 +740,7 @@ struct ConfigMenuSheet: View {
         NavigationStack {
             List {
                 Section(L("config.active")) {
-                    Text(ConfigState.label()).font(.headline)
+                    Text(ConfigState.label()).font(.app(17, 600))
                     if let active {
                         Button { done(library.save(active) != nil) } label: {
                             Label(L("config.save") + " «" + active + "»", systemImage: "square.and.arrow.down")
@@ -772,7 +772,7 @@ struct ConfigMenuSheet: View {
                                 }
                             }
                             if openRow == base {
-                                Text(L("config.load_note")).font(.footnote).foregroundStyle(.secondary)
+                                Text(L("config.load_note")).font(.app(13)).foregroundStyle(.secondary)
                                 HStack {
                                     Button(L("config.load")) { library.load(url); after() }.buttonStyle(.borderedProminent)
                                     Spacer()
@@ -788,7 +788,7 @@ struct ConfigMenuSheet: View {
                         Label(L("config.reset"), systemImage: "arrow.counterclockwise")
                     }
                     if openRow == "reset" {
-                        Text(L("config.reset_note")).font(.footnote).foregroundStyle(.secondary)
+                        Text(L("config.reset_note")).font(.app(13)).foregroundStyle(.secondary)
                         Button(L("config.reset_confirm"), role: .destructive) { library.reset(); after() }
                     }
                 }

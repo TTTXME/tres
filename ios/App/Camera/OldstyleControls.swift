@@ -133,7 +133,7 @@ struct OldstyleControls: View {
                 Spacer(minLength: 4)
                 HStack(spacing: 0) {
                     ForEach(0..<2, id: \.self) { i in
-                        Text(i == 0 ? L("os.palette") : L("os.advanced")).font(.system(size: 13, weight: .semibold))
+                        Text(i == 0 ? L("os.palette") : L("os.advanced")).font(.app(13, 600))
                             .foregroundStyle(i == model.tab ? CameraStyle.accent : CameraStyle.text)
                             .padding(.horizontal, 14).frame(height: 32)
                             .background(i == model.tab ? CameraStyle.chosen : Color.clear, in: RoundedRectangle(cornerRadius: 16))
@@ -169,7 +169,7 @@ struct OldstyleControls: View {
     private var advanced: some View {
         let p = model.chosen
         return VStack(spacing: 6) {
-            Text(p.name + "  " + p.text(p.value)).font(.system(size: 15, weight: .bold)).foregroundStyle(CameraStyle.text)
+            Text(p.name + "  " + p.text(p.value)).font(.app(15, 700)).foregroundStyle(CameraStyle.text)
                 .shadow(color: .black.opacity(0.6), radius: 3)
             OldstyleRuler(param: p).frame(height: 38)
             ScrollView(.horizontal, showsIndicators: false) {
@@ -179,7 +179,7 @@ struct OldstyleControls: View {
                         VStack(spacing: 3) {
                             Image(q.icon).renderingMode(.template).resizable().frame(width: 20, height: 20)
                                 .foregroundStyle(on || q.value != 0 ? CameraStyle.accent : CameraStyle.text)
-                            Text(q.value == 0 ? q.name : q.text(q.value)).font(.system(size: 9.5, weight: .semibold)).lineLimit(1)
+                            Text(q.value == 0 ? q.name : q.text(q.value)).font(.app(9.5, 600)).lineLimit(1)
                                 .minimumScaleFactor(0.7).foregroundStyle(on ? CameraStyle.accent : CameraStyle.text)
                         }
                         .padding(4)
@@ -340,7 +340,7 @@ struct OldstyleHud: View {
     var body: some View {
         let _ = OldstyleModel.shared.revision
         Text(L("os.base") + ": Natural  ·  " + L("os.p.tone") + ": \(OldstyleParam.tone.value)  ·  " + L("os.p.color") + ": \(OldstyleParam.color.value)")
-            .font(.system(size: 12, weight: .semibold)).foregroundStyle(CameraStyle.text)
+            .font(.app(12, 600)).foregroundStyle(CameraStyle.text)
             .padding(.horizontal, 10).frame(height: 24)
             .background(Color.black.opacity(0.5), in: Capsule())
             .allowsHitTesting(false)

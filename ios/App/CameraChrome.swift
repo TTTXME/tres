@@ -199,7 +199,7 @@ struct ExposureSun: View {
                 .position(x: Self.width / 2, y: y)
             if abs(ev) >= 0.05 {
                 Text(CameraStyle.decimal(String(format: "%+.1f", ev)))
-                    .font(.system(size: 12, weight: .semibold)).foregroundStyle(.white).shadow(color: .black, radius: 3, y: 1)
+                    .font(.app(12, 600)).foregroundStyle(.white).shadow(color: .black, radius: 3, y: 1)
                     .fixedSize()
                     .position(x: Self.width + 4 + 18, y: y)
             }

@@ -259,7 +259,7 @@ struct LutTray: View {
                 })
                 Button { onAll(model.tab) } label: {
                     HStack(spacing: 2) {
-                        Text(L("lut.all")).font(.system(size: 14, weight: .semibold))
+                        Text(L("lut.all")).font(.app(14, 600))
                         Image("cv_chev_right").renderingMode(.template).resizable().frame(width: 14, height: 14)
                     }
                     .foregroundStyle(CameraStyle.accent)
@@ -279,7 +279,7 @@ struct LutTray: View {
             .transition(.opacity)
             if let hint = model.hint {
                 (Text(hint.title).bold().foregroundColor(CameraStyle.text) + Text("  " + hint.text).foregroundColor(CameraStyle.muted))
-                    .font(.system(size: 12.5)).lineLimit(6).lineSpacing(2)
+                    .font(.app(12.5)).lineLimit(6).lineSpacing(2)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 12).padding(.top, 9).padding(.bottom, 10)
                     .background(Color.white.opacity(0.09), in: RoundedRectangle(cornerRadius: 14))
@@ -456,7 +456,7 @@ struct LutTray: View {
                             }
                             .frame(width: 53, height: 53)
                             .clipShape(RoundedRectangle(cornerRadius: 14))
-                            Text(name(v)).font(.system(size: 11, weight: .semibold)).lineLimit(1).truncationMode(.tail)
+                            Text(name(v)).font(.app(11, 600)).lineLimit(1).truncationMode(.tail)
                                 .foregroundStyle(on ? CameraStyle.accent : CameraStyle.text)
                                 .frame(width: 53)
                         }
@@ -486,13 +486,13 @@ struct LutTray: View {
     /// «label · slider · value»: the name 13 pt muted in a fixed column, the slider, the value 13 pt semibold in the accent
     private func sliderRow(_ p: TrayParam, track: [Color]? = nil) -> some View {
         HStack(spacing: 0) {
-            Text(p.title).font(.system(size: 13)).foregroundStyle(Color.white.opacity(0.75)).lineLimit(1)
+            Text(p.title).font(.app(13)).foregroundStyle(Color.white.opacity(0.75)).lineLimit(1)
                 .frame(minWidth: 86, maxWidth: 100, alignment: .leading).padding(.leading, 4).padding(.trailing, 10)
                 .onLongPressGesture(minimumDuration: 0.5) {
                     if let h = LutTrayModel.help(p.key) { model.showHint(p.title, h) }
                 }
             TraySlider(param: p, track: track)
-            Text(p.text(p.read())).font(.system(size: 13, weight: .semibold)).monospacedDigit().foregroundStyle(CameraStyle.accent)
+            Text(p.text(p.read())).font(.app(13, 600)).monospacedDigit().foregroundStyle(CameraStyle.accent)
                 .frame(minWidth: 58, alignment: .trailing)
         }
     }
@@ -511,7 +511,7 @@ struct TrayAdjust: View {
                 HStack(spacing: 4) {
                     ForEach(params) { p in
                         let on = p.id == now?.id
-                        Text(p.title).font(.system(size: 12, weight: on ? .semibold : .regular)).lineLimit(1)
+                        Text(p.title).font(.app(12, on ? 600 : 400)).lineLimit(1)
                             .foregroundStyle(on ? CameraStyle.text : CameraStyle.muted)
                             .padding(.horizontal, 10).frame(height: 28)
                             .background(on ? Color.white.opacity(0.18) : Color.clear, in: RoundedRectangle(cornerRadius: 12))
@@ -528,7 +528,7 @@ struct TrayAdjust: View {
                 if p.options.isEmpty {
                     HStack(spacing: 8) {
                         TraySlider(param: p, track: nil)
-                        Text(p.text(p.read())).font(.system(size: 13, weight: .semibold)).monospacedDigit().foregroundStyle(CameraStyle.accent)
+                        Text(p.text(p.read())).font(.app(13, 600)).monospacedDigit().foregroundStyle(CameraStyle.accent)
                             .frame(minWidth: 58, alignment: .trailing)
                     }
                     .frame(height: 34)
@@ -537,7 +537,7 @@ struct TrayAdjust: View {
                         HStack(spacing: 4) {
                             let sel = Int(p.read().rounded())
                             ForEach(p.options.indices, id: \.self) { i in
-                                Text(p.options[i]).font(.system(size: 12, weight: i == sel ? .semibold : .regular)).lineLimit(1)
+                                Text(p.options[i]).font(.app(12, i == sel ? 600 : 400)).lineLimit(1)
                                     .foregroundStyle(i == sel ? CameraStyle.accent : CameraStyle.text)
                                     .padding(.horizontal, 10).frame(height: 28)
                                     .background(i == sel ? CameraStyle.chosen : Color.white.opacity(0.09), in: RoundedRectangle(cornerRadius: 12))

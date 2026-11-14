@@ -31,7 +31,7 @@ struct FileNameDialog: View {
                         .autocorrectionDisabled()
                         .font(.body.monospaced())
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(L("filename.preview")).font(.caption).foregroundStyle(.secondary)
+                        Text(L("filename.preview")).font(.app(12)).foregroundStyle(.secondary)
                         Text(FileNamePattern.format(text, date: Date()) + ".jpg").font(.callout.monospaced())
                     }
                 }
@@ -62,7 +62,7 @@ struct FileNameDialog: View {
             HStack(spacing: 8) {
                 ForEach(items, id: \.self) { v in
                     Button { tap(v) } label: {
-                        Text(v).font(.system(size: 14)).padding(.horizontal, 14).padding(.vertical, 9)
+                        Text(v).font(.app(14)).padding(.horizontal, 14).padding(.vertical, 9)
                             .background(Color(white: 0.23), in: Capsule())
                     }
                     .buttonStyle(.plain)

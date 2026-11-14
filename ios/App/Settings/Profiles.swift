@@ -385,20 +385,20 @@ struct ProfilesCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(Lang.t("Сейчас", "Now")).font(.footnote.weight(.semibold)).foregroundStyle(Color.accentColor)
+            Text(Lang.t("Сейчас", "Now")).font(.app(13, 600)).foregroundStyle(Color.accentColor)
             HStack(spacing: 12) {
                 Image("cs_ic_layers").resizable().frame(width: 22, height: 22)
                 VStack(alignment: .leading) {
-                    Text(ConfigState.label()).font(.body.weight(.semibold))
-                    Text(Lang.t("Активный профиль", "The active profile")).font(.caption).foregroundStyle(.secondary)
+                    Text(ConfigState.label()).font(.app(17, 600))
+                    Text(Lang.t("Активный профиль", "The active profile")).font(.app(12)).foregroundStyle(.secondary)
                 }
                 Spacer()
                 Image(systemName: "checkmark").foregroundStyle(Color.accentColor)
             }
-            Text(Lang.t("Сохранённые", "Saved")).font(.footnote.weight(.semibold)).foregroundStyle(Color.accentColor).padding(.top, 8)
+            Text(Lang.t("Сохранённые", "Saved")).font(.app(13, 600)).foregroundStyle(Color.accentColor).padding(.top, 8)
             if library.files.isEmpty {
                 Text(Lang.t("Пока ничего не сохранено: «Сохранить текущие как…» ниже.", "Nothing saved yet: «Save the current as…» below."))
-                    .font(.footnote).foregroundStyle(.secondary)
+                    .font(.app(13)).foregroundStyle(.secondary)
             }
             ForEach(library.files, id: \.self) { url in
                 let base = ConfigState.base(url.lastPathComponent), active = base == ConfigState.active()
@@ -407,27 +407,27 @@ struct ProfilesCard: View {
                         HStack(spacing: 12) {
                             Image("cs_ic_layers").resizable().frame(width: 22, height: 22)
                             VStack(alignment: .leading) {
-                                Text(base).font(.body.weight(.semibold)).foregroundStyle(.primary)
-                                Text(url.lastPathComponent).font(.caption).foregroundStyle(.secondary)
+                                Text(base).font(.app(17, 600)).foregroundStyle(.primary)
+                                Text(url.lastPathComponent).font(.app(12)).foregroundStyle(.secondary)
                             }
                             Spacer()
-                            Text(active ? Lang.t("Сейчас", "Now") : Lang.t("Загрузить", "Load")).font(.footnote)
+                            Text(active ? Lang.t("Сейчас", "Now") : Lang.t("Загрузить", "Load")).font(.app(13))
                                 .foregroundStyle(active ? Color.secondary : Color.accentColor)
                         }
                     }
                     if open == url {
-                        Text(Lang.t("Текущие настройки заменятся.", "The current settings are replaced.")).font(.caption).foregroundStyle(.secondary)
+                        Text(Lang.t("Текущие настройки заменятся.", "The current settings are replaced.")).font(.app(12)).foregroundStyle(.secondary)
                         HStack(spacing: 8) {
                             Button { library.load(url); open = nil } label: {
-                                Text(Lang.t("Загрузить", "Load")).font(.footnote.weight(.semibold)).padding(.horizontal, 16).padding(.vertical, 8)
+                                Text(Lang.t("Загрузить", "Load")).font(.app(13, 600)).padding(.horizontal, 16).padding(.vertical, 8)
                                     .background(Color.accentColor, in: Capsule()).foregroundStyle(.black)
                             }
                             Button { sharing = [url] } label: {
-                                Text(Lang.t("Поделиться", "Share")).font(.footnote.weight(.semibold)).padding(.horizontal, 16).padding(.vertical, 8)
+                                Text(Lang.t("Поделиться", "Share")).font(.app(13, 600)).padding(.horizontal, 16).padding(.vertical, 8)
                                     .overlay(Capsule().stroke(Color.accentColor))
                             }
                             Button(role: .destructive) { library.delete(url); open = nil } label: {
-                                Text(Lang.t("Удалить файл", "Delete the file")).font(.footnote.weight(.semibold)).padding(.horizontal, 16).padding(.vertical, 8)
+                                Text(Lang.t("Удалить файл", "Delete the file")).font(.app(13, 600)).padding(.horizontal, 16).padding(.vertical, 8)
                                     .overlay(Capsule().stroke(Color.red))
                             }
                         }

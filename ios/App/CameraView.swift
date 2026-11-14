@@ -242,7 +242,7 @@ struct CameraView: View {
             .overlay {
                 // the self-timer's seconds, large, in the middle
                 if chrome.countdown > 0 {
-                    Text("\(chrome.countdown)").font(.system(size: 36)).foregroundStyle(.white)
+                    Text("\(chrome.countdown)").font(.app(36)).foregroundStyle(.white)
                         .shadow(color: .black.opacity(0.5), radius: 4).allowsHitTesting(false)
                         .turnsWithPhone()
                 }
@@ -268,7 +268,7 @@ struct CameraView: View {
         if camera.locked {
             HStack(spacing: 4) {
                 Image("kb_ui_ic_lock_rest").renderingMode(.template).resizable().frame(width: 12, height: 12)
-                Text(L("focus.locked")).font(.system(size: 11, weight: .medium))
+                Text(L("focus.locked")).font(.app(11, 500))
             }
             .foregroundStyle(.black)
             .padding(.leading, 6).padding(.trailing, 8).frame(height: 20)
@@ -658,7 +658,7 @@ struct InfoView: View {
                     ForEach(camera.modules) { module in
                         VStack(alignment: .leading) {
                             Text("\(module.id)  \(module.label)  \(module.kind == .isz ? "ISZ" : L("info.lens"))")
-                            Text(module.deviceName).font(.caption).foregroundStyle(.secondary)
+                            Text(module.deviceName).font(.app(12)).foregroundStyle(.secondary)
                         }
                     }
                 }

@@ -64,7 +64,7 @@ struct HorizonLevel: View {
         frame.stroke(m, with: .color(marks), style: style)
         if !level {
             let t = Self.tilt(roll, turn)
-            frame.draw(Text("\(Int(abs(t).rounded()))°").font(.system(size: 11)).foregroundColor(.white.opacity(0.9)),
+            frame.draw(Text("\(Int(abs(t).rounded()))°").font(.app(11)).foregroundColor(.white.opacity(0.9)),
                        at: CGPoint(x: 0, y: -16), anchor: .bottom)
         }
         context.stroke(Path(ellipseIn: CGRect(x: cx - 4.5, y: cy - 4.5, width: 9, height: 9)), with: .color(colour), lineWidth: 1.5)

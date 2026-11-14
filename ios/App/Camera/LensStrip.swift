@@ -150,7 +150,7 @@ struct ZoomReadout: View {
             let h = size.height
             let chip = CGRect(x: Self.pad, y: Self.pad, width: Self.value, height: h - 2 * Self.pad)
             context.fill(Path(roundedRect: chip, cornerRadius: chip.height / 2), with: .color(CameraStyle.accent.opacity(0.18)))
-            context.draw(Text(Self.label(zoom)).font(.system(size: 12, weight: .bold)).monospacedDigit().foregroundColor(CameraStyle.accent),
+            context.draw(Text(Self.label(zoom)).font(.app(12, 700)).monospacedDigit().foregroundColor(CameraStyle.accent),
                          at: CGPoint(x: chip.midX, y: chip.midY))
             let x0 = Self.pad + Self.value + Self.gap, cy = h / 2
             var z = range.lowerBound

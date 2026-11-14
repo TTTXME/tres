@@ -255,7 +255,7 @@ struct CameraHudView: View {
     }
 
     private func row(_ text: String) -> some View {
-        Text(text).font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
+        Text(text).font(.app(13, 600)).foregroundStyle(.white)
             .shadow(color: .black, radius: 1.3, x: 0.4, y: 0.4)
             .lineLimit(1).fixedSize()
             .frame(height: 16, alignment: .leading)

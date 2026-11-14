@@ -326,7 +326,7 @@ struct SettingsScreen: View {
                     SettingsSearchResults(query: query)
                 } else {
                     if let note = SettingsExtras.screenNote(node.key) {
-                        Section { Text(note).font(.footnote).foregroundStyle(.secondary) }
+                        Section { Text(note).font(.app(13)).foregroundStyle(.secondary) }
                     }
                     // rows before the first group stand in a group of their own
                     let loose = children.filter { $0.type != "category" }
@@ -435,7 +435,7 @@ struct SettingsRow: View {
             case "category":
                 // a group inside a group: its rows in place, its title as a caption
                 VStack(alignment: .leading) {
-                    Text(catalog.text(node.title) ?? "").font(.caption).foregroundStyle(.secondary)
+                    Text(catalog.text(node.title) ?? "").font(.app(12)).foregroundStyle(.secondary)
                     ForEach(node.children ?? []) { SettingsRow(node: $0) }
                 }
             case "switch":
@@ -553,11 +553,11 @@ struct SettingsRow: View {
                 // P592: a row shows its title and its value; what it does is its long press. A row without a title, or one whose
                 // summary is its state (the credits, the version), still shows it
                 if title.isEmpty || catalog.summaryIsState(node.key), let summary = catalog.text(node.summary), !summary.isEmpty {
-                    Text(summary).font(.caption).foregroundStyle(.secondary).lineLimit(title.isEmpty ? nil : 4)
+                    Text(summary).font(.app(12)).foregroundStyle(.secondary).lineLimit(title.isEmpty ? nil : 4)
                 }
-                if let detail { Text(detail).font(.caption2).foregroundStyle(.tertiary) }
-                if let reason { Text(reason).font(.caption2).foregroundStyle(.orange) }
-                if let key = node.key, let note = availability.note(key) { Text(note).font(.caption2).foregroundStyle(.orange) }
+                if let detail { Text(detail).font(.app(11)).foregroundStyle(.tertiary) }
+                if let reason { Text(reason).font(.app(11)).foregroundStyle(.orange) }
+                if let key = node.key, let note = availability.note(key) { Text(note).font(.app(11)).foregroundStyle(.orange) }
             }
         }
     }
@@ -611,7 +611,7 @@ struct SettingsRow: View {
                     label(detail: nil)
                     Spacer()
                     // P574 PrecisionEditor: a tap on the value types it, a double tap puts the default back
-                    Text(CameraStyle.decimal(stored)).font(.footnote.monospacedDigit()).foregroundStyle(.secondary)
+                    Text(CameraStyle.decimal(stored)).font(.app(13).monospacedDigit()).foregroundStyle(.secondary)
                         .padding(.horizontal, 8).padding(.vertical, 3)
                         .background(Color.secondary.opacity(0.15), in: Capsule())
                         .contentShape(Rectangle())

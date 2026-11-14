@@ -85,8 +85,8 @@ struct FirstRunDialog: View {
             ZStack {
                 Color.black.opacity(0.55).ignoresSafeArea()
                 VStack(alignment: .leading, spacing: 12) {
-                    Text(L("firstrun.title")).font(.system(size: 18, weight: .semibold)).foregroundStyle(CameraStyle.text)
-                    Text(L("firstrun.text")).font(.system(size: 15)).foregroundStyle(CameraStyle.muted).multilineTextAlignment(.leading)
+                    Text(L("firstrun.title")).font(.app(18, 600)).foregroundStyle(CameraStyle.text)
+                    Text(L("firstrun.text")).font(.app(15)).foregroundStyle(CameraStyle.muted).multilineTextAlignment(.leading)
                     ProgressView(value: model.progress).tint(CameraStyle.accent)
                 }
                 .padding(24)

@@ -87,7 +87,7 @@ struct PhotoStylePicker: View {
                     Image("cs_ic_palette").resizable().frame(width: 22, height: 22)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(Self.rows[i].0).foregroundStyle(.primary)
-                        Text(Self.rows[i].1).font(.caption).foregroundStyle(.secondary)
+                        Text(Self.rows[i].1).font(.app(12)).foregroundStyle(.secondary)
                     }
                     Spacer()
                     Image(systemName: i == now ? "largecircle.fill.circle" : "circle").foregroundStyle(i == now ? Color.accentColor : .secondary)
@@ -255,7 +255,7 @@ struct LutChangesView: View {
     var body: some View {
         let value = value, k = strength
         VStack(alignment: .leading, spacing: 10) {
-            Text(Lang.t("Что меняется", "What changes")).font(.footnote.weight(.semibold)).foregroundStyle(Color.accentColor)
+            Text(Lang.t("Что меняется", "What changes")).font(.app(13, 600)).foregroundStyle(Color.accentColor)
             if value.isEmpty {
                 line(Lang.t("Плёночный образ выключен: снимок как есть.", "The film look is off: the photo stays as it is."))
             } else if k <= 0 {
@@ -280,10 +280,10 @@ struct LutChangesView: View {
         }
     }
 
-    private func line(_ text: String) -> some View { Text(text).font(.footnote).foregroundStyle(.secondary) }
+    private func line(_ text: String) -> some View { Text(text).font(.app(13)).foregroundStyle(.secondary) }
 
     @ViewBuilder private func details(_ look: LutLook, value: String) -> some View {
-        Text((look.strength < 0.5 ? Lang.t("Слегка. ", "Slightly. ") : "") + LutLook.description(value)).font(.footnote)
+        Text((look.strength < 0.5 ? Lang.t("Слегка. ", "Slightly. ") : "") + LutLook.description(value)).font(.app(13))
         let tags = look.analyse()
         FlowChips(items: tags.map { LutLook.aspectName($0.0) + ": " + LutLook.verdictName($0.1) })
         HStack(alignment: .center, spacing: 12) {
@@ -292,14 +292,14 @@ struct LutChangesView: View {
                 HStack {
                     Text(Lang.t("тени", "shadows")); Spacer(); Text(Lang.t("середина", "middle")); Spacer(); Text(Lang.t("света", "lights"))
                 }
-                .font(.system(size: 10)).foregroundStyle(.secondary).frame(width: 120)
+                .font(.app(10)).foregroundStyle(.secondary).frame(width: 120)
             }
             Text(Lang.t("Линия выше пунктира — эта часть снимка станет светлее, ниже — темнее. Цветные линии показывают сдвиг оттенка.",
                         "Above the dashed line that part of the photo gets lighter, below it darker. The coloured lines show the tint shift."))
-                .font(.caption).foregroundStyle(.secondary)
+                .font(.app(12)).foregroundStyle(.secondary)
         }
         Text(Lang.t("Ключевые цвета: слева — до, справа — после", "Key colours: before on the left, after on the right"))
-            .font(.caption).foregroundStyle(.secondary)
+            .font(.app(12)).foregroundStyle(.secondary)
         let names = [Lang.t("Кожа", "Skin"), Lang.t("Небо", "Sky"), Lang.t("Зелень", "Greens"), Lang.t("Красный", "Red"),
                      Lang.t("Тени", "Shadows"), Lang.t("Света", "Lights")]
         HStack(spacing: 6) {
@@ -313,7 +313,7 @@ struct LutChangesView: View {
                     }
                     .frame(height: 28)
                     .clipShape(RoundedRectangle(cornerRadius: 8))
-                    Text(names[i]).font(.system(size: 10.5)).foregroundStyle(.secondary).lineLimit(1)
+                    Text(names[i]).font(.app(10.5)).foregroundStyle(.secondary).lineLimit(1)
                 }
             }
         }
@@ -331,9 +331,9 @@ struct LutChangesView: View {
                     + "• Colours - the saturation of the chart's 18 colours: 4 % more is «richer», 5 % less «calmer», about none «black and white».\n"
                     + "• Shadows / Highlights - the tint of dark grey (20 %) and light grey (80 %): more red than blue is «warmer», the other way «cooler».\n"
                     + "• Skin - the chart's light skin got richer. Greens - foliage moved to yellow (olive) or to blue (teal)."))
-                .font(.caption).foregroundStyle(.secondary)
+                .font(.app(12)).foregroundStyle(.secondary)
         }
-        .font(.footnote.weight(.semibold))
+        .font(.app(13, 600))
     }
 }
 
@@ -387,7 +387,7 @@ struct FlowChips: View {
     var body: some View {
         ChipFlow(spacing: 6) {
             ForEach(items, id: \.self) { item in
-                Text(item).font(.caption).padding(.horizontal, 9).padding(.vertical, 4)
+                Text(item).font(.app(12)).padding(.horizontal, 9).padding(.vertical, 4)
                     .background(Color(red: 0.137, green: 0.165, blue: 0.18), in: Capsule())
             }
         }

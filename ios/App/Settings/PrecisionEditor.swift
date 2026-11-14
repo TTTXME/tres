@@ -72,7 +72,7 @@ struct PrecisionEditor: View {
                 Group {
                     if typing {
                         TextField("", text: $field)
-                            .font(.system(size: 34, weight: .bold).monospacedDigit())
+                            .font(.app(34, 700).monospacedDigit())
                             .multilineTextAlignment(.center)
                             .keyboardType(min < 0 ? .numbersAndPunctuation : (decimal ? .decimalPad : .numberPad))
                             .focused($focused)
@@ -81,7 +81,7 @@ struct PrecisionEditor: View {
                             .onSubmit { _ = commitField() }
                     } else {
                         Text(format(value))
-                            .font(.system(size: 64, weight: .bold).monospacedDigit())
+                            .font(.app(64, 700).monospacedDigit())
                             .foregroundStyle(held ? AnyShapeStyle(AccentPalette.settingsColor) : AnyShapeStyle(Color.white))
                             .scaleEffect(held ? 1.08 : 1)
                             .minimumScaleFactor(0.4)
@@ -96,28 +96,28 @@ struct PrecisionEditor: View {
                 .padding(.top, 18)
                 .animation(.spring(duration: 0.25), value: held)
                 if invalid {
-                    Text(L("set.precise.invalid")).font(.caption).foregroundStyle(.red)
+                    Text(L("set.precise.invalid")).font(.app(12)).foregroundStyle(.red)
                 }
                 Button {
                     if commitField() { value = fallback }
                 } label: {
                     Text(abs(value - fallback) < 1e-9 ? L("set.precise.default") : L("set.precise.reset_to") + " " + format(fallback))
-                        .font(.system(size: 14)).padding(.horizontal, 12).frame(minHeight: 30)
+                        .font(.app(14)).padding(.horizontal, 12).frame(minHeight: 30)
                 }
                 .disabled(abs(value - fallback) < 1e-9)
                 .padding(.top, 2).padding(.bottom, 6)
                 HStack(spacing: 10) {
-                    Text(format(min)).font(.caption).foregroundStyle(.secondary).frame(minWidth: 22, alignment: .trailing)
+                    Text(format(min)).font(.app(12)).foregroundStyle(.secondary).frame(minWidth: 22, alignment: .trailing)
                     Slider(value: Binding(get: { Double(position(value)) }, set: { p in
                         if typing { closeField() }
                         value = at(Int(p.rounded()))
                     }), in: 0...Double(steps), step: 1, onEditingChanged: { held = $0 })
                         .accessibilityLabel(L("set.precise.value"))
-                    Text(format(max)).font(.caption).foregroundStyle(.secondary).frame(minWidth: 22, alignment: .leading)
+                    Text(format(max)).font(.app(12)).foregroundStyle(.secondary).frame(minWidth: 22, alignment: .leading)
                 }
                 .padding(.horizontal, 20).padding(.top, 8).padding(.bottom, 4)
                 HStack {
-                    Text(L("set.precise.fine")).font(.system(size: 16))
+                    Text(L("set.precise.fine")).font(.app(16))
                     Spacer()
                     HStack(spacing: 0) {
                         RepeatButton(text: "−", label: L("set.precise.less")) { nudge(-1) }
@@ -195,7 +195,7 @@ private struct RepeatButton: View {
     @State private var pressed = false
 
     var body: some View {
-        Text(text).font(.system(size: 22, weight: .medium)).frame(width: 46, height: 32)
+        Text(text).font(.app(22, 500)).frame(width: 46, height: 32)
             .foregroundStyle(pressed ? AnyShapeStyle(AccentPalette.settingsColor) : AnyShapeStyle(Color.white))
             .contentShape(Rectangle())
             .gesture(DragGesture(minimumDistance: 0)

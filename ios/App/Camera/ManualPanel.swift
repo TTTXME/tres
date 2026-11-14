@@ -67,10 +67,10 @@ struct ManualPanel: View {
         return VStack(spacing: 1) {
             Image(p.icon).renderingMode(.template).resizable().frame(width: 18, height: 18)
                 .foregroundStyle(chosen ? CameraStyle.accent : CameraStyle.text)
-            Text(value).font(.system(size: 13, weight: .heavy)).monospacedDigit().lineLimit(1).minimumScaleFactor(9 / 13)
+            Text(value).font(.app(13, 800)).monospacedDigit().lineLimit(1).minimumScaleFactor(9 / 13)
                 .foregroundStyle(chosen || isManual ? CameraStyle.accent : CameraStyle.text)
                 .frame(height: 15.6)
-            Text(p.name).font(.system(size: 9.5)).lineLimit(1).minimumScaleFactor(7 / 9.5)
+            Text(p.name).font(.app(9.5)).lineLimit(1).minimumScaleFactor(7 / 9.5)
                 .foregroundStyle(chosen ? CameraStyle.accent.opacity(0.75) : Color.white.opacity(0.75))
                 .frame(height: 11.4)
         }
@@ -98,9 +98,9 @@ struct ManualPanel: View {
         return VStack(spacing: 1) {
             Image("pro_ic_auto").renderingMode(.template).resizable().frame(width: 18, height: 18)
                 .foregroundStyle(any ? CameraStyle.accent : CameraStyle.text)
-            Text(L("pro.all_value")).font(.system(size: 13, weight: .heavy)).lineLimit(1).minimumScaleFactor(9 / 13)
+            Text(L("pro.all_value")).font(.app(13, 800)).lineLimit(1).minimumScaleFactor(9 / 13)
                 .foregroundStyle(CameraStyle.text).frame(height: 15.6)
-            Text(L("pro.all_name")).font(.system(size: 9.5)).lineLimit(1).minimumScaleFactor(7 / 9.5)
+            Text(L("pro.all_name")).font(.app(9.5)).lineLimit(1).minimumScaleFactor(7 / 9.5)
                 .foregroundStyle(Color.white.opacity(0.75)).frame(height: 11.4)
         }
         .padding(.top, 6).padding(.bottom, 5).padding(.horizontal, 2)
@@ -361,7 +361,7 @@ struct ProRuler: View {
         let residualNow = residual
         HStack(spacing: 10) {
             Button(action: { Haptics.tick(); onAuto() }) {
-                Text(L("pro.auto_short")).font(.system(size: 14, weight: .semibold))
+                Text(L("pro.auto_short")).font(.app(14, 600))
                     .foregroundStyle(auto ? CameraStyle.accent : CameraStyle.text)
                     .frame(minWidth: 64, minHeight: 50)
                     .padding(.horizontal, 4)
@@ -386,7 +386,7 @@ struct ProRuler: View {
                             p.addLine(to: CGPoint(x: x, y: base - (major ? 14 : 8)))
                             context.stroke(p, with: .color(.white.opacity(major ? 0.7 : 0.35)), lineWidth: 2)
                             if major, abs(x - cx) > 34 {
-                                context.draw(Text(model.param.short(model.stops[j])).font(.system(size: 10)).foregroundColor(.white.opacity(0.6)),
+                                context.draw(Text(model.param.short(model.stops[j])).font(.app(10)).foregroundColor(.white.opacity(0.6)),
                                              at: CGPoint(x: x, y: 6), anchor: .top)
                             }
                         }
@@ -399,7 +399,7 @@ struct ProRuler: View {
                     Rectangle().fill(CameraStyle.accent).frame(width: 2, height: 25).offset(x: cx - 1, y: h - 26)
                     if index < model.stops.count {
                         Text(model.param.short(model.stops[index]))
-                            .font(.system(size: 16, weight: .bold)).monospacedDigit()
+                            .font(.app(16, 700)).monospacedDigit()
                             .foregroundStyle(auto ? CameraStyle.text : CameraStyle.accent)
                             .fixedSize()
                             .frame(width: w, alignment: .center)

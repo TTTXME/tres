@@ -15,16 +15,20 @@ extension EnvironmentValues {
 
 /// FormatPickerPreference: «Фото» and «RAW (DNG)» as two segmented rows, as the camera's sheet draws them, then what is saved.
 /// The photo codec is «Формат фото» (pref_photo_format: jpeg / heic - the codecs the iPhone writes; Android also offers WebP and
-/// AVIF); RAW is the camera's choice (Bayer RAW / ProRAW beside the photo).
+/// AVIF); RAW is pref_save_raw_key (0 the photo, 1 RAW + photo, 2 RAW only), with the iPhone's RAW kind (Bayer RAW / ProRAW).
 struct FormatPickerCard: View {
     @Environment(\.settingsCamera) private var camera
     private var store: SettingsStore { SettingsStore.shared }
 
-    private var storedRaw: RawChoice { RawChoice(rawValue: UserDefaults.standard.string(forKey: "raw_choice") ?? "") ?? .off }
+    private var storedKind: RawChoice {
+        let kind = RawChoice(rawValue: UserDefaults.standard.string(forKey: CameraModel.rawKindKey) ?? "") ?? .bayer
+        return kind == .off ? .bayer : kind
+    }
 
     var body: some View {
         let format = store.string("pref_photo_format", "jpeg") == "heic" ? "heic" : "jpeg"
-        let raw = camera?.raw ?? storedRaw
+        let mode = min(2, max(0, Int(store.string(CameraModel.saveRawKey, "0")) ?? 0))
+        let kind = camera?.rawKind ?? storedKind
         VStack(alignment: .leading, spacing: 8) {
             Text(Lang.t("Фото", "Photo")).font(.caption).foregroundStyle(.secondary)
             Picker("", selection: Binding(get: { format }, set: { store.set("pref_photo_format", $0) })) {
@@ -32,17 +36,27 @@ struct FormatPickerCard: View {
                 Text("HEIC").tag("heic")
             }
             .pickerStyle(.segmented)
+            .disabled(mode == 2)
             Text("RAW (DNG)").font(.caption).foregroundStyle(.secondary)
-            if let camera {
-                Picker("", selection: Binding(get: { camera.raw }, set: { camera.setRaw($0) })) {
-                    ForEach(RawChoice.allCases) { Text($0.title).tag($0) }
-                }
-                .pickerStyle(.segmented)
-            } else {
-                Text(raw.title).font(.subheadline)
-                Text(L("set.format.raw_in_camera")).font(.caption).foregroundStyle(.secondary)
+            Picker("", selection: Binding(get: { mode }, set: { v in
+                if let camera { camera.setRawSaving(v) } else { store.set(CameraModel.saveRawKey, String(v)) }
+            })) {
+                Text(L("sheet.raw_none")).tag(0)
+                Text("+ RAW").tag(1)
+                Text(L("sheet.raw_only")).tag(2)
             }
-            Text(Lang.t("Сохраняется: ", "Saved: ") + format.uppercased() + (raw == .off ? "" : " + DNG (" + raw.title + ")"))
+            .pickerStyle(.segmented)
+            Text(L("sheet.raw_kind")).font(.caption).foregroundStyle(.secondary)
+            Picker("", selection: Binding(get: { kind }, set: { v in
+                if let camera { camera.setRawKind(v) } else { UserDefaults.standard.set(v.rawValue, forKey: CameraModel.rawKindKey) }
+            })) {
+                Text(RawChoice.bayer.title).tag(RawChoice.bayer)
+                Text(RawChoice.proRAW.title).tag(RawChoice.proRAW)
+            }
+            .pickerStyle(.segmented)
+            .disabled(mode == 0)
+            Text(Lang.t("Сохраняется: ", "Saved: ") + (mode == 2 ? "DNG (" + kind.title + ")"
+                                                     : format.uppercased() + (mode == 0 ? "" : " + DNG (" + kind.title + ")")))
                 .font(.footnote).foregroundStyle(.secondary)
             Text(Lang.t("Качество", "Quality")).font(.footnote.weight(.semibold)).foregroundStyle(Color.accentColor).padding(.top, 8)
         }
@@ -69,7 +83,7 @@ struct SizePickerCard: View {
                     : Lang.t("Этот объектив не снимает в полном разрешении", "This lens has no full resolution"),
                 on: full && fullOffered, enabled: camera != nil && fullOffered) { setFull(true) }
             if camera == nil {
-                Text(L("set.size.in_camera")).font(.caption).foregroundStyle(.secondary).padding(.top, 6)
+                Text(L("set.size.in_camera")).font(.app(12)).foregroundStyle(.secondary).padding(.top, 6)
             }
         }
         .buttonStyle(.borderless)
@@ -86,7 +100,7 @@ struct SizePickerCard: View {
                 Image(systemName: on ? "largecircle.fill.circle" : "circle").foregroundStyle(on ? Color.accentColor : .secondary)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title).foregroundStyle(.primary)
-                    Text(sub).font(.caption).foregroundStyle(.secondary)
+                    Text(sub).font(.app(12)).foregroundStyle(.secondary)
                 }
                 Spacer()
             }
@@ -119,18 +133,18 @@ struct ShadeTransparencyCard: View {
         VStack(alignment: .leading, spacing: 12) {
             preview(alpha: 1 - Double(now) / 100).frame(height: 150)
             HStack {
-                Text(Lang.t("Прозрачность", "Transparency")).font(.body.weight(.semibold))
+                Text(Lang.t("Прозрачность", "Transparency")).font(.app(17, 600))
                 Spacer()
-                Text("\(now) %").font(.subheadline.bold()).foregroundStyle(Color.accentColor)
+                Text("\(now) %").font(.app(15).bold()).foregroundStyle(Color.accentColor)
                     .padding(.horizontal, 12).padding(.vertical, 4).background(Color.accentColor.opacity(0.15), in: Capsule())
             }
             HStack {
-                Text("\(Self.values.first!) %").font(.caption).foregroundStyle(.secondary)
+                Text("\(Self.values.first!) %").font(.app(12)).foregroundStyle(.secondary)
                 Slider(value: Binding(get: { Double(Self.index(now)) },
                                       set: { store.set(Self.key, String(Self.values[Swift.max(0, Swift.min(Self.values.count - 1, Int($0.rounded())))])) }),
                        in: 0...Double(Self.values.count - 1), step: 1)
                     .accessibilityLabel(Lang.t("Прозрачность шторки", "Panel transparency"))
-                Text("\(Self.values.last!) %").font(.caption).foregroundStyle(.secondary)
+                Text("\(Self.values.last!) %").font(.app(12)).foregroundStyle(.secondary)
             }
         }
         .padding(.vertical, 6)
@@ -146,7 +160,7 @@ struct ShadeTransparencyCard: View {
             let top = h * 0.38
             ctx.fill(Path(roundedRect: CGRect(x: 0, y: top, width: w, height: h - top + 18), cornerRadius: 18),
                      with: .color(Color(red: 0.11, green: 0.11, blue: 0.118).opacity(alpha)))
-            ctx.draw(Text(Lang.t("Быстрые настройки", "Quick settings")).font(.system(size: 12, weight: .semibold)).foregroundStyle(.white),
+            ctx.draw(Text(Lang.t("Быстрые настройки", "Quick settings")).font(.app(12, 600)).foregroundStyle(.white),
                      at: CGPoint(x: 10, y: top + 16), anchor: .leading)
             let gap: CGFloat = 5, tw = (w - 20 - 3 * gap) / 4, th: CGFloat = 28, y0 = top + 30
             for k in 0..<8 {
@@ -258,7 +272,7 @@ struct RawCropCard: View {
             .frame(height: 200)
             Text(Lang.t("Обрезка: слева \(state.cut[0]), сверху \(state.cut[1]), справа \(state.cut[2]), снизу \(state.cut[3]) px",
                         "Cut: left \(state.cut[0]), top \(state.cut[1]), right \(state.cut[2]), bottom \(state.cut[3]) px"))
-                .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                .font(.app(12).monospacedDigit()).foregroundStyle(.secondary)
         }
         .padding(.vertical, 6)
     }

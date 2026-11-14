@@ -19,10 +19,8 @@ style = re.compile(r"\.font\(\.(" + "|".join(STYLES) + r")(?:\.weight\(\.(\w+)\)
 
 def weight_expr(expr):
     def one(m):
-        if m.group(1) not in WEIGHTS:
-            raise ValueError(expr)
-        return str(WEIGHTS[m.group(1)])
-    return re.sub(r"\.(\w+)", one, expr.strip())
+        return str(WEIGHTS[m.group(1)]) if m.group(1) in WEIGHTS else m.group(0)
+    return re.sub(r"(?<![\w)])\.(\w+)", one, expr.strip())
 
 
 def rewrite(text):

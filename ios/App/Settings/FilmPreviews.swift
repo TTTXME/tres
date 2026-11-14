@@ -222,7 +222,7 @@ struct LutCompareView: View {
                 }
                 Rectangle().fill(Color.white).frame(width: 2, height: g.size.height).offset(x: x - 1)
                 Circle().fill(Color.white).frame(width: 30, height: 30)
-                    .overlay(Image(systemName: "chevron.left.chevron.right").font(.system(size: 12, weight: .bold)).foregroundStyle(.black))
+                    .overlay(Image(systemName: "chevron.left.chevron.right").font(.app(12, 700)).foregroundStyle(.black))
                     .position(x: x, y: g.size.height / 2)
                 tag(L("film.before")).opacity(Double(min(1, cut * 4))).padding(8)
                 tag(L("film.after")).opacity(Double(min(1, (1 - cut) * 4))).padding(8)
@@ -240,7 +240,7 @@ struct LutCompareView: View {
     }
 
     private func tag(_ text: String) -> some View {
-        Text(text).font(.system(size: 11, weight: .semibold)).foregroundStyle(.white).padding(.horizontal, 7).padding(.vertical, 3)
+        Text(text).font(.app(11, 600)).foregroundStyle(.white).padding(.horizontal, 7).padding(.vertical, 3)
             .background(Color.black.opacity(0.45), in: Capsule())
     }
 }
@@ -254,7 +254,7 @@ struct SampleChips: View {
         HStack(spacing: 8) {
             ForEach(names.indices, id: \.self) { i in
                 Button { selected = i } label: {
-                    Text(names[i]).font(.system(size: 12.5)).padding(.horizontal, 12).frame(minHeight: 34)
+                    Text(names[i]).font(.app(12.5)).padding(.horizontal, 12).frame(minHeight: 34)
                         .foregroundStyle(i == selected ? Color.black : Color.white)
                         .background(i == selected ? AnyShapeStyle(AccentPalette.settingsColor) : AnyShapeStyle(Color(white: 0.23)), in: Capsule())
                 }
@@ -310,8 +310,8 @@ struct CardStrip: View {
                 .frame(width: 104, height: 78)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
                 .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(on ? AccentPalette.settingsColor : Color.clear, lineWidth: 2))
-                Text(name(item)).font(.system(size: 12.5, weight: on ? .semibold : .regular)).foregroundStyle(.white).lineLimit(1)
-                Text(hint(item)).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+                Text(name(item)).font(.app(12.5, on ? 600 : 400)).foregroundStyle(.white).lineLimit(1)
+                Text(hint(item)).font(.app(11)).foregroundStyle(.secondary).lineLimit(1)
             }
             .frame(width: 104)
         }

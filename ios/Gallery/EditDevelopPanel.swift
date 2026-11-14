@@ -38,8 +38,8 @@ struct EditDevelopPanel: View {
     private var developSwitch: some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(L("editor.develop.switch")).font(.system(size: 16)).foregroundStyle(GalleryStyle.text)
-                Text(L("editor.develop.switch_note")).font(.system(size: 12)).foregroundStyle(GalleryStyle.muted)
+                Text(L("editor.develop.switch")).font(.app(16)).foregroundStyle(GalleryStyle.text)
+                Text(L("editor.develop.switch_note")).font(.app(12)).foregroundStyle(GalleryStyle.muted)
             }
             Spacer(minLength: 8)
             Toggle("", isOn: Binding(get: { model.state.develop }, set: { model.setDevelop($0) }))
@@ -73,15 +73,15 @@ struct EditDevelopPanel: View {
                             fixedReason: inert, menuLists: true)
             case .custom, .text:
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(r.title).font(.system(size: 15)).foregroundStyle(GalleryStyle.text)
-                    Text(L("editor.develop.as_shot") + " " + DevelopCatalog.shown(r, now)).font(.caption).foregroundStyle(GalleryStyle.muted)
+                    Text(r.title).font(.app(15)).foregroundStyle(GalleryStyle.text)
+                    Text(L("editor.develop.as_shot") + " " + DevelopCatalog.shown(r, now)).font(.app(12)).foregroundStyle(GalleryStyle.muted)
                         .lineLimit(2)
-                    if let inert { Text(inert).font(.caption2).foregroundStyle(.orange) }
+                    if let inert { Text(inert).font(.app(11)).foregroundStyle(.orange) }
                 }
                 .opacity(0.45)
             }
             if changed {
-                Text(L("editor.develop.changed") + " " + DevelopCatalog.shown(r, asShot)).font(.caption2).foregroundStyle(GalleryStyle.accent)
+                Text(L("editor.develop.changed") + " " + DevelopCatalog.shown(r, asShot)).font(.app(11)).foregroundStyle(GalleryStyle.accent)
             }
         }
         .padding(.horizontal, 18).padding(.vertical, 4)
@@ -92,12 +92,12 @@ struct EditDevelopPanel: View {
     }
 
     private func caption(_ text: String) -> some View {
-        Text(text).font(.system(size: 13, weight: .semibold)).foregroundStyle(GalleryStyle.muted)
+        Text(text).font(.app(13, 600)).foregroundStyle(GalleryStyle.muted)
             .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 18).padding(.top, 12).padding(.bottom, 2)
     }
 
     private func hint(_ text: String) -> some View {
-        Text(text).font(.system(size: 12)).foregroundStyle(GalleryStyle.muted)
+        Text(text).font(.app(12)).foregroundStyle(GalleryStyle.muted)
             .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 18).padding(.top, 6).padding(.bottom, 4)
     }
 }

@@ -95,8 +95,8 @@ struct SettingsSearchResults: View {
                                 .background(Color(white: 0.23), in: RoundedRectangle(cornerRadius: 9))
                         }
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(e.title).font(.system(size: 16, weight: .semibold))
-                            Text(SettingsSearch.pages(e, pagePaths: index.pagePaths)).font(.system(size: 13)).foregroundStyle(.secondary)
+                            Text(e.title).font(.app(16, 600))
+                            Text(SettingsSearch.pages(e, pagePaths: index.pagePaths)).font(.app(13)).foregroundStyle(.secondary)
                                 .lineLimit(3)
                         }
                     }

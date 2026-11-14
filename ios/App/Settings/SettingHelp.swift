@@ -120,17 +120,17 @@ struct HelpCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(title).font(.system(size: 18, weight: .semibold)).foregroundStyle(.white).accessibilityAddTraits(.isHeader)
-            Text(text).font(.system(size: 15)).foregroundStyle(Color.white.opacity(0.7)).lineLimit(lineLimit)
+            Text(title).font(.app(18, 600)).foregroundStyle(.white).accessibilityAddTraits(.isHeader)
+            Text(text).font(.app(15)).foregroundStyle(Color.white.opacity(0.7)).lineLimit(lineLimit)
                 .fixedSize(horizontal: false, vertical: true)
             if !facts.isEmpty {
                 VStack(spacing: 0) {
                     ForEach(Array(facts.enumerated()), id: \.offset) { i, f in
                         if i > 0 { Divider().padding(.leading, 14) }
                         HStack {
-                            Text(f.label).font(.system(size: 14)).foregroundStyle(Color.white.opacity(0.55))
+                            Text(f.label).font(.app(14)).foregroundStyle(Color.white.opacity(0.55))
                             Spacer(minLength: 12)
-                            Text(f.value).font(.system(size: 14, weight: f.now ? .semibold : .medium))
+                            Text(f.value).font(.app(14, f.now ? 600 : 500))
                                 .foregroundStyle(f.now ? AnyShapeStyle(AccentPalette.settingsColor) : AnyShapeStyle(Color.white))
                                 .multilineTextAlignment(.trailing)
                         }
@@ -164,7 +164,7 @@ struct SettingHelpSheet: View {
                         reset()
                         dismiss()
                     } label: {
-                        Text(L("set.help.reset")).font(.system(size: 15, weight: .semibold)).padding(.horizontal, 16).frame(minHeight: 40)
+                        Text(L("set.help.reset")).font(.app(15, 600)).padding(.horizontal, 16).frame(minHeight: 40)
                             .background(Color(white: 0.23), in: Capsule())
                     }
                     .padding(.horizontal, 20).padding(.bottom, 22)
@@ -234,7 +234,7 @@ final class SettingsTips {
     struct Toast: View {
         var body: some View {
             if let m = SettingsTips.shared.message {
-                Text(m).font(.footnote).foregroundStyle(.white).multilineTextAlignment(.center)
+                Text(m).font(.app(13)).foregroundStyle(.white).multilineTextAlignment(.center)
                     .padding(.horizontal, 16).padding(.vertical, 10)
                     .background(Color(white: 0.2).opacity(0.95), in: Capsule())
                     .padding(.horizontal, 24).padding(.bottom, 28)

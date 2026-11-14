@@ -143,14 +143,14 @@ struct ToneCurveCompareChips: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            Text(Lang.t("Сравнить:", "Compare:")).font(.system(size: 13)).foregroundStyle(.secondary).padding(.trailing, 2)
+            Text(Lang.t("Сравнить:", "Compare:")).font(.app(13)).foregroundStyle(.secondary).padding(.trailing, 2)
             ForEach(ToneCurveCompare.names.indices, id: \.self) { i in
                 Button {
                     on[i].toggle()
                     ToneCurveCompare.setShown(i, on[i])
                     references = ToneCurveCompare.references()
                 } label: {
-                    Text(ToneCurveCompare.names[i]).font(.system(size: 13)).foregroundStyle(ToneCurveCompare.color(i))
+                    Text(ToneCurveCompare.names[i]).font(.app(13)).foregroundStyle(ToneCurveCompare.color(i))
                         .frame(maxWidth: .infinity, minHeight: 34)
                         .background(on[i] ? ToneCurveCompare.color(i).opacity(0.2) : Color.clear, in: Capsule())
                         .overlay(Capsule().strokeBorder(on[i] ? ToneCurveCompare.color(i) : Color.clear, lineWidth: 1))

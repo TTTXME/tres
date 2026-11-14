@@ -270,7 +270,7 @@ struct SettingsLayoutPage: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(title(id))
                             let sub = subtitle(id)
-                            if !sub.isEmpty { Text(sub).font(.caption).foregroundStyle(.secondary).lineLimit(2) }
+                            if !sub.isEmpty { Text(sub).font(.app(12)).foregroundStyle(.secondary).lineLimit(2) }
                         }
                     }
                     .onMove { from, to in moveGroups(top, from, to) }
@@ -280,7 +280,7 @@ struct SettingsLayoutPage: View {
                     let items = rowItems
                     ForEach(items) { item in
                         if item.header {
-                            Text(item.id == snap?.model.key ? pageTitle : title(item.id)).font(.caption.weight(.semibold))
+                            Text(item.id == snap?.model.key ? pageTitle : title(item.id)).font(.app(12, 600))
                                 .foregroundStyle(.secondary).textCase(.uppercase)
                                 .moveDisabled(true)
                         } else {

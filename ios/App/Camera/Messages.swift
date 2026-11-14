@@ -189,7 +189,7 @@ struct MessageCardView: View {
         let center = MessageCenter.shared
         if let e = center.showing {
             Text(e.text + (e.count > 1 ? "  ×\(e.count)" : ""))
-                .font(.system(size: 12))
+                .font(.app(12))
                 .foregroundStyle(e.error ? CameraStyle.warn : CameraStyle.text)
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -217,10 +217,10 @@ struct MessageHistorySheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             SheetGrab().frame(maxWidth: .infinity)
-            Text(L("msg.history")).font(.system(size: 16.5, weight: .semibold)).foregroundStyle(CameraStyle.text)
+            Text(L("msg.history")).font(.app(16.5, 600)).foregroundStyle(CameraStyle.text)
                 .padding(.leading, 4).padding(.top, 12).padding(.bottom, 12)
             if entries.isEmpty {
-                Text(L("msg.none")).font(.system(size: 15)).foregroundStyle(CameraStyle.muted)
+                Text(L("msg.none")).font(.app(15)).foregroundStyle(CameraStyle.muted)
                     .frame(maxWidth: .infinity).padding(.top, 8).padding(.bottom, 12)
             } else {
                 ScrollView {
@@ -228,8 +228,8 @@ struct MessageHistorySheet: View {
                         ForEach(Array(entries.enumerated()), id: \.offset) { i, e in
                             if i > 0 { Rectangle().fill(CameraStyle.hairline).frame(height: 0.5) }
                             VStack(alignment: .leading, spacing: 4) {
-                                Text(Self.meta(e)).font(.system(size: 12)).foregroundStyle(e.error ? CameraStyle.warn : CameraStyle.summary)
-                                Text(e.text).font(.system(size: 14)).foregroundStyle(CameraStyle.text).lineSpacing(2).textSelection(.enabled)
+                                Text(Self.meta(e)).font(.app(12)).foregroundStyle(e.error ? CameraStyle.warn : CameraStyle.summary)
+                                Text(e.text).font(.app(14)).foregroundStyle(CameraStyle.text).lineSpacing(2).textSelection(.enabled)
                             }
                             .padding(.horizontal, 16).padding(.vertical, 11)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -239,14 +239,14 @@ struct MessageHistorySheet: View {
                 }
                 HStack(spacing: 10) {
                     Button { UIPasteboard.general.string = Self.plain(entries) } label: {
-                        Text(L("msg.copy")).font(.system(size: 15, weight: .semibold)).foregroundStyle(CameraStyle.text)
+                        Text(L("msg.copy")).font(.app(15, 600)).foregroundStyle(CameraStyle.text)
                             .frame(maxWidth: .infinity, minHeight: 40).background(CameraStyle.row, in: Capsule())
                     }
                     Button {
                         MessageCenter.shared.clearHistory()
                         dismiss()
                     } label: {
-                        Text(L("msg.clear")).font(.system(size: 15, weight: .semibold)).foregroundStyle(CameraStyle.red)
+                        Text(L("msg.clear")).font(.app(15, 600)).foregroundStyle(CameraStyle.red)
                             .frame(maxWidth: .infinity, minHeight: 40).background(CameraStyle.row, in: Capsule())
                     }
                 }

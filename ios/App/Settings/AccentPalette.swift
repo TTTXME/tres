@@ -80,7 +80,7 @@ struct AccentPage: View {
                     Button { AccentPalette.select(v) } label: {
                         VStack(spacing: 8) {
                             Circle().fill(AccentPalette.swatch(v)).frame(width: 30, height: 30)
-                            Text(AccentPalette.name(v)).font(.system(size: 12.5)).foregroundStyle(.white).multilineTextAlignment(.center)
+                            Text(AccentPalette.name(v)).font(.app(12.5)).foregroundStyle(.white).multilineTextAlignment(.center)
                                 .lineLimit(2)
                         }
                         .frame(maxWidth: .infinity).padding(.vertical, 12).padding(.horizontal, 8)

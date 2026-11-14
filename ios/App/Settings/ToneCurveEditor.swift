@@ -225,10 +225,10 @@ struct ToneCurveGraph: View {
         diagonal.addLine(to: CGPoint(x: p.maxX, y: p.minY))
         ctx.stroke(diagonal, with: .color(.white.opacity(0.35)), style: StrokeStyle(lineWidth: 1.2, dash: [4, 4]))
         let labelY = size.height - 11
-        ctx.draw(Text("−5 EV").font(.system(size: 10.5)).foregroundStyle(.secondary), at: CGPoint(x: p.minX, y: labelY), anchor: .leading)
-        ctx.draw(Text(Lang.t("0 (серый)", "0 (grey)")).font(.system(size: 10.5)).foregroundStyle(.secondary),
+        ctx.draw(Text("−5 EV").font(.app(10.5)).foregroundStyle(.secondary), at: CGPoint(x: p.minX, y: labelY), anchor: .leading)
+        ctx.draw(Text(Lang.t("0 (серый)", "0 (grey)")).font(.app(10.5)).foregroundStyle(.secondary),
                  at: CGPoint(x: px(0.5, p), y: labelY), anchor: .center)
-        ctx.draw(Text("+5 EV").font(.system(size: 10.5)).foregroundStyle(.secondary), at: CGPoint(x: p.maxX, y: labelY), anchor: .trailing)
+        ctx.draw(Text("+5 EV").font(.app(10.5)).foregroundStyle(.secondary), at: CGPoint(x: p.maxX, y: labelY), anchor: .trailing)
         // ToneCurveView.setReferences: each operator dashed in its colour, its name at its end
         for (k, ref) in references.enumerated() where ref.samples.count > 1 {
             var path = Path()
@@ -237,7 +237,7 @@ struct ToneCurveGraph: View {
                 if i == 0 { path.move(to: pt) } else { path.addLine(to: pt) }
             }
             ctx.stroke(path, with: .color(ref.color.opacity(0.9)), style: StrokeStyle(lineWidth: 1.6, dash: [6, 4]))
-            ctx.draw(Text(ref.name).font(.system(size: 10.5, weight: .semibold)).foregroundStyle(ref.color),
+            ctx.draw(Text(ref.name).font(.app(10.5, 600)).foregroundStyle(ref.color),
                      at: CGPoint(x: p.maxX - 4, y: p.minY + 10 + CGFloat(k) * 14), anchor: .trailing)
         }
         let s = model.curve.samples(128)
@@ -386,7 +386,7 @@ struct ToneCurveEditor: View {
                     loading = true
                 }
             }
-            if let status { Text(status).font(.caption).foregroundStyle(.secondary) }
+            if let status { Text(status).font(.app(12)).foregroundStyle(.secondary) }
         }
         .buttonStyle(.borderless)
         .disabled(!enabled)
@@ -424,7 +424,7 @@ struct ToneCurveEditor: View {
 
     private func chip(_ title: String, _ action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Text(title).font(.subheadline.weight(.bold)).frame(maxWidth: .infinity).padding(.vertical, 10)
+            Text(title).font(.app(15, 700)).frame(maxWidth: .infinity).padding(.vertical, 10)
                 .background(Color.accentColor.opacity(0.15), in: RoundedRectangle(cornerRadius: 12))
         }
     }
@@ -434,16 +434,16 @@ struct ToneCurveEditor: View {
         let has = i >= 0 && i < n, end = has && (i == 0 || i == n - 1)
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Button { model.select(i - 1) } label: { Text("‹").font(.title2.bold()).frame(width: 34, height: 34) }
+                Button { model.select(i - 1) } label: { Text("‹").font(.app(22).bold()).frame(width: 34, height: 34) }
                     .disabled(!(has && i > 0))
                     .accessibilityLabel(Lang.t("Предыдущая точка", "Previous point"))
                 Text(has ? Lang.t("Точка \(i + 1) из \(n)", "Point \(i + 1) of \(n)") : Lang.t("Нажмите на точку", "Tap a point"))
-                    .font(.subheadline.weight(.semibold)).frame(maxWidth: .infinity)
-                Button { model.select(i + 1) } label: { Text("›").font(.title2.bold()).frame(width: 34, height: 34) }
+                    .font(.app(15, 600)).frame(maxWidth: .infinity)
+                Button { model.select(i + 1) } label: { Text("›").font(.app(22).bold()).frame(width: 34, height: 34) }
                     .disabled(!(has && i < n - 1))
                     .accessibilityLabel(Lang.t("Следующая точка", "Next point"))
                 Button(role: .destructive) { model.deleteSelected() } label: {
-                    Text(Lang.t("Удалить", "Delete")).font(.subheadline.bold()).padding(.horizontal, 12).padding(.vertical, 6)
+                    Text(Lang.t("Удалить", "Delete")).font(.app(15).bold()).padding(.horizontal, 12).padding(.vertical, 6)
                         .background(Color.red.opacity(0.15), in: RoundedRectangle(cornerRadius: 12))
                 }
                 .disabled(!(has && !end))
@@ -463,10 +463,10 @@ struct ToneCurveEditor: View {
                         type: @escaping () -> Void) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             HStack {
-                Text(title).font(.subheadline)
+                Text(title).font(.app(15))
                 Spacer()
                 Button(action: type) {
-                    Text(value).font(.footnote.monospacedDigit().bold()).padding(.horizontal, 10).padding(.vertical, 4)
+                    Text(value).font(.app(13).monospacedDigit().bold()).padding(.horizontal, 10).padding(.vertical, 4)
                         .background(Color.accentColor.opacity(0.15), in: Capsule())
                 }
             }
@@ -536,7 +536,7 @@ struct ToneCurveEditor: View {
                 Section {
                     if files.isEmpty {
                         Text(Lang.t("Сохранённых кривых пока нет. Папка: ", "No saved curves yet. Folder: ") + "SCAMERA/ToneCurves")
-                            .font(.footnote).foregroundStyle(.secondary)
+                            .font(.app(13)).foregroundStyle(.secondary)
                     }
                     ForEach(files) { file in
                         Button {

@@ -84,7 +84,7 @@ private struct ChoiceRow: View {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title).foregroundStyle(.primary)
-                    if let caption, !caption.isEmpty { Text(caption).font(.caption).foregroundStyle(.secondary) }
+                    if let caption, !caption.isEmpty { Text(caption).font(.app(12)).foregroundStyle(.secondary) }
                 }
                 Spacer()
                 if on { Image(systemName: "checkmark").foregroundStyle(.tint) }
@@ -118,7 +118,7 @@ private struct StoredSlider: View {
             HStack {
                 Text(title)
                 Spacer()
-                Text(display).font(.footnote.monospacedDigit()).foregroundStyle(.secondary)
+                Text(display).font(.app(13).monospacedDigit()).foregroundStyle(.secondary)
             }
             Slider(value: Binding(get: { Swift.min(max, Swift.max(min, value)) },
                                   set: { store.set(key, Self.text(($0 / step).rounded() * step, step: step, scale: scale)) }),
@@ -289,11 +289,11 @@ struct FilmLutCard: View {
             let before = base(Self.previewW, Self.previewH), after = through(chosen, Self.previewW, Self.previewH)
             LutCompareView(before: before?.image, after: after.flatMap { a in before?.mixed(with: a, strength).image })
             SampleChips(names: (0..<3).map(LutSamples.name), selected: $sample)
-            Text(L("film.strip")).font(.caption.weight(.semibold)).foregroundStyle(.secondary).textCase(.uppercase)
+            Text(L("film.strip")).font(.app(12, 600)).foregroundStyle(.secondary).textCase(.uppercase)
             CardStrip(items: ordered, chosen: chosen, name: FilmCatalog.lutName, hint: LookHints.hint,
                       thumb: { through($0, Self.thumbW, Self.thumbH)?.image }, choose: choose,
                       move: { ItemOrder.move(ItemOrder.lutKey, ordered, from: $0, to: $1) })
-            Text(L("film.lut.hint")).font(.caption).foregroundStyle(.secondary)
+            Text(L("film.lut.hint")).font(.app(12)).foregroundStyle(.secondary)
             Button(L("film.lut.import")) { importing = true }
         }
         .padding(.vertical, 6)
@@ -386,7 +386,7 @@ struct LensFilterCard: View {
 
     @ViewBuilder private func controls(_ id: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            HStack { Text(L("lens.strength")); Spacer(); Text("\(Int(strength().rounded()))").font(.footnote.monospacedDigit()).foregroundStyle(.secondary) }
+            HStack { Text(L("lens.strength")); Spacer(); Text("\(Int(strength().rounded()))").font(.app(13).monospacedDigit()).foregroundStyle(.secondary) }
             Slider(value: Binding(get: { Swift.min(100, Swift.max(0, strength())) },
                                   set: { store.set("pref_lens_filter_strength", String(Int($0.rounded()))) }), in: 0...100, step: 1)
         }
@@ -395,9 +395,9 @@ struct LensFilterCard: View {
             ForEach(1..<5, id: \.self) { i in
                 VStack(alignment: .leading, spacing: 4) {
                     HStack { Text(L(["", "lens.halo", "lens.radius", "lens.haze", "lens.tone"][i])); Spacer()
-                        Text("\(Int((t[i] * 100).rounded()))").font(.footnote.monospacedDigit()).foregroundStyle(.secondary) }
+                        Text("\(Int((t[i] * 100).rounded()))").font(.app(13).monospacedDigit()).foregroundStyle(.secondary) }
                     Slider(value: Binding(get: { tune(id)[i] * 100 }, set: { setTune(id, i, $0.rounded() / 100) }), in: 0...100, step: 1)
-                    Text(L(["", "lens.halo_hint", "lens.radius_hint", "lens.haze_hint", "lens.tone_hint"][i])).font(.caption).foregroundStyle(.secondary)
+                    Text(L(["", "lens.halo_hint", "lens.radius_hint", "lens.haze_hint", "lens.tone_hint"][i])).font(.app(12)).foregroundStyle(.secondary)
                 }
             }
             Button(L("lens.reset")) {
