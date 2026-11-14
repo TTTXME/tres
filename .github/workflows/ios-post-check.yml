@@ -38,13 +38,26 @@ jobs:
       - name: Android SDK
         run: sdkmanager --install "ndk;27.2.12479018" "cmake;3.22.1" "platforms;android-36" "build-tools;36.0.0"
       - uses: gradle/actions/setup-gradle@v4
+      # the shot from Drive once, then from the cache (Drive refuses a file downloaded too often: «Quota exceeded»)
+      - uses: actions/cache/restore@v4
+        id: shot
+        with:
+          path: ${{ runner.temp }}/shot
+          key: drive-shot-${{ env.SHOT_META }}-${{ env.SHOT_BURST }}
       - name: Mesa and the shot
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq libegl-dev libgles-dev libegl1 libegl-mesa0 libgles2 libgl1-mesa-dri
-          mkdir -p "$RUNNER_TEMP/shot"
-          python3 ios/tools/drive_fetch.py "$SHOT_META" "$RUNNER_TEMP/shot/meta.json"
-          python3 ios/tools/drive_fetch.py "$SHOT_BURST" "$RUNNER_TEMP/shot/burst.nch"
+          if [ ! -s "$RUNNER_TEMP/shot/burst.nch" ]; then
+            mkdir -p "$RUNNER_TEMP/shot"
+            python3 ios/tools/drive_fetch.py "$SHOT_META" "$RUNNER_TEMP/shot/meta.json"
+            python3 ios/tools/drive_fetch.py "$SHOT_BURST" "$RUNNER_TEMP/shot/burst.nch"
+          fi
+      - uses: actions/cache/save@v4
+        if: steps.shot.outputs.cache-hit != 'true'
+        with:
+          path: ${{ runner.temp }}/shot
+          key: drive-shot-${{ env.SHOT_META }}-${{ env.SHOT_BURST }}
       - name: The merge on Mesa
         run: g++ -pthread -std=c++17 -O2 -Iapp/src/main/cpp ios/tools/hybrid_replay.cpp -ldl -lEGL -lGLESv2 -o "$RUNNER_TEMP/hybrid_replay"
       - name: The Android pipeline on the host (Robolectric + Mesa)
