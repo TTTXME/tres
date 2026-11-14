@@ -125,7 +125,40 @@ def detail(ref_dir, cand_dir):
             print('   ' + ' '.join(row))
 
 
+def trace(ref_dir, cand_dir, tolerance=2e-3, shown=12):
+    """GL pass traces (hybrid_replay built with -DSCAM_GL_TRACE, run with SCAM_GL_TRACE=1): the first passes whose output means
+    differ by more than the relative tolerance between the two backends."""
+    import re
+    pat = re.compile(r'^GLTRACE (\d+) (\w+) prog#(-?\d+) (\d+x\d+) fmt=(\S+) mean=(\S+) nonfinite=(\d+)')
+    def load(path):
+        return [m.groups() for m in map(pat.match, path.read_text(errors='replace').splitlines()) if m]
+    for ref_path in sorted(ref_dir.glob('*.log')):
+        cand_path = cand_dir / ref_path.name
+        if not cand_path.exists():
+            continue
+        ref, cand = load(ref_path), load(cand_path)
+        print(f'--- {ref_path.stem}: {len(ref)} traced outputs (Mesa), {len(cand)} (Metal)')
+        bad = 0
+        for i, (r, c) in enumerate(zip(ref, cand)):
+            if r[:5] != c[:5]:
+                print(f'  #{i} pass sequence parts: Mesa {" ".join(r[:5])} / Metal {" ".join(c[:5])}')
+                break
+            a, b = [float(v) for v in r[5].split(',')], [float(v) for v in c[5].split(',')]
+            worst = max(abs(x - y) / max(abs(x), abs(y), 1e-6) for x, y in zip(a, b))
+            if worst > tolerance or r[6] != c[6]:
+                print(f'  pass {r[0]} {r[1]} prog#{r[2]} {r[3]} fmt={r[4]}: Mesa {r[5]} nf={r[6]} | Metal {c[5]} nf={c[6]}'
+                      f'  rel {worst:.2e}')
+                bad += 1
+                if bad >= shown:
+                    break
+        if not bad:
+            print('  all traced passes within the tolerance')
+
+
 if __name__ == '__main__':
+    if len(sys.argv) >= 4 and sys.argv[1] == 'trace':
+        trace(Path(sys.argv[2]), Path(sys.argv[3]))
+        sys.exit(0)
     if len(sys.argv) >= 4 and sys.argv[1] == 'detail':
         detail(Path(sys.argv[2]), Path(sys.argv[3]))
         sys.exit(0)

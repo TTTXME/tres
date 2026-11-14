@@ -3,6 +3,9 @@
 // Usage: hybrid_replay <job dir with hybrid_tuning.txt and the job markers> <burst.nch> <out.f32> [worker output]
 // Output: float32 RGB rows top-down, preceded by a 16-byte header "SCRG" + width + height + channels (uint32 LE); with a fourth
 // argument also the worker's own output file (the RGB and its trailers, as ScamNeuralClient reads it).
+#ifdef SCAM_GL_TRACE
+#include "gl_trace.hpp"
+#endif
 #include "../Engine/ScamMergeCore.hpp"
 
 #include <cstdio>

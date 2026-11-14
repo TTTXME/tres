@@ -48,6 +48,7 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq libegl-dev libgles-dev libegl1 libegl-mesa0 libgles2 libgl1-mesa-dri python3-numpy
           g++ -pthread -std=c++17 -O2 -Iapp/src/main/cpp ios/tools/hybrid_replay.cpp -ldl -lEGL -lGLESv2 -o "$RUNNER_TEMP/hybrid_replay"
+          g++ -pthread -std=c++17 -O2 -DSCAM_GL_TRACE -Iapp/src/main/cpp ios/tools/hybrid_replay.cpp -ldl -lEGL -lGLESv2 -o "$RUNNER_TEMP/hybrid_trace"
       - name: Post shaders on Mesa
         env:
           EGL_PLATFORM: surfaceless
@@ -73,6 +74,8 @@ jobs:
             case $v in d0) e=SCAM_FM_MAX_DONORS=0;; d1) e=SCAM_FM_MAX_DONORS=1;; d4) e=SCAM_FM_MAX_DONORS=4;; direct) e=SCAM_FM_DIRECT_UPLOAD=1;; esac
             env "$e" python3 ios/tools/replay_bursts.py run "$RUNNER_TEMP/hybrid_replay" "$RUNNER_TEMP/bursts" "$RUNNER_TEMP/reference/fast_$v" "$RUNNER_TEMP/fast.txt" > /dev/null || true
           done
+          # every pass of the base-only fast route, traced (the first pass Metal computes differently)
+          SCAM_GL_TRACE=1 SCAM_FM_MAX_DONORS=0 python3 ios/tools/replay_bursts.py run "$RUNNER_TEMP/hybrid_trace" "$RUNNER_TEMP/bursts" "$RUNNER_TEMP/reference/trace" "$RUNNER_TEMP/fast.txt" > /dev/null || true
       - uses: actions/upload-artifact@v4
         with:
           name: merge-reference
@@ -83,6 +86,7 @@ jobs:
             ${{ runner.temp }}/reference/fast/*.f32
             ${{ runner.temp }}/reference/fast/*.log
             ${{ runner.temp }}/reference/fast_*/*.f32
+            ${{ runner.temp }}/reference/trace/*.log
           retention-days: 3
 
   merge-metal:
@@ -121,6 +125,11 @@ jobs:
             -o "$RUNNER_TEMP/hybrid_replay" > "$RUNNER_TEMP/build.log" 2>&1 || true
           grep -E "error|Undefined|ld: |^  \"_|referenced from" "$RUNNER_TEMP/build.log" | head -80 || true
           test -x "$RUNNER_TEMP/hybrid_replay"
+          clang++ -std=c++17 -O2 -fobjc-arc -DSCAM_GL_TRACE -Iios/ScamGL/include -Iios/ScamGL -Iapp/src/main/cpp -I"$D/include" -I"$D/include/spirv_cross" \
+            ios/tools/hybrid_replay.cpp ios/ScamGL/ScamGL.mm ios/ScamGL/ScamGLCompiler.cpp -L"$D/lib" \
+            -lglslang -lMachineIndependent -lGenericCodeGen -lOSDependent -lSPIRV -lglslang-default-resource-limits \
+            -lspirv-cross-msl -lspirv-cross-glsl -lspirv-cross-core -framework Metal -framework Foundation \
+            -o "$RUNNER_TEMP/hybrid_trace" > "$RUNNER_TEMP/trace-build.log" 2>&1 || { grep -E "error|Undefined" "$RUNNER_TEMP/trace-build.log" | head -30; true; }
       - name: Post shaders on Metal (ScamGL)
         run: |
           D="$RUNNER_TEMP/deps/macos"
@@ -147,6 +156,7 @@ jobs:
             case $v in d0) e=SCAM_FM_MAX_DONORS=0;; d1) e=SCAM_FM_MAX_DONORS=1;; d4) e=SCAM_FM_MAX_DONORS=4;; direct) e=SCAM_FM_DIRECT_UPLOAD=1;; esac
             env "$e" python3 ios/tools/replay_bursts.py run "$RUNNER_TEMP/hybrid_replay" "$RUNNER_TEMP/bursts" "$RUNNER_TEMP/metal/fast_$v" "$RUNNER_TEMP/fast.txt" > /dev/null || true
           done
+          SCAM_GL_TRACE=1 SCAM_FM_MAX_DONORS=0 python3 ios/tools/replay_bursts.py run "$RUNNER_TEMP/hybrid_trace" "$RUNNER_TEMP/bursts" "$RUNNER_TEMP/metal/trace" "$RUNNER_TEMP/fast.txt" > /dev/null || true
       - uses: actions/download-artifact@v4
         with:
           name: merge-reference
@@ -162,6 +172,8 @@ jobs:
             echo "=== fast route $v (d<n>: <n> donors; direct: the plain upload): Metal vs Mesa"
             python3 ios/tools/replay_bursts.py compare "$RUNNER_TEMP/reference/fast_$v" "$RUNNER_TEMP/metal/fast_$v" --max-psnr-drop 70 || true
           done
+          echo "=== base-only fast route, pass by pass (first passes whose output differs)"
+          python3 ios/tools/replay_bursts.py trace "$RUNNER_TEMP/reference/trace" "$RUNNER_TEMP/metal/trace" || true
           echo "=== how Metal differs on the base frame alone (d0)"
           python3 ios/tools/replay_bursts.py detail "$RUNNER_TEMP/reference/fast_d0" "$RUNNER_TEMP/metal/fast_d0" || true
           # where the two GPUs part on the fast route: the merge reports without their timings
@@ -179,6 +191,7 @@ jobs:
           path: |
             ${{ runner.temp }}/metal/*.log
             ${{ runner.temp }}/metal/fast/*.log
+            ${{ runner.temp }}/metal/trace/*.log
             ${{ runner.temp }}/compare.txt
           retention-days: 3
 
