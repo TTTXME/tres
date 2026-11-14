@@ -26,9 +26,6 @@ final class CameraModel {
     private(set) var zoom = 1.0
     /// SIMPLE_UI §1: focus and exposure held by a long press («Закреплено»)
     private(set) var locked = false
-    /// A short note over the viewfinder (Android's snackbar: the flash mode, the timer, the grid), gone after a moment
-    private(set) var toast: String?
-    private var toastTask: Task<Void, Never>?
     private var lastSwitch = Date.distantPast
     /// «Кадров для склейки» (pref_scam_hybrid_zsl_frames, Android default 20, 4–65)
     var burstFrames: Int {
@@ -120,14 +117,8 @@ final class CameraModel {
         say(mode.label)
     }
 
-    func say(_ text: String) {
-        toast = text
-        toastTask?.cancel()
-        toastTask = Task {
-            try? await Task.sleep(nanoseconds: 1_600_000_000)
-            if !Task.isCancelled { toast = nil }
-        }
-    }
+    /// A short note on the camera screen's message card (UiMessages.info)
+    func say(_ text: String) { MessageCenter.shared.info(text) }
 
     /// The modules of the open lens's side, by their ratio (ZoomController.lenses)
     var sideModules: [LensModule] {
@@ -336,6 +327,10 @@ final class CameraModel {
 
     func clearMessage() { message = nil }
 
+    /// SubjectFocus / «Раздельные фокус и экспозиция»: the camera-screen hooks of App/Camera/SubjectTracking
+    func track(at point: CGPoint) async { locked = false; await captureService.track(atLayerPoint: point) }
+    func expose(at point: CGPoint) async { await captureService.expose(atLayerPoint: point) }
+
     private func apply(_ state: CaptureService.State) {
         if state.active?.id != activeModuleID {
             zoom = state.active?.zoom ?? 1
@@ -349,6 +344,7 @@ final class CameraModel {
 
     private func show(_ text: String) {
         message = text
+        MessageCenter.shared.error(text)
     }
 
     private func observeInterruptions() {
