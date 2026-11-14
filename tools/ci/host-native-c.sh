@@ -32,6 +32,9 @@ ASAN_OPTIONS=detect_leaks=0 /tmp/check-worker-progress
 # P371: the worker's RGB halves streamed into the output memfd during the merge (scam-stream-out.h, the plain sink's rows)
 g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined tools/check_stream_out.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-stream-out
 ASAN_OPTIONS=detect_leaks=0 /tmp/check-stream-out
+# P685: the fast route's memory estimate (against the merge's own count), its plan, and its row bands against the whole frame's merge
+g++ -pthread -std=c++17 -O1 tools/check_fast_row_bands.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-fast-row-bands
+LIBGL_ALWAYS_SOFTWARE=1 EGL_PLATFORM=surfaceless /tmp/check-fast-row-bands
 g++ -std=c++17 -O1 -fsanitize=address,undefined tools/check_scam_probe.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-scam-probe
 ASAN_OPTIONS=detect_leaks=0 /tmp/check-scam-probe /tmp/scam-probe-fixture
 # P214a: NativeEngine lookups leave no JNI global reference (fake JNIEnv against the NDK's jni.h).

@@ -1258,6 +1258,12 @@ struct HybridTuning {
     // P627: the fast route's column bands (a frame wider than the GPU's limits): the whole frame's frame pick, base first (internal,
     // not a tuning file key); empty = the route's own selector
     std::vector<int> fastPick;
+    // P685: the fast route's row bands (a merge above the memory it may take, scam-fast-merge.h): the whole frame's decisions every
+    // band takes (internal, not tuning file keys) - its white balance (fastBandWb[0] > 0), its clip fraction for the highlight path
+    // (>= 0), its HALF height for the rejection's size-relative thresholds (> 0) and its effective-map code scale (> 0)
+    std::array<float,3> fastBandWb{{0.f,0.f,0.f}};
+    float fastBandClip=-1.f,fastBandEffScale=0.f;
+    int fastBandHalfH=0;
     // P484 fast-merge speed keys (output within one level of the final 8-bit image; 0 = the previous behaviour):
     // fmFilterGather 1: the rejection filter (sh089) reads its 7x7 window by textureGather (output identical).
     // fmMergeBatch N (1..8, default 1 = off): the merges of N consecutive frames are drawn back to back after their front ends (the

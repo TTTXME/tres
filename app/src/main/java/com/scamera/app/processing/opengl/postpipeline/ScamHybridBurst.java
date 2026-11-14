@@ -400,10 +400,16 @@ public final class ScamHybridBurst implements ScamTransport {
         // P191 (owner's 50 MP shots, 2026-10-17: 20 frames taken, 2 merged - «Сетка не исчезла»): a mosaic stream below 100 MP is
         // budgeted by the worker itself - its native merge holds each frame binned (~24 MB at 50 MP) and picks the frames its
         // MemAvailable allows - while this estimate counted each frame at full size (156 MB) and kept 2 of 20
-        final boolean workerBudget = workerBudgetsMosaic(width, height, mosaicBlock);
+        // P685: the fast route («Быстрый», which takes every shot of that mode) fits its own memory: a merge above its share of
+        // MemAvailable runs in row bands (the worker's scam-fast-merge.h); each more frame costs it ~1 B a pixel (its flow and
+        // rejection map) besides the frame itself, already in the shot arena - this estimate's 20-40 B a pixel fixed and ~2.5 B
+        // a pixel per frame are the SCAM merge's (a 200 MP series read «0 frames» here and was kept whole anyway)
+        final boolean fastBudget = workerBudgetsFast(fastRoute(), width, height);
+        final boolean workerBudget = workerBudgetsMosaic(width, height, mosaicBlock) || fastBudget;
         final int budget = workerBudget ? Integer.MAX_VALUE : memoryFrameBudget(width, height, mosaicBlock, grid, available);
         if (workerBudget && available > 0) Log.i("SCAM_HDR", "hybrid memory " + width + "x" + height + " colour block " + mosaicBlock
-                + ": the worker's native mosaic budget picks the frames (available " + (available >> 20) + " MB)");
+                + (fastBudget ? ": the fast route sizes its own memory (row bands above its share, P685; available "
+                        : ": the worker's native mosaic budget picks the frames (available ") + (available >> 20) + " MB)");
         // The input and three post-pipeline RGBA16F textures coexist. A smaller frame budget alone is only an estimate.
         if (strictTwoX && available > 0 && minimumPostBytes(outWidth, outHeight) > available)
             throw new IOException(Lang.t("SHDR: недостаточно свободной памяти для склейки 2× ",
@@ -874,6 +880,14 @@ public final class ScamHybridBurst implements ScamTransport {
     static boolean workerBudgetsMosaic(int w, int h, int mosaicBlock) {
         final long px = (long) w * h;
         return mosaicBlock >= 2 && px > CLASSIC_INPUT_PIXELS && px <= HUGE_INPUT_PIXELS;
+    }
+
+    /**
+     * P685: a stream above 16 MP on the fast route ({@code fast}: «Быстрый») leaves its memory to the worker, which merges in row
+     * bands sized to its share of MemAvailable (HYBRID FAST MERGE ROW BANDS) - no frame cap from the SCAM merge's estimate.
+     */
+    static boolean workerBudgetsFast(boolean fast, int w, int h) {
+        return fast && (long) w * h > CLASSIC_INPUT_PIXELS;
     }
 
     /** P179: the N frames a merge of a w x h stream keeps whatever its memory budget says. */

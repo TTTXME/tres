@@ -96,15 +96,27 @@ public final class GpuPace {
         long measured;
         /** P668: the passes whose bands were narrowed this run: {smallest rows, bands, widest rows asked}. */
         private final java.util.LinkedHashMap<String, int[]> narrowed = new java.util.LinkedHashMap<>();
+        /**
+         * P685: true while the viewfinder is paused (VfDrawMeter.hidden: the gallery, the settings, the app left): nothing waits behind
+         * the post then - its blocks go unpaced (no fence, no wait) and its bands at the height asked; pacing resumes with the next
+         * block once the viewfinder draws again. The same commands in the same order: the photo is the same.
+         */
+        private final java.util.function.BooleanSupplier hidden;
+        long unpaced;
 
         public Pacer(Gpu gpu, int inFlight) {
             this(gpu, inFlight, 0f);
         }
 
         public Pacer(Gpu gpu, int inFlight, float bandMs) {
+            this(gpu, inFlight, bandMs, () -> false);
+        }
+
+        public Pacer(Gpu gpu, int inFlight, float bandMs, java.util.function.BooleanSupplier hidden) {
             this.gpu = gpu;
             this.inFlight = Math.max(1, inFlight);
             this.bandNs = bandMs > 0f ? (long) (bandMs * 1e6) : 0L;
+            this.hidden = hidden != null ? hidden : () -> false;
         }
 
         /** A block was submitted: its fence, then the wait for the oldest beyond {@link #inFlight}. */
@@ -114,6 +126,7 @@ public final class GpuPace {
 
         /** P668: a band of {@code pixels} of the program {@code pass} was submitted (its GPU time is measured when waited for). */
         public void submitted(String pass, long pixels) {
+            if (hidden.getAsBoolean()) { unpaced++; return; } // P685: the viewfinder paused: nothing to keep smooth
             final long f = gpu.fence();
             if (f == 0) return; // no fence: nothing to pace by
             fences++;
@@ -151,7 +164,7 @@ public final class GpuPace {
          * measurement, without band sizing or when {@code maxRows} is below the step).
          */
         public int bandRows(String pass, int width, int maxRows) {
-            if (bandNs <= 0 || pass == null || width <= 0 || maxRows <= BAND_STEP) return maxRows;
+            if (bandNs <= 0 || pass == null || width <= 0 || maxRows <= BAND_STEP || hidden.getAsBoolean()) return maxRows;
             final Float nsPerPixel = NS_PER_PIXEL.get(pass);
             if (nsPerPixel == null || !(nsPerPixel > 0f)) return maxRows;
             final double rows = bandNs / ((double) nsPerPixel * width);
@@ -225,9 +238,10 @@ public final class GpuPace {
                                 .append(" rows x").append(e.getValue()[1]);
                 }
             }
-            return String.format(Locale.ROOT, "post GPU pace: at most %d blocks in flight, %d fences, %d waits %.0f ms (max %.1f), %d finishes polled %.0f ms%s%s",
+            return String.format(Locale.ROOT, "post GPU pace: at most %d blocks in flight, %d fences, %d waits %.0f ms (max %.1f), %d finishes polled %.0f ms%s%s%s",
                     inFlight, fences, waits, waitedNs / 1e6, maxWaitNs / 1e6, finishes, finishNs / 1e6,
-                    givenUp > 0 ? ", " + givenUp + " fences given up after " + GIVE_UP_NS / 1_000_000 + " ms" : "", bands);
+                    givenUp > 0 ? ", " + givenUp + " fences given up after " + GIVE_UP_NS / 1_000_000 + " ms" : "",
+                    unpaced > 0 ? ", " + unpaced + " blocks unpaced (the viewfinder paused, P685)" : "", bands);
         }
     }
 
@@ -296,7 +310,7 @@ public final class GpuPace {
             n = 0;
             bandMs = 0f;
         }
-        if (n > 0) CURRENT.set(new Pacer(GL, n, bandMs));
+        if (n > 0) CURRENT.set(new Pacer(GL, n, bandMs, com.scamera.app.ui.camera.views.viewfinder.VfDrawMeter::hiddenNow));
         // P683: the first shot of a process starts from the first-run calibration's ns per pixel (GpuProfile), not from 256 rows
         if (n > 0 && bandMs > 0f && SEEDED.compareAndSet(false, true)) {
             try {
