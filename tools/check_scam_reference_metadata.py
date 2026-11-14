@@ -88,6 +88,7 @@ public class Allocator {
  public static ByteBuffer allocateAndCopyConvert12Binning(int n,ByteBuffer b,int w,int r,int s){return ByteBuffer.allocate(n);}
  public static boolean isPackedRaw(int f){return f==0x25||f==0x26||RawUnpack.isRaw14(f);}
  public static void free(ByteBuffer b){}
+ public static ByteBuffer allocate(int n){return ByteBuffer.allocateDirect(n);}
  public static ByteBuffer arenaView(int id,long offset,int bytes){return null;}
 }''',
 'com/scamera/app/processing/RingFrame.java': '''package com.scamera.app.processing;
