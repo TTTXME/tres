@@ -65,6 +65,7 @@ public final class FullResRecipeRows {
     public static String fieldTitle(Context c, String field) {
         switch (field) {
             case FullResRecipe.SIZE: return Lang.t(c, "Размер RAW снимка", "Capture RAW size");
+            case FullResRecipe.FORMAT: return Lang.t(c, "Формат RAW снимка", "Capture RAW format");
             case FullResRecipe.USAGE: return Lang.t(c, "Usage RAW-ридера", "RAW reader usage");
             case FullResRecipe.USE_CASE: return Lang.t(c, "Stream use case RAW", "RAW stream use case");
             case FullResRecipe.COMPANION: return Lang.t(c, "Поток-спутник", "Companion stream");
@@ -86,6 +87,8 @@ public final class FullResRecipeRows {
         switch (field) {
             case FullResRecipe.SIZE: return Lang.t(c, "Ширина x высота RAW-потока для снимка, например 8192x6144. Может быть размером, которого нет в списке камеры.",
                     "Width x height of the shot's RAW stream, for example 8192x6144. It may be a size the camera does not list.");
+            case FullResRecipe.FORMAT: return Lang.t(c, "Формат RAW-потока снимка: raw16 — 16 бит на точку (RAW_SENSOR); raw10 — упакованный 10-битный (RAW10), как у рецепта полного разрешения OPPO Find X9 Ultra.",
+                    "The format of the shot's RAW stream: raw16 - 16 bits a site (RAW_SENSOR); raw10 - packed 10-bit (RAW10), as the OPPO Find X9 Ultra's full-resolution recipe takes it.");
             case FullResRecipe.USAGE: return Lang.t(c, "Биты usage ридера RAW (число или 0x…). 0 — как обычно.",
                     "The RAW reader's usage bits (a number or 0x…). 0: the usual ones.");
             case FullResRecipe.USE_CASE: return Lang.t(c, "Значение setStreamUseCase только для RAW-потока снимка (число или 0x…; значения производителя от 0x80000). 0 — не задавать. Нужен Android 13.",
@@ -104,8 +107,8 @@ public final class FullResRecipeRows {
                     "The frame rate range of the session and the shot, for example 30-30. Empty: unchanged.");
             case FullResRecipe.PIXEL_MODE: return Lang.t(c, "never — режим пикселей не задаётся совсем; annotate — RAW снимка и спутник помечаются MAXIMUM_RESOLUTION, снимок его запрашивает (нужен Android 12).",
                     "never: no pixel mode is said at all; annotate: the shot's RAW and the companion are marked MAXIMUM_RESOLUTION and the shot asks for it (needs Android 12).");
-            case FullResRecipe.PREVIEW: return Lang.t(c, "Поток видоискателя рядом с RAW снимка: isp — обычный поток ISP; raw — обычный RAW-поток камеры (видоискатель из RAW); both — оба.",
-                    "The viewfinder's stream beside the shot's RAW: isp - the usual ISP stream; raw - the camera's usual RAW stream (the RAW viewfinder); both.");
+            case FullResRecipe.PREVIEW: return Lang.t(c, "Поток видоискателя рядом с RAW снимка: isp — обычный поток ISP; raw — обычный RAW-поток камеры (видоискатель из RAW); both — оба; fake — видоискатель из RAW, а поток ISP есть в сессии, но ни в одном запросе (фиктивное откл.: автофокус камеры работает).",
+                    "The viewfinder's stream beside the shot's RAW: isp - the usual ISP stream; raw - the camera's usual RAW stream (the RAW viewfinder); both; fake - the RAW viewfinder with the ISP stream in the session but in no request (fake off: the camera's autofocus keeps working).");
             case FullResRecipe.FRAMES: return Lang.t(c, "Сколько кадров полного размера снимается после нажатия (1–8). Больше — меньше шума, но дольше и горячее.",
                     "How many full-size frames a press takes (1-8). More: less noise, but longer and hotter.");
             case FullResRecipe.OP_MODE: return Lang.t(c, "Режим сессии камеры (число или 0x…). 0 — обычный.", "The camera session's operation mode (a number or 0x…). 0: regular.");
@@ -225,12 +228,14 @@ public final class FullResRecipeRows {
 
     static boolean lists(String field) {
         return FullResRecipe.TEMPLATE.equals(field) || FullResRecipe.SESSION.equals(field) || FullResRecipe.PIXEL_MODE.equals(field)
+                || FullResRecipe.FORMAT.equals(field)
                 || FullResRecipe.PREVIEW.equals(field) || FullResRecipe.VIEW_TAGS.equals(field) || FullResRecipe.VIEW_COMPANION.equals(field);
     }
 
     static String[] values(String field) {
         if (FullResRecipe.PIXEL_MODE.equals(field)) return new String[]{"never", "annotate"};
-        if (FullResRecipe.PREVIEW.equals(field)) return new String[]{"isp", "raw", "both"};
+        if (FullResRecipe.PREVIEW.equals(field)) return new String[]{"isp", "raw", "both", "fake"};
+        if (FullResRecipe.FORMAT.equals(field)) return new String[]{"raw16", "raw10"};
         if (FullResRecipe.VIEW_TAGS.equals(field) || FullResRecipe.VIEW_COMPANION.equals(field)) return new String[]{"yes", "no"};
         return FullResRecipe.TEMPLATES.clone();
     }

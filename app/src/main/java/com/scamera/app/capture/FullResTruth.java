@@ -18,7 +18,7 @@ import java.util.Locale;
  * <li>the four phase means (the CFA's parity: two equal greens on a plain Bayer).</li>
  * </ul>
  * A frame without any light or all clipped (equal boxes that do not differ from their neighbours either) cannot be told: UNKNOWN,
- * kept as it is. Pure; uint16 little-endian rows of {@code stride} bytes.
+ * kept as it is. Pure; uint16 little-endian rows of {@code stride} bytes (P689: or packed RAW10 rows, {@link Src}).
  */
 public final class FullResTruth {
     private FullResTruth() {}
@@ -149,6 +149,34 @@ public final class FullResTruth {
         return b.getShort(base + y * stride + 2 * x) & 0xFFFF;
     }
 
+    /**
+     * P689: one site of a frame - uint16 little-endian rows, or (the OPPO Find X9 Ultra's 50 MP recipe RAW, ImageFormat.RAW10)
+     * MIPI RAW10 rows: four sites in five bytes, the high 8 bits of each in bytes 0..3, their low 2 bits in byte 4.
+     */
+    static final class Src {
+        final ByteBuffer b;
+        final int base, stride;
+        final boolean raw10;
+
+        Src(ByteBuffer b, int base, int stride, boolean raw10) {
+            this.b = b;
+            this.base = base;
+            this.stride = stride;
+            this.raw10 = raw10;
+        }
+
+        int at(int x, int y) {
+            if (!raw10) return FullResTruth.at(b, base, stride, x, y);
+            final int o = base + y * stride + (x >> 2) * 5, k = x & 3;
+            return ((b.get(o + k) & 0xFF) << 2) | (((b.get(o + 4) & 0xFF) >> (2 * k)) & 3);
+        }
+    }
+
+    /** P689: the bytes a row of {@code width} sites takes (RAW10: 5 a group of 4; else 2 a site). */
+    static long rowBytes(int width, boolean raw10) {
+        return raw10 ? ((long) width * 10 + 7) / 8 : width * 2L;
+    }
+
     /** The verdict of a frame; UNKNOWN for a buffer that cannot be read. */
     public static Result check(@Nullable ByteBuffer raw, int width, int height, int stride) {
         return check(raw, width, height, stride, 0);
@@ -160,7 +188,7 @@ public final class FullResTruth {
      * HAL leaves of a buffer it does not fill, never what a sensor reads (its pedestal and noise). The box bounds the cells that
      * are not empty; the floor is the 2 % percentile of their samples.
      */
-    static double[] valid(ByteBuffer b, int base, int stride, int width, int height, double declaredBlack) {
+    static double[] valid(Src src, int width, int height, double declaredBlack) {
         final int cx = Math.max(1, width / CELL), cy = Math.max(1, height / CELL);
         final int emptyBelow = (int) Math.max(1, declaredBlack * 0.5);
         final int[] hist = new int[4096];
@@ -168,11 +196,11 @@ public final class FullResTruth {
         long samples = 0;
         for (int j = 0; j < cy; j++) for (int i = 0; i < cx; i++) {
             final int x0 = i * CELL, y0 = j * CELL;
-            final int first = at(b, base, stride, x0 + 3, y0 + 3);
+            final int first = src.at(x0 + 3, y0 + 3);
             boolean empty = first < emptyBelow;
             final int[] v = new int[16];
             for (int k = 0; k < 16; k++) {
-                v[k] = at(b, base, stride, Math.min(width - 1, x0 + 3 + (k & 3) * 15), Math.min(height - 1, y0 + 3 + (k >> 2) * 15));
+                v[k] = src.at(Math.min(width - 1, x0 + 3 + (k & 3) * 15), Math.min(height - 1, y0 + 3 + (k >> 2) * 15));
                 if (v[k] != first) empty = false;
             }
             if (empty) continue;
@@ -201,14 +229,24 @@ public final class FullResTruth {
 
     /** {@link #check(ByteBuffer, int, int, int)} with the black the camera declares (0: not known) for the pedestal and the empty cells. */
     public static Result check(@Nullable ByteBuffer raw, int width, int height, int stride, double declaredBlack) {
+        return check(raw, width, height, stride, declaredBlack, false);
+    }
+
+    /**
+     * P689: {@link #check(ByteBuffer, int, int, int, double)} of a packed RAW10 frame ({@code raw10}: the OPPO Find X9 Ultra's
+     * 50 MP recipe takes its stills as RAW10, as the X9 Ultra full-size recipe proved them) - the same statistics on the same
+     * sites, read from their 10-bit groups.
+     */
+    public static Result check(@Nullable ByteBuffer raw, int width, int height, int stride, double declaredBlack, boolean raw10) {
         final double[] parity = new double[4];
-        if (raw == null || width < 64 || height < 64 || stride < width * 2
-                || (long) raw.position() + (long) (height - 1) * stride + width * 2L > raw.limit())
+        final long row = rowBytes(width, raw10);
+        if (raw == null || width < 64 || height < 64 || stride < row
+                || (long) raw.position() + (long) (height - 1) * stride + row > raw.limit())
             return new Result(Verdict.UNKNOWN, width, height, 0, 0, 0, 0, 0, 0, parity);
         final ByteBuffer b = raw.duplicate().order(ByteOrder.LITTLE_ENDIAN);
-        final int base = b.position();
+        final Src src = new Src(b, b.position(), stride, raw10);
         // P635b: where the buffer holds a picture at all
-        final double[] area = valid(b, base, stride, width, height, declaredBlack);
+        final double[] area = valid(src, width, height, declaredBlack);
         final int[] box = {(int) area[2], (int) area[3], (int) area[4], (int) area[5]};
         // every 4th box of every 4th box row of the frame without its outer tenth
         final int x0 = (width / 10) & ~1, x1 = (width * 9 / 10) & ~1, y0 = (height / 10) & ~1, y1 = (height * 9 / 10) & ~1;
@@ -218,8 +256,8 @@ public final class FullResTruth {
         long boxes = 0;
         for (int y = y0; y + 6 <= y1; y += 8) {
             for (int x = x0; x + 6 <= x1; x += 8) {
-                final int a = at(b, base, stride, x, y), c = at(b, base, stride, x + 1, y);
-                final int d = at(b, base, stride, x, y + 1), e = at(b, base, stride, x + 1, y + 1);
+                final int a = src.at(x, y), c = src.at(x + 1, y);
+                final int d = src.at(x, y + 1), e = src.at(x + 1, y + 1);
                 sum[0] += a;
                 sum[1] += c;
                 sum[2] += d;
@@ -230,10 +268,10 @@ public final class FullResTruth {
                 boxes++;
                 for (int p = 0; p < 4; p++) {
                     final int px = x + (p & 1), py = y + (p >> 1);
-                    final int v = at(b, base, stride, px, py);
-                    if (v == at(b, base, stride, px + 1, py) && v == at(b, base, stride, px, py + 1) && v == at(b, base, stride, px + 1, py + 1)) {
+                    final int v = src.at(px, py);
+                    if (v == src.at(px + 1, py) && v == src.at(px, py + 1) && v == src.at(px + 1, py + 1)) {
                         equal[p]++;
-                        if (v != at(b, base, stride, px + 2, py)) differ[p]++;
+                        if (v != src.at(px + 2, py)) differ[p]++;
                     }
                 }
             }
@@ -253,7 +291,7 @@ public final class FullResTruth {
         for (int p = 1; p < 4; p++) if (equal[p] > equal[phase]) phase = p;
         final double equalShare = (double) equal[phase] / boxes;
         final double neighbourShare = equal[phase] == 0 ? 0 : (double) differ[phase] / equal[phase];
-        final double[] lap = laplacian(b, base, stride, width, height, phase);
+        final double[] lap = laplacian(src, width, height, phase);
         final Verdict verdict;
         if (area[0] == 0) verdict = Verdict.UNKNOWN; // nothing but one value: no light, or all clipped
         else if (area[1] < VALID_SHARE) verdict = Verdict.PARTIAL; // P635b: the picture's box leaves a part of the buffer empty
@@ -268,13 +306,13 @@ public final class FullResTruth {
      * {variance of the Laplacian, the same of the nearest-2x baseline} over a centre crop of at most 1024 x 768 sites; the
      * baseline: each 2x2 box (at the doubled frame's phase) replaced by its mean.
      */
-    static double[] laplacian(ByteBuffer b, int base, int stride, int width, int height, int phase) {
+    static double[] laplacian(Src src, int width, int height, int phase) {
         final int cw = Math.min(1024, (width - 4) & ~1), ch = Math.min(768, (height - 4) & ~1);
         if (cw < 16 || ch < 16) return new double[]{0, 0};
         final int ox = (((width - cw) / 2) & ~1) + (phase & 1), oy = (((height - ch) / 2) & ~1) + (phase >> 1);
         final int[] f = new int[cw * ch];
         final float[] m = new float[cw * ch];
-        for (int y = 0; y < ch; y++) for (int x = 0; x < cw; x++) f[y * cw + x] = at(b, base, stride, ox + x, oy + y);
+        for (int y = 0; y < ch; y++) for (int x = 0; x < cw; x++) f[y * cw + x] = src.at(ox + x, oy + y);
         for (int y = 0; y < ch; y += 2) for (int x = 0; x < cw; x += 2) {
             final float mean = (f[y * cw + x] + f[y * cw + x + 1] + f[(y + 1) * cw + x] + f[(y + 1) * cw + x + 1]) / 4f;
             m[y * cw + x] = m[y * cw + x + 1] = m[(y + 1) * cw + x] = m[(y + 1) * cw + x + 1] = mean;
@@ -306,6 +344,39 @@ public final class FullResTruth {
         in.position(0);
         in.limit(bytes);
         dst.duplicate().put(in);
+        return true;
+    }
+
+    /**
+     * P689: {@link #unpackQuarter} of a packed RAW10 buffer - the binned frame (width / 2 x height / 2 sites, RAW10 rows at its own
+     * pitch, two binned rows in each buffer row) unpacked into {@code dst} as packed uint16 rows from its position. False when the
+     * buffers do not hold it, the buffer's rows are padded or its width is no whole number of 8 sites.
+     */
+    public static boolean unpackQuarterRaw10(@Nullable ByteBuffer dst, @Nullable ByteBuffer src, int width, int height, int stride) {
+        final int ow = width / 2, oh = height / 2;
+        final long half = rowBytes(ow, true);
+        if (dst == null || src == null || ow <= 0 || oh <= 0 || width % 8 != 0 || stride != rowBytes(width, true)
+                || dst.remaining() < (long) ow * oh * 2 || half * oh > src.limit()) return false;
+        return unpackRaw10(dst, new Src(src.duplicate(), 0, (int) half, true), ow, oh, 0, 0, 1);
+    }
+
+    /** P689: {@link #halve} of a packed RAW10 frame (the binned frame written twice over) into uint16 rows of {@code dst}. */
+    public static boolean halveRaw10(@Nullable ByteBuffer dst, @Nullable ByteBuffer src, int offset, int width, int height, int stride, int phase) {
+        final int ow = width / 2, oh = height / 2;
+        if (dst == null || src == null || ow <= 0 || oh <= 0 || stride < rowBytes(width, true)
+                || dst.remaining() < (long) ow * oh * 2 || (long) offset + (long) (height - 1) * stride + rowBytes(width, true) > src.limit())
+            return false;
+        return unpackRaw10(dst, new Src(src.duplicate(), offset, stride, true), ow, oh, phase & 1, phase >> 1, 2);
+    }
+
+    /** P689: {@code ow} x {@code oh} sites of a RAW10 source at ({@code step} x + px, {@code step} y + py) as uint16 rows. */
+    private static boolean unpackRaw10(ByteBuffer dst, Src in, int ow, int oh, int px, int py, int step) {
+        final java.nio.ShortBuffer out = dst.duplicate().order(dst.order()).asShortBuffer();
+        final short[] row = new short[ow];
+        for (int y = 0; y < oh; y++) {
+            for (int x = 0; x < ow; x++) row[x] = (short) in.at(step * x + px, step * y + py);
+            out.put(row);
+        }
         return true;
     }
 

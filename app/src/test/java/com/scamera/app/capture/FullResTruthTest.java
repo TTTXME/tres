@@ -256,4 +256,63 @@ public class FullResTruthTest {
         assertSame(first, shot.judge(bayer(W, H, 8), W, H, W * 2));
         assertNotNull(shot.verdict());
     }
+
+    /** P689: a uint16 frame ({@code w} x {@code h}, packed rows) as MIPI RAW10 rows of {@code stride} bytes. */
+    static ByteBuffer raw10(ByteBuffer plain, int w, int h, int stride) {
+        final ByteBuffer b = ByteBuffer.allocateDirect(stride * h).order(ByteOrder.LITTLE_ENDIAN);
+        for (int y = 0; y < h; y++) for (int g = 0; g < w / 4; g++) {
+            int low = 0;
+            for (int k = 0; k < 4; k++) {
+                final int v = Math.min(1023, plain.getShort((y * w + 4 * g + k) * 2) & 0xFFFF);
+                b.put(y * stride + g * 5 + k, (byte) (v >> 2));
+                low |= (v & 3) << (2 * k);
+            }
+            b.put(y * stride + g * 5 + 4, (byte) low);
+        }
+        return b;
+    }
+
+    /**
+     * P689 (the OPPO Find X9 Ultra's 50 MP recipe takes its stills as RAW10): a packed RAW10 frame is judged on the same sites as
+     * its uint16 twin - a real frame real, a doubled one doubled, the binned frame in a quarter of the buffer partial - and a
+     * doubled or quarter frame comes back as the uint16 binned frame.
+     */
+    @Test public void raw10FramesAreJudgedOnTheirSites() {
+        final int stride = W * 10 / 8;
+        final ByteBuffer real = bayer(W, H, 21);
+        final FullResTruth.Result plain = FullResTruth.check(real, W, H, W * 2, 64);
+        final FullResTruth.Result packed = FullResTruth.check(raw10(real, W, H, stride), W, H, stride, 64, true);
+        assertEquals(packed.line(), FullResTruth.Verdict.REAL, packed.verdict);
+        assertEquals(plain.line(), packed.line());
+        // padded RAW10 rows
+        final FullResTruth.Result padded = FullResTruth.check(raw10(real, W, H, stride + 48), W, H, stride + 48, 64, true);
+        assertEquals(plain.line(), padded.line());
+        assertEquals("a RAW10 stride is no uint16 row", FullResTruth.Verdict.UNKNOWN, FullResTruth.check(raw10(real, W, H, stride), W, H, stride, 64).verdict);
+        // the binned frame written twice over
+        final ByteBuffer half = bayer(W / 2, H / 2, 22);
+        final ByteBuffer twice = raw10(doubled(half, W, H, 0, 0), W, H, stride);
+        final FullResTruth.Result up = FullResTruth.check(twice, W, H, stride, 64, true);
+        assertEquals(up.line(), FullResTruth.Verdict.UPSCALED, up.verdict);
+        final ByteBuffer out = ByteBuffer.allocateDirect(W / 2 * (H / 2) * 2).order(ByteOrder.nativeOrder());
+        assertTrue(FullResTruth.halveRaw10(out, twice, 0, W, H, stride, up.phase));
+        for (int i = 0; i < W / 2 * (H / 2); i += 5) assertEquals("site " + i, half.getShort(i * 2), out.order(ByteOrder.LITTLE_ENDIAN).getShort(i * 2));
+        assertFalse(FullResTruth.halveRaw10(ByteBuffer.allocateDirect(8), twice, 0, W, H, stride, 0));
+        // the binned frame at its own RAW10 pitch in the first quarter of the rows
+        final int w = 1024, h = 768, quarterStride = w * 10 / 8;
+        final ByteBuffer binned = bayer(w / 2, h / 2, 23);
+        final ByteBuffer frame = ByteBuffer.allocateDirect(quarterStride * h).order(ByteOrder.LITTLE_ENDIAN);
+        final ByteBuffer packedHalf = raw10(binned, w / 2, h / 2, (w / 2) * 10 / 8);
+        packedHalf.position(0);
+        frame.duplicate().put(packedHalf);
+        final FullResTruth.Result quarter = FullResTruth.check(frame, w, h, quarterStride, 64, true);
+        assertEquals(quarter.line(), FullResTruth.Verdict.PARTIAL, quarter.verdict);
+        assertTrue(quarter.packedQuarter());
+        final ByteBuffer back = ByteBuffer.allocateDirect(w / 2 * (h / 2) * 2).order(ByteOrder.nativeOrder());
+        assertTrue(FullResTruth.unpackQuarterRaw10(back, frame, w, h, quarterStride));
+        for (int i = 0; i < w / 2 * (h / 2); i += 7) assertEquals("site " + i, binned.getShort(i * 2), back.order(ByteOrder.LITTLE_ENDIAN).getShort(i * 2));
+        assertFalse("padded rows are another pitch", FullResTruth.unpackQuarterRaw10(back, frame, w, h, quarterStride + 16));
+        // a recipe shot judges its RAW10 stills
+        final FullResRecipeShot shot = new FullResRecipeShot("2", "OPPO Find X9 Ultra 50 MP (1x)", 64, false);
+        assertEquals(FullResTruth.Verdict.REAL, shot.judge(raw10(real, W, H, stride), W, H, stride, true).verdict);
+    }
 }
