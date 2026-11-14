@@ -43,38 +43,34 @@ public class FlashModeTest {
     }
 
     @Test public void aTapCyclesOffAutoOnTorch() {
-        assertEquals(AUTO, FlashMode.next(OFF, true, false));
-        assertEquals(ON, FlashMode.next(AUTO, true, false));
-        assertEquals(TORCH, FlashMode.next(ON, true, false));
-        assertEquals(OFF, FlashMode.next(TORCH, true, false));
+        assertEquals(AUTO, FlashMode.next(OFF, true));
+        assertEquals(ON, FlashMode.next(AUTO, true));
+        assertEquals(TORCH, FlashMode.next(ON, true));
+        assertEquals(OFF, FlashMode.next(TORCH, true));
         // a value outside the four is off; the default (pref_ae_mode_default) is off
         assertEquals(OFF, FlashMode.normalize(7));
-        assertEquals(AUTO, FlashMode.next(-3, true, false));
+        assertEquals(AUTO, FlashMode.next(-3, true));
     }
 
-    @Test public void aLensWithoutAFlashAndTheVideoKeepOffAndTheTorch() {
-        assertEquals(TORCH, FlashMode.next(OFF, false, false));
-        assertEquals(OFF, FlashMode.next(TORCH, false, false));
+    @Test public void aLensWithoutAFlashKeepsOffAndTheTorch() {
+        assertEquals(TORCH, FlashMode.next(OFF, false));
+        assertEquals(OFF, FlashMode.next(TORCH, false));
         // a stored Auto / On (chosen on the back lens) is off on the front lens, the next tap the torch (its screen light)
-        assertEquals(OFF, FlashMode.effective(AUTO, false, false));
-        assertEquals(OFF, FlashMode.effective(ON, false, false));
-        assertEquals(TORCH, FlashMode.next(ON, false, false));
-        assertEquals(TORCH, FlashMode.next(OFF, true, true));
-        assertEquals(OFF, FlashMode.next(TORCH, true, true));
-        assertEquals(OFF, FlashMode.effective(AUTO, true, true));
-        assertEquals(TORCH, FlashMode.effective(TORCH, true, true));
-        assertEquals(AUTO, FlashMode.effective(AUTO, true, false));
+        assertEquals(OFF, FlashMode.effective(AUTO, false));
+        assertEquals(OFF, FlashMode.effective(ON, false));
+        assertEquals(TORCH, FlashMode.next(ON, false));
+        assertEquals(TORCH, FlashMode.effective(TORCH, false));
+        assertEquals(AUTO, FlashMode.effective(AUTO, true));
     }
 
     @Test public void thePreviewKeysOfEachMode() {
-        assertEquals(CameraMetadata.CONTROL_AE_MODE_ON, FlashMode.previewAeMode(OFF, true, false));
-        assertEquals(CameraMetadata.CONTROL_AE_MODE_ON_AUTO_FLASH, FlashMode.previewAeMode(AUTO, true, false));
-        assertEquals(CameraMetadata.CONTROL_AE_MODE_ON_ALWAYS_FLASH, FlashMode.previewAeMode(ON, true, false));
-        assertEquals(CameraMetadata.CONTROL_AE_MODE_ON, FlashMode.previewAeMode(TORCH, true, false));
-        // no flash shot here (no flash unit, a sensor-mode route) and the video: ON
-        assertEquals(CameraMetadata.CONTROL_AE_MODE_ON, FlashMode.previewAeMode(AUTO, false, false));
-        assertEquals(CameraMetadata.CONTROL_AE_MODE_ON, FlashMode.previewAeMode(ON, false, false));
-        assertEquals(CameraMetadata.CONTROL_AE_MODE_ON, FlashMode.previewAeMode(ON, true, true));
+        assertEquals(CameraMetadata.CONTROL_AE_MODE_ON, FlashMode.previewAeMode(OFF, true));
+        assertEquals(CameraMetadata.CONTROL_AE_MODE_ON_AUTO_FLASH, FlashMode.previewAeMode(AUTO, true));
+        assertEquals(CameraMetadata.CONTROL_AE_MODE_ON_ALWAYS_FLASH, FlashMode.previewAeMode(ON, true));
+        assertEquals(CameraMetadata.CONTROL_AE_MODE_ON, FlashMode.previewAeMode(TORCH, true));
+        // no flash shot here (no flash unit, a sensor-mode route): ON
+        assertEquals(CameraMetadata.CONTROL_AE_MODE_ON, FlashMode.previewAeMode(AUTO, false));
+        assertEquals(CameraMetadata.CONTROL_AE_MODE_ON, FlashMode.previewAeMode(ON, false));
         assertEquals(CameraMetadata.FLASH_MODE_TORCH, FlashMode.previewFlashMode(TORCH, true));
         assertEquals(CameraMetadata.FLASH_MODE_OFF, FlashMode.previewFlashMode(TORCH, false));
         for (int m : new int[]{OFF, AUTO, ON}) assertEquals(CameraMetadata.FLASH_MODE_OFF, FlashMode.previewFlashMode(m, true));

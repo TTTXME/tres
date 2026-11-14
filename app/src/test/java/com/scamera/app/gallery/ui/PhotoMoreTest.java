@@ -6,9 +6,8 @@ import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
 
-import java.util.List;
 
-/** P492: the «Подробнее» rows of the details sheet - a tag the file lacks gives no row, the file's place always one. */
+/** P492: the words of the details sheet's EXIF values (P706: the rows themselves: PhotoPropertiesTest). */
 public class PhotoMoreTest {
     @Test
     public void valuesInPlainWords() {
@@ -24,13 +23,5 @@ public class PhotoMoreTest {
         assertNull(PhotoMore.rotation(0));
         assertEquals("90°", PhotoMore.rotation(90));
         assertEquals("sRGB", PhotoMore.colourSpace(1));
-    }
-
-    @Test
-    public void withoutExifOnlyThePath() {
-        List<String[]> rows = PhotoMore.rows(null, "/storage/emulated/0/DCIM/Camera/IMG_1.jpg");
-        assertEquals(1, rows.size());
-        assertEquals("/storage/emulated/0/DCIM/Camera/IMG_1.jpg", rows.get(0)[1]);
-        assertTrue(PhotoMore.rows(null, null).isEmpty());
     }
 }

@@ -24,7 +24,6 @@ import java.util.regex.Pattern;
 /** P31: the startup permissions are asked like WhyCam does, in one batch and never in an endless loop. */
 public class PermissionPlanTest {
     private static final String CAMERA = "android.permission.CAMERA";
-    private static final String MIC = "android.permission.RECORD_AUDIO";
     private static final String IMAGES = "android.permission.READ_MEDIA_IMAGES";
     private static final String VIDEO = "android.permission.READ_MEDIA_VIDEO";
     private static final String READ = "android.permission.READ_EXTERNAL_STORAGE";
@@ -39,12 +38,12 @@ public class PermissionPlanTest {
 
     @Test
     public void oneBatchHoldsEveryRuntimePermissionOfTheSdk() {
-        assertArrayEquals(new String[]{CAMERA, MIC, IMAGES, VIDEO}, PermissionPlan.runtimePermissions(35));
-        assertArrayEquals(new String[]{CAMERA, MIC, IMAGES, VIDEO}, PermissionPlan.runtimePermissions(33));
-        assertArrayEquals(new String[]{CAMERA, MIC, READ}, PermissionPlan.runtimePermissions(32));
-        assertArrayEquals(new String[]{CAMERA, MIC, READ}, PermissionPlan.runtimePermissions(30));
-        assertArrayEquals(new String[]{CAMERA, MIC, WRITE, READ}, PermissionPlan.runtimePermissions(29));
-        assertArrayEquals(new String[]{CAMERA, MIC, WRITE, READ}, PermissionPlan.runtimePermissions(26));
+        assertArrayEquals(new String[]{CAMERA, IMAGES, VIDEO}, PermissionPlan.runtimePermissions(35));
+        assertArrayEquals(new String[]{CAMERA, IMAGES, VIDEO}, PermissionPlan.runtimePermissions(33));
+        assertArrayEquals(new String[]{CAMERA, READ}, PermissionPlan.runtimePermissions(32));
+        assertArrayEquals(new String[]{CAMERA, READ}, PermissionPlan.runtimePermissions(30));
+        assertArrayEquals(new String[]{CAMERA, WRITE, READ}, PermissionPlan.runtimePermissions(29));
+        assertArrayEquals(new String[]{CAMERA, WRITE, READ}, PermissionPlan.runtimePermissions(26));
         for (int sdk = 26; sdk <= 36; sdk++) {
             assertFalse("INTERNET is a normal permission, sdk " + sdk,
                     Arrays.asList(PermissionPlan.runtimePermissions(sdk)).contains("android.permission.INTERNET"));
@@ -54,8 +53,8 @@ public class PermissionPlanTest {
     @Test
     public void missingKeepsTheRequestOrder() {
         PermissionPlan plan = new PermissionPlan(34);
-        assertArrayEquals(new String[]{CAMERA, MIC, IMAGES, VIDEO}, plan.missing(NONE));
-        assertArrayEquals(new String[]{MIC, VIDEO}, plan.missing(grantedOnly(CAMERA, IMAGES)));
+        assertArrayEquals(new String[]{CAMERA, IMAGES, VIDEO}, plan.missing(NONE));
+        assertArrayEquals(new String[]{VIDEO}, plan.missing(grantedOnly(CAMERA, IMAGES)));
         assertArrayEquals(new String[0], plan.missing(ALL));
     }
 
@@ -73,7 +72,7 @@ public class PermissionPlanTest {
         PermissionPlan plan = new PermissionPlan(34);
         plan.onRequest();
         plan.onResult(true);
-        String[] missing = plan.missing(grantedOnly(CAMERA, MIC));
+        String[] missing = plan.missing(grantedOnly(CAMERA));
         assertEquals(Step.REQUEST, plan.next(missing, grantedOnly(VIDEO), true));
         assertEquals(Step.SETTINGS, plan.next(missing, NONE, true));
     }
@@ -133,8 +132,8 @@ public class PermissionPlanTest {
         // Later storage is revoked in the system settings (the process dies) and the activity comes back from
         // its saved state: the system can still show its prompt, so the plan asks instead of the settings.
         PermissionPlan back = PermissionPlan.restore(29, plan.save());
-        assertEquals(Step.REQUEST, back.next(back.missing(grantedOnly(CAMERA, MIC)), NONE, false));
-        assertEquals(Step.REQUEST, plan.next(plan.missing(grantedOnly(CAMERA, MIC)), NONE, false));
+        assertEquals(Step.REQUEST, back.next(back.missing(grantedOnly(CAMERA)), NONE, false));
+        assertEquals(Step.REQUEST, plan.next(plan.missing(grantedOnly(CAMERA)), NONE, false));
     }
 
     @Test
@@ -147,7 +146,7 @@ public class PermissionPlanTest {
         plan.onDcimGranted();
         assertEquals(Step.START, plan.next(plan.missing(ALL), NONE, true));
         PermissionPlan back = PermissionPlan.restore(34, plan.save());
-        assertEquals(Step.REQUEST, back.next(back.missing(grantedOnly(MIC, IMAGES, VIDEO)), NONE, true));
+        assertEquals(Step.REQUEST, back.next(back.missing(grantedOnly(IMAGES, VIDEO)), NONE, true));
         // The DCIM grant of the picker is still trusted in the new round.
         assertEquals(Step.START, back.next(back.missing(ALL), NONE, false));
     }
@@ -204,12 +203,12 @@ public class PermissionPlanTest {
     @Test
     public void settingsDialogNamesTheMissingGroups() {
         PermissionPlan p34 = new PermissionPlan(34);
-        assertEquals(Arrays.asList(Group.CAMERA, Group.MICROPHONE, Group.PHOTOS), p34.groups(p34.missing(NONE)));
+        assertEquals(Arrays.asList(Group.CAMERA, Group.PHOTOS), p34.groups(p34.missing(NONE)));
         assertEquals(Collections.singletonList(Group.PHOTOS), p34.groups(new String[]{VIDEO}));
         PermissionPlan p31 = new PermissionPlan(31);
-        assertEquals(Collections.singletonList(Group.FILES), p31.groups(p31.missing(grantedOnly(CAMERA, MIC))));
+        assertEquals(Collections.singletonList(Group.FILES), p31.groups(p31.missing(grantedOnly(CAMERA))));
         PermissionPlan p29 = new PermissionPlan(29);
-        assertEquals(Arrays.asList(Group.MICROPHONE, Group.STORAGE), p29.groups(p29.missing(grantedOnly(CAMERA))));
+        assertEquals(Collections.singletonList(Group.STORAGE), p29.groups(p29.missing(grantedOnly(CAMERA))));
     }
 
     @Test
@@ -235,6 +234,16 @@ public class PermissionPlanTest {
         assertArrayEquals(new PermissionPlan(34).save(), PermissionPlan.restore(34, new int[]{2}).save());
     }
 
+    /** P707: nothing records audio (the photo mode is the only camera mode): no microphone in the manifest or the requests. */
+    @Test
+    public void noMicrophoneIsDeclaredOrAsked() throws Exception {
+        String manifest = new String(Files.readAllBytes(new File("src/main/AndroidManifest.xml").toPath()), StandardCharsets.UTF_8);
+        assertFalse("the manifest declares the microphone", manifest.contains("android.permission.RECORD_AUDIO"));
+        assertTrue("the gallery shows videos: READ_MEDIA_VIDEO stays", manifest.contains("android.permission.READ_MEDIA_VIDEO"));
+        for (int sdk = 26; sdk <= 36; sdk++)
+            assertFalse("sdk " + sdk, Arrays.asList(PermissionPlan.runtimePermissions(sdk)).contains("android.permission.RECORD_AUDIO"));
+    }
+
     /** Text of string {@code name} in {@code file}, or null. */
     private static String string(String file, String name) throws Exception {
         String xml = new String(Files.readAllBytes(new File(file).toPath()), StandardCharsets.UTF_8);
@@ -245,7 +254,7 @@ public class PermissionPlanTest {
     @Test
     public void permissionTextsExistInBothLanguagesAndDoNotNameTheOldApp() throws Exception {
         String[] names = {"perm_open_settings", "perm_settings_title", "perm_settings_message", "perm_group_camera",
-                "perm_group_microphone", "perm_group_photos", "perm_group_files", "perm_group_storage",
+                "perm_group_photos", "perm_group_files", "perm_group_storage",
                 "perm_rationale_media_title", "perm_rationale_media_settings", "perm_dcim_hint",
                 "perm_dcim_wrong_folder", "perm_rationale_dcim_title", "perm_dcim_failed", "perm_retry"};
         for (String file : new String[]{"src/main/res/values/strings.xml", "src/main/res/values-ru/strings.xml"}) {

@@ -59,4 +59,15 @@ public class OcrIndexTest {
         OcrIndex.stop();
         assertNull(OcrIndex.runningWorker());
     }
+
+    /** P706: the index reads on a charger always, on the battery from 25 % and not in the battery saver. */
+    @org.junit.Test
+    public void theBatteryGate() {
+        final int charging = android.os.BatteryManager.BATTERY_STATUS_CHARGING, discharging = android.os.BatteryManager.BATTERY_STATUS_DISCHARGING;
+        org.junit.Assert.assertTrue(OcrIndex.batteryOk(charging, 5, 100, true));
+        org.junit.Assert.assertTrue(OcrIndex.batteryOk(discharging, 80, 100, false));
+        org.junit.Assert.assertFalse("the battery saver", OcrIndex.batteryOk(discharging, 80, 100, true));
+        org.junit.Assert.assertFalse("low", OcrIndex.batteryOk(discharging, 20, 100, false));
+        org.junit.Assert.assertTrue("unknown level", OcrIndex.batteryOk(discharging, -1, 100, false));
+    }
 }

@@ -146,8 +146,19 @@ final class LiveSceneMeter {
         // P643d: the frame's tile for the ScamMaster tone preview
         final com.scamera.app.processing.oldstyle.OldstyleLive live =
                 com.scamera.app.processing.oldstyle.OldstyleLive.shared();
-        if (live.wantsScreen()) live.screen(System.nanoTime(), tileRgb(readback, TILE, pendingGain), TILE, TILE);
+        if (live.wantsScreen()) {
+            // P705: one tile array and one table per gain, kept (OldstyleLive.screen copies the tile): ~15 tiles a second made a
+            // 48 KB array each and took 12288 powers each for a series frame
+            if (tileTable == null || tileTableGain != pendingGain) tileTable = gainTable(pendingGain, tileTable);
+            tileTableGain = pendingGain;
+            live.screen(System.nanoTime(), tileRgb(readback, TILE, tileTable, tileOut), TILE, TILE);
+        }
     }
+
+    /** P705: the tile's array and the gain table of its last gain (GL thread). */
+    private final float[] tileOut = new float[TILE * TILE * 3];
+    private float[] tileTable;
+    private float tileTableGain = Float.NaN;
 
     private static final float[] LINEAR = new float[256];
 
@@ -161,16 +172,32 @@ final class LiveSceneMeter {
      * series gain in light (the power 2.2 and back, at most white) when it is not 1 - the frame as the viewfinder's shader has it.
      */
     static float[] tileRgb(ByteBuffer rgba, int size, float gain) {
-        final float[] out = new float[size * size * 3];
+        return tileRgb(rgba, size, gainTable(gain, null), new float[size * size * 3]);
+    }
+
+    /**
+     * P705: {@link #tileRgb(ByteBuffer, int, float)} through a table of the 256 values ({@link #gainTable}) into {@code out} (at
+     * least size x size x 3): the same numbers, each computed once per gain instead of once per texel.
+     */
+    static float[] tileRgb(ByteBuffer rgba, int size, float[] table, float[] out) {
         for (int j = 0; j < size; j++) {
             final int row = size - 1 - j;   // the readback's row j is at t = 1 - (j + 0.5) / size
             for (int i = 0; i < size; i++)
-                for (int c = 0; c < 3; c++) {
-                    final int v = rgba.get((j * size + i) * 4 + c) & 0xFF;
-                    out[(row * size + i) * 3 + c] = gain == 1f ? v / 255f : (float) Math.pow(Math.min(1f, LINEAR[v] * gain), 1.0 / 2.2);
-                }
+                for (int c = 0; c < 3; c++)
+                    out[(row * size + i) * 3 + c] = table[rgba.get((j * size + i) * 4 + c) & 0xFF];
         }
         return out;
+    }
+
+    /**
+     * P705: the display value of each 8-bit value with the frame's series gain in light: v / 255 at gain 1, else the power 2.2,
+     * times the gain (at most white) and back - the expression {@link #tileRgb} computed per texel. {@code into}: reused when 256 long.
+     */
+    static float[] gainTable(float gain, float[] into) {
+        final float[] t = into != null && into.length == 256 ? into : new float[256];
+        for (int v = 0; v < 256; v++)
+            t[v] = gain == 1f ? v / 255f : (float) Math.pow(Math.min(1f, LINEAR[v] * gain), 1.0 / 2.2);
+        return t;
     }
 
     private boolean init() {

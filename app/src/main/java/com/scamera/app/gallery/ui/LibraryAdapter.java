@@ -25,7 +25,6 @@ import com.scamera.app.gallery.helper.UltraHdrGalleryUtil;
 import com.scamera.app.gallery.model.GalleryItem;
 
 import java.util.ArrayList;
-import java.util.Calendar;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -134,6 +133,7 @@ public final class LibraryAdapter extends RecyclerView.Adapter<RecyclerView.View
     public void setItems(List<GalleryItem> list) {
         final List<GalleryItem> next = list != null ? list : new ArrayList<>();
         final long t = System.currentTimeMillis();
+        com.scamera.app.gallery.model.LocalDay.refresh();
         final List<Row> nextRows = style != null ? style.rows(next, t) : rowsOf(next, t); // P622: the view's own rows
         // P498: a delete, an undo or a filter moves the cells on (DiffUtil + the grid's item animator) instead of a jump cut; the
         // first fill and big changes stay one refresh
@@ -224,10 +224,13 @@ public final class LibraryAdapter extends RecyclerView.Adapter<RecyclerView.View
         return out;
     }
 
+    /**
+     * The local day of {@code millis} (days since the epoch in the phone's zone). P706: arithmetic on the zone's offset - a
+     * Calendar a call (two a photo for the rows, one a bound header) was 20 000 Calendars for a library of 9000 photos on the
+     * main thread at every list.
+     */
     static long dayKey(long millis) {
-        Calendar c = Calendar.getInstance();
-        c.setTimeInMillis(millis);
-        return c.get(Calendar.YEAR) * 1000L + c.get(Calendar.DAY_OF_YEAR);
+        return com.scamera.app.gallery.model.LocalDay.day(millis);
     }
 
     public List<GalleryItem> items() { return items; }
@@ -372,6 +375,9 @@ public final class LibraryAdapter extends RecyclerView.Adapter<RecyclerView.View
         final View watchedLine;
         GalleryItem item;
         int index;
+        /** P706: the badges shown (their kind; null: none yet) and the selection state drawn (-1: none yet). */
+        String badgeKey;
+        int shownState = -1;
 
         CellHolder(Context c) {
             super(new Square(c));
@@ -433,17 +439,24 @@ public final class LibraryAdapter extends RecyclerView.Adapter<RecyclerView.View
             this.index = index;
             Context c = cell.getContext();
             GalleryFormat format = GalleryFormat.of(item, rawBases);
-            badges.removeAllViews();
-            if (format == GalleryFormat.VIDEO) badges.addView(videoBadge(c, com.scamera.app.gallery.files.GalleryVideo.durationMs(item.mediaFile())));
-            else badges.addView(badge(c, format.icon));
-            heart.setVisibility(host.isFavourite(item) ? View.VISIBLE : View.GONE);
             Uri uri = item.mediaFile().contentUri();
+            Boolean uhdr = uri != null ? UHDR.get(uri) : Boolean.FALSE;
+            final long duration = format == GalleryFormat.VIDEO ? com.scamera.app.gallery.files.GalleryVideo.durationMs(item.mediaFile()) : 0;
+            // P706: the badges built again only when they change (a bind during a scroll made two or three views and their
+            // drawables a cell, most of them the same as the cell had)
+            final String key = (format == GalleryFormat.VIDEO ? "v" + duration : "i" + format.icon) + (Boolean.TRUE.equals(uhdr) ? "+hdr" : "");
+            if (!key.equals(badgeKey)) {
+                badgeKey = key;
+                badges.removeAllViews();
+                if (format == GalleryFormat.VIDEO) badges.addView(videoBadge(c, duration));
+                else badges.addView(badge(c, format.icon));
+                if (Boolean.TRUE.equals(uhdr)) badges.addView(badge(c, R.drawable.ui_ic_sun));
+            }
+            heart.setVisibility(host.isFavourite(item) ? View.VISIBLE : View.GONE);
             float seen = format == GalleryFormat.VIDEO && uri != null ? com.scamera.app.gallery.video.VideoResume.progress(c, uri.toString()) : -1;
             watched.setVisibility(seen > 0 ? View.VISIBLE : View.GONE);
             if (seen > 0) watchedLine.setScaleX(seen);
-            Boolean uhdr = uri != null ? UHDR.get(uri) : Boolean.FALSE;
-            if (Boolean.TRUE.equals(uhdr)) badges.addView(badge(c, R.drawable.ui_ic_sun));
-            else if (uhdr == null && uri != null && loadPictures && isJpeg(item)) probe(c, uri);
+            if (uhdr == null && uri != null && loadPictures && isJpeg(item)) probe(c, uri);
             cell.setContentDescription(describe(item, format, Boolean.TRUE.equals(uhdr)));
             if (uri != null && loadPictures) loadThumb(item, uri);
             applySelection(false);
@@ -482,6 +495,11 @@ public final class LibraryAdapter extends RecyclerView.Adapter<RecyclerView.View
             if (item == null) return;
             Context c = cell.getContext();
             boolean selecting = host.selecting(), on = selecting && host.isSelected(item);
+            // P706: a bind in the state the cell is in changes nothing (each made a frame and a disc drawable and laid the badges
+            // out again)
+            final int state = (selecting ? 1 : 0) | (on ? 2 : 0);
+            if (!animate && state == shownState) return;
+            shownState = state;
             boolean was = checkMark.getVisibility() == View.VISIBLE && check.getVisibility() == View.VISIBLE;
             int accent = GalleryUi.accent(c);
             // P579: the chosen one framed in the accent (2dp), no outline otherwise

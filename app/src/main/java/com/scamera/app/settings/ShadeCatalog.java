@@ -77,7 +77,7 @@ public final class ShadeCatalog {
     public static final String ROUTE = ScamHybridKeys.ROUTE;
     /** SIMPLE_UI §2: «Размер» - the photo size (12 / 50 / 200 Мп, PhotoSize: the FULLRES switch); virtual, its tile opens the sheet. */
     public static final String SIZE = "ui_photo_size";
-    /** SIMPLE_UI §2 «Стиль»: Обычный / Ч/б / Плёнка over the mono filter and the film LUT (PhotoStyle). */
+    /** SIMPLE_UI §2 «Стиль»: the tone preset Насыщенный / Обычный / Нейтральный (P718, PhotoStyle). */
     public static final String STYLE = "ui_photo_style";
     /** SIMPLE_UI §2 «Селфи»: the front camera's photos mirrored or as the camera sees them (Parameters.disableMirror). */
     public static final String MIRROR = "pref_tunable_parameters_disablemirror";
@@ -430,10 +430,13 @@ public final class ShadeCatalog {
         addVirtual(METERING_STD, R.string.shade_title_metering_std, R.array.shade_l_metering_std,
                 new String[]{"-1", "0", "1", "2"}, "-1", SettingType.AE_METERING_STD);
         addVirtual(SIZE, R.string.shade_title_size, R.array.shade_l_size, new String[]{"12", "50", "200"}, "12", null);
-        addVirtual(STYLE, R.string.shade_title_style, R.array.shade_l_style, new String[]{"0", "1", "2"}, "0", null);
+        // P718: the presets' order of the cards (PhotoStyle.order): Насыщенный, Обычный, Нейтральный; the values are PhotoStyle's
+        addVirtual(STYLE, R.string.shade_title_style, R.array.shade_l_style,
+                new String[]{String.valueOf(PhotoStyle.VIVID), String.valueOf(PhotoStyle.NORMAL), String.valueOf(PhotoStyle.NEUTRAL)},
+                String.valueOf(PhotoStyle.NORMAL), null);
     }
 
-    /** «Стиль»: the next of Обычный / Ч/б / Плёнка (the mono filter and the LUT follow, PhotoStyle). */
+    /** «Стиль»: the next of Насыщенный / Обычный / Нейтральный (PhotoStyle; «Why тон» goes to V2). */
     public void cycleStyle() {
         PhotoStyle.apply(prefs, PhotoStyle.next(PhotoStyle.current(prefs)));
     }
@@ -1157,7 +1160,7 @@ public final class ShadeCatalog {
 
     /** The next list value (wrapping) as stored, for a tap on a list tile. */
     public String nextValue(Entry e) {
-        // P590: the flash cycles as the top row's item (a lens without a flash and the video: off <-> torch)
+        // P590: the flash cycles as the top row's item (a lens without a flash: off <-> torch)
         if (FLASH.equals(e.pref)) return String.valueOf(com.scamera.app.capture.FlashMode.tap());
         int i = index(e);
         return e.values[(i + 1 + e.values.length) % e.values.length].toString();

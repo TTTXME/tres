@@ -357,6 +357,36 @@ def linear_checks(g):
         w = np.where(np.isfinite(v), v, 0).astype(np.float32)
         want = np.clip(np.floor(w * np.float32(scale) + np.float32(0.5)), -32768, 32767)
         check(np.array_equal(got, want), 'oldstyle/linear: the int16 sample = OldstyleAe.sample at scale %g' % (scale / 4095))
+    # P716: uDither 1 - the rounding takes the interleaved gradient noise of the pixel (- 0.5 .. 0.5, one value for the three
+    # channels): every sample within one level of the plain one, the GPU's as the formula (FP32) gives it, and a flat area's
+    # mean is its value (the plain rounding: the nearest level)
+    yy, xx = np.indices((32, 48)).astype(np.float32) + np.float32(0.5)
+    inner = xx * np.float32(0.06711056) + yy * np.float32(0.00583715)
+    inner = inner - np.floor(inner)
+    ign = np.float32(52.9829189) * inner
+    ign = (ign - np.floor(ign) - np.float32(0.5))[..., None]
+    scale = np.float32(4095.0 * 0.25)
+    out = g.draw(p, g.target(48, 32, 'i2'), {'InputBuffer': t, 'GainMap': gm}, {'uScale': float(scale), 'inScaleU': 1.0,
+                                                                                'neutralPointU': (1.0, 1.0, 1.0), 'uDither': 1.0})
+    got = g.read(out)[..., :3]
+    w = np.where(np.isfinite(v), v, 0).astype(np.float32)
+    plain = np.clip(np.floor(w * scale + np.float32(0.5)), -32768, 32767)
+    want = np.clip(np.floor(w * scale + np.float32(0.5) + ign), -32768, 32767)
+    same = float((got == want).mean())
+    check(np.abs(got - plain).max() <= 1 and same >= 0.99, 'oldstyle/linear dithered: within one level of the plain sample, '
+          '%.2f %% as the formula gives it' % (100 * same))
+    flat = np.full((32, 48, 4), 1.0, np.float32)
+    flat[..., :3] = np.float32(3.3) / scale
+    ft = g.ctx.texture((48, 32), 4, flat.astype(np.float16).tobytes(), dtype='f2')
+    ft.filter = (g.mgl.NEAREST, g.mgl.NEAREST)
+    exact = float(np.float32(np.float16(flat[0, 0, 0])) * scale)
+    means = []
+    for dith in (0.0, 1.0):
+        out = g.draw(p, g.target(48, 32, 'i2'), {'InputBuffer': ft, 'GainMap': gm}, {'uScale': float(scale), 'inScaleU': 1.0,
+                                                                                     'neutralPointU': (1.0, 1.0, 1.0), 'uDither': dith})
+        means.append(float(g.read(out)[..., :3].mean()))
+    check(abs(means[1] - exact) < 0.03 and abs(means[0] - round(exact)) < 1e-9,
+          'oldstyle/linear: a flat %.3f - plain %.3f, dithered %.3f' % (exact, means[0], means[1]))
 
 
 if __name__ == '__main__':

@@ -34,7 +34,7 @@ AT = grab(r'vec3 at\(ivec2 p\)\{.*?\n\}')
 SC = grab(r'ivec2 sc\(int dx, int dy\) \{[^\n]*\}')
 LUMA = grab(r'float lumaAt\(ivec2 p, ivec2 lo, ivec2 hi\) \{[^\n]*\}')
 DEGRID = grab(r'vec3 deGrid\(ivec2 p, vec3 v\) \{.*?\n\}')
-check(MERGE.count('g.u4f(A::pOutput,"u_flat_noise",S,O,quad&&sensorType==1?std::clamp(tune.fastQuadFlatNoise,0.f,8.f):0.f,'
+check(MERGE.count('g.u4f(PO,"u_flat_noise",S,O,quad&&sensorType==1?std::clamp(tune.fastQuadFlatNoise,0.f,8.f):0.f,'
                   'quad&&sensorType==1?std::clamp(tune.fastQuadLineFrames,0.f,64.f):0.f);') == 2 and MERGE.count('u_flat_noise') == 2,
       'u_flat_noise set in both output passes, Quad (block 2) only')
 check('float fastQuadFlatNoise=1.5f;' in HYB and 'float fastQuadLineFrames=8.f;' in HYB, 'defaults 1.5 / 8')

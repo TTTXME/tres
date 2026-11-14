@@ -119,7 +119,10 @@ inline std::vector<uint8_t> pad32(const std::vector<uint8_t>& rgb, size_t w, siz
  *   4 output saturation on, 5 sat, 6 vibrance, 7 sat per stop, 8 vibrance per stop,
  *   9 low-frequency colour on (V1 HDR), 10 its motion threshold (8-bit), 11 chroma only,
  *   P630h (absent in a 12-entry array: the module's own): 12 the low-frequency colour's share (0..1), 13 the tone curve's
- *   midtones, 14 its S-contrast (shape above).
+ *   midtones, 14 its S-contrast (shape above);
+ *   P716 (absent in a 15-entry array: as before): 15 the gain the frame already carries (the photo's int16 frame drawn at its
+ *   V1 gain, OldstyleTone.preGain; the gains handed to render are over it, the output saturation's finish gain is the whole),
+ *   16 V1 HDR's bright exposure from the linear frame (linear_bright_hook) instead of the 8-bit retone of the short one.
  */
 struct Post {
     bool dehaze = false;
@@ -131,6 +134,8 @@ struct Post {
     int lf_threshold = 16;
     bool lf_chroma = true;
     float lf_strength = 1.f, curve_mid = 0.f, curve_contrast = 0.f;
+    float frame_gain = 1.f;
+    bool linear_bright = false;
 };
 
 /** {@code v} up to a multiple of 8. */
@@ -316,6 +321,64 @@ inline std::unique_ptr<int16_t[]> scaled_fast(const int16_t* src, size_t count, 
         for (size_t i = size_t(first) * block; i < end; ++i) dst[i] = table[static_cast<uint16_t>(src[i])];
     }, 4);
     return out;
+}
+
+/**
+ * P716 (owner, 2026-11-14: «В мастер режиме у нас постеризация в тенях»): V1 HDR's bright (long) virtual exposure from the linear
+ * frame. The module makes it from the short exposure's RGB8 through retone (the 8-bit code's inverse times gainLong / gainShort,
+ * then the curve): every short code becomes one bright code, so where the curve is straight (its toe: one code a 10-bit index)
+ * the bright exposure keeps one level of every gainLong / gainShort (~3.8 at the 2.7 plan's cap) - the shadows it lights come in
+ * steps of ~4 codes and their colour in per-channel steps (blotches; the low-frequency colour mends that only at 8 x 8). Here
+ * the bright exposure is finish_raw27_rgb of the frame itself at the exposure the retone means (gainShort x q8 / 256: the same
+ * ratio, the same CCM and curve, the ceiling as the short one's), what a real long exposure through the module gives - one
+ * code a step - in strips of rows (little memory beside the module's), the padding repeated as pad32 repeats the frame's edge.
+ * The low-frequency colour then runs on it as before (its reference is this exposure at 8 x 8: about nothing left to move).
+ */
+struct LinearBright {
+    const int16_t* src;
+    size_t w, h;
+    float gain;
+    float ceiling;
+    std::array<float, 9> ccm;
+    const tone::Curve8* curve;
+    tone::BrightHook next;
+    void* next_user;
+    std::string error;
+};
+
+/** Rows of the bright exposure a strip. */
+constexpr size_t LINEAR_BRIGHT_STRIP = 128;
+
+inline void linear_bright_fill(uint8_t* bright, size_t pw, size_t ph, const LinearBright& lb) {
+    const size_t plane = lb.w * lb.h;
+    const auto table = gain_table(lb.gain, lb.ceiling);
+    std::vector<int16_t> strip(3 * lb.w * std::min(LINEAR_BRIGHT_STRIP, lb.h));
+    for (size_t y0 = 0; y0 < lb.h; y0 += LINEAR_BRIGHT_STRIP) {
+        const size_t rows = std::min(LINEAR_BRIGHT_STRIP, lb.h - y0), n = rows * lb.w;
+        for (int c = 0; c < 3; ++c) {
+            const int16_t* in = lb.src + c * plane + y0 * lb.w;
+            int16_t* out = strip.data() + c * n;
+            for (size_t i = 0; i < n; ++i) out[i] = table[static_cast<uint16_t>(in[i])];
+        }
+        const auto rgb = tone::finish_raw27_rgb({strip.data(), 3 * n, lb.w, rows, lb.w, n}, lb.ccm, *lb.curve);
+        for (size_t r = 0; r < rows; ++r) {
+            uint8_t* dst = bright + (y0 + r) * pw * 3;
+            std::memcpy(dst, rgb.data() + r * lb.w * 3, lb.w * 3);
+            for (size_t x = lb.w; x < pw; ++x) std::memcpy(dst + x * 3, dst + (lb.w - 1) * 3, 3);
+        }
+    }
+    for (size_t y = lb.h; y < ph; ++y) std::memcpy(bright + y * pw * 3, bright + (lb.h - 1) * pw * 3, pw * 3);
+}
+
+inline void linear_bright_hook(uint8_t* bright, size_t pw, size_t ph, void* user) {
+    auto* lb = static_cast<LinearBright*>(user);
+    try {
+        linear_bright_fill(bright, pw, ph, *lb);
+    } catch (const std::exception& e) {
+        lb->error = e.what();
+        return;
+    }
+    if (lb->next) lb->next(bright, pw, ph, lb->next_user);
 }
 
 /** memcpy in bands. */
@@ -589,9 +652,13 @@ inline void render(int version, const int16_t* src, size_t w, size_t h, const fl
                 dark[c] = tone::retone(inverse, curve, 256);
             }
             LowFrequency lf{src, w, h, gainLong, ccm, &post, &curve, ceiling};
+            const tone::BrightHook lfHook = post.low_frequency ? (fast ? low_frequency_hook_fast : low_frequency_hook) : nullptr;
+            // P716: the bright exposure from the linear frame at the retone's own exposure, then the low-frequency colour
+            LinearBright lb{src, w, h, gainShort * (float(q8) / 256.f), ceiling, ccm, &curve, lfHook, &lf};
             auto toned = tone::tone_rgb8_hdr_luts(tone::Version::v27, tone::ColorInput::rgb,
                     {frame8, pw * ph * 3, pw, ph, pw * 3, 0}, bright, dark,
-                    post.low_frequency ? (fast ? low_frequency_hook_fast : low_frequency_hook) : nullptr, &lf);
+                    post.linear_bright ? linear_bright_hook : lfHook, post.linear_bright ? static_cast<void*>(&lb) : &lf);
+            if (!lb.error.empty()) throw std::runtime_error("linear bright exposure: " + lb.error);
             if (!lf.error.empty()) throw std::runtime_error("low-frequency colour: " + lf.error);
             info[0] = float(lf.scale);
             if (whole) {
@@ -619,11 +686,13 @@ inline void render(int version, const int16_t* src, size_t w, size_t h, const fl
     if (rgb.size() != count) throw std::runtime_error("unexpected output size");
     const auto t1 = std::chrono::steady_clock::now();
     DehazeLog d;
+    // P716: the output saturation's per-stop rule takes the whole long gain (the part already in the frame with it)
+    const float finishGain = gainLong * (post.frame_gain > 0.f ? post.frame_gain : 1.f);
     if (fast) {
-        d = stages_fast(rgb.data(), dst, w, h, version != 1, post, shading, shadingW, shadingH, gainLong);
+        d = stages_fast(rgb.data(), dst, w, h, version != 1, post, shading, shadingW, shadingH, finishGain);
     } else {
         if (post.dehaze) d = dehaze_rgb8(rgb.data(), w, h, post, shading, shadingW, shadingH);
-        if (post.saturation) saturate_rgb8(rgb.data(), w, h, version != 1, post, gainLong);
+        if (post.saturation) saturate_rgb8(rgb.data(), w, h, version != 1, post, finishGain);
         std::memcpy(dst, rgb.data(), count);
     }
     if (post.dehaze) {

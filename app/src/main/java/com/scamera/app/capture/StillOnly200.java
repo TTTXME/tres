@@ -39,6 +39,16 @@ import com.scamera.app.util.Lang;
  * one variant (nothing noted), «vivo_x300_fullsize 0» drops the stock keys (P208 then our mode key, as on the X100 Ultra). The
  * normal session's sensor mode and the other cameras are never touched; the X200 Ultra (its 200 MP session holds its mode, not
  * still-only) and OPPO are outside.
+ * <p>
+ * P699 (owner, X300 Ultra 2026-11-14 on build 31270: «Исправь все фулрезы которые нормально не работают»; cameras 3 and 5: NATIVE and
+ * NATIVE_RAW each failed as «block 1, the profile's 4», a confident plain Bayer on every still, seamlessMode absent): the HAL
+ * remosaicks the full-size stills whatever the native variants ask. A still-only series whose stills prove that Bayer completes as
+ * a Bayer 200 MP photo (merged as block 1, VivoSdkFullResCapture.seriesBlock) instead of failing. The owner then decided («Для X300
+ * Ultra просто оставляем 200мп с ремозаиком»): the X300 Ultra's order is NATIVE (the HAL's Bayer seen arriving whole) then HAL, its
+ * profile a Bayer ({@link #remosaicOnly}), no press spent on the Tetra. Elsewhere (the X100 Ultra) a native variant's Bayer is noted
+ * ({@link #bayer}): the next press tries the next native variant for the Tetra; with none left the first one that gave the Bayer is
+ * kept ({@link Choice#bayer}), and a later hard failure goes back to it. {@link #TRIALS} 2 forgets the failures noted under the old
+ * rule.
  */
 final class StillOnly200 {
     private StillOnly200() { }
@@ -82,8 +92,12 @@ final class StillOnly200 {
     }
 
     /** The generation of the memory: variants noted under another one (or another firmware) are tried again. */
-    static final int TRIALS = 1;
+    static final int TRIALS = 2;
     private static final String SUFFIX = "_still200_", STAMP = "_stamp", STEP = "_step", OK = "_ok", WHY = "_why";
+    /** P699: the step of the first native variant that delivered the HAL's remosaicked Bayer on this firmware (absent: none). */
+    private static final String BAYER = "_bayer";
+    /** P699: the why of a variant that delivered the HAL's Bayer (no failure). */
+    static final String BAYER_WHY = "the HAL's remosaicked Bayer (block 1) from ";
 
     /** The route is this one: a native still-only profile of a vivo phone (never the OPPO's own mode route). */
     static boolean applies(@Nullable VivoSdkFullRes.Profile profile, boolean oppo) {
@@ -92,12 +106,22 @@ final class StillOnly200 {
 
     /**
      * The order a camera tries the variants in: the X300 Ultra with the stock keys ({@code recipe}: scam_dev «vivo_x300_fullsize»,
-     * on by default) the native mosaic first and the HAL's remosaic last; else P208's way first, then our mode key.
+     * on by default) the HAL's remosaic only (P699: NATIVE, whose stills the owner's log shows arriving whole as the HAL's
+     * remosaicked Bayer, then the stock camera's whole recipe on a hard failure); else P208's way first, then our mode key.
+     * scam_dev «vivo_fullres200_variant» 2 / 3 still holds NATIVE_RAW / NATIVE_KEY for a test.
      */
     static Variant[] order(@Nullable VivoNativeFullRes.Phone phone, boolean recipe) {
         return phone == VivoNativeFullRes.Phone.X300_ULTRA && recipe
-                ? new Variant[]{Variant.NATIVE, Variant.NATIVE_RAW, Variant.NATIVE_KEY, Variant.HAL}
+                ? new Variant[]{Variant.NATIVE, Variant.HAL}
                 : new Variant[]{Variant.BASE, Variant.KEY};
+    }
+
+    /**
+     * P699 (owner, 2026-11-14: «Для X300 Ultra просто оставляем 200мп с ремозаиком, раз без ремозаика использовать невозможно»):
+     * the phone's 200 MP still-only stills are the HAL's remosaicked Bayer (block 1), whichever variant asks.
+     */
+    static boolean remosaicOnly(@Nullable VivoNativeFullRes.Phone phone) {
+        return phone == VivoNativeFullRes.Phone.X300_ULTRA;
     }
 
     /** The key base of a camera's size (under the camera's FULLRES trial keys: «Попробовать снова» clears it). */
@@ -121,12 +145,19 @@ final class StillOnly200 {
         final int step;
         final Variant[] order;
         final String source;
+        /** P699: the variant is kept as the HAL's remosaicked Bayer (its stills: block 1) on this firmware. */
+        final boolean bayer;
 
         Choice(Variant variant, int step, Variant[] order, String source) {
+            this(variant, step, order, source, false);
+        }
+
+        Choice(Variant variant, int step, Variant[] order, String source, boolean bayer) {
             this.variant = variant;
             this.step = step;
             this.order = order;
             this.source = source;
+            this.bayer = bayer;
         }
 
         boolean dev() {
@@ -197,7 +228,7 @@ final class StillOnly200 {
         final Variant held = devVariant(dev);
         if (held != null && (!held.recipe || order[0].recipe))
             return new Choice(held, -1, order, "scam_dev vivo_fullres200_variant " + (int) dev);
-        final String first = "first try on this firmware" + (order[0].recipe ? " (X300 Ultra: the native mosaic first)" : "");
+        final String first = "first try on this firmware" + (order[0].recipe ? " (X300 Ultra: the HAL's remosaic, P699)" : "");
         if (p == null || cameraId == null) return new Choice(order[0], 0, order, first);
         try {
             final String key = key(cameraId, width, height);
@@ -207,8 +238,16 @@ final class StillOnly200 {
             if (step < 0 || step >= order.length)
                 return new Choice(order[0], 0, order, "every variant failed before on this firmware, from the first again");
             final boolean ok = p.getBoolean(key + OK, false);
+            // P699: a kept variant that delivered the HAL's Bayer; a variant noted after another's Bayer looks for the native Tetra
+            final boolean bayer = p.getInt(key + BAYER, -1) == step;
+            if (bayer && ok) return new Choice(order[step], step, order, "it delivered the HAL's remosaicked Bayer (block 1) before on this"
+                    + " firmware, no native variant gave the Tetra: kept", true);
+            if (bayer) return new Choice(order[step], step, order, "it delivered the HAL's remosaicked Bayer (block 1) before on this"
+                    + " firmware, once more after a failed series (last: " + why + ")", true);
             return new Choice(order[step], step, order, ok ? "it completed a series before on this firmware"
-                    : why == null ? first : "noted after a failed series on this firmware (last: " + why + ")");
+                    : why == null ? first : why.startsWith(BAYER_WHY) ? "noted after a series of " + why.substring(BAYER_WHY.length())
+                    + " gave the HAL's remosaicked Bayer on this firmware (this one tries for the native Tetra)"
+                    : "noted after a failed series on this firmware (last: " + why + ")");
         } catch (RuntimeException e) {
             return new Choice(order[0], 0, order, first);
         }
@@ -240,17 +279,26 @@ final class StillOnly200 {
         final int at = Math.max(0, index(order, choice.variant));
         final String text = why == null ? "unknown" : why.length() > 120 ? why.substring(0, 120) : why;
         boolean wasOk = false;
-        int next = at + 1;
+        int next = at + 1, bayer = -1;
         if (p != null) try {
             final String key = key(cameraId, profile);
-            wasOk = current(p, key, stamp(fingerprint)) && p.getBoolean(key + OK, false) && p.getInt(key + STEP, -1) == at;
+            final boolean now = current(p, key, stamp(fingerprint));
+            wasOk = now && p.getBoolean(key + OK, false) && p.getInt(key + STEP, -1) == at;
+            bayer = now ? p.getInt(key + BAYER, -1) : -1;
             if (wasOk) next = at; // it completed a series before: once more before the next variant
-            p.edit().putString(key + STAMP, stamp(fingerprint)).putInt(key + STEP, next).putBoolean(key + OK, false)
+            // P699: no native variant left (the HAL recipe next, or none): back to the one that delivered the HAL's Bayer
+            final boolean back = !wasOk && bayer >= 0 && bayer < order.length && bayer != at
+                    && (next >= order.length || order[next].halRemosaic);
+            if (back) next = bayer;
+            else bayer = -1;
+            p.edit().putString(key + STAMP, stamp(fingerprint)).putInt(key + STEP, next).putBoolean(key + OK, back)
                     .putString(key + WHY, text).apply();
         } catch (RuntimeException ignored) {
         }
         if (wasOk) return new Outcome(true, false, choice.variant, true, head + "; it completed a series before on this firmware: the next press"
                 + " tries it once more");
+        if (bayer >= 0) return new Outcome(true, false, order[bayer], true, head + "; the next press goes back to " + order[bayer]
+                + ", which delivered the HAL's remosaicked Bayer (block 1) on this firmware");
         if (next >= order.length)
             return new Outcome(true, true, null, false, head + "; every variant (" + order.length + ") failed on this firmware: the 200 MP row"
                     + " is noted failed");
@@ -268,11 +316,52 @@ final class StillOnly200 {
             final int at = Math.max(0, index(choice.order, choice.variant));
             if (current(p, key, stamp(fingerprint)) && p.getBoolean(key + OK, false) && p.getInt(key + STEP, -1) == at) return null;
             p.edit().putString(key + STAMP, stamp(fingerprint)).putInt(key + STEP, at).putBoolean(key + OK, true)
-                    .remove(key + WHY).apply();
+                    .remove(key + WHY).remove(key + BAYER).apply();
             return "200 MP still-only camera " + cameraId + " " + profile.size + ": variant " + choice.variant + " (" + choice.variant.words
                     + ") completed a series, kept on this firmware";
         } catch (RuntimeException e) {
             return null;
+        }
+    }
+
+    /**
+     * P699: a series of {@code choice} completed with the HAL's remosaicked Bayer stills (block 1). The HAL variant's own Bayer is
+     * a plain success ({@link #succeeded}). A native variant's is noted: the next press tries the next native variant for the
+     * sensor's Tetra; with none left, the first native variant that gave the Bayer on this firmware is kept as the Bayer. The log
+     * line (null when nothing changed); {@code next} of the outcome is the variant of the next press.
+     */
+    static Outcome bayer(@Nullable SharedPreferences p, String cameraId, VivoSdkFullRes.Profile profile, @Nullable String fingerprint,
+                         Choice choice) {
+        final String head = "200 MP still-only camera " + cameraId + " " + profile.size + ": variant " + choice.variant
+                + " delivered the HAL's remosaicked Bayer (block 1), merged as Bayer";
+        if (choice.variant.halRemosaic) {
+            final String kept = succeeded(p, cameraId, profile, fingerprint, choice);
+            return new Outcome(kept != null, false, choice.variant, false, kept);
+        }
+        if (choice.dev()) return new Outcome(false, false, null, false, head + "; held by scam_dev vivo_fullres200_variant, nothing noted");
+        if (p == null) return new Outcome(false, false, null, false, head);
+        final Variant[] order = choice.order;
+        final int at = Math.max(0, index(order, choice.variant));
+        try {
+            final String key = key(cameraId, profile);
+            final boolean now = current(p, key, stamp(fingerprint));
+            final int noted = now ? p.getInt(key + BAYER, -1) : -1;
+            final int first = noted >= 0 && noted < order.length && !order[noted].halRemosaic ? noted : at;
+            if (now && p.getBoolean(key + OK, false) && p.getInt(key + STEP, -1) == at && noted == at)
+                return new Outcome(false, false, choice.variant, false, null); // the kept Bayer variant again
+            final int next = at + 1;
+            if (next < order.length && !order[next].halRemosaic && next != first) {
+                p.edit().putString(key + STAMP, stamp(fingerprint)).putInt(key + STEP, next).putBoolean(key + OK, false)
+                        .putInt(key + BAYER, first).putString(key + WHY, BAYER_WHY + choice.variant).apply();
+                return new Outcome(true, false, order[next], false, head + "; the next press tries " + order[next] + " ("
+                        + order[next].words + ") for the native Tetra, step " + (next + 1) + " of " + order.length);
+            }
+            p.edit().putString(key + STAMP, stamp(fingerprint)).putInt(key + STEP, first).putBoolean(key + OK, true)
+                    .putInt(key + BAYER, first).remove(key + WHY).apply();
+            return new Outcome(true, true, order[first], false, head + "; no native variant gave the Tetra on this firmware: "
+                    + order[first] + " kept as the HAL's Bayer");
+        } catch (RuntimeException e) {
+            return new Outcome(false, false, null, false, head);
         }
     }
 
@@ -305,6 +394,11 @@ final class StillOnly200 {
         return failed(prefs(), cameraId, profile, android.os.Build.FINGERPRINT, choice, why);
     }
 
+    /** {@link #bayer} in the app's preferences on this firmware. */
+    static Outcome bayer(String cameraId, VivoSdkFullRes.Profile profile, Choice choice) {
+        return bayer(prefs(), cameraId, profile, android.os.Build.FINGERPRINT, choice);
+    }
+
     /** {@link #succeeded} in the app's preferences on this firmware. */
     @Nullable
     static String succeeded(String cameraId, VivoSdkFullRes.Profile profile, Choice choice) {
@@ -318,6 +412,18 @@ final class StillOnly200 {
         } catch (RuntimeException e) {
             return null;
         }
+    }
+
+    /**
+     * P699: the owner's message after a series of a native variant that gave the HAL's Bayer ({@link #bayer}); empty when nothing is
+     * to say (the kept Bayer variant again, the HAL variant).
+     */
+    static String ownerBayer(Outcome outcome) {
+        if (!outcome.noted || outcome.next == null || outcome.next.halRemosaic) return "";
+        if (outcome.exhausted) return Lang.t("200 Мп: камера отдаёт только свой ремозаик (Байер) - снимки 200 Мп обрабатываются как Байер",
+                "200 MP: the camera gives only its own remosaic (Bayer) - 200 MP photos are processed as Bayer");
+        return Lang.t("200 Мп: снимок сохранён как Байер (ремозаик камеры); следующее нажатие попробует родную мозаику - " + outcome.next.ownerWords(),
+                "200 MP: the photo is saved as Bayer (the camera's remosaic); the next press tries the native mosaic - " + outcome.next.ownerWords());
     }
 
     /** The owner's message after a failed series whose next press tries another variant. */

@@ -37,6 +37,16 @@ public final class WhyLumaSharpen extends Node {
     private static final int MAX_HALF = 8;
 
     public WhyLumaSharpen() { super("", "WhyLumaSharpen"); }
+
+    /**
+     * P718: in «Why тон» V2 «Резкость» (sharp_gain, V1's detail gain in WhyCombine) scales this sharpening's amounts instead, so the
+     * Simple mode's slider acts with the style presets too; 1 (the default) leaves V2 as it was.
+     */
+    boolean v2;
+
+    static float v2Gain(boolean v2, float sharpGain) {
+        return v2 ? Math.max(0f, sharpGain) : 1f;
+    }
     @Override public void bindShader() {}
 
     private static GLTexture plane(Point size, GLFormat.DataType type, int channels) {
@@ -321,6 +331,148 @@ public final class WhyLumaSharpen extends Node {
         return t;
     }
 
+    /** P713: the knobs of one sharpening (issue reads them once; the striped route uses them per stripe). */
+    private static final class Knobs {
+        float s;
+        int nb;
+        float usmRadius;
+        float usmAmount;
+        float usmThresh;
+        float bilRadius;
+        float bilAmount;
+        float bilColor;
+        float halo;
+        float protectShadows;
+        float protectHighlights;
+        float grain;
+        float sobelAmount;
+        float sobelThresh;
+        float thin;
+        float[][] rl;
+        float rlHalo;
+        float rlMargin;
+        float rlMacro;
+        float rlEdgeGuard;
+        boolean gather;
+        int gfDown;
+        boolean gf;
+        float gfLc;
+    }
+
+    private static Knobs knobs(float s, int nb, float usmRadius, float usmAmount, float usmThresh, float bilRadius, float bilAmount,
+                               float bilColor, float halo, float protectShadows, float protectHighlights, float grain, float sobelAmount,
+                               float sobelThresh, float thin, float[][] rl, float rlHalo, float rlMargin, float rlMacro, float rlEdgeGuard,
+                               boolean gather, int gfDown, boolean gf, float gfLc) {
+        final Knobs k = new Knobs();
+        k.s = s; k.nb = nb; k.usmRadius = usmRadius; k.usmAmount = usmAmount; k.usmThresh = usmThresh;
+        k.bilRadius = bilRadius; k.bilAmount = bilAmount; k.bilColor = bilColor; k.halo = halo;
+        k.protectShadows = protectShadows; k.protectHighlights = protectHighlights; k.grain = grain;
+        k.sobelAmount = sobelAmount; k.sobelThresh = sobelThresh; k.thin = thin; k.rl = rl; k.rlHalo = rlHalo;
+        k.rlMargin = rlMargin; k.rlMacro = rlMacro; k.rlEdgeGuard = rlEdgeGuard; k.gather = gather; k.gfDown = gfDown;
+        k.gf = gf; k.gfLc = gfLc;
+        return k;
+    }
+
+    /** P713: output rows of a stripe (its planes ~16320 x (1536 + 2 halo) x 2 B: ~56 MB each at 200 MP). */
+    static final int STRIPE_ROWS = 1536;
+
+    /**
+     * P713 (owner, 2026-11-14, X300 Ultra 200 MP: WhyLumaSharpen 21 - 33 s and LOW_MEMORY kills with the full grid's five R16F
+     * planes, ~2 GB, on top of the image): above 100 MP (HUGE_GF_PIXELS, where neither R1 nor the lattice source runs) the
+     * sharpening runs on stripes of {@link #STRIPE_ROWS} rows plus a halo of {@link #stripeHalo} rows on each side - more than any
+     * read of the passes reaches through all of them - and each stripe's own rows go into the full-size result: the passes read
+     * their windows only from their own planes (gl_FragCoord-relative, clamped at the plane's edges, which a halo row never passes
+     * into a stripe's own rows); the guide Ya stays one full plane (the image goes back right after it, as before), each stripe
+     * copies its rows (why/sharp_place). Not with the guided filter (its reduced grid), the film grain (a position hash), V2's clean
+     * guide or the neutral film guide; scam_dev sharpen_stripes 0:
+     * the full grid as before. tools/check_sharpen_stripes.py: the stripes give the full grid's plane bit for bit.
+     */
+    static boolean stripesWanted(Point size, boolean gf, float grain, boolean v2Clean, boolean neutralGuide) {
+        if ((long) size.x * size.y <= HUGE_GF_PIXELS || gf || Math.abs(grain) > 0f || v2Clean || neutralGuide) return false;
+        if (com.scamera.app.processing.opengl.PostGlMode.legacy()) return false;
+        return PreferenceKeys.scamDevSwitch("sharpen_stripes", true);
+    }
+
+    /**
+     * P713: the rows a stripe's passes need beyond its own on each side: the compose pass's widest window (USM / bilateral radius
+     * at most 8, the 6 x 6 gather block: 11), each RL iteration's two convolutions (the PSF's half, at most 8, each), its halo
+     * window and edge guard (nb + 1) and damping (1); rounded up to 16 rows with 8 spare.
+     */
+    static int stripeHalo(int nb, int[] halves, int[] iters) {
+        int h = 11 + Math.max(0, nb) + 8;
+        for (int i = 0; i < halves.length; i++) h += Math.max(0, iters[i]) * (2 * Math.min(Math.max(halves[i], 0), MAX_HALF) + nb + 2);
+        return (h + 15) / 16 * 16;
+    }
+
+    private static int stripeHalo(Knobs kn) {
+        final int[] halves = new int[kn.rl.length], iters = new int[kn.rl.length];
+        for (int i = 0; i < kn.rl.length; i++) {
+            final int kernel = Math.round(kn.rl[i][0]);
+            final float rad = kn.rl[i][1], amount = kn.rl[i][2];
+            final int n = Math.min(Math.round(kn.rl[i][3]), 20);
+            if (!(rad > 0f && Math.abs(amount) > 0.001f && n >= 1)) continue;
+            halves[i] = Math.min(psf(kernel, rad * kn.s).half, MAX_HALF);
+            iters[i] = n;
+        }
+        return stripeHalo(kn.nb, halves, iters);
+    }
+
+    /** P713: {@link #stripesWanted}'s route of {@link #issue}: the passes after the guide (closed here) on stripes. */
+    private void issueStriped(PostPipeline pipeline, WhyTone.State st, GLTexture guide, float mul, Knobs kn, boolean early, long started,
+                              boolean gClean, boolean released) {
+        final Point size = guide.size;
+        final int halo = stripeHalo(kn);
+        GLTexture out = null;
+        StringBuilder stages = null;
+        int stripes = 0;
+        long peak = 0;
+        try {
+            out = plane(size, GLFormat.DataType.FLOAT_16, 1);
+            for (int y0 = 0; y0 < size.y; y0 += STRIPE_ROWS) {
+                final int y1 = Math.min(size.y, y0 + STRIPE_ROWS);
+                final int a = Math.max(0, y0 - halo), b = Math.min(size.y, y1 + halo);
+                final Point part = new Point(size.x, b - a);
+                // the guide's rows a .. b - 1 (R16F to R16F: the same halves)
+                final GLTexture src = plane(part, GLFormat.DataType.FLOAT_16, 1);
+                shaderProg.useAssetProgram("why/sharp_place", false);
+                shaderProg.setTexture("InputBuffer", guide);
+                shaderProg.setVar("originU", 0, -a);
+                shaderProg.drawBlocks(src);
+                final List<GLTexture> pool = new ArrayList<>();
+                final GLTexture[] ratioOut = new GLTexture[1];
+                final StringBuilder these = new StringBuilder();
+                final GLTexture obs = composeAndRl(src, null, part, kn, pool, these, ratioOut, src::close);
+                if (stages == null) stages = these;
+                peak = Math.max(peak, (long) (pool.size() + (ratioOut[0] != null ? 1 : 0)) * part.x * part.y * 2);
+                if (ratioOut[0] != null) ratioOut[0].close();
+                // the stripe's own rows into the full plane
+                shaderProg.useAssetProgram("why/sharp_place", false);
+                shaderProg.setTexture("InputBuffer", obs);
+                shaderProg.setVar("originU", 0, a);
+                shaderProg.drawRows(out, y0, y1);
+                for (GLTexture t : pool) t.close();
+                stripes++;
+            }
+        } catch (RuntimeException | Error e) {
+            if (out != null) out.close();
+            throw e;
+        } finally {
+            guide.close();
+        }
+        shaderProg.closed = true;
+        st.lumaS = out;
+        st.sharpMul = mul;
+        final boolean usm = kn.usmRadius > 0f && Math.abs(kn.usmAmount) > 0.001f;
+        final boolean bil = kn.bilRadius > 0f && Math.abs(kn.bilAmount) > 0.001f;
+        Log.i("SCAM_PIPELINE", "WHY luma sharpen grid=" + size.x + "x" + size.y + " scale=" + kn.s + " domain=" + (gClean ? "G_CLEAN" : "ae")
+                + " mul=" + mul + " bil=" + (bil ? kn.bilAmount * scaleComp(kn.s, SCALE2_BIL) : 0f) + " gf=off"
+                + (pipeline.film != null ? " film x(1-s)" : "")
+                + " usm=" + (usm ? kn.usmAmount + "@" + kn.usmRadius * kn.s : "off") + (stages != null ? stages : "")
+                + " stripes=" + stripes + "x" + STRIPE_ROWS + "+2x" + halo + " rows (stripe planes " + peak / (1 << 20) + " MB, the full grid's "
+                + (long) size.x * size.y * 2 * 4 / (1 << 20) + ")" + " ms=" + (System.currentTimeMillis() - started)
+                + (early ? " (issued before the AE)" : "") + (released ? " imageReleased" : ""));
+    }
+
     /** W1.6: the input the passes were issued on by {@link #runEarly}, null when they run in {@link #Run}. */
     private GLTexture earlyInput;
 
@@ -372,7 +524,7 @@ public final class WhyLumaSharpen extends Node {
         int nb = Math.max(1, Math.round(s));
 
         // P135: a noisy (night) shot gets a share of the sharpening, by the SNR the denoise measured
-        final float lowLight = lowLightFactor(pipeline.shotParams.finishSnr);
+        final float lowLight = lowLightFactor(pipeline.shotParams.finishSnr) * v2Gain(v2, WhyTone.value("sharp_gain", 1f));
         float usmRadius = WhyTone.value("sharp_usm_radius", 0.1f);
         float usmAmount = filmShare(WhyTone.value("sharp_usm_amount", 0.5f) * lowLight, pipeline.film);
         float usmThresh = WhyTone.value("sharp_usm_thresh", 0f) / 255f;
@@ -430,6 +582,16 @@ public final class WhyLumaSharpen extends Node {
             Log.i("SCAM_PIPELINE", "WHY luma sharpen film neutral guide grid=" + size.x + "x" + size.y
                     + " domain=G_CLEAN mul=" + mul + " ms=" + (System.currentTimeMillis() - started)
                     + (early ? " (issued before the AE)" : "") + (released ? " imageReleased" : ""));
+            return;
+        }
+
+        // P713: above 100 MP the passes after the guide run on row stripes with a halo (~1.1 GB of planes instead of ~2.4 at 200 MP; bit for
+        // bit the same plane), the guide's rows copied into each stripe
+        if (stripesWanted(size, gfRadius >= 1 && Math.abs(gfLc) > 0.001f, grain, v2Clean != null, false)) {
+            final Knobs kn = knobs(s, nb, usmRadius, usmAmount, usmThresh, bilRadius, bilAmount, bilColor, halo, protectShadows,
+                    protectHighlights, grain, sobelAmount, sobelThresh, thin, rl, rlHalo, rlMargin, rlMacro, rlEdgeGuard,
+                    !com.scamera.app.processing.opengl.PostGlMode.legacy(), gfDown(size.x, size.y, down), false, 0f);
+            issueStriped(pipeline, st, ya, mul, kn, early, started, gClean, released);
             return;
         }
 
@@ -603,6 +765,91 @@ public final class WhyLumaSharpen extends Node {
                 + (pipeline.film != null ? " film x(1-s)" : "")
                 + " usm=" + (usm ? usmAmount + "@" + usmRadius * s : "off") + stages + " ms=" + (System.currentTimeMillis() - started)
                 + (early ? " (issued before the AE)" : "") + (released ? " imageReleased" : ""));
+    }
+
+    /**
+     * P713: the stripes' compose pass (USM, bilateral, guided-filter contrast, halo control) of {@code src} on a plane of {@code size} and the RL
+     * stages after it, planes from {@code pool}; {@code afterCompose} runs between them (it may close src). The sharpened plane is
+     * returned, the RL ratio plane (or null) in ratioOut[0]; the stages are appended to {@code stages}. The same passes with the same
+     * uniforms as issue's full grid (SharpenStripesTest compares the two).
+     */
+    private GLTexture composeAndRl(GLTexture src, GLTexture ab, Point size, Knobs kn, List<GLTexture> pool, StringBuilder stages,
+                                   GLTexture[] ratioOut, Runnable afterCompose) {
+        boolean usm = kn.usmRadius > 0f && Math.abs(kn.usmAmount) > 0.001f;
+        boolean bil = kn.bilRadius > 0f && Math.abs(kn.bilAmount) > 0.001f;
+        GLTexture obs = spare(pool, size);
+        if (kn.gather) shaderProg.setDefine("GATHER", 1);
+        shaderProg.useAssetProgram("why/sharp_compose", false);
+        shaderProg.setTexture("InputBuffer", src);
+        shaderProg.setTexture("GfAB", ab != null ? ab : src);
+        shaderProg.setVar("downU", kn.gfDown);
+        shaderProg.setVar("gfLcU", kn.gf ? kn.gfLc : 0f);
+        shaderProg.setVar("usmSigmaU", usm ? kn.usmRadius * kn.s : 0f);
+        shaderProg.setVar("usmAmountU", kn.usmAmount);
+        shaderProg.setVar("usmThreshU", kn.usmThresh);
+        shaderProg.setVar("bilAmountU", bil ? kn.bilAmount * scaleComp(kn.s, SCALE2_BIL) : 0f);
+        shaderProg.setVar("bilRadiusU", (int) Math.ceil(Math.ceil(kn.bilRadius) * kn.s));
+        shaderProg.setVar("bilSigmaSU", Math.max(0.5f, kn.bilRadius * 0.5f) * kn.s);
+        shaderProg.setVar("bilSigmaLU", kn.bilColor);
+        shaderProg.setVar("nbU", kn.nb);
+        shaderProg.setVar("haloU", kn.halo);
+        shaderProg.setVar("protectShadowsU", kn.protectShadows);
+        shaderProg.setVar("protectHighlightsU", kn.protectHighlights);
+        shaderProg.setVar("grainU", kn.grain);
+        shaderProg.setVar("sobelU", kn.sobelAmount, kn.sobelThresh);   // P404
+        shaderProg.setVar("thinU", kn.thin);
+        shaderProg.drawBlocks(obs);
+        afterCompose.run();
+
+        GLTexture ratio = null;
+        for (int i = 0; i < kn.rl.length; i++) {
+            int kernel = Math.round(kn.rl[i][0]);
+            float rad = kn.rl[i][1], amount = kn.rl[i][2];
+            int iters = Math.min(Math.round(kn.rl[i][3]), 20);
+            if (!(rad > 0f && Math.abs(amount) > 0.001f && iters >= 1)) continue;
+            Psf k = psf(kernel, rad * kn.s);
+            if (kernel == 0) amount *= scaleComp(kn.s, SCALE2_RL_GAUSS);
+            if (ratio == null) ratio = plane(size, GLFormat.DataType.FLOAT_16, 1);
+            // P364: the PSF's half size as a define - the convolutions read 2 x 2 textureGather blocks, the same taps in the same
+            // order (why/sharp_rl.glsl PSF_HALF; 9 reads instead of 25 at half 2); the old model of post_ab and wider PSFs keep the loop
+            final int gatherHalf = !com.scamera.app.processing.opengl.PostGlMode.legacy() && k.half <= 4 ? k.half : 0;
+            GLTexture est = obs;
+            for (int it = 0; it < iters; it++) {
+                if (gatherHalf > 0) shaderProg.setDefine("PSF_HALF", gatherHalf);
+                shaderProg.useAssetProgram("why/sharp_rl", false);
+                shaderProg.setTexture("Observed", obs);
+                shaderProg.setTexture("Estimate", est);
+                shaderProg.setVar("modeU", 0);
+                shaderProg.setVar("psfHalfU", k.half);
+                shaderProg.setVarFloats("psfU", k.quadrant);
+                shaderProg.drawBlocks(ratio);
+                GLTexture next = spare(pool, size, obs, est);
+                if (gatherHalf > 0) shaderProg.setDefine("PSF_HALF", gatherHalf);
+                shaderProg.useAssetProgram("why/sharp_rl", false);
+                shaderProg.setTexture("Observed", obs);
+                shaderProg.setTexture("Estimate", est);
+                shaderProg.setTexture("Ratio", ratio);
+                shaderProg.setVar("modeU", it == iters - 1 ? 2 : 1);
+                shaderProg.setVar("psfHalfU", k.half);
+                shaderProg.setVarFloats("psfU", k.quadrant);
+                shaderProg.setVar("amountU", amount);
+                shaderProg.setVar("dampU", Math.max(0f, kn.rl[i][4]));   // P404
+                shaderProg.setVar("haloU", kn.rlHalo);
+                shaderProg.setVar("marginU", kn.rlMargin);
+                shaderProg.setVar("macroU", kn.rlMacro);
+                shaderProg.setVar("edgeGuardU", kn.rlEdgeGuard);
+                shaderProg.setVar("protectShadowsU", kn.protectShadows);
+                shaderProg.setVar("protectHighlightsU", kn.protectHighlights);
+                shaderProg.setVar("nbU", kn.nb);
+                shaderProg.drawBlocks(next);
+                est = next;
+            }
+            obs = est;
+            stages.append(" rl").append(i + 1).append("=").append(kernel == 2 ? "airy" : kernel == 1 ? "disk" : "gauss")
+                    .append(rad * kn.s).append("x").append(iters).append("@").append(amount);
+        }
+        ratioOut[0] = ratio;
+        return obs;
     }
 
     /**

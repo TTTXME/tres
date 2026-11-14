@@ -258,15 +258,19 @@ public class DngPreviewTest {
                 final double gain = maps.get(m).at((y + 0.5) / H, (x + 0.5) / W, 0);
                 raw[y * W + x] = (int) Math.round(black + 0.3 * n[c] / gain * (white - black));
             }
-        final Tiff shaded = baseTags(16, 1, n, black, white), plain = baseTags(16, 1, n, black, white);
+        final Tiff shaded = baseTags(16, 1, n, black, white), plain = baseTags(16, 1, n, black, white),
+                list1 = baseTags(16, 1, n, black, white);
         ByteBuffer d = ByteBuffer.allocate(2 * W * H).order(ByteOrder.LITTLE_ENDIAN);
         for (int v : raw) d.putShort((short) v);
-        for (Tiff t : new Tiff[]{shaded, plain}) {
+        for (Tiff t : new Tiff[]{shaded, plain, list1}) {
             t.blob(0x111, 4, 1, d.array());
             t.tag(0x117, 4, 1, 2 * W * H);
         }
-        shaded.blob(0xC740, 7, ops.length, ops);
+        shaded.blob(0xC741, 7, ops.length, ops);
         final DngPreview.Result r = DngPreview.read(ByteBuffer.wrap(shaded.build()), W / 2, H / 2);
+        // P706: OpcodeList2 is 0xC741 (our writer's tag); maps in OpcodeList1 (0xC740) are applied as before
+        list1.blob(0xC740, 7, ops.length, ops);
+        assertArrayEquals(r.argb, DngPreview.read(ByteBuffer.wrap(list1.build()), W / 2, H / 2).argb);
         final int[] centre = pixel(r, r.width / 2, r.height / 2);
         for (int[] at : new int[][]{{0, 0}, {r.width - 1, 0}, {0, r.height - 1}, {r.width - 1, r.height - 1}}) {
             final int[] p = pixel(r, at[0], at[1]);
@@ -306,7 +310,7 @@ public class DngPreviewTest {
         for (int v : raw) d.putShort((short) v);
         t.blob(0x111, 4, 1, d.array());
         t.tag(0x117, 4, 1, 2 * W * H);
-        t.blob(0xC740, 7, ops.length, ops);
+        t.blob(0xC741, 7, ops.length, ops);
         final byte[] file = t.build();
         for (int div : new int[]{1, 2, 4, 8}) {
             final DngPreview.Result fast = DngPreview.read(ByteBuffer.wrap(file), W / div, H / div);

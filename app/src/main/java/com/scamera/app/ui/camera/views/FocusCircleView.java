@@ -77,9 +77,20 @@ public class FocusCircleView extends View {
 
     /** The preview's AF state: locked (or passively focused) draws the accent, a failed lock (or passive miss) red. */
     public void setAfState(int afState) {
-        locked = afState == CameraMetadata.CONTROL_AF_STATE_FOCUSED_LOCKED || afState == CameraMetadata.CONTROL_AF_STATE_PASSIVE_FOCUSED;
-        failed = afState == CameraMetadata.CONTROL_AF_STATE_NOT_FOCUSED_LOCKED
+        final boolean nowLocked = afState == CameraMetadata.CONTROL_AF_STATE_FOCUSED_LOCKED
+                || afState == CameraMetadata.CONTROL_AF_STATE_PASSIVE_FOCUSED;
+        final boolean nowFailed = afState == CameraMetadata.CONTROL_AF_STATE_NOT_FOCUSED_LOCKED
                 || afState == CameraMetadata.CONTROL_AF_STATE_PASSIVE_UNFOCUSED;
+        // P705: the preview's results repeat the same state up to 20 times a second; a redraw (of the whole window while the ring
+        // is shown) only when its colour can change
+        if (!colourChanges(locked, failed, nowLocked, nowFailed)) return;
+        locked = nowLocked;
+        failed = nowFailed;
         invalidate();
+    }
+
+    /** P705: whether the ring's state moved (locked, failed) from the one drawn: only then is it drawn again. */
+    static boolean colourChanges(boolean locked, boolean failed, boolean nowLocked, boolean nowFailed) {
+        return locked != nowLocked || failed != nowFailed;
     }
 }

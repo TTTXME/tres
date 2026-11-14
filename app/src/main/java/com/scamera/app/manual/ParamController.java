@@ -109,7 +109,7 @@ public class ParamController implements Observer {
         // P377: ETTR's shutter (the automatic exposure only): shutter priority at it, the AE's compensation keeps the ISO
         final boolean ettr = !isoManual && !shutterManual && ettrShutterNs > 0;
         final int mode = ExposurePriority.mode(isoManual, shutterManual || ettr);
-        final int iso = isoManual ? (int) manualParamModel.isoSetting() : 0;
+        final int iso = isoManual ? deliverableIso((int) manualParamModel.isoSetting()) : 0;
         final long shutter = shutterManual ? previewShutter((long) manualParamModel.shutterValueNs()) : ettr ? ettrShutterNs : 0;
         if (mode == ExposurePriority.NONE) {
             stopPriority(preview);
@@ -664,7 +664,21 @@ public class ParamController implements Observer {
 
     private int isoMax() {
         android.util.Range<Integer> r = isoRange();
-        return r == null ? 3200 : r.getUpper();
+        // P710: the viewfinder loop no higher than the gain the session's mode delivers (ExposureLimits; the full-size modes)
+        return deliverableIso(r == null ? 3200 : r.getUpper());
+    }
+
+    /**
+     * P710 (X300 Ultra 2026-11-14: a hand-set ISO 12800 in the tele's / ultra-wide's 50 MP mode came at 3200, 4552 in the main's at
+     * 1600 - the viewfinder and the ring 1.5-2 EV darker than set): a viewfinder ISO above what the session's mode was seen to
+     * deliver (CaptureController.honouredIsoCap) is asked at that cap, so a priority AE takes the rest from the shutter.
+     */
+    private int deliverableIso(int iso) {
+        return deliverableIso(iso, cam.honouredIsoCap(), isoMin());
+    }
+
+    static int deliverableIso(int iso, int cap, int isoMin) {
+        return cap > 0 && cap < iso ? Math.max(isoMin, cap) : iso;
     }
 
     private android.util.Range<Integer> isoRange() {
@@ -830,7 +844,7 @@ public class ParamController implements Observer {
         if (isoManual || shutterManual || ettr) {
             if (ExposurePriority.mode(isoManual, shutterManual || ettr) == ExposurePriority.NONE) {
                 preview.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_OFF);
-                preview.set(CaptureRequest.SENSOR_SENSITIVITY, (int) model.isoSetting());
+                preview.set(CaptureRequest.SENSOR_SENSITIVITY, deliverableIso((int) model.isoSetting()));
                 preview.set(CaptureRequest.SENSOR_EXPOSURE_TIME, previewShutter((long) model.shutterValueNs()));
             } else if (softLoop != null && !halPriority && !qcomPriority) {
                 preview.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_OFF);

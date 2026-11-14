@@ -1,6 +1,9 @@
 package com.scamera.app.gallery.dng;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertArrayEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
@@ -182,7 +185,7 @@ public class DngRawTest {
         assertTrue(DngRaw.parseGainMaps(ops).isEmpty());
         int[] raw = DngPreviewTest.scene(N, 64, 1023);
         DngPreviewTest.Tiff t = bayer(raw, 64, 1023);
-        t.blob(0xC740, 7, ops.length, ops);
+        t.blob(0xC741, 7, ops.length, ops);
         DngRaw.Image img = DngRaw.decode(ByteBuffer.wrap(t.build()), 1);
         assertTrue(!img.info.gainMap);
         assertEquals(0.3, at(img, 1, 0), 3e-3);
@@ -194,10 +197,48 @@ public class DngRawTest {
         int[] raw = DngPreviewTest.scene(N, 64, 1023);
         DngPreviewTest.Tiff t = bayer(raw, 64, 1023);
         byte[] ops = gainMapList(2f);
+        t.blob(0xC741, 7, ops.length, ops);
+        DngRaw.Image img = DngRaw.decode(ByteBuffer.wrap(t.build()), 1);
+        assertTrue(img.info.gainMap);
+        assertEquals(0.6, at(img, 1, 0), 3e-3);
+    }
+
+    /**
+     * P706: OpcodeList1's GainMaps (0xC740) are applied as before P706, when that tag was read as OpcodeList2; the developer's
+     * decode keeps them (only OpcodeList2 is the pipeline's).
+     */
+    @Test
+    public void anOpcodeList1GainMapStillScales() throws IOException {
+        int[] raw = DngPreviewTest.scene(N, 64, 1023);
+        DngPreviewTest.Tiff t = bayer(raw, 64, 1023);
+        byte[] ops = gainMapList(2f);
         t.blob(0xC740, 7, ops.length, ops);
         DngRaw.Image img = DngRaw.decode(ByteBuffer.wrap(t.build()), 1);
         assertTrue(img.info.gainMap);
         assertEquals(0.6, at(img, 1, 0), 3e-3);
+        DngRaw.Image dev = DngRaw.decodeForDevelop(ByteBuffer.wrap(t.build()), 1, true);
+        assertEquals(0.6, dev.linear[1], 3e-3);
+    }
+
+    /**
+     * P706: the developer's decode leaves OpcodeList2's maps to the pipeline when it has a map of them (a develop record), and
+     * applies them when it has none (a DNG developed from its tags whose one map is no Camera2 map: no Info.shadingMap).
+     */
+    @Test
+    public void theDeveloperLeavesOpcodeList2ToThePipeline() throws IOException {
+        int[] raw = DngPreviewTest.scene(N, 64, 1023);
+        DngPreviewTest.Tiff t = bayer(raw, 64, 1023);
+        byte[] ops = gainMapList(2f);
+        t.blob(0xC741, 7, ops.length, ops);
+        final byte[] file = t.build();
+        final DngRaw.Image plain = DngRaw.decodeLinear(ByteBuffer.wrap(bayer(raw, 64, 1023).build()), 1);
+        final DngRaw.Image record = DngRaw.decodeForDevelop(ByteBuffer.wrap(file), 1, true);
+        assertFalse(record.info.gainMap);
+        assertArrayEquals(plain.linear, record.linear, 0f);
+        assertNull(record.info.shadingMap);
+        final DngRaw.Image tags = DngRaw.decodeForDevelop(ByteBuffer.wrap(file), 1, false);
+        assertTrue(tags.info.gainMap);
+        for (int i = 0; i < plain.linear.length; i++) assertEquals(2 * plain.linear[i], tags.linear[i], 1e-5);
     }
 
     @Test

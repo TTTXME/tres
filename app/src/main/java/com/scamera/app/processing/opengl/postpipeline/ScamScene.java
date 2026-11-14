@@ -1,8 +1,6 @@
 package com.scamera.app.processing.opengl.postpipeline;
 
 import android.hardware.camera2.CaptureResult;
-import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
 import com.scamera.app.processing.ImageFrame;
 
 /** Scene inputs from the same CaptureResult as the selected SCAM RAW.
@@ -49,20 +47,6 @@ public final class ScamScene {
             if (lux != null) source = LUX_OLD.getName();
         }
         return new ScamScene(reference.timestamp, lux, read(result, ADRC), source);
-    }
-
-    /** NCH v6 scene extension, 32 bytes. Values remain in vendor-result units. */
-    public void writeTransport(ByteBuffer destination) {
-        if (destination.order() != ByteOrder.LITTLE_ENDIAN || destination.remaining() < 32)
-            throw new IllegalArgumentException("SCAM scene requires 32 little-endian bytes");
-        if (timestamp <= 0) throw new IllegalArgumentException("SCAM scene timestamp missing");
-        int flags = (luxIndex != null ? 1 : 0) | (adrcGain != null ? 2 : 0)
-                | (invalidLux ? 4 : 0) | (invalidAdrc ? 8 : 0);
-        int source = LUX_NEW.getName().equals(luxSource) ? 1
-                : LUX_OLD.getName().equals(luxSource) ? 2 : 0;
-        destination.putLong(timestamp).putFloat(luxIndex == null ? 0f : luxIndex)
-                .putFloat(adrcGain == null ? 0f : adrcGain).putInt(flags).putInt(source)
-                .putLong(0);
     }
 
     public String describe() {

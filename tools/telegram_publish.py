@@ -175,38 +175,69 @@ def changelog_sections(text):
     return sections
 
 
-def new_changelog(base, head):
-    """The CHANGELOG.md sections of commit <head> that commit <base> lacks (newest first); only the newest one when
-    <base> is unknown or its file cannot be read."""
-    now = changelog_sections(repo_file(CHANGELOG_FILE, head)) if head else []
-    before = repo_file(CHANGELOG_FILE, base) if (now and base) else None
+def fresh_sections(now, before):
+    """The sections of <now> that <before> (a file's text, None: unknown) lacks, newest first: a new heading whole, a
+    known one with only the items it gained; only the newest section when <before> is unknown."""
     if before is None:
         return now[:1]
-    known = {heading for heading, _ in changelog_sections(before)}
-    return [s for s in now if s[0] not in known][:CHANGELOG_SECTIONS]
+    known = dict(changelog_sections(before))
+    out = []
+    for heading, items in now:
+        if heading not in known:
+            out.append((heading, items))
+        else:
+            added = [item for item in items if item not in known[heading]]
+            if added:
+                out.append((heading, added))
+    return out[:CHANGELOG_SECTIONS]
 
 
-def english_sections(sections, head):
-    """The CHANGELOG.en.md sections at commit <head> that match <sections> (the Russian ones): by the heading's date, a
-    Russian section's place among that day's sections of the whole Russian file with the English one at the same place;
-    a day whose two files hold a different number of sections (the English copy lags) gets none."""
-    if not sections or not head:
-        return []
+def new_changelog(base, head):
+    """The CHANGELOG.md sections of commit <head> that commit <base> lacks or that gained items since (newest first)."""
+    now = changelog_sections(repo_file(CHANGELOG_FILE, head)) if head else []
+    before = repo_file(CHANGELOG_FILE, base) if (now and base) else None
+    return fresh_sections(now, before)
+
+
+def section_day(heading):
+    """The date of a heading ("2026-11-14 (вечер) — title" and "2026-11-14 (evening) — title": 2026-11-14)."""
+    m = re.match(r'\s*(\d{4}-\d{2}-\d{2})', heading)
+    return m[1] if m else heading.split(' — ', 1)[0].strip()
+
+
+def match_english(sections, russian, english, english_before=None):
+    """The English sections matching <sections> (the Russian ones to post): the same date and the same place among that
+    date's sections of the whole files; a date whose files differ in their number of sections (the copy lags) gets
+    none. A Russian section posted with only its new items takes the English items <english_before> lacks."""
     def by_day(all_sections):
         days = {}
         for heading, items in all_sections:
-            days.setdefault(heading.split(' — ', 1)[0].strip(), []).append((heading, items))
+            days.setdefault(section_day(heading), []).append((heading, items))
         return days
-    english = by_day(changelog_sections(repo_file(CHANGELOG_EN_FILE, head)))
-    russian = by_day(changelog_sections(repo_file(CHANGELOG_FILE, head)))
+    ru_days, en_days = by_day(russian), by_day(english)
+    known = dict(english_before or [])
+    full = dict(russian)
     out = []
-    for heading, _ in sections:
-        day = heading.split(' — ', 1)[0].strip()
-        ru, en = russian.get(day, []), english.get(day, [])
+    for heading, items in sections:
+        ru, en = ru_days.get(section_day(heading), []), en_days.get(section_day(heading), [])
         place = next((n for n, (h, _) in enumerate(ru) if h == heading), -1)
-        if place >= 0 and len(ru) == len(en):
-            out.append(en[place])
+        if place < 0 or len(ru) != len(en):
+            continue
+        en_heading, en_items = en[place]
+        if len(items) < len(full.get(heading, items)) and en_heading in known:
+            en_items = [item for item in en_items if item not in known[en_heading]]
+        if en_items:
+            out.append((en_heading, en_items))
     return out
+
+
+def english_sections(sections, head, base=None):
+    """The CHANGELOG.en.md sections at commit <head> that match <sections> (match_english)."""
+    if not sections or not head:
+        return []
+    before = changelog_sections(repo_file(CHANGELOG_EN_FILE, base)) if base else None
+    return match_english(sections, changelog_sections(repo_file(CHANGELOG_FILE, head)),
+                         changelog_sections(repo_file(CHANGELOG_EN_FILE, head)), before)
 
 
 def md_inline(text):
@@ -406,15 +437,15 @@ def changelog_post(apk, digest, sections, settings, since='', english=()):
         head = html.escape(settings['header'][:HEADER_LIMIT], quote=False) + '\n\n' + head
     tail = ['', f'SHA-256 <code>{digest}</code>'] if settings['sha'] else []
     label = t(lang, f'Что нового после {since}', f'New since {since}') if since else t(lang, 'Что нового', 'What is new')
-    lines = []
-    for heading, items in sections:
-        title = heading.split(' — ', 1)[1] if ' — ' in heading else heading   # "2026-10-20 (2) — title"
-        lines += ([''] if lines else []) + [f'<b>{md_inline(title)}</b>']
-        lines += ['• ' + md_inline(item if len(item) <= 3000 else item[:3000].rstrip() + '…') for item in items]
-    for i, (heading, items) in enumerate(english):
-        title = heading.split(' — ', 1)[1] if ' — ' in heading else heading
-        lines += ([''] + (['🇬🇧'] if i == 0 else []) + [f'<b>{md_inline(title)}</b>'])
-        lines += ['• ' + md_inline(item if len(item) <= 3000 else item[:3000].rstrip() + '…') for item in items]
+    def block(flag, secs):
+        # compact (owner, 2026-11-14): a flag line per language, a bold title per section, one line per item
+        out = [flag] if secs else []
+        for heading, items in secs:
+            title = heading.split(' — ', 1)[1] if ' — ' in heading else heading   # "2026-10-20 (2) — title"
+            out.append(f'<b>{md_inline(title)}</b>')
+            out += ['• ' + md_inline(item if len(item) <= 3000 else item[:3000].rstrip() + '…') for item in items]
+        return out
+    lines = block('🇷🇺', sections) + ([''] if english else []) + block('🇬🇧', english)
     caption = '\n'.join([head, '', f'<i>{label}:</i>', *lines, *tail])
     if visible_length(caption) <= CAPTION_LIMIT:
         return caption, []
@@ -439,7 +470,7 @@ def make_post(args, digest, settings):
     rng = build_range(args)
     sections = new_changelog(rng[0], rng[1])
     if sections:
-        return changelog_post(args.apk, digest, sections, settings, rng[2], english_sections(sections, rng[1]))
+        return changelog_post(args.apk, digest, sections, settings, rng[2], english_sections(sections, rng[1], rng[0]))
     print('::notice::No new CHANGELOG.md section since the previous build: the commits are retold')
     changes, since = make_changes(args, settings['lang'], rng)
     return build_caption(args.apk, digest, changes, settings, since), []

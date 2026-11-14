@@ -1298,7 +1298,6 @@ public final class MosaicNeutral {
         final double[] out = new double[17];
         double sr = 0, sg = 0, sb = 0, sw = 0, sw2 = 0;
         int cells = 0;
-        final double er = est == null ? 0 : Math.exp(est[0]), eb = est == null ? 0 : Math.exp(est[1]);
         for (int k = 0; k < n; k++) {
             final float w = W[k];
             if (!(w > 0f) || R[k] + 2 * G[k] + B[k] > trimAbove) continue;

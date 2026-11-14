@@ -32,7 +32,68 @@ public class SettingsModelCheck {
             if((new SettingsAvailability(m).reason("pref_scam_hybrid_mm_boost_value")==null)!=(m==quality))throw new AssertionError("P629: Sport boost with "+m);
         }
     }
-    public static void main(String[] args){
+    /**
+     * P708: every row of the main page and of a SIMPLE group or page of preferences.xml declares its level (SettingsLevel); no
+     * declared key is stale; a tree with an undeclared row fails (the check checks itself).
+     */
+    static void levels(String xml) throws Exception {
+        javax.xml.parsers.DocumentBuilderFactory f=javax.xml.parsers.DocumentBuilderFactory.newInstance();
+        f.setNamespaceAware(true);
+        org.w3c.dom.Element top=f.newDocumentBuilder().parse(new java.io.File(xml)).getDocumentElement();
+        Set<String> keys=new HashSet<>();
+        SettingsLevel.Row root=row(top,keys);
+        List<String> missing=SettingsLevel.missing(root);
+        if(!missing.isEmpty())throw new AssertionError("P708: rows without a level (SettingsLevel): "+missing);
+        List<String> stale=SettingsLevel.stale(keys);
+        if(!stale.isEmpty())throw new AssertionError("P708: levels of rows that are gone: "+stale);
+        // the check itself: a new row on the main page, in a SIMPLE page, a keyless one there - each missing; in an ADVANCED page none
+        SettingsLevel.Row t=new SettingsLevel.Row("prefscreen").add(new SettingsLevel.Row("pref_new_row"))
+                .add(new SettingsLevel.Row("root_photo").add(new SettingsLevel.Row("pref_new_photo_row")).add(new SettingsLevel.Row(null)))
+                .add(new SettingsLevel.Row("root_lab").add(new SettingsLevel.Row("pref_new_lab_row")));
+        if(!SettingsLevel.missing(t).equals(Arrays.asList("prefscreen/pref_new_row","prefscreen/root_photo/pref_new_photo_row","prefscreen/root_photo/(no key)")))
+            throw new AssertionError("P708: coverage self-test "+SettingsLevel.missing(t));
+        if(!SettingsLevel.shown(Arrays.asList("pref_show_grid_key","viewfinder_screen","root_shoot"))||SettingsLevel.shown(Arrays.asList("pref_show_afdata_key","viewfinder_screen","root_shoot"))
+                ||SettingsLevel.shown(Arrays.asList("pref_scam_hybrid_cdm","scam_hybrid_merge_frames_category","scam_hybrid_dnmerge_screen")))
+            throw new AssertionError("P708: shown()");
+        if(SettingsLevel.declared("module_card_back0")!=SettingsLevel.Level.SIMPLE||SettingsLevel.declared("module_row_card_id_back0")!=SettingsLevel.Level.ADVANCED
+                ||SettingsLevel.declared("module_row_id_back0")!=SettingsLevel.Level.ADVANCED||SettingsLevel.declared("module_card_")!=null)
+            throw new AssertionError("P708: prefixes");
+        // the banner's comparison: numbers by value, switches by state, text as it is
+        if(SettingsLevel.differs("0.150","0.15")||SettingsLevel.differs(Boolean.TRUE,"true")||SettingsLevel.differs("1","true")||SettingsLevel.differs(1.1f,"1.1")
+                ||!SettingsLevel.differs("0.2","0.15")||!SettingsLevel.differs(Boolean.FALSE,"true")||!SettingsLevel.differs("raw10","auto")||SettingsLevel.differs(null,"x"))
+            throw new AssertionError("P708: differs()");
+        if(!Boolean.TRUE.equals(SettingsLevel.typed(Boolean.FALSE,"true"))||!"1".equals(SettingsLevel.typed("0","true"))||!Float.valueOf(.15f).equals(SettingsLevel.typed(.3f,"0.15"))
+                ||!Integer.valueOf(3).equals(SettingsLevel.typed(5,"3"))||!"auto".equals(SettingsLevel.typed("raw10","auto")))
+            throw new AssertionError("P708: typed()");
+        // the Custom mode's set: the user's changes against the levels; a setting of a later version follows its level
+        CustomSet cs=new CustomSet(null,null);
+        if(!cs.visible("pref_show_grid_key",true)||cs.visible("pref_scam_hybrid_cdm",false))throw new AssertionError("P708: custom start");
+        cs.set("pref_scam_hybrid_cdm",false,true);cs.set("pref_show_grid_key",true,false);
+        if(!cs.visible("pref_scam_hybrid_cdm",false)||cs.visible("pref_show_grid_key",true)||!cs.visible("pref_new_simple",true)||cs.visible("pref_new_advanced",false))
+            throw new AssertionError("P708: custom choices / new keys");
+        cs.set("pref_show_grid_key",true,true);
+        if(!cs.hidden().isEmpty()||!cs.shown().equals(Collections.singleton("pref_scam_hybrid_cdm")))throw new AssertionError("P708: a choice equal to the level is dropped");
+        List<String> g=Arrays.asList("a","b","c");List<Boolean> lv=Arrays.asList(true,false,false);
+        if(cs.state(g,lv)!=CustomSet.SOME||cs.toggle(g,lv)!=CustomSet.ALL||cs.state(g,lv)!=CustomSet.ALL||cs.toggle(g,lv)!=CustomSet.NONE||cs.state(g,lv)!=CustomSet.NONE)
+            throw new AssertionError("P708: group tri-state");
+        cs.essentials();if(cs.state(g,lv)!=CustomSet.SOME||!cs.shown().isEmpty())throw new AssertionError("P708: essentials");
+        int[] n=SettingsLevel.counts();
+        System.out.println("Settings levels PASS: "+keys.size()+" XML rows; declared "+n[0]+" SIMPLE, "+n[1]+" ADVANCED, "+n[2]+" code-row prefixes");
+    }
+    private static SettingsLevel.Row row(org.w3c.dom.Element e,Set<String> keys){
+        String key=e.getAttributeNS("http://schemas.android.com/apk/res/android","key");
+        SettingsLevel.Row r=new SettingsLevel.Row(key.isEmpty()?null:key);
+        if(!key.isEmpty())keys.add(key);
+        for(org.w3c.dom.Node c=e.getFirstChild();c!=null;c=c.getNextSibling()){
+            if(!(c instanceof org.w3c.dom.Element))continue;
+            String tag=((org.w3c.dom.Element)c).getTagName();
+            if(tag.equals("intent")||tag.equals("extra"))continue;   // not rows
+            r.add(row((org.w3c.dom.Element)c,keys));
+        }
+        return r;
+    }
+    public static void main(String[] args) throws Exception {
+        if(args.length>0)levels(args[0]);
         routes();
         eq(PreferenceNumber.read("0.00390625",9),1.0/256); eq(PreferenceNumber.read("0,125",9),.125);
         eq(PreferenceNumber.read(2.5f,9),2.5);eq(PreferenceNumber.read("NaN",7),7);eq(PreferenceNumber.read("Infinity",7),7);

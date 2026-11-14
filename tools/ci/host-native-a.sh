@@ -1,10 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-g++ -std=c++17 -O1 -fsanitize=address,undefined tools/check_scam_preprocess.cpp -lEGL -lGLESv2 -o /tmp/check-scam-preprocess
-ASAN_OPTIONS=detect_leaks=0 /tmp/check-scam-preprocess
-g++ -std=c++17 -O2 -fsanitize=address,undefined tools/check_scam_capture.cpp -lEGL -lGLESv2 -o /tmp/check-scam-capture
-ASAN_OPTIONS=detect_leaks=0 /tmp/check-scam-capture
 g++ -std=c++17 -O1 -fsanitize=address,undefined tools/check_scam_motion_capture.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-scam-motion-capture
 ASAN_OPTIONS=detect_leaks=0 /tmp/check-scam-motion-capture
 g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined tools/check_hybrid_measured_gain.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-hybrid-measured-gain
@@ -53,3 +49,5 @@ python3 tools/check_bayer_quads_memory.py
 # P691: the 8-bit decode = the scene for the capture curve on a camera that honours the inputs and one that takes the outputs at even inputs; the curve check
 g++ -pthread -std=c++17 -O2 -ffp-contract=off -fsanitize=address,undefined -Iapp/src/main/cpp -Itools/yuv-merge-ref tools/check_yuv_merge.cpp -o /tmp/check-yuv-merge
 ASAN_OPTIONS=detect_leaks=0 /tmp/check-yuv-merge
+# P701: the curve check's model (the points over the camera's sRGB, MediaTek) is in check_yuv_merge; the host replay of a kept series builds
+g++ -pthread -std=c++17 -O2 -Wall -Werror -Iapp/src/main/cpp tools/yuv_burst_replay.cpp -o /tmp/yuv-burst-replay

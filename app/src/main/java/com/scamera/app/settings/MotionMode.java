@@ -12,8 +12,9 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * P86 Photo mode «Движение» (owner, 2026-10-11: «максимально хорошее движение и максимально быстрый буфер чтобы успевать ловить
- * всё»; the switch beside the settings gear in the viewfinder's top bar). While it is on:
+ * P86 «Спорт» (named «Движение» before; the class and its stored key pref_motion_mode keep the old name): a variant of the
+ * photo mode on the bottom row, not a camera mode (api.CameraMode has the photo mode only). Owner, 2026-10-11: «максимально
+ * хорошее движение и максимально быстрый буфер чтобы успевать ловить всё». While it is on:
  * <ul>
  *   <li>the frame rate is the module's («Частота кадров RAW», P266; owner, 2026-10-19: «фпс ... автоматически», by hand
  *       there): the mode's own rate row (the camera's fastest fixed rate) is gone - one setting for one thing;</li>

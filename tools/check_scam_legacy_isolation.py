@@ -12,12 +12,12 @@ STUBS = {
 'android/hardware/camera2/CameraMetadata.java': 'package android.hardware.camera2; public class CameraMetadata {public static final int LENS_OPTICAL_STABILIZATION_MODE_ON=1;}',
 'android/hardware/camera2/params/TonemapCurve.java': 'package android.hardware.camera2.params; public class TonemapCurve { public TonemapCurve(float[] a,float[] b,float[] c){} }',
 BASE+'util/Log.java': 'package com.scamera.app.util; public class Log { public static void i(String a,String b){} public static void v(String a,String b){} public static void d(String a,String b){} public static void w(String a,String b){} }',
-BASE+'api/CameraMode.java': 'package com.scamera.app.api; public enum CameraMode {PHOTO,NIGHT,MOTION,RAWVIDEO}',
+BASE+'api/CameraMode.java': 'package com.scamera.app.api; public enum CameraMode {PHOTO}',
 BASE+'capture/CaptureController.java': '''package com.scamera.app.capture; import android.hardware.camera2.*;
 public class CaptureController { public static CameraCharacteristics mCameraCharacteristics=new CameraCharacteristics(); public static CaptureResult mPreviewCaptureResult=new CaptureResult(); public long mPreviewExposureTime=8333326; public int mPreviewIso=547,oisMode=0;
 public Param getParamController(){return new Param();} public static class Param {public double shutterValueNs(){return 0;} public double isoSetting(){return 0;}} }''',
 BASE+'app/ScameraApp.java': '''package com.scamera.app.app; import com.scamera.app.api.CameraMode; import com.scamera.app.capture.CaptureController;
-public class ScameraApp {public static Settings getSettings(){return new Settings();} public static Gyro getGyro(){return new Gyro();} public static CaptureController getCaptureController(){return new CaptureController();} public static class Settings {public float exposureCompensation=4;public CameraMode selectedMode=CameraMode.NIGHT;public boolean eisPhoto=false;} public static class Gyro {public boolean getTripod(){return false;}public int getFilteredShakiness(){return 400;}}}''',
+public class ScameraApp {public static Settings getSettings(){return new Settings();} public static Gyro getGyro(){return new Gyro();} public static CaptureController getCaptureController(){return new CaptureController();} public static class Settings {public float exposureCompensation=4;public CameraMode selectedMode=CameraMode.PHOTO;public boolean eisPhoto=false;} public static class Gyro {public boolean getTripod(){return false;}public int getFilteredShakiness(){return 400;}}}''',
 BASE+'settings/PreferenceKeys.java': '''package com.scamera.app.settings; public class PreferenceKeys {
 public static boolean scam=true,poison=true;public static int ev=4;
 public static boolean isScamEnabled(){return scam;}

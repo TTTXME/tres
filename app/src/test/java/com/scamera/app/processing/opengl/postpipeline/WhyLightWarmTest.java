@@ -49,7 +49,7 @@ public class WhyLightWarmTest {
         assertTrue(gpu.contains("if(u_quad_lift>0.0)v=quadDeLattice(p,v);"));
         // only a Quad stream with short frames merged: plain Bayer output is the same
         assertTrue(merge.contains("const bool quadLift=quad&&!std::getenv(\"SCAM_FM_NO_QUAD_LIFT\");"));
-        assertTrue(merge.contains("g.u1f(A::pOutput,\"u_quad_lift\",quadLift&&validShorts>0?1.f:0.f);"));
+        assertTrue(merge.contains("g.u1f(PO,\"u_quad_lift\",quadLift&&validShorts>0?1.f:0.f);"));
     }
 
     @Test public void aSunWithoutShortFramesBloomsNearWhiteOnly() throws IOException {

@@ -50,6 +50,20 @@ final class ViewfinderHud {
     private final int[] histogramPixels = new int[HIST_W * HIST_H];
     private final int[][] histogramBins = new int[3][HIST_BINS];
 
+    /** The HUD runnable is posted at most this often (an AF change always goes). */
+    static final long POST_PERIOD_MS = 50;
+
+    /**
+     * P705: whether a preview result posts the HUD runnable to the main thread: an AF change always (the focus ring's colour);
+     * otherwise at most every {@link #POST_PERIOD_MS}, and only when it has something to do - «Данные AF» shown ({@code afData}
+     * above 0), the controls turned (the horizon and the overlay follow), or the overlay still holds a drawing to clear.
+     */
+    static boolean postDue(long sinceLastMs, boolean afChanged, int afData, boolean orientationChanged, boolean overlayDrawn) {
+        if (afChanged) return true;
+        if (sinceLastMs < POST_PERIOD_MS) return false;
+        return afData > 0 || orientationChanged || overlayDrawn;
+    }
+
     /** The line is due again (and is taken now) when {@link #LINE_PERIOD_MS} passed since the last one. */
     boolean lineDue() {
         final long now = SystemClock.uptimeMillis();

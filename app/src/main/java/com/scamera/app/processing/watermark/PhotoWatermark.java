@@ -145,6 +145,21 @@ public final class PhotoWatermark {
     }
 
     /**
+     * P713: the first row {@link #applyRecordedInto} may read or change on a {@code width} x {@code height} photo ({@link #touched}'s
+     * top; {@code height}: it draws nothing; 0 when it cannot be told) - the rows above go to the streamed JPEG's encoder early.
+     */
+    public static int firstTouchedRow(int width, int height, @Nullable ParseExif.ExifData exif) {
+        if (!on()) return height;
+        try {
+            final android.graphics.Rect box = touched(WatermarkSpec.from(prefs()), info(exif), new WatermarkFonts(ScameraApp.getAppContext()),
+                    width, height);
+            return box == null ? height : Math.max(0, box.top);
+        } catch (RuntimeException e) {
+            return 0;
+        }
+    }
+
+    /**
      * P642: the rectangle of a {@code width} x {@code height} photo {@link #draw} reads and changes for {@code spec}: WatermarkArea's
      * rectangles (every pixel the drawing may change and the record keeps) and the points «Авто» reads; null: it draws nothing.
      */

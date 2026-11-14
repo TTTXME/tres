@@ -1,9 +1,5 @@
-#define SCAM_HOST_TEST 1
-#include "scam-probe.cpp"
-#undef SCAM_HOST_TEST
 #include "scam-capture.h"
 #include "scam-hybrid.h"
-#include "scam-tone-probe.h"
 #include "scam-stock-motion.h"
 #include "scam-crash.h"
 #include "scam-stream-out.h"
@@ -14,10 +10,22 @@
 #include <sys/mman.h>
 #include <sys/resource.h>
 #include <signal.h>
+#include <stdio_ext.h> // __fpending (bionic API 23+)
+#include <iostream>
 #if defined(__ANDROID__)
 #include <sys/system_properties.h>
 #endif
-#include <sys/resource.h>
+
+// A vendor library may print to stdout without a trailing newline (the CRE's first detect, on the warm-up thread: "Failed to
+// load symbol  ntiLegacyMemMgrCreate"), and the next line of the worker then ran into it. Each own line is written and flushed
+// whole while holding stdout's lock (std::cout goes through stdio's stdout and endl flushes it), so bytes still pending in
+// stdout's buffer when a line starts are someone else's: they are ended with a newline first. The vendor text stays as printed.
+static void worker_log(const std::string& s) {
+    flockfile(stdout);
+    if(__fpending(stdout))std::putc('\n',stdout);
+    std::cout<<s<<std::endl;
+    funlockfile(stdout);
+}
 
 static int integer(const char* text) {
     char* end=nullptr;errno=0;long v=std::strtol(text,&end,10);
@@ -33,9 +41,9 @@ int main(int argc,char** argv) {
     // (vivo X200 Pro, owner's log 2026-10-07: 14 SIGSEGV exits, none naming the crash site).
     worker_crash::install();
     try {
-        scam_nn::log("SCAM Neural native executable v31 (SHDR merge; CPU/GPU); root="+std::to_string(geteuid()));
+        worker_log("SCAM Neural native executable v31 (SHDR merge; CPU/GPU); root="+std::to_string(geteuid()));
         if(argc==2 && std::string(argv[1])=="--transport-check") {
-            scam_nn::log("NATIVE EXEC OK");return 0;
+            worker_log("NATIVE EXEC OK");return 0;
         }
         if(argc==2 && std::string(argv[1])=="--crash-check") { // the crash report on this device: a null write on a helper thread
             std::thread([]{worker_crash::Stage stage("crash check");volatile int* p=nullptr;*p=1;}).join();
@@ -47,7 +55,7 @@ int main(int argc,char** argv) {
             if(setpriority(PRIO_PROCESS,0,10)!=0){} // best effort
             // A driver that hangs must not hold the app's prewarm thread: it reads the output until the worker exits.
             signal(SIGALRM,SIG_DFL);alarm(60);
-            auto report=[](const std::string& line){worker_crash::note(line.data(),line.size());scam_nn::log(line);};
+            auto report=[](const std::string& line){worker_crash::note(line.data(),line.size());worker_log(line);};
             std::ifstream cache(std::string(argv[2])+"/gl-cache");std::string dir;
             if(cache&&std::getline(cache,dir)&&!dir.empty())scam::hybridProgramCacheDir()=dir;
             else if(const char* env=std::getenv("SCAM_GL_CACHE"))scam::hybridProgramCacheDir()=env;
@@ -55,26 +63,21 @@ int main(int argc,char** argv) {
             scam::scamCpuCalibrationPath()=scam::hybridProgramCacheDir()+"/cpu-classes.txt"; // P682: measured by the prewarm below
             worker_crash::mark("GPU prewarm");
             scam::hybridPrewarmGpu(scam::loadHybridTuning(argv[2],report),integer(argv[3]),report);
-            scam_nn::log("SCAM PREWARM OK");return 0;
+            worker_log("SCAM PREWARM OK");return 0;
         }
         if(argc==5 && std::string(argv[1])=="--scam-capture") {
             signal(SIGALRM,SIG_DFL);alarm(840);
             // P220: the heartbeat (HYBRID PROGRESS every 5 s, scam-progress.h) for the app's watchdog and processing ring; the 840 s
             // alarm stays the cap. Stopped before the result lines (the stack unwinds it on a STOP).
-            scam_progress::Heartbeat heartbeat([](const std::string& line){scam_nn::log(line);},scam_progress::periodMs());
+            scam_progress::Heartbeat heartbeat([](const std::string& line){worker_log(line);},scam_progress::periodMs());
             scam_progress::pass("cre");
             // Burst and result arrive as "fd:N" (memfd shared by the app) or as file paths.
-            {
-                std::ifstream marker(std::string(argv[2])+"/dump-forward");
-                std::string target;
-                if(marker && std::getline(marker,target) && !target.empty())setenv("SCAM_DUMP_FORWARD",target.c_str(),1);
-            }
             // P353: SCAM_LOG_MS (replays only) prefixes every line with the ms since the worker started (the app timestamps its copy)
             const bool logMs=std::getenv("SCAM_LOG_MS")!=nullptr;
             auto report=[logMs,&sinceStart](const std::string& line){
                 worker_crash::note(line.data(),line.size());
-                if(logMs){char t[24];std::snprintf(t,sizeof(t),"[%6.0f] ",sinceStart());scam_nn::log(t+line);}
-                else scam_nn::log(line);
+                if(logMs){char t[24];std::snprintf(t,sizeof(t),"[%6.0f] ",sinceStart());worker_log(t+line);}
+                else worker_log(line);
             };
             { // P682: the CPU classes the prewarm measured (beside the program cache): read before any stage sizes its threads
                 std::ifstream cache(std::string(argv[2])+"/gl-cache");std::string dir;
@@ -118,6 +121,7 @@ int main(int argc,char** argv) {
             // joined before the first alignment (the burst's results do not depend on it, see StockMotion::warmUp), and
             // eglInitialize (the driver load), joined at the end. SCAM_NO_WARMUP: without it (replay A/B).
             const auto warmStarted=std::chrono::steady_clock::now();
+            double goMs=-1; // P712: when the app's go byte came (a worker started ahead of the shot waits for it: idle, not work)
             std::thread creWarm,eglWarm;
             std::atomic<int> creReadyMs{-1};
             // Joins whatever was started, on every way out (before the threads are started: a second thread the system refuses
@@ -174,15 +178,16 @@ int main(int argc,char** argv) {
                     close(goFd);
                     if(n!=1)throw std::runtime_error("SCAM burst was not delivered by the app");
                     report("SCAM WARMUP: burst after "+std::to_string(int(std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-warmStarted).count()))+" ms");
+                    goMs=sinceStart();
                 }
             }
-            // NCH v10 = the SCAM Hybrid transport (per-frame roles and noise); anything else is the SCAM 7-slot burst.
+            // NCH v10..v12 = the SCAM Hybrid transport (per-frame roles and noise), the only one the app writes (ScamHybridBurst,
+            // ScamLabBurst). P704: the SCAM HDR 7-slot burst (MappedScamBurst, scam::reconstruct, the forward network) is gone.
             worker_crash::mark("burst map");
             scam_progress::pass("map");
             const bool requestedHalf=access((std::string(argv[2])+"/rgb-half").c_str(),F_OK)==0;
             scam::MappedHybridBurst hybridBurst(argv[3],requestedHalf);
-            std::unique_ptr<scam::MappedScamBurst> mapped;
-            if(!hybridBurst.hybrid)mapped=std::make_unique<scam::MappedScamBurst>(argv[3]);
+            if(!hybridBurst.hybrid)throw std::runtime_error("SCAM burst is not an NCH hybrid burst (v10-v12)");
             // P188: the app's keep-burst marker names where (its own external files): the burst of this shot, for a replay.
             // P339 (owner, 2026-10-25: «займись ускорением обработки чтобы скорость была на уровне WhyCam»): written on a thread of its
             // own while the merge runs - the 1.6 GB of a 26-frame 12 MP burst took 3.3-3.8 s in front of the merge (every shot of the
@@ -192,8 +197,8 @@ int main(int argc,char** argv) {
             {
                 std::ifstream keep(std::string(argv[2])+"/keep-burst");std::string dest;
                 if(keep&&std::getline(keep,dest)&&!dest.empty()&&dest!=argv[3]&&!std::getenv("SCAM_HYBRID")){
-                    const char* src=mapped?static_cast<const char*>(mapped->address):static_cast<const char*>(hybridBurst.address);
-                    const size_t bytes=mapped?mapped->length:hybridBurst.length;
+                    const char* src=static_cast<const char*>(hybridBurst.address);
+                    const size_t bytes=hybridBurst.length;
                     try{keepWriter.t=std::thread([src,bytes,dest,report]{
                         worker_crash::Stage stage("keep burst");
                         std::ofstream dst(dest,std::ios::binary|std::ios::trunc);
@@ -206,33 +211,10 @@ int main(int argc,char** argv) {
                 }
             }
             const char* outputPath=argv[4];
-            report("SCAM CAPTURE: original forward weights and stock CPU motion; supplied per-frame calibration");
-            report(hybridBurst.hybrid?"SCAM INPUT: hybrid v10 burst frames="+std::to_string(hybridBurst.input.frames.size()):"SCAM INPUT: mapped capture file");
-            if(mapped){
-            const auto& input=mapped->burst;
-            const auto& scene=input.scene;
-            report("SCAM SCENE: timestamp="+std::to_string(scene.timestamp)
-                +" lux="+(scene.hasLux()?std::to_string(scene.lux):"unavailable")
-                +" ADRC="+(scene.hasAdrc()?std::to_string(scene.adrc):"unavailable")
-                +" flags="+std::to_string(scene.flags)+" luxSource="+std::to_string(scene.luxSource));
-            for(size_t i=0;i<input.ae.size();++i) {
-                const auto& ae=input.ae[i];
-                report("SCAM AE: slot="+std::to_string(i)+" timestamp="+std::to_string(ae.timestamp)
-                    +" flags="+std::to_string(ae.flags));
-                if(ae.hasAec()) {
-                    const auto f=ae.fields();
-                    report("SCAM AE VALUES: lux="+std::to_string(f.lux)+" exposureMs="+std::to_string(f.exposureMs)
-                        +" shortGain="+std::to_string(f.shortGain)+" digitalGain="+std::to_string(f.digitalGain)
-                        +" rawHdrDrc="+(ae.hasHdrDrc()?std::to_string(ae.drcGain(true)):"unavailable"));
-                }
-            }
-            }
-            // SCAM Hybrid merge (Sabre 6.1 kernel + SCAM 9.6 front end, Bento, Shasta; any GPU, no model):
-            // requested by the app with the job marker, or SCAM_HYBRID=1 for an offline replay.
-            bool hybrid=hybridBurst.hybrid||access((std::string(argv[2])+"/hybrid-merge").c_str(),F_OK)==0||std::getenv("SCAM_HYBRID");
-            if(creLazy&&!hybrid)loadCre(); // P440: the 7-slot path tests the alignment itself
+            report("SCAM INPUT: hybrid v10 burst frames="+std::to_string(hybridBurst.input.frames.size()));
+            // SCAM Hybrid merge (Sabre 6.1 kernel + SCAM 9.6 front end, Bento, Shasta; any GPU, no model)
             scam::ScamAlignment alignment;
-            if(motion||(creLazy&&hybrid)){
+            if(motion||creLazy){
                 alignment=[&](scam::Burst& burst){
                     if(!loadCre())throw std::runtime_error("CRE unavailable"); // (the merge asks hybridAlignmentEnsure first)
                     joinCreWarm();return motion->align(burst,report);
@@ -260,100 +242,72 @@ int main(int argc,char** argv) {
             // P371: the RGB halves into the app's memfd during the merge (scam-stream-out.h); the hook is cleared before it goes
             std::unique_ptr<scam::StreamOut> streamOut;
             struct HookClear{~HookClear(){scam::hybridFinalRowsHook()=nullptr;scam::hybridFinalHalvesHook()=nullptr;scam::hybridAlignmentEnsure()=nullptr;scam::hybridLater()=nullptr;scam::hybridHighlightMaskOut()=nullptr;}} hookClear;
-            std::unique_ptr<scam::Graph> graph;
-            if(!hybrid) {
-                // P31: the HTP runtime sets ADSP_LIBRARY_PATH (setenv, which can move the environment array): the warm-up threads
-                // (the CRE's first calls, the EGL driver load) are joined first, so no getenv of theirs runs meanwhile.
-                joinCreWarm();
-                if(eglWarm.joinable())eglWarm.join();
-                // The forward network ships as Hexagon v79 context binaries (SM8750 only); without it the
-                // burst is merged by the SCAM Hybrid (scam-hybrid.h).
-                try{graph=std::make_unique<scam::Graph>(argv[2],report);}
-                catch(const std::exception& error){report(std::string("SCAM NPU: neural model unavailable (")+error.what()+"); SCAM Hybrid merge");hybrid=true;}
+            report("HYBRID MERGE: SCAM Hybrid requested (Sabre kernel, SCAM rejection/weights, Bento, Shasta)");
+            { // P30: GPU program binary cache (app cache dir from the job; SCAM_GL_CACHE in an offline replay)
+                std::ifstream cache(std::string(argv[2])+"/gl-cache");std::string dir;
+                if(cache&&std::getline(cache,dir)&&!dir.empty())scam::hybridProgramCacheDir()=dir;
+                else if(const char* env=std::getenv("SCAM_GL_CACHE"))scam::hybridProgramCacheDir()=env;
             }
-            if(hybrid) {
-                report("HYBRID MERGE: SCAM Hybrid requested (Sabre kernel, SCAM rejection/weights, Bento, Shasta)");
-                { // P30: GPU program binary cache (app cache dir from the job; SCAM_GL_CACHE in an offline replay)
-                    std::ifstream cache(std::string(argv[2])+"/gl-cache");std::string dir;
-                    if(cache&&std::getline(cache,dir)&&!dir.empty())scam::hybridProgramCacheDir()=dir;
-                    else if(const char* env=std::getenv("SCAM_GL_CACHE"))scam::hybridProgramCacheDir()=env;
+            const auto tuning=scam::loadHybridTuning(argv[2],report);
+            scam::HybridInput hin=hybridBurst.input;
+            if(std::getenv("SCAM_MERGED_DNG"))hin.mergedDng=true;
+            sensorPixels=size_t(hin.w)*hin.h;
+            // P320: a DCG burst (header flag 32): the two-zone noise check runs on it; the app's DCG tuning lines (bento 1,
+            // shastaEnable 0, mochi 0) come last in the job's hybrid_tuning.txt, the values in effect are reported here
+            if(hin.dcg)report("HYBRID DCG: dual conversion gain burst (header flag 32), tuning bento="+std::to_string(tuning.bento)
+                +" shastaEnable="+std::to_string(tuning.shastaEnable)+" mochi="+std::to_string(tuning.mochi));
+            // Clip flags trailer: asked by the request header (flag 4), the job marker `clip-flags` or, in an offline replay
+            // (SCAM_HYBRID) only, the tuning key clipFlags. The app checks the result size exactly: a fallback tuning file
+            // (external files dir, /data/local/tmp) must not add a trailer it did not ask for.
+            const bool wantClipFlags=hin.clipFlags||(tuning.clipFlags&&std::getenv("SCAM_HYBRID"))
+                    ||access((std::string(argv[2])+"/clip-flags").c_str(),F_OK)==0;
+            if(std::getenv("SCAM_NO_EFFMAP"))hin.noEffMap=true;
+            noEffMap=hin.noEffMap;
+            if(noEffMap)report("HYBRID EFFECTIVE MAP: not made (header flag 16: the app reads none at this size)");
+            // Lab stage view: the job marker `stage-dump` (ScamNeuralClient, a lab render) -> <job>/stages.bin
+            scam::hybridStageDir()=access((std::string(argv[2])+"/stage-dump").c_str(),F_OK)==0?argv[2]:"";
+            worker_crash::mark("hybrid merge");
+            scam_progress::pass("prepare"); // P220: the merge's front end (gain / noise checks, mosaic) until its own stages
+            if(requestedHalf&&std::string(outputPath).rfind("fd:",0)==0&&!std::getenv("SCAM_NO_STREAM_OUT")&&!std::getenv("SCAM_NO_MAP_WRITE")){
+                const int dup=scam::openArgument(outputPath,O_WRONLY);
+                if(dup>=0){
+                    streamOut=std::make_unique<scam::StreamOut>(dup);
+                    scam::StreamOut* const s=streamOut.get();
+                    scam::hybridFinalRowsHook()=[s](const float* rows,int w,int h,int y0,int y1){s->event(rows,w,h,y0,y1);};
+                    scam::hybridFinalHalvesHook()=[s](const uint16_t* hv,int w,int h,int y0,int y1,const float* id){return s->halves(hv,w,h,y0,y1,id);};
                 }
-                const auto tuning=scam::loadHybridTuning(argv[2],report);
-                scam::HybridInput hin=hybridBurst.hybrid?hybridBurst.input:scam::hybridFromScamBurst(mapped->burst);
-                if(std::getenv("SCAM_MERGED_DNG"))hin.mergedDng=true;
-                sensorPixels=size_t(hin.w)*hin.h;
-                // P320: a DCG burst (header flag 32): the two-zone noise check runs on it; the app's DCG tuning lines (bento 1,
-                // shastaEnable 0, mochi 0) come last in the job's hybrid_tuning.txt, the values in effect are reported here
-                if(hin.dcg)report("HYBRID DCG: dual conversion gain burst (header flag 32), tuning bento="+std::to_string(tuning.bento)
-                    +" shastaEnable="+std::to_string(tuning.shastaEnable)+" mochi="+std::to_string(tuning.mochi));
-                // Clip flags trailer: asked by the request header (flag 4), the job marker `clip-flags` or, in an offline replay
-                // (SCAM_HYBRID) only, the tuning key clipFlags. The app checks the result size exactly: a fallback tuning file
-                // (external files dir, /data/local/tmp) must not add a trailer it did not ask for.
-                const bool wantClipFlags=hin.clipFlags||(tuning.clipFlags&&std::getenv("SCAM_HYBRID"))
-                        ||access((std::string(argv[2])+"/clip-flags").c_str(),F_OK)==0;
-                if(std::getenv("SCAM_NO_EFFMAP"))hin.noEffMap=true;
-                noEffMap=hin.noEffMap;
-                if(noEffMap)report("HYBRID EFFECTIVE MAP: not made (header flag 16: the app reads none at this size)");
-                // Lab stage view: the job marker `stage-dump` (ScamNeuralClient, a lab render) -> <job>/stages.bin
-                scam::hybridStageDir()=access((std::string(argv[2])+"/stage-dump").c_str(),F_OK)==0?argv[2]:"";
-                worker_crash::mark("hybrid merge");
-                scam_progress::pass("prepare"); // P220: the merge's front end (gain / noise checks, mosaic) until its own stages
-                if(requestedHalf&&std::string(outputPath).rfind("fd:",0)==0&&!std::getenv("SCAM_NO_STREAM_OUT")&&!std::getenv("SCAM_NO_MAP_WRITE")){
-                    const int dup=scam::openArgument(outputPath,O_WRONLY);
-                    if(dup>=0){
-                        streamOut=std::make_unique<scam::StreamOut>(dup);
-                        scam::StreamOut* const s=streamOut.get();
-                        scam::hybridFinalRowsHook()=[s](const float* rows,int w,int h,int y0,int y1){s->event(rows,w,h,y0,y1);};
-                        scam::hybridFinalHalvesHook()=[s](const uint16_t* hv,int w,int h,int y0,int y1,const float* id){return s->halves(hv,w,h,y0,y1,id);};
-                    }
-                }
-                // P440 (owner, 2026-10-27: «нам нужно иметь как минимум не хуже скорость обработки чем у Why камеры»; tune fastExit): the
-                // worker leaves with _exit right after its completion line; the merge's large buffers are freed with it
-                fastExit=tuning.fastExit>0&&!std::getenv("SCAM_NO_FAST_EXIT");
-                if(fastExit)scam::hybridLater()=&later;
-                // P480: the highlight mask trailer only on the app's request (job marker hl-mask; SCAM_HL_MASK in an offline replay):
-                // the app checks the result size exactly
-                if(access((std::string(argv[2])+"/hl-mask").c_str(),F_OK)==0||(std::getenv("SCAM_HL_MASK")&&std::getenv("SCAM_HYBRID")))
-                    scam::hybridHighlightMaskOut()=&hlMask;
-                // P627 (owner, 2026-11-11: every mode stays the mode the user chose): the route of this shot, the only one that makes it
-                report(tuning.fastMerge>0?"HYBRID ROUTE: «Быстрый» (the fast merge route; no other route takes this shot)"
-                                         :"HYBRID ROUTE: «Качество» (the SCAM merge; no other route takes this shot)");
-                scam::hybridStreamedFloats()=0;
-                result=scam::hybridReconstruct(hin,tuning,alignment,report,&mergedDng,noEffMap?nullptr:&effMap,nullptr,wantClipFlags?&clipFlags:nullptr);
-                resultFloats=result.empty()&&scam::hybridStreamedFloats()?scam::hybridStreamedFloats():result.size();
-                scam::hybridStreamedFloats()=0;
-                if(resultFloats!=result.size()&&(!streamOut||(hin.outW>0&&resultFloats!=size_t(hin.outW)*hin.outH*3)))
-                    throw std::runtime_error("Hybrid: a streamed result of "+std::to_string(resultFloats/3)+" px without its stream or at another size");
-                // P501: the app's Sabre 1.5x size; a result at another grid (the SCAM merge's 2x, a fallback's 1x) is resampled to it
-                if(hin.outW>0&&resultFloats!=size_t(hin.outW)*hin.outH*3){
-                    const size_t px=result.size()/3;int g=0;
-                    for(int k=1;k<=2;++k)if(px==size_t(hin.w)*k*size_t(hin.h)*k)g=k;
-                    if(!g)throw std::runtime_error("Hybrid: a result of "+std::to_string(px)+" px is no grid of "+std::to_string(hin.w)+"x"+std::to_string(hin.h));
-                    const auto t0=std::chrono::steady_clock::now();
-                    scam::hybridResampleResult(result,hin.w*g,hin.h*g,hin.outW,hin.outH,effMap.empty()?nullptr:&effMap,clipFlags.empty()?nullptr:&clipFlags);
-                    resultFloats=result.size();
-                    report("HYBRID SABRE OUTPUT: the "+std::to_string(hin.w*g)+"x"+std::to_string(hin.h*g)+" result resampled to "+std::to_string(hin.outW)+"x"
-                        +std::to_string(hin.outH)+" (Catmull-Rom; effective map nearest, clip flags OR) in "
-                        +std::to_string(int(std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-t0).count()))+" ms");
-                }
-                scam::hybridLater()=nullptr;
-                scam::hybridHighlightMaskOut()=nullptr;
-            } else {
-            const auto& input=mapped->burst;
-            scam::ScamExecute forward;
-            if(graph)forward=[&](const std::vector<float>& in,std::vector<float>& out){
-                graph->input=in;graph->execute();out=graph->output;
-            };
-            result=scam::reconstruct(input,forward,report,[&](const std::string& name,const std::vector<float>& data,int w,int h){
-                if(!input.diagnostics)return;
-                std::ofstream f(std::string(argv[2])+"/"+name+".pfm",std::ios::binary);
-                if(!f){report("SCAM DIAGNOSTIC: cannot open tile dump");return;}
-                f<<"PF\n"<<w<<" "<<h<<"\n-1.0\n";
-                for(int y=h-1;y>=0;--y)f.write(reinterpret_cast<const char*>(data.data()+size_t(y)*w*3),w*3*sizeof(float));
-                if(!f)report("SCAM DIAGNOSTIC: incomplete tile dump");
-            },alignment,&mergedDng,&effMap);
-            resultFloats=result.size();
             }
+            // P440 (owner, 2026-10-27: «нам нужно иметь как минимум не хуже скорость обработки чем у Why камеры»; tune fastExit): the
+            // worker leaves with _exit right after its completion line; the merge's large buffers are freed with it
+            fastExit=tuning.fastExit>0&&!std::getenv("SCAM_NO_FAST_EXIT");
+            if(fastExit)scam::hybridLater()=&later;
+            // P480: the highlight mask trailer only on the app's request (job marker hl-mask; SCAM_HL_MASK in an offline replay):
+            // the app checks the result size exactly
+            if(access((std::string(argv[2])+"/hl-mask").c_str(),F_OK)==0||(std::getenv("SCAM_HL_MASK")&&std::getenv("SCAM_HYBRID")))
+                scam::hybridHighlightMaskOut()=&hlMask;
+            // P627 (owner, 2026-11-11: every mode stays the mode the user chose): the route of this shot, the only one that makes it
+            report(tuning.fastMerge>0?"HYBRID ROUTE: «Быстрый» (the fast merge route; no other route takes this shot)"
+                                     :"HYBRID ROUTE: «Качество» (the SCAM merge; no other route takes this shot)");
+            scam::hybridStreamedFloats()=0;
+            result=scam::hybridReconstruct(hin,tuning,alignment,report,&mergedDng,noEffMap?nullptr:&effMap,nullptr,wantClipFlags?&clipFlags:nullptr);
+            resultFloats=result.empty()&&scam::hybridStreamedFloats()?scam::hybridStreamedFloats():result.size();
+            scam::hybridStreamedFloats()=0;
+            if(resultFloats!=result.size()&&(!streamOut||(hin.outW>0&&resultFloats!=size_t(hin.outW)*hin.outH*3)))
+                throw std::runtime_error("Hybrid: a streamed result of "+std::to_string(resultFloats/3)+" px without its stream or at another size");
+            // P501: the app's Sabre 1.5x size; a result at another grid (the SCAM merge's 2x, a fallback's 1x) is resampled to it
+            if(hin.outW>0&&resultFloats!=size_t(hin.outW)*hin.outH*3){
+                const size_t px=result.size()/3;int g=0;
+                for(int k=1;k<=2;++k)if(px==size_t(hin.w)*k*size_t(hin.h)*k)g=k;
+                if(!g)throw std::runtime_error("Hybrid: a result of "+std::to_string(px)+" px is no grid of "+std::to_string(hin.w)+"x"+std::to_string(hin.h));
+                const auto t0=std::chrono::steady_clock::now();
+                scam::hybridResampleResult(result,hin.w*g,hin.h*g,hin.outW,hin.outH,effMap.empty()?nullptr:&effMap,clipFlags.empty()?nullptr:&clipFlags);
+                resultFloats=result.size();
+                report("HYBRID SABRE OUTPUT: the "+std::to_string(hin.w*g)+"x"+std::to_string(hin.h*g)+" result resampled to "+std::to_string(hin.outW)+"x"
+                    +std::to_string(hin.outH)+" (Catmull-Rom; effective map nearest, clip flags OR) in "
+                    +std::to_string(int(std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-t0).count()))+" ms");
+            }
+            scam::hybridLater()=nullptr;
+            scam::hybridHighlightMaskOut()=nullptr;
             const double mergedMs=sinceStart();
             // The CRE's first call prints an unterminated line ("Failed to load symbol ..."): with the warm-up joined here at the
             // latest it lands before the result lines, never in front of "SCAM CAPTURE OK" (the app matches that line exactly).
@@ -364,7 +318,7 @@ int main(int argc,char** argv) {
             // their own, as before.
             double sum=0;float maximum=0;
             std::mutex statsLock;
-            const bool halfOut=hybrid&&requestedHalf;
+            const bool halfOut=requestedHalf;
             const bool statsInFill=halfOut&&!std::getenv("SCAM_RGB_STATS_PASS");
             auto addStats=[&](double s,float m){std::lock_guard<std::mutex> guard(statsLock);sum+=s;maximum=std::max(maximum,m);};
             auto reportStats=[&]{report("SCAM RGB: mean="+std::to_string(sum/resultFloats)+" max="+std::to_string(maximum));};
@@ -521,10 +475,15 @@ int main(int argc,char** argv) {
             }
             {
                 char line[200];
-                // P179: the worker's peak resident memory (MB) next to its timeline: the measured side of the app's frame budget
+                // P179: the worker's peak resident memory (MB) next to its timeline: the measured side of the app's frame budget.
+                // P712 (Pixel 6 Pro, 12 MP: peakRssMB=2718 at every shot while the merge's own line said peak 963 - 1221 MB): the
+                // kernel keeps ru_maxrss across execve (the app process the worker was spawned from: its ZSL ring and heap), so the
+                // peak is VmHWM of this process (/proc/self/status, reset by the exec); ru_maxrss stays beside it as spawnMaxRssMB.
+                // go: when the app's go byte came - «mapped» counts the idle wait of a worker started ahead of the shot
                 struct rusage usage{};getrusage(RUSAGE_SELF,&usage);
-                std::snprintf(line,sizeof(line),"SCAM WORKER TIMELINE ms: cre=%.0f mapped=%.0f merged=%.0f written=%.0f peakRssMB=%ld",creMs,mappedMs,mergedMs,sinceStart(),
-                    long(usage.ru_maxrss/1024));
+                const long hwm=scam::hybridRssMB()[1];
+                std::snprintf(line,sizeof(line),"SCAM WORKER TIMELINE ms: cre=%.0f go=%.0f mapped=%.0f merged=%.0f written=%.0f peakRssMB=%ld spawnMaxRssMB=%ld",
+                    creMs,goMs,mappedMs,mergedMs,sinceStart(),hwm>0?hwm:long(usage.ru_maxrss/1024),long(usage.ru_maxrss/1024));
                 report(line);
             }
             // P371 (speed): the app takes the result at the completion line and no longer waits for this process to exit (its
@@ -542,43 +501,11 @@ int main(int argc,char** argv) {
             }
             return 0;
         }
-        if(argc==3 && std::string(argv[1])=="--scam-tone-check") {
-            alarm(360);
-            scam::probeTone(argv[2],[](const std::string& line){scam_nn::log(line);});
-            return 0;
-        }
-        if(argc==5 && std::string(argv[1])=="--scam-forward") {
-            // Reference runner for weight extraction: N input tiles (float32 NHWC 1x544x544x22)
-            // in, N output tiles (1x544x544x3) out. Same graph and runtime as the capture path.
-            alarm(600);
-            const size_t inTile=size_t(544)*544*22,outTile=size_t(544)*544*3;
-            std::ifstream inFile(argv[3],std::ios::binary|std::ios::ate);
-            if(!inFile)throw std::runtime_error("Cannot open forward input");
-            const size_t bytes=size_t(inFile.tellg());
-            if(!bytes||bytes%(inTile*4))throw std::runtime_error("Forward input is not a whole number of tiles");
-            const size_t tiles=bytes/(inTile*4);inFile.seekg(0);
-            scam::Graph graph(argv[2],[](const std::string& line){scam_nn::log(line);});
-            std::ofstream outFile(argv[4],std::ios::binary|std::ios::trunc);
-            if(!outFile)throw std::runtime_error("Cannot open forward output");
-            for(size_t t=0;t<tiles;++t) {
-                inFile.read(reinterpret_cast<char*>(graph.input.data()),std::streamsize(inTile*4));
-                if(!inFile)throw std::runtime_error("Short forward input");
-                graph.execute();
-                outFile.write(reinterpret_cast<const char*>(graph.output.data()),std::streamsize(outTile*4));
-            }
-            outFile.flush();
-            scam_nn::log("SCAM FORWARD OK tiles="+std::to_string(tiles));
-            alarm(0);return 0;
-        }
-        if(argc==3 && std::string(argv[1])=="--scam-check") {
-            signal(SIGALRM,SIG_DFL);alarm(150);
-            scam::probe(argv[2],[](const std::string& line){scam_nn::log(line);});
-            alarm(0);scam_nn::log("SCAM RUNTIME CHECK COMPLETE");return 0;
-        }
-        // P175: the neural remosaic (HexQuad / Quad 2x2 NPU captures, their checks, the tele576 network) is gone
+        // P175: the neural remosaic (HexQuad / Quad 2x2 NPU captures, their checks, the tele576 network) is gone; P704: SCAM HDR's
+        // --scam-check (QNN probe), --scam-tone-check and --scam-forward (the forward network's reference runner) with it
         throw std::runtime_error("Worker argument count");
     } catch(const std::exception& e){
-        scam_nn::log(std::string("STOP: ")+e.what());
+        worker_log(std::string("STOP: ")+e.what());
         // P668: a capture job that stops (a kept-ready worker whose burst never came, a failed merge) leaves as the completed
         // one does (fastExit): its lines flushed, then _exit - no static destructor runs after the GPU driver's exit handlers
         // (Xiaomi 12X, Adreno 650: SIGSEGV in eglMakeCurrent under __cxa_finalize, a tombstone at every camera close)

@@ -261,4 +261,20 @@ public class GalleryViewModelTest {
         assertNull("the viewer's first view only", vm.takeOpening());
         assertTrue(vm.openedByCamera());
     }
+
+    /** P706: the grid finds the viewer's photo (by its row, or its path for the camera's photo before the scanner) once. */
+    @Test
+    public void theGridFindsTheViewersPhotoOnce() {
+        ImageFile a = photo(1, "a.jpg"), b = photo(2, "b.jpg");
+        List<GalleryItem> items = new ArrayList<>(Arrays.asList(new GalleryItem(a), new GalleryItem(b)));
+        ImageFile sameRow = new ImageFile(2, b.contentUri(), "b.jpg", 2, 1000, null);
+        ImageFile samePath = new ImageFile(-1, Uri.parse("file:///x"), "b.jpg", 2, 1000, b.filePath());
+        assertEquals(1, GalleryViewModel.indexOf(items, sameRow));
+        assertEquals(1, GalleryViewModel.indexOf(items, samePath));
+        assertEquals(-1, GalleryViewModel.indexOf(items, photo(3, "c.jpg")));
+        assertEquals(-1, GalleryViewModel.indexOf(null, a));
+        vm.revealInGrid(b);
+        assertSame(b, vm.takeReveal());
+        assertNull("once", vm.takeReveal());
+    }
 }

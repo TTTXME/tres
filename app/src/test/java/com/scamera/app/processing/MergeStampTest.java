@@ -64,7 +64,7 @@ public class MergeStampTest {
         assertEquals("L ✗ dcg", MergeStamp.longLine("hybrid plan: ... DCG: no shasta", 0, 0, APPLIED));
         assertEquals("ES ✗ off", MergeStamp.esLine("hybrid plan: ... bento off shasta off", 0, 0, APPLIED));
         assertEquals("L ✗ off", MergeStamp.longLine("hybrid plan: ... bento off shasta off", 0, 0, APPLIED));
-        assertEquals("ES ✗ ring", MergeStamp.esLine("hybrid plan: N=1ms*ISO100 ring frames only (Motion mode)", 0, 0, APPLIED));
+        assertEquals("ES ✗ ring", MergeStamp.esLine("hybrid plan: N=1ms*ISO100 ring frames only (Sport mode: nothing after the shutter)", 0, 0, APPLIED));
         assertEquals("ES ✗ floor", MergeStamp.esLine("hybrid plan: ... us skipped (sensor floor)", 0, 0, APPLIED));
         // asked for: none came, or they came back at the N exposure
         assertEquals("ES ✗ lost", MergeStamp.esLine(PLAN, 0, 0, APPLIED));

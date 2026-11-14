@@ -95,8 +95,11 @@ JNIEXPORT jboolean JNICALL Java_com_scamera_app_processing_yuv_YuvMergeNative_pa
 /**
  * settings: profile (0 2.7, 1 3.1), global radius, local radius, threshold scale, chroma check, chroma tolerance, luma check, own
  * noise, sharpest base, guided chroma, bracket, de-ghost, threads, transfer (0 sRGB, 1 points, 2 HLG, 3 linear), decode (0 JFIF
- * BT.601, 1 BT.2020 narrow unless its Y extremes say full, 2 BT.2020 full range, 3 BT.2020 narrow: 2 / 3 the dataspace's range). curve: the points' linear inputs then their encoded outputs. noise: S, O of the camera's profile.
- * stats out: base, mean frames, linear S, linear O, bracket used, ES share, L share, noise measured, measured bins, median frames.
+ * BT.601, 1 BT.2020 narrow unless its Y extremes say full, 2 BT.2020 full range, 3 BT.2020 narrow: 2 / 3 the dataspace's range), P701 the points' prior model (0 over linear light, 1 over the camera's sRGB signal), the output's chroma factor (1: unchanged), the shadow toe's gamma and cap (1, 1: none). curve: the
+ * points' linear inputs then their encoded outputs. noise: S, O of the camera's profile.
+ * stats out: base, mean frames, linear S, linear O, bracket used, ES share, L share, noise measured, measured bins, median frames,
+ * P701 the model the bracket measured (0 none, 1 over linear light, 2 over sRGB), the scene's geometric mean before and after the
+ * shadow toe, 1 when the counts came back as the post's codes (the toe's noise in them).
  */
 JNIEXPORT jstring JNICALL Java_com_scamera_app_processing_yuv_YuvMergeNative_merge(
         JNIEnv* env, jclass, jobjectArray frames, jint width, jint height, jint bits, jfloatArray ratios, jintArray roles,
@@ -104,11 +107,14 @@ JNIEXPORT jstring JNICALL Java_com_scamera_app_processing_yuv_YuvMergeNative_mer
     try {
         const jsize n = env->GetArrayLength(frames);
         if (n < 1 || env->GetArrayLength(ratios) != n || env->GetArrayLength(roles) != n) throw std::invalid_argument("frame lists differ");
-        std::vector<float> r(n), s(15, 0.f), c, nz(2, 0.f);
+        std::vector<float> r(n), s(19, 0.f), c, nz(2, 0.f);
         std::vector<jint> ro(n);
         env->GetFloatArrayRegion(ratios, 0, n, r.data());
         env->GetIntArrayRegion(roles, 0, n, ro.data());
-        env->GetFloatArrayRegion(settings, 0, std::min<jsize>(15, env->GetArrayLength(settings)), s.data());
+        const jsize given = std::min<jsize>(19, env->GetArrayLength(settings));
+        env->GetFloatArrayRegion(settings, 0, given, s.data());
+        if (given < 17) s[16] = 1.f;  // P701: no chroma factor given: unchanged
+        if (given < 19) s[17] = s[18] = 1.f;  // P701: no shadow toe given: none
         if (curve) {
             c.resize(env->GetArrayLength(curve));
             env->GetFloatArrayRegion(curve, 0, jsize(c.size()), c.data());
@@ -136,6 +142,7 @@ JNIEXPORT jstring JNICALL Java_com_scamera_app_processing_yuv_YuvMergeNative_mer
             if (c.size() < 4 || c.size() % 2) throw std::invalid_argument("capture curve without points");
             t.in.assign(c.begin(), c.begin() + c.size() / 2);
             t.out.assign(c.begin() + c.size() / 2, c.end());
+            t.innerSrgb = s[15] > .5f;  // P701
         }
         t.build();
         scam_yuv::Decoder d;
@@ -152,11 +159,25 @@ JNIEXPORT jstring JNICALL Java_com_scamera_app_processing_yuv_YuvMergeNative_mer
         if (counts && env->GetDirectBufferCapacity(countsOut) < jlong(width) * height) counts = nullptr;
         const scam_yuv::Report rep = bits <= 8 ? run<uint8_t>(env, frames, width, height, 8, info, set, t, d, fb, out, counts)
                                                : run<uint16_t>(env, frames, width, height, bits, info, set, t, d, fb, out, counts);
+        scam_yuv::scaleChroma(out, std::size_t(width) * height, std::clamp(s[16], 0.f, 2.f), set.threads);  // P701
+        float geo[2] = {1.f, 1.f};
+        // P701: with the toe, the frame-count map becomes the post's codes here (each pixel's lifted noise in them)
+        const bool codes = scam_yuv::shadowToe(out, std::size_t(width) * height, std::clamp(s[17], 0.f, 1.f), std::clamp(s[18], 1.f, 4.f),
+                                               set.threads, geo, counts, rep.medianCount, rep.linS, rep.linO);
         if (stats && env->GetArrayLength(stats) >= 10) {
             const float v[10] = {float(rep.base), float(rep.meanCount), rep.linS, rep.linO, rep.bracketUsed ? 1.f : 0.f,
                                  float(rep.esShare), float(rep.longShare), rep.noise.measured ? 1.f : 0.f,
                                  float(rep.noise.measuredBins), float(rep.medianCount)};
             env->SetFloatArrayRegion(stats, 0, 10, v);
+            if (env->GetArrayLength(stats) >= 11) {
+                const float m = float(rep.curveMeasured);
+                env->SetFloatArrayRegion(stats, 10, 1, &m);
+            }
+            if (env->GetArrayLength(stats) >= 13) env->SetFloatArrayRegion(stats, 11, 2, geo);
+            if (env->GetArrayLength(stats) >= 14) {
+                const float c = codes ? 1.f : 0.f;
+                env->SetFloatArrayRegion(stats, 13, 1, &c);
+            }
         }
         return env->NewStringUTF(rep.text().c_str());
     } catch (const std::exception& e) {

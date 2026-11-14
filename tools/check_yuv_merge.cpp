@@ -9,6 +9,10 @@
 //  4. P691: the 8-bit decode against the scene's light for the app's capture curve on a camera that honours the points' inputs
 //     and on one that takes their outputs at evenly spaced inputs (the vivo X200 Ultra), and the curve check that measures the
 //     decode's power from the bracket.
+//  5. P701: a camera that applies the points to its own sRGB signal (the vivo X200 Pro front camera, MediaTek): the curve check
+//     measures that model from the bracket, the prior decodes a series without one, a camera of linear points keeps its decode;
+//     the output's chroma factor keeps the luminance; the shadow toe (gain 1 at and above the scene's mean, monotone, capped, colour
+//     kept, the geometric means it reports, the lifted shadows' noise in the post's frame-count codes).
 // Build: g++ -std=c++17 -O2 -ffp-contract=off -Iapp/src/main/cpp -Itools/yuv-merge-ref tools/check_yuv_merge.cpp
 #include "scam-yuv-merge.h"
 #include "yuv_burst_merge.hpp"
@@ -1094,6 +1098,208 @@ static void checkHlgMatchesEightBit() {
     }
 }
 
+/**
+ * P701: the vivo X200 Pro front camera (MediaTek) applies the points to its own sRGB-encoded signal: its frames are
+ * points(sRGB(light)). With a bracket the curve check picks that model (k 1.00 against 0.47 - 0.63 as asked on the owner's series);
+ * without one the prior decodes (Transfer::innerSrgb, YuvCurveModel's MediaTek default) - the decode as asked put the linear median
+ * at 0.62 there. A camera that applies the points to linear light keeps its decode whatever the prior says when it has a bracket.
+ */
+static void checkCurveOverSrgb() {
+    std::vector<float> in, out;
+    Transfer asked = pointsCurve(in, out);
+    Transfer over = asked;
+    over.innerSrgb = true;
+    over.build();
+    const auto points = pointsEncoder(in, out);
+    const std::function<float(float)> mtk = [points](float x) { return points(srgbEncode(x)); };
+    const float shot = 0.0004f, read = 1e-6f;
+    Scene s(320, 256, true, 701);
+    auto scaled = [&](float k) {
+        std::vector<float> o(s.rgb);
+        for (float& v : o) v *= k;
+        return o;
+    };
+    Settings set;
+    set.threads = 3;
+    const NoiseFallback camera{5e-5f, 1e-6f};
+    auto burst = [&](const std::function<float(float)>& enc, bool bracket, std::vector<Owned<uint8_t>>& frames, std::vector<FrameInfo>& info) {
+        frames.clear();
+        info.clear();
+        for (int j = 0; j < 4; ++j) {
+            frames.push_back(encode(s.rgb, s.w, s.h, enc, shot, read, 7010 + j));
+            info.push_back({Role::Normal, 1.f});
+        }
+        if (!bracket) return;
+        frames.push_back(encode(scaled(0.125f), s.w, s.h, enc, shot, read, 7020));
+        info.push_back({Role::Short, 0.125f});
+        frames.push_back(encode(scaled(2.f), s.w, s.h, enc, shot, read, 7021));
+        info.push_back({Role::Long, 2.f});
+    };
+    // the merged light against the scene's in its mid tones (median ratio)
+    auto mid = [&](const std::vector<float>& o) {
+        std::vector<float> ratios;
+        for (std::size_t p = 0; p < std::size_t(s.w) * s.h; ++p) {
+            const float tr = luminance(&s.rgb[p * 3]);
+            if (tr > 0.03f && tr < 0.8f) ratios.push_back(luminance(&o[p * 3]) / tr);
+        }
+        return percentile(ratios, 0.5f);
+    };
+    auto shadows = [&](const std::vector<float>& o) {
+        std::vector<float> ratios;
+        for (std::size_t p = 0; p < std::size_t(s.w) * s.h; ++p) {
+            const float tr = luminance(&s.rgb[p * 3]);
+            if (tr > 0.01f && tr < 0.04f) ratios.push_back(luminance(&o[p * 3]) / tr);
+        }
+        return percentile(ratios, 0.5f);
+    };
+    std::vector<Owned<uint8_t>> frames;
+    std::vector<FrameInfo> info;
+    std::vector<float> o(std::size_t(s.w) * s.h * 3);
+    auto run = [&](const Transfer& t, Settings st) {
+        std::vector<Frame420<uint8_t>> views;
+        for (auto& f : frames) views.push_back(f.view());
+        return mergeBurst(views, info, st, t, Decoder{}, camera, o.data());
+    };
+    // the MediaTek camera with a bracket: the model measured from either prior, the scene decoded back, the bracket used
+    burst(mtk, true, frames, info);
+    for (int prior = 0; prior < 2; ++prior) {
+        const Report rep = run(prior ? over : asked, set);
+        const float m = mid(o), sh = shadows(o);
+        std::printf("curve over sRGB, bracket, prior %s: %s\n  mid tones x%.3f, shadows x%.3f of the scene\n",
+                    prior ? "over sRGB" : "as asked", rep.text().c_str(), m, sh);
+        CHECK(rep.curveMeasured == 2);
+        CHECK(rep.curvePower == 1.f);
+        CHECK(rep.bracketUsed);
+        CHECK(std::fabs(m - 1.f) < 0.06f);
+        CHECK(std::fabs(sh - 1.f) < 0.15f);
+        for (float l : rep.linearity) CHECK(l > 0.9f && l < 1.12f);
+    }
+    // without a bracket: the prior decodes; as asked the mid tones come out far too bright (the owner's washed-out photo)
+    burst(mtk, false, frames, info);
+    {
+        const Report rep = run(over, set);
+        const float m = mid(o);
+        std::printf("curve over sRGB, no bracket, prior over sRGB: mid tones x%.3f (%s)\n", m, rep.curveModel.c_str());
+        CHECK(rep.curveMeasured == 0);
+        CHECK(std::fabs(m - 1.f) < 0.06f);
+        run(asked, set);
+        const float wrong = mid(o);
+        std::printf("curve over sRGB, no bracket, prior as asked: mid tones x%.3f (the regression)\n", wrong);
+        CHECK(wrong > 1.8f);
+    }
+    // a camera of linear points (the Snapdragon X200 Ultra) with a bracket: its model measured, the MediaTek prior overruled
+    burst(points, true, frames, info);
+    {
+        const Report rep = run(over, set);
+        const float m = mid(o);
+        std::printf("linear points, bracket, prior over sRGB: %s, mid tones x%.3f\n", rep.curveModel.c_str(), m);
+        CHECK(rep.curveMeasured == 1);
+        CHECK(rep.bracketUsed);
+        CHECK(std::fabs(m - 1.f) < 0.06f);
+    }
+    // the bracket off: no measurement, the prior as given
+    burst(mtk, true, frames, info);
+    {
+        Settings off = set;
+        off.bracket = false;
+        const Report rep = run(asked, off);
+        CHECK(rep.curveMeasured == 0);
+        CHECK(!rep.bracketUsed);
+    }
+    // the chroma factor: luminance kept, chroma around it scaled, 1 = bit for bit
+    {
+        std::vector<float> c = {0.4f, 0.1f, 0.25f, 0.2f, 0.2f, 0.2f, 1.6f, 1.2f, 0.9f}, d = c;
+        scaleChroma(d.data(), 3, 1.f, 2);
+        CHECK(d == c);
+        scaleChroma(d.data(), 3, 0.8f, 2);
+        for (int p = 0; p < 3; ++p) {
+            const float y0 = luminance(&c[3 * p]), y1 = luminance(&d[3 * p]);
+            CHECK(std::fabs(y1 - y0) < 1e-5f * std::max(1.f, y0));
+            for (int k = 0; k < 3; ++k) CHECK(std::fabs((d[3 * p + k] - y1) - 0.8f * (c[3 * p + k] - y0)) < 1e-5f);
+        }
+    }
+    // the shadow toe: 1 at and above the mean, more below it (at most the cap), the luminance's map monotone with a slope in
+    // stops of at least gamma, continuous at the mean; gamma 1 or cap 1: none
+    {
+        const float geo = 0.26f, gamma = 0.6f, cap = 2.f;
+        CHECK(toeGain(geo, geo, gamma, cap) == 1.f);
+        CHECK(toeGain(0.9f, geo, gamma, cap) == 1.f);
+        CHECK(toeGain(0.01f, geo, 1.f, cap) == 1.f);
+        CHECK(toeGain(0.01f, geo, gamma, 1.f) == 1.f);
+        CHECK(std::fabs(toeGain(geo * 0.999f, geo, gamma, cap) - 1.f) < 1e-4f);
+        float last = 0.f, lastStops = -100.f;
+        for (int i = 0; i <= 400; ++i) {
+            const float y = geo * std::exp2(-12.f + 13.f * float(i) / 400.f);
+            const float g = toeGain(y, geo, gamma, cap);
+            CHECK(g >= 1.f && g <= cap + 1e-5f);
+            const float out = y * g, stops = std::log2(out);
+            CHECK(out > last);
+            if (i > 0) CHECK((stops - lastStops) / (13.f / 400.f) >= gamma - 1e-3f);
+            last = out;
+            lastStops = stops;
+        }
+        CHECK(toeGain(geo / 4096.f, geo, gamma, cap) > 1.9f);  // the deepest shadows near the cap
+        std::vector<float> c = {0.30f, 0.26f, 0.20f, 0.04f, 0.02f, 0.03f, 0.002f, 0.003f, 0.001f, 1.6f, 1.2f, 0.9f}, d = c;
+        float g0[2], g1[2];
+        shadowToe(d.data(), 4, 1.f, cap, 2, g0);
+        CHECK(d == c);
+        CHECK(g0[0] == g0[1]);
+        shadowToe(d.data(), 4, gamma, cap, 2, g1);
+        CHECK(std::fabs(g1[0] - g0[0]) < 1e-6f);
+        for (int p = 0; p < 4; ++p) {
+            const float k = d[3 * p + 1] / c[3 * p + 1];
+            CHECK(k >= 1.f && k <= cap + 1e-5f);
+            for (int j = 0; j < 3; ++j) CHECK(std::fabs(d[3 * p + j] - k * c[3 * p + j]) < 1e-6f * std::max(1.f, d[3 * p + j]));
+        }
+        CHECK(d[9] == c[9] && d[10] == c[10] && d[11] == c[11]);  // above the mean: unchanged
+        std::vector<float> many;  // a scene of every level: its geometric mean rises (the meter's factor > 1)
+        for (int i = 0; i < 700; ++i) {
+            const float y = 0.5f * std::exp2(-10.f * float(i % 97) / 96.f);
+            many.insert(many.end(), {y * 1.1f, y, y * 0.8f});
+        }
+        float g2[2];
+        shadowToe(many.data(), many.size() / 3, gamma, cap, 2, g2);
+        CHECK(g2[1] > g2[0] * 1.05f);
+        // the noise of the lifted shadows in the post's frame-count codes: variance ratio g (shot noise), g^2 (read noise), 1 unlifted
+        CHECK(toeVarianceRatio(0.05f, 1.f, 2e-3f, 1e-5f) == 1.f);
+        CHECK(std::fabs(toeVarianceRatio(0.05f, 1.6f, 2e-3f, 0.f) - 1.6f) < 1e-5f);
+        CHECK(std::fabs(toeVarianceRatio(0.05f, 1.6f, 0.f, 1e-5f) - 2.56f) < 1e-4f);
+        {
+            const float sN = 2.3e-3f, oN = 4e-6f;  // the merge's linear model of the owner's 132722 series
+            std::vector<float> rgb3, keep;
+            std::vector<uint8_t> counts;
+            for (int i = 0; i < 700; ++i) {
+                const float y = 0.5f * std::exp2(-10.f * float(i % 97) / 96.f);
+                rgb3.insert(rgb3.end(), {y, y, y});
+                counts.push_back(uint8_t(1 + i % 16));
+            }
+            keep = rgb3;
+            const std::vector<uint8_t> before = counts;
+            const int median = 7;
+            float g3[2];
+            CHECK(!shadowToe(rgb3.data(), 700, 1.f, cap, 2, g3, counts.data(), median, sN, oN));  // no toe: the counts stay
+            CHECK(counts == before);
+            CHECK(shadowToe(rgb3.data(), 700, gamma, cap, 2, g3, counts.data(), median, sN, oN));
+            int lifted = 0;
+            for (int i = 0; i < 700; ++i) {
+                const float g = rgb3[3 * i] / keep[3 * i];
+                const float plain = 64.f * float(before[i]) / float(median);
+                const float expect = plain / toeVarianceRatio(keep[3 * i], g, sN, oN);
+                CHECK(counts[i] >= 1 && std::fabs(float(counts[i]) - std::max(1.f, std::min(255.f, expect))) <= 0.5f + 1e-3f);
+                if (g == 1.f) CHECK(counts[i] == uint8_t(std::lround(plain)));
+                if (g > 1.5f) {
+                    ++lifted;
+                    CHECK(float(counts[i]) < plain * 0.75f + 0.5f);  // the denoisers see at least x1.33 the variance there
+                }
+            }
+            CHECK(lifted > 0);
+        }
+        std::printf("shadow toe gamma %.1f cap %.0f: gain at -1/-2/-3/-5 stops x%.3f x%.3f x%.3f x%.3f\n", gamma, cap,
+                    toeGain(geo / 2, geo, gamma, cap), toeGain(geo / 4, geo, gamma, cap), toeGain(geo / 8, geo, gamma, cap),
+                    toeGain(geo / 32, geo, gamma, cap));
+    }
+}
+
 int main() {
     checkStages();
     checkPrepared();
@@ -1104,6 +1310,7 @@ int main() {
     checkGuidedChroma();
     checkBracket();
     checkCaptureCurve();
+    checkCurveOverSrgb();
     checkTenBitHlg();
     checkHlgMatchesEightBit();
     if (failures) {

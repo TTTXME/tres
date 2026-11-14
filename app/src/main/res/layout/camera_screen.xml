@@ -238,23 +238,5 @@
                 app:layout_constraintTop_toTopOf="parent"
                 app:layout_constraintBottom_toBottomOf="@id/top_row"/>
 
-        <!-- the recording time, top right, monospaced on a dark plate -->
-        <TextView
-                android:id="@+id/video_recording_info"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:layout_marginEnd="12dp"
-                android:paddingStart="6dp"
-                android:paddingTop="3dp"
-                android:paddingEnd="6dp"
-                android:paddingBottom="3dp"
-                android:background="#88000000"
-                android:fontFamily="monospace"
-                android:textColor="@android:color/white"
-                android:textSize="13sp"
-                android:visibility="gone"
-                app:layout_constraintTop_toTopOf="parent"
-                app:layout_constraintEnd_toEndOf="parent"/>
     </com.scamera.app.ui.camera.CameraLayout>
 </layout>

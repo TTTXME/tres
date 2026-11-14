@@ -48,7 +48,7 @@ public class SurfaceViewOverViewfinder extends SurfaceView {
     private final float oisWidth;
 
     /** The surface holds a drawing (the camera screen clears it only then). */
-    public boolean drawn = false;
+    public volatile boolean drawn = false; // P705: read on the camera thread too (CameraFragment.showLiveMetrics)
     @Nullable private RectF afRegion = new RectF();
     @Nullable private RectF aeRegion = new RectF();
     @Nullable private String debugText;

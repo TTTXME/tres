@@ -46,6 +46,25 @@ public class CameraActivity extends BaseActivity {
     public void onUserInteraction() {
         super.onUserInteraction();
         com.scamera.app.capture.FullResRingPolicy.touched(android.os.SystemClock.elapsedRealtime());
+        if (idleScreen != null) idleScreen.touched(); // P705
+    }
+
+    /** P705: the display kept on only while the screen is used (IdleScreen); the touches' refresh rate (TouchRefresh, or null). */
+    private IdleScreen idleScreen;
+    private TouchRefresh touchRefresh;
+    private boolean touchRefreshRead;
+
+    @Override
+    public boolean dispatchTouchEvent(android.view.MotionEvent event) {
+        if (touchRefresh != null) touchRefresh.onTouch(event);
+        return super.dispatchTouchEvent(event);
+    }
+
+    @Override
+    protected void onPause() {
+        if (idleScreen != null) idleScreen.pause();
+        if (touchRefresh != null) touchRefresh.pause();
+        super.onPause();
     }
 
 
@@ -185,8 +204,6 @@ public class CameraActivity extends BaseActivity {
         switch (group) {
             case CAMERA:
                 return R.string.perm_group_camera;
-            case MICROPHONE:
-                return R.string.perm_group_microphone;
             case PHOTOS:
                 return R.string.perm_group_photos;
             case FILES:
@@ -260,12 +277,28 @@ public class CameraActivity extends BaseActivity {
         String signature=themeSignature();
         if(appliedThemeSignature!=null && !appliedThemeSignature.equals(signature)) {
             appliedThemeSignature=signature;
+        if (idleScreen != null) idleScreen.resume(PreferenceKeys.scamDevNumber("idle_screen_min", IdleScreen.DEFAULT_MINUTES));
+        if (!touchRefreshRead) {
+            touchRefreshRead = true;
+            touchRefresh = TouchRefresh.of(getWindow(), SDK_INT >= Build.VERSION_CODES.R ? getDisplay() : null,
+                    !com.scamera.app.util.RamClass.get(this).low() && PreferenceKeys.scamDevSwitch("ui_touch_refresh", true));
+        }
             recreate();
             return;
         }
         appliedThemeSignature=signature;
+        if (idleScreen != null) idleScreen.resume(PreferenceKeys.scamDevNumber("idle_screen_min", IdleScreen.DEFAULT_MINUTES));
+        if (!touchRefreshRead) {
+            touchRefreshRead = true;
+            touchRefresh = TouchRefresh.of(getWindow(), SDK_INT >= Build.VERSION_CODES.R ? getDisplay() : null,
+                    !com.scamera.app.util.RamClass.get(this).low() && PreferenceKeys.scamDevSwitch("ui_touch_refresh", true));
+        }
         // P470: the first launch of this install / system build compiles the GPU programs behind a progress dialog
-        if(checkSelfPermission(android.Manifest.permission.CAMERA)==PackageManager.PERMISSION_GRANTED&&!AllFilesAccess.maybeAsk(this))FirstRunCompile.maybeRun(this);
+        if(checkSelfPermission(android.Manifest.permission.CAMERA)==PackageManager.PERMISSION_GRANTED&&!AllFilesAccess.maybeAsk(this)){
+            FirstRunCompile.maybeRun(this);
+            // P708: a fresh install's setup wizard (Simple / Advanced and a few choices), over the camera and the compile dialog
+            com.scamera.app.ui.settings.SettingsWizard.maybeShowFirstRun(this);
+        }
         // P156: the settings may have shown another module's profile for editing: the camera's module again
         com.scamera.app.settings.ModuleRegistry.syncProfile();
         immersive(); // again on every return (no flicker of the bars, portrait as the screen is laid out)
@@ -309,6 +342,8 @@ public class CameraActivity extends BaseActivity {
     private void showScreen() {
         immersive();
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        // P705: from the first resume on the flag stays only while the screen is used
+        idleScreen = new IdleScreen(getWindow(), () -> com.scamera.app.processing.ProcessingKeepAlive.busy.getAsBoolean());
         setContentView(R.layout.activity_camera);
     }
 }

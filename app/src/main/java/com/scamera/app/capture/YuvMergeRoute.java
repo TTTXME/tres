@@ -363,7 +363,15 @@ public final class YuvMergeRoute {
         return done.toString();
     }
 
-    /** The shot's metering of the newest YUV ring frame's Y: {clipped share (Y >= 250 of 255), deep-shadow share (Y <= 24)}. */
+    /**
+     * The shot's metering of the newest YUV ring frame's Y: {clipped share (Y >= 250 of 255), deep-shadow share (Y <= 24)}.
+     * <p>
+     * P701: the ring's frames are the viewfinder's, at the camera's own curve (only the series' request carries our points,
+     * applyCaptureControls), so these codes mean the same light whatever the camera does with our points (YuvCurveModel): Y 24 of
+     * the camera's sRGB-like curve is ~0.9 % of white. The owner's series of the X200 Pro front camera (MediaTek) bear it out: the
+     * ring metered 0.002 / 0.004 deep shadows where the series' frames (our points over the camera's sRGB) hold none at Y <= 24 and
+     * 0.0007 - 0.0025 / 0.0011 - 0.0044 at Y <= 87 - 100 - the level points(sRGB(0.009)) gives (87).
+     */
     public static float[] meter(@Nullable com.scamera.app.processing.RingFrame newest) {
         final float[] out = {0f, 0f};
         if (newest == null) return out;

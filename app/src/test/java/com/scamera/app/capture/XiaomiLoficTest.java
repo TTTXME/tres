@@ -74,7 +74,20 @@ public class XiaomiLoficTest {
     public void outputsInTheRecipesOrder() {
         for (XiaomiLofic.Setup s : XiaomiLofic.Setup.values()) {
             final List<XiaomiLofic.Output> o = XiaomiLofic.outputs(s);
-            assertEquals(6, o.size());
+            // P700: the six of the recipe in their places; a companion variant's YUV companion after them, repeating
+            assertEquals(s.companion ? 7 : 6, o.size());
+            if (s.companion) {
+                assertEquals(XiaomiLofic.COMPANION, o.get(6).role);
+                assertEquals(XiaomiLofic.YUV_420_888, o.get(6).format);
+                assertEquals(640, o.get(6).width);
+                assertEquals(480, o.get(6).height);
+                assertTrue(o.get(6).repeating);
+            }
+            // RAW A / B: the capture variant's use case and usage, the defaults elsewhere; the dummy RAW always the default
+            assertEquals(s.rawUseCase, o.get(4).useCase);
+            assertEquals(s.rawUseCase, o.get(5).useCase);
+            assertEquals(s.rawUsage, o.get(4).usage);
+            assertEquals(0, o.get(0).useCase);
             assertEquals(Arrays.asList(XiaomiLofic.DUMMY, XiaomiLofic.VIEWFINDER, XiaomiLofic.VIDEO, XiaomiLofic.JPEG,
                     XiaomiLofic.RAW_A, XiaomiLofic.RAW_B), Arrays.asList(o.get(0).role, o.get(1).role, o.get(2).role, o.get(3).role,
                     o.get(4).role, o.get(5).role));
@@ -97,8 +110,11 @@ public class XiaomiLoficTest {
         assertEquals(1080, sixteen.get(1).height);
         assertEquals(3840, sixteen.get(2).width);
         assertEquals(2160, sixteen.get(3).height);
+        assertEquals(3840, sixteen.get(3).width); // INTEGRATION.md: the 16:10 JPEG column 3840 x 2160
         final List<XiaomiLofic.Output> four = XiaomiLofic.outputs(XiaomiLofic.Setup.FOUR_THREE);
         assertEquals(1440, four.get(1).width);
+        assertEquals(1080, four.get(1).height);
+        assertEquals(2160, four.get(2).height);
         assertEquals(2880, four.get(2).width);
         assertEquals(4096, four.get(3).width);
         assertEquals(3072, four.get(3).height);
@@ -114,12 +130,32 @@ public class XiaomiLoficTest {
         assertEquals(-1, s.askRow);
         assertEquals(18_350_080, s.longBytes());
         assertEquals(13_107_200, s.shortBytes());
+        assertFalse(s.fourThree());
         assertEquals(0xF010, f.sessionType);
         assertEquals(30, f.fps);
         assertEquals(3072, f.rows);
-        assertEquals(5, f.askRow); // the sensor's DXGLofic 4:3 row, asked by current_mode (the root-free candidate)
+        assertTrue(f.fourThree());
+        // P700: the release's recipe exactly (no row sent), proven by its mode 5 (or 59.5 fps's 38)
+        assertEquals(-1, f.askRow);
+        assertArrayEquals(new int[]{5, 38}, f.modes);
         assertEquals(22_020_096, f.longBytes());
         assertEquals(15_728_640, f.shortBytes());
+        // the root-free 4:3 variants, in their order: the row asked, + the YUV companion, + the capture RAW use case
+        assertEquals(Arrays.asList(XiaomiLofic.Setup.FOUR_THREE, XiaomiLofic.Setup.FOUR_THREE_ROW, XiaomiLofic.Setup.FOUR_THREE_COMPANION,
+                XiaomiLofic.Setup.FOUR_THREE_CAPTURE, XiaomiLofic.Setup.SIXTEEN_TEN), Arrays.asList(XiaomiLofic.Setup.values()));
+        for (XiaomiLofic.Setup v : new XiaomiLofic.Setup[]{XiaomiLofic.Setup.FOUR_THREE_ROW, XiaomiLofic.Setup.FOUR_THREE_COMPANION,
+                XiaomiLofic.Setup.FOUR_THREE_CAPTURE}) {
+            assertEquals(0xF010, v.sessionType);
+            assertEquals(30, v.fps);
+            assertEquals(3072, v.rows);
+            assertEquals(5, v.askRow); // the sensor's DXGLofic 4:3 row, asked by current_mode
+        }
+        assertFalse(XiaomiLofic.Setup.FOUR_THREE_ROW.companion);
+        assertTrue(XiaomiLofic.Setup.FOUR_THREE_COMPANION.companion);
+        assertEquals(0, XiaomiLofic.Setup.FOUR_THREE_COMPANION.rawUseCase);
+        assertTrue(XiaomiLofic.Setup.FOUR_THREE_CAPTURE.companion);
+        assertEquals(0x80103L, XiaomiLofic.Setup.FOUR_THREE_CAPTURE.rawUseCase);
+        assertEquals(0x100003L, XiaomiLofic.Setup.FOUR_THREE_CAPTURE.rawUsage);
     }
 
     @Test
@@ -134,11 +170,14 @@ public class XiaomiLoficTest {
         assertEquals(3, request.size());
         assertEquals("com.xiaomi.camera.eiParams.loficEnable", request.get(2).name);
         assertArrayEquals(new byte[]{1}, (byte[]) request.get(2).value);
-        // 4:3: the row asked on the session and every request
-        final List<XiaomiLofic.Key> four = XiaomiLofic.vendorKeys(XiaomiLofic.Setup.FOUR_THREE, false);
+        // 4:3 + row: the row asked on the session and every request
+        final List<XiaomiLofic.Key> four = XiaomiLofic.vendorKeys(XiaomiLofic.Setup.FOUR_THREE_ROW, false);
         assertEquals("org.codeaurora.qcamera3.sensor_meta_data.current_mode", four.get(3).name);
         assertArrayEquals(new int[]{5}, (int[]) four.get(3).value);
-        assertEquals(3, XiaomiLofic.vendorKeys(XiaomiLofic.Setup.FOUR_THREE, true).size());
+        assertEquals(3, XiaomiLofic.vendorKeys(XiaomiLofic.Setup.FOUR_THREE_ROW, true).size());
+        // P700: the release's 4:3 recipe: exactly the three vendor keys of INTEGRATION.md, no row
+        assertEquals(3, XiaomiLofic.vendorKeys(XiaomiLofic.Setup.FOUR_THREE, false).size());
+        assertEquals(2, XiaomiLofic.vendorKeys(XiaomiLofic.Setup.FOUR_THREE, true).size());
     }
 
     @Test
@@ -297,7 +336,11 @@ public class XiaomiLoficTest {
 
     @Test
     public void croppedRowsFailFourThree() {
-        final XiaomiLofic.Proof p = new XiaomiLofic.Proof(XiaomiLofic.Setup.FOUR_THREE, 90);
+        // P700: the release's 4:3 recipe without the root module - the HAL's cropped row reports its own mode: failed at once
+        final XiaomiLofic.Proof r = new XiaomiLofic.Proof(XiaomiLofic.Setup.FOUR_THREE, 90);
+        for (int i = 0; i < 5; i++) r.result(27, 2);
+        assertEquals(XiaomiLofic.Verdict.FAILED, r.verdict());
+        final XiaomiLofic.Proof p = new XiaomiLofic.Proof(XiaomiLofic.Setup.FOUR_THREE_ROW, 90);
         p.result(5, 2); // the asked row echoes back: no proof
         assertEquals(XiaomiLofic.Verdict.PENDING, p.verdict());
         p.pair(2304, 2304);
@@ -320,6 +363,20 @@ public class XiaomiLoficTest {
         q.result(5, 2);
         q.pair(3072, 3072);
         assertEquals(XiaomiLofic.Verdict.PROVEN, q.verdict());
+        // P700: every 4:3 variant needs ExposureCount 2 and 3072 rows in both streams
+        for (XiaomiLofic.Setup v : XiaomiLofic.Setup.values()) {
+            if (!v.fourThree()) continue;
+            final XiaomiLofic.Proof one = new XiaomiLofic.Proof(v, 90);
+            one.result(5, 1);
+            one.pair(3072, 3072);
+            assertEquals(v.id, XiaomiLofic.Verdict.PENDING, one.verdict());
+            one.result(5, 2);
+            assertEquals(v.id, XiaomiLofic.Verdict.PROVEN, one.verdict());
+            final XiaomiLofic.Proof half = new XiaomiLofic.Proof(v, 90);
+            half.result(5, 2);
+            half.pair(3072, 2560);
+            assertEquals(v.id, XiaomiLofic.Verdict.FAILED, half.verdict());
+        }
     }
 
     @Test
@@ -341,13 +398,56 @@ public class XiaomiLoficTest {
 
     @Test
     public void ladderFallsBackToSixteenTenThenTheNormalSession() {
-        assertEquals(Arrays.asList(XiaomiLofic.Setup.FOUR_THREE, XiaomiLofic.Setup.SIXTEEN_TEN), XiaomiLofic.ladder(false, false, false));
-        assertEquals(Arrays.asList(XiaomiLofic.Setup.SIXTEEN_TEN), XiaomiLofic.ladder(true, false, false));
-        assertEquals(Arrays.asList(XiaomiLofic.Setup.SIXTEEN_TEN), XiaomiLofic.ladder(false, false, true));
-        assertTrue(XiaomiLofic.ladder(true, true, false).isEmpty()); // the normal session
+        final java.util.Set<XiaomiLofic.Setup> none = java.util.EnumSet.noneOf(XiaomiLofic.Setup.class);
+        final List<XiaomiLofic.Setup> all = Arrays.asList(XiaomiLofic.Setup.FOUR_THREE, XiaomiLofic.Setup.FOUR_THREE_ROW,
+                XiaomiLofic.Setup.FOUR_THREE_COMPANION, XiaomiLofic.Setup.FOUR_THREE_CAPTURE, XiaomiLofic.Setup.SIXTEEN_TEN);
+        assertEquals(all, XiaomiLofic.ladder(none, null, false));
+        // a failed variant is skipped; every 4:3 variant failed: 16:10, and the screen says 4:3 needs root
+        final java.util.Set<XiaomiLofic.Setup> some = java.util.EnumSet.of(XiaomiLofic.Setup.FOUR_THREE, XiaomiLofic.Setup.FOUR_THREE_ROW);
+        assertEquals(Arrays.asList(XiaomiLofic.Setup.FOUR_THREE_COMPANION, XiaomiLofic.Setup.FOUR_THREE_CAPTURE, XiaomiLofic.Setup.SIXTEEN_TEN),
+                XiaomiLofic.ladder(some, null, false));
+        assertFalse(XiaomiLofic.fourThreeGone(some));
+        final java.util.Set<XiaomiLofic.Setup> fours = java.util.EnumSet.range(XiaomiLofic.Setup.FOUR_THREE, XiaomiLofic.Setup.FOUR_THREE_CAPTURE);
+        assertEquals(Arrays.asList(XiaomiLofic.Setup.SIXTEEN_TEN), XiaomiLofic.ladder(fours, null, false));
+        assertTrue(XiaomiLofic.fourThreeGone(fours));
+        assertTrue(XiaomiLofic.state(fours, null), XiaomiLofic.state(fours, null).contains("root"));
+        // the variant proven on this firmware runs first
+        assertEquals(XiaomiLofic.Setup.FOUR_THREE_COMPANION, XiaomiLofic.ladder(none, XiaomiLofic.Setup.FOUR_THREE_COMPANION, false).get(0));
+        assertEquals(5, XiaomiLofic.ladder(none, XiaomiLofic.Setup.FOUR_THREE_COMPANION, false).size());
+        assertTrue(XiaomiLofic.state(none, XiaomiLofic.Setup.FOUR_THREE_COMPANION).contains("4:3+row+yuv"));
+        assertFalse("never claimed without a proof", XiaomiLofic.state(none, null).contains("proven"));
+        assertEquals(Arrays.asList(XiaomiLofic.Setup.SIXTEEN_TEN), XiaomiLofic.ladder(none, XiaomiLofic.Setup.FOUR_THREE, true));
+        final java.util.Set<XiaomiLofic.Setup> everything = java.util.EnumSet.allOf(XiaomiLofic.Setup.class);
+        assertTrue(XiaomiLofic.ladder(everything, null, false).isEmpty()); // DCG
+        // a stored proof is this firmware's only, and names a 4:3 variant
+        assertEquals(XiaomiLofic.Setup.FOUR_THREE_ROW, XiaomiLofic.storedProven("FP1|4:3+row", "FP1"));
+        assertNull(XiaomiLofic.storedProven("FP1|4:3+row", "FP2"));
+        assertNull(XiaomiLofic.storedProven("FP1|16:10", "FP1"));
         // a 4:3 failure is this firmware's only
         assertEquals("cropped", XiaomiLofic.storedFailure("FP1|cropped", "FP1"));
         assertNull(XiaomiLofic.storedFailure("FP1|cropped", "FP2"));
         assertNull(XiaomiLofic.storedFailure(null, "FP1"));
+    }
+
+    /**
+     * P700: P679's PHOTO / NIGHT gate never let the route run from the screen, whose photo mode older builds called MOTION (log
+     * 2026-11-14 11:18:25: «session mode=MOTION», the P641 ladder with a black viewfinder instead). P702: the photo mode is the
+     * only camera mode and the session's LOFIC decision reads no mode at all.
+     */
+    @Test public void theRouteRunsInTheScreensPhotoMode() throws Exception {
+        for (int stored = -1; stored <= 6; stored++)
+            assertEquals(com.scamera.app.api.CameraMode.PHOTO, com.scamera.app.api.CameraMode.fromStored(stored));
+        String source = new String(java.nio.file.Files.readAllBytes(sourceFile(
+                "src/main/java/com/scamera/app/capture/CaptureController.java").toPath()), java.nio.charset.StandardCharsets.UTF_8);
+        int at = source.indexOf("final boolean loficWanted =");
+        assertTrue(at > 0);
+        String decision = source.substring(at, source.indexOf(';', at));
+        assertFalse(decision, decision.contains("mode"));
+        assertTrue(decision, decision.contains("XiaomiLofic.wanted("));
+    }
+
+    private static java.io.File sourceFile(String path) {
+        java.io.File f = new java.io.File(path);
+        return f.isFile() ? f : new java.io.File("app/" + path);
     }
 }

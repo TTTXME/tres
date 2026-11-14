@@ -12,6 +12,12 @@ precision highp float; precision highp int; precision highp sampler2D;
 // LINEAR_IN 1 (P145, the Ultra HDR linear scene snapshot): the input is linear light already, values above 1 included - no
 // clamp, no sRGB decode / encode, the weighted mean as it is.
 #define LINEAR_IN 0
+// PASS (speed, weak GPUs): 0 = the 2D kernel below in one pass ((2 reach + 1)^2 taps a pixel). The kernel is separable (w = wx wy,
+// every tap's validity per axis), so HybridFinalResize runs it in two: 1 = the horizontal sums of linear light normalised by
+// their weights (Σ wx f / Σ wx) into an RGBA32F band of input rows (row rowOrigin of the frame at its row 0), 2 = the vertical
+// sums of that band normalised the same way, then the output's clamp and encode - Σ wy (Σ wx f / Σ wx) / Σ wy is the 2D
+// Σ wx wy f / Σ wx wy. Lanczos-3 at 2:1: 225 -> 45 loop steps a pixel (tools/check_final_resize_separable.py: the same output).
+#define PASS 0
 uniform sampler2D InputBuffer;
 uniform int yOffset;
 uniform int kernel;
@@ -30,6 +36,67 @@ vec3 fetchLin(ivec2 p) { return toLinear(clamp(texelFetch(InputBuffer, p, 0).rgb
 #endif
 // Overlap of the input pixel [d - 0.5, d + 0.5] with the box [f - r, f + r] (all relative to the base pixel).
 float boxW(float d, float f, float r) { return clamp(min(d + 0.5, f + r) - max(d - 0.5, f - r), 0.0, 1.0); }
+#if PASS == 1 || PASS == 2
+uniform int rowOrigin;   // the frame's input row held at row 0 of the band
+// the weight of the tap d pixels from the base pixel along one axis (frac, scale and radius of that axis)
+float tapW(float d, float frac, float scale, float radius, float lobes) {
+    return kernel == 2 ? boxW(d, frac, radius) : lanczos((d - frac) / scale, lobes);
+}
+#endif
+#if PASS == 1
+void main() {
+    highp int xo = int(gl_FragCoord.x);
+    int yIn = int(gl_FragCoord.y) + rowOrigin;
+    highp int den = 2 * outSize.x;
+    highp int num = (2 * xo + 1) * inSize.x - outSize.x;
+    highp int base = num / den;
+    float frac = float(num - base * den) / float(den);
+    float scale = float(inSize.x) / float(outSize.x);
+    int hi = inSize.x - 1;
+    float lobes = kernel == 1 ? 2.0 : 3.0;
+    float radius = kernel == 2 ? 0.5 * scale : lobes * scale;
+    int reach = int(ceil(radius)) + 1;
+    vec3 sum = vec3(0.0);
+    float wsum = 0.0;
+    for (int di = -reach; di <= reach; di++) {
+        int x = base + di;
+        if (x < 0 || x > hi) continue;
+        float wx = tapW(float(di), frac, scale, radius, lobes);
+        if (wx == 0.0) continue;
+        sum += fetchLin(ivec2(x, yIn)) * wx;
+        wsum += wx;
+    }
+    Output = vec4(sum / max(wsum, 1.0e-6), 1.0);
+}
+#elif PASS == 2
+void main() {
+    highp ivec2 xy = ivec2(gl_FragCoord.xy);
+    highp int den = 2 * outSize.y;
+    highp int num = (2 * xy.y + 1) * inSize.y - outSize.y;
+    highp int base = num / den;
+    float frac = float(num - base * den) / float(den);
+    float scale = float(inSize.y) / float(outSize.y);
+    int hi = inSize.y - 1;
+    float lobes = kernel == 1 ? 2.0 : 3.0;
+    float radius = kernel == 2 ? 0.5 * scale : lobes * scale;
+    int reach = int(ceil(radius)) + 1;
+    vec3 sum = vec3(0.0);
+    float wsum = 0.0;
+    for (int dj = -reach; dj <= reach; dj++) {
+        int y = base + dj;
+        if (y < 0 || y > hi) continue;
+        float wy = tapW(float(dj), frac, scale, radius, lobes);
+        if (wy == 0.0) continue;
+        sum += texelFetch(InputBuffer, ivec2(xy.x, y - rowOrigin), 0).rgb * wy;
+        wsum += wy;
+    }
+#if LINEAR_IN == 1
+    Output = vec4(sum / max(wsum, 1.0e-6), 1.0);
+#else
+    Output = vec4(toDisplay(clamp(sum / max(wsum, 1.0e-6), 0.0, 1.0)), 1.0);
+#endif
+}
+#else
 void main() {
     highp ivec2 xy = ivec2(gl_FragCoord.xy) + ivec2(0, yOffset);
     // centre = ((2 xy + 1) in - out) / (2 out): exact integer numerator (< 2^31 for 2x8192 -> any size)
@@ -73,3 +140,4 @@ void main() {
     Output = vec4(toDisplay(clamp(sum / max(wsum, 1.0e-6), 0.0, 1.0)), 1.0);
 #endif
 }
+#endif

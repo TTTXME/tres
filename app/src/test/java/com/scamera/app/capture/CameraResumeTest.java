@@ -216,61 +216,76 @@ public class CameraResumeTest {
         assertEquals(32,CaptureController.zslRingCapacity());
         assertNull(new SettingsAvailability(manager.getDefaultPreferences().getAll()).reason("pref_zsl_buffer_count_key"));
     }
-    @Test public void stillModesUseRollingRaw() throws Exception {
-        for(com.scamera.app.api.CameraMode mode:new com.scamera.app.api.CameraMode[]{
-                com.scamera.app.api.CameraMode.MOTION,com.scamera.app.api.CameraMode.PHOTO,
-                com.scamera.app.api.CameraMode.NIGHT}) {
-            ScameraApp.getSettings().mode=mode;assertTrue(controller.isZslMode());
+    /** P702: the photo mode (whatever number an older build stored) takes its N frames from the ring; the routes without it don't. */
+    @Test public void thePhotoModeUsesRollingRaw() throws Exception {
+        for(int stored:new int[]{0,1,2,3,4,5,99}) {
+            ScameraApp.getSettings().mode=com.scamera.app.api.CameraMode.fromStored(stored);assertTrue(controller.isZslMode());
         }
-        ScameraApp.getSettings().mode=com.scamera.app.api.CameraMode.RAWVIDEO;
-        assertFalse(controller.isZslMode());
+        withoutRing(()->assertFalse(controller.isZslMode()));
+        put(controller,"mVivoSdkRawSession",VivoSdkRawSession.inert());
+        assertFalse("the vivo SDK FULLRES session captures after the press",controller.isZslMode());
+        put(controller,"mVivoSdkRawSession",null);
+    }
+    private interface Body { void run() throws Exception; }
+    /** The shutter path without the ZSL ring: the vivo Qualcomm RAW PSL test route (scam_dev vivo_qcom_raw_psl 1). */
+    private static void withoutRing(Body body) throws Exception {
+        try(MockedStatic<VivoQcomModes> qcom=mockStatic(VivoQcomModes.class,CALLS_REAL_METHODS);
+            MockedStatic<PreferenceKeys> prefs=mockStatic(PreferenceKeys.class,CALLS_REAL_METHODS)) {
+            qcom.when(VivoQcomModes::wantsStreamUsage).thenReturn(true);
+            prefs.when(()->PreferenceKeys.scamDevSwitch("vivo_qcom_raw_psl",false)).thenReturn(true);
+            body.run();
+        }
     }
     @Test public void shutterWaitsForFreshMetadataThenSubmitsWithoutRestart() throws Exception {
-        ScameraApp.getSettings().mode=com.scamera.app.api.CameraMode.RAWVIDEO; // the shutter path without the ZSL ring
-        CameraCaptureSession session=mock(CameraCaptureSession.class);
-        put(controller,"isCameraResumed",true);put(controller,"mCaptureSession",session);
-        put(controller,"mConfiguredSessionGeneration",0);
-        put(controller,"mCameraDevice",mock(CameraDevice.class));
-        put(controller,"afModesOfCamera",new int[]{0});
-        controller.mPreviewRequestBuilder=newRequestBuilder();
+        withoutRing(()->{ // the shutter path without the ZSL ring
+            CameraCaptureSession session=mock(CameraCaptureSession.class);
+            put(controller,"isCameraResumed",true);put(controller,"mCaptureSession",session);
+            put(controller,"mConfiguredSessionGeneration",0);
+            put(controller,"mCameraDevice",mock(CameraDevice.class));
+            put(controller,"afModesOfCamera",new int[]{0});
+            controller.mPreviewRequestBuilder=newRequestBuilder();
 
-        controller.takePicture();
-        verify(events).processingFailed(any());verifyNoInteractions(session);
-        assertEquals(false,get(controller,"mShotInProgress"));
-        CaptureController.mPreviewCaptureResult=mock(TotalCaptureResult.class);
-        controller.takePicture();
-        verify(session).setRepeatingRequest(any(CaptureRequest.class),any(),isNull());
-        verify(events,never()).cameraRestarted();
-        assertEquals(true,get(controller,"mShotInProgress"));
+            controller.takePicture();
+            verify(events).processingFailed(any());verifyNoInteractions(session);
+            assertEquals(false,get(controller,"mShotInProgress"));
+            CaptureController.mPreviewCaptureResult=mock(TotalCaptureResult.class);
+            controller.takePicture();
+            verify(session).setRepeatingRequest(any(CaptureRequest.class),any(),isNull());
+            verify(events,never()).cameraRestarted();
+            assertEquals(true,get(controller,"mShotInProgress"));
+        });
     }
     @Test public void busyShutterDeclinesWithoutStartingOrCancellingExistingWork() throws Exception {
-        CaptureController.isProcessing=true;
-        assertFalse(controller.takePicture());
-        assertTrue(CaptureController.isProcessing);
-        verifyNoInteractions(events);
-        CaptureController.isProcessing=false;
-        put(controller,"mZslCapturing",true);
-        assertFalse(controller.takePicture());
-        assertEquals(true,get(controller,"mZslCapturing"));
-        verifyNoInteractions(events);
+        withoutRing(()->{ // the shutter path without the ZSL ring (no SCAM press queue)
+            CaptureController.isProcessing=true;
+            assertFalse(controller.takePicture());
+            assertTrue(CaptureController.isProcessing);
+            verifyNoInteractions(events);
+            CaptureController.isProcessing=false;
+            put(controller,"mZslCapturing",true);
+            assertFalse(controller.takePicture());
+            assertEquals(true,get(controller,"mZslCapturing"));
+            verifyNoInteractions(events);
+        });
     }
     @Test public void rejectedAuxiliaryPreviewRequestReleasesPendingShot() throws Exception {
-        ScameraApp.getSettings().mode=com.scamera.app.api.CameraMode.RAWVIDEO; // the shutter path without the ZSL ring
-        CameraCaptureSession session=mock(CameraCaptureSession.class);
-        put(controller,"isCameraResumed",true);put(controller,"mCaptureSession",session);
-        put(controller,"mConfiguredSessionGeneration",0);
-        put(controller,"mCameraDevice",mock(CameraDevice.class));
-        put(controller,"afModesOfCamera",new int[]{0});
-        controller.mPreviewRequestBuilder=newRequestBuilder();
-        CaptureController.mPreviewCaptureResult=mock(TotalCaptureResult.class);
-        when(session.setRepeatingRequest(any(),any(),isNull()))
-                .thenThrow(new IllegalStateException("session closed"));
-        assertFalse(controller.takePicture());
-        assertEquals(false,get(controller,"mShotInProgress"));
-        verify(events).processingFailed(contains("session closed"));
-        // Retrying is accepted once the HAL is ready; no app restart required.
-        doReturn(1).when(session).setRepeatingRequest(any(),any(),isNull());
-        assertTrue(controller.takePicture());
+        withoutRing(()->{ // the shutter path without the ZSL ring
+            CameraCaptureSession session=mock(CameraCaptureSession.class);
+            put(controller,"isCameraResumed",true);put(controller,"mCaptureSession",session);
+            put(controller,"mConfiguredSessionGeneration",0);
+            put(controller,"mCameraDevice",mock(CameraDevice.class));
+            put(controller,"afModesOfCamera",new int[]{0});
+            controller.mPreviewRequestBuilder=newRequestBuilder();
+            CaptureController.mPreviewCaptureResult=mock(TotalCaptureResult.class);
+            when(session.setRepeatingRequest(any(),any(),isNull()))
+                    .thenThrow(new IllegalStateException("session closed"));
+            assertFalse(controller.takePicture());
+            assertEquals(false,get(controller,"mShotInProgress"));
+            verify(events).processingFailed(contains("session closed"));
+            // Retrying is accepted once the HAL is ready; no app restart required.
+            doReturn(1).when(session).setRepeatingRequest(any(),any(),isNull());
+            assertTrue(controller.takePicture());
+        });
     }
     @Test public void shutterRejectsMetadataUntilNewSessionIsConfigured() throws Exception {
         CameraCaptureSession session=mock(CameraCaptureSession.class);

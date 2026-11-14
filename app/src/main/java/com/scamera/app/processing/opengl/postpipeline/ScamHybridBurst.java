@@ -1586,6 +1586,15 @@ public final class ScamHybridBurst implements ScamTransport {
             return Lang.t("Склейка не удалась целиком: сохранено с " + k + " кадрами (резервный режим)",
                     "The full merge failed: saved with " + k + " frames (fallback)");
         }
+        // P699 (X300 Ultra ultra-wide 50 MP: «left out for the memory: 4 donor(s), 2 short frame(s)» told as «2 of another
+        // exposure»): the fast merge's row bands left frames out for the memory - said as that, before the exposure's reading
+        final int[] memory = rowBandsLeft(report);
+        if (memory[0] + memory[1] > 0) {
+            final String normal = memory[0] > 0 ? Lang.t("обычных кадров - " + memory[0], memory[0] + " normal frame(s)") : "";
+            final String shorts = memory[1] > 0 ? Lang.t("коротких кадров - " + memory[1], memory[1] + " short frame(s)") : "";
+            final String both = normal + (memory[0] > 0 && memory[1] > 0 ? Lang.t(", ", " and ") : "") + shorts;
+            return Lang.t("Склейке не хватило памяти, не взято: " + both, "Not enough memory for the merge: " + both + " left out");
+        }
         if (burst.series > 0 && report != null) {
             java.util.regex.Matcher m = SERIES_LINE.matcher(report);
             String kN = null, nN = null;
@@ -1610,6 +1619,21 @@ public final class ScamHybridBurst implements ScamTransport {
                     "Merged " + kept + " of " + (kept + burst.budgetDropped) + " frames: not enough memory (set “Frames per shot”)");
         }
         return null;
+    }
+
+    private static final java.util.regex.Pattern ROW_BANDS_LEFT_LINE = java.util.regex.Pattern.compile(
+            "HYBRID FAST MERGE ROW BANDS: left out for the memory: (?:(\\d+) donor\\(s\\)(?: \\([^)]*\\))?)?(?:, )?(?:(\\d+) short frame\\(s\\))?");
+
+    /** P699: {donors, short frames} the fast merge's row bands left out for the memory (its last such line); {0, 0} without one. */
+    static int[] rowBandsLeft(String report) {
+        final int[] left = {0, 0};
+        if (report == null) return left;
+        final java.util.regex.Matcher m = ROW_BANDS_LEFT_LINE.matcher(report);
+        while (m.find()) {
+            left[0] = m.group(1) == null ? 0 : Integer.parseInt(m.group(1));
+            left[1] = m.group(2) == null ? 0 : Integer.parseInt(m.group(2));
+        }
+        return left;
     }
 
     private static final java.util.regex.Pattern FAST_OTHER_LINE =

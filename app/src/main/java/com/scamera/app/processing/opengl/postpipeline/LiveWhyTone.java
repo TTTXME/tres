@@ -300,6 +300,7 @@ public final class LiveWhyTone {
         lutShown = null;
         failed = false;
         fusedFailed = false;
+        linearFailed = false;
         for (Tex t : new Tex[]{lin, low, aeLow, fused, means[0], means[1], means[2], ab[0], ab[1], boxTmp[0], boxTmp[1]})
             t.id = t.fbo = t.w = t.h = 0;
         dropMetering(); // P683: the meter's job done with before the meter is used here again
@@ -542,6 +543,27 @@ public final class LiveWhyTone {
     }
 
     /** The settings the photo would use now (WhyStats / WhyFusion / WhyCombine read the same). */
+    /**
+     * P718: the «Стиль» preset as the photo's V2 tone takes it (WhyV2Ae.applyStyle) on the same rows this tone reads - the shadow
+     * lift and the highlight compression (the AE's strengths), the flat-scene contrast, the macro contrast and the vibrance terms.
+     * The fusion's clarity has no counterpart in the per-pixel fusion here.
+     */
+    private void style(WhyV2Ae.Style s) {
+        settings.shadowStr *= s.shadow;
+        settings.hlBoost *= s.highlight;
+        settings.highlightStr *= s.highlight;
+        settings.contrastBoost *= s.boost;
+        macro = 1f + (macro - 1f) * s.macro;
+        vib[0] += s.vibrance;
+        vib[1] *= s.vibTerms;
+        vib[2] *= s.vibTerms;
+        vibHl *= s.vibTerms;
+        if (vibWhy != null) {
+            vibWhy[0] += s.vibSaturated;
+            vibWhy[1] *= s.vibTerms;
+        }
+    }
+
     private void refreshSettings() {
         final long now = SystemClock.uptimeMillis();
         if (now - settingsAt < SETTINGS_MS && settings != null) {
@@ -596,6 +618,7 @@ public final class LiveWhyTone {
         vibWhy = WhyTone.whyVibranceOn() ? WhyTone.vibranceWhyUniform() : null;
         vibSkin = vibWhy != null ? WhyTone.vibranceSkinUniform() : null;
         vibSkinHue = WhyTone.vibranceSkinHue();
+        if (PreferenceKeys.whyToneV2Effective()) style(WhyV2Ae.style(PreferenceKeys.photoStyle()));
         FusedCurve.GAMMA_TYPE[0] = gammaType;
         // P378 review: the lens' f-number (the sky's absolute EV), as Parameters reads it
         float[] apertures = camera != null ? camera.get(android.hardware.camera2.CameraCharacteristics.LENS_INFO_AVAILABLE_APERTURES) : null;
@@ -1366,11 +1389,34 @@ public final class LiveWhyTone {
             ArrayList<String[]> list = new ArrayList<>();
             if (defines != null) for (String[] d : defines) list.add(d);
             String source = GLInterface.loadShader(ScameraApp.getAssetLoader().getString("shaders/" + asset + ".glsl"), list);
-            // P365: the fused pass's vertex shader is the RAW viewfinder's (its texCoord; attributes at locations 0 and 1)
-            if (rawSource(defines))
+            // P365: the fused pass's vertex shader is the RAW viewfinder's (its texCoord; attributes at locations 0 and 1); P711: the
+            // gather linear pass's too
+            if (rawSource(defines) || LINEAR_ASSET.equals(asset))
                 return GLProg.viewfinderKey(fusedVertexShader(ScameraApp.getAssetLoader().getString("shaders/preview/rawdevelop_vs.glsl")), source);
             return GLProg.viewfinderKey(VS, source, "vPosition");
         });
+    }
+
+    /**
+     * P711 (owner, 2026-11-14: «добавь оптимизацию live viewfinder, он должен хорошо работать даже на Snapdragon 865»): P314's first
+     * pass - the linear frame rawdevelop_fs u_linear_out 1 drew - from preview/rawlinear_fs.glsl: the same RGBA16F texels
+     * (tools/check_vf_linear.py, bit for bit on the host GPU) from textureGather, 5 gathers a plain Bayer pixel instead of 20 fetches
+     * and none of rawdevelop_fs's own look in the program (LiveRawRenderer.drawLinear binds it as the fused pass binds why/combine).
+     * scam_dev vf_gather_linear 0: rawdevelop_fs as before; a program that does not link or a GL error drawing it: likewise.
+     */
+    static final String LINEAR_ASSET = "preview/rawlinear_fs";
+    private boolean linearFailed;
+
+    /** P711: scam_dev vf_gather_linear (on by default) and the gather pass not failed in this context. */
+    private boolean linearWanted() {
+        return !linearFailed && PreferenceKeys.scamDevSwitch("vf_gather_linear", true);
+    }
+
+    /** P711: the linked gather linear pass's program for the next linear frame (LiveRawRenderer.setLinearProgram), 0: rawdevelop_fs. */
+    public int linearProgram() {
+        if (failed || !linearWanted()) return 0;
+        final Integer p = programs.get(name(LINEAR_ASSET, null));
+        return p == null ? 0 : p;
     }
 
     /** P365: whether the defines draw from the RAW frame (RAW_SOURCE 1: the fused pass). */
@@ -1438,6 +1484,8 @@ public final class LiveWhyTone {
             for (int mode = 0; mode <= 1; mode++) out.add(new Object[]{"why/ab", new String[][]{{"MODE", String.valueOf(mode)}}});
             out.add(new Object[]{"why/box", null});
         }
+        // P711: the linear frame from gathers (P314's first pass; not with the fused pass, which reads the RAW itself)
+        if (!fused && linearWanted()) out.add(new Object[]{LINEAR_ASSET, null});
         out.add(new Object[]{"why/combine", combineDefines(false, false, point, fused, false)});
         // P369: with a film its FILM_SIM variant
         if (lutStrength > 0f || filmNow != null) out.add(new Object[]{"why/combine", combineDefines(true, filmNow != null, point, fused, false)});
@@ -1481,6 +1529,12 @@ public final class LiveWhyTone {
                     if (compiled || sendOnce.test(key)) return false;
                     p = GLProg.linkViewfinderProgram(key);
                     compiled = true;
+                    // P711: a gather pass that does not link leaves the linear frame to rawdevelop_fs, the tone as it is
+                    if (p == 0 && LINEAR_ASSET.equals(asset)) {
+                        linearFailed = true;
+                        Log.w(TAG, "the gather linear pass did not link: rawdevelop_fs draws the linear frame");
+                        continue;
+                    }
                     // P365: a fused program that does not link turns the fused pass off; the caller asks for P314's set next
                     if (p == 0 && rawSource(defines)) return fusedFail("program " + name);
                     if (p == 0) return !fail("program " + name);

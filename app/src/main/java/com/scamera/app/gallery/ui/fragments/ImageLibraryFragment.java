@@ -54,6 +54,8 @@ import com.scamera.app.gallery.ui.GalleryUi;
 import com.scamera.app.gallery.ui.GalleryUndo;
 import com.scamera.app.gallery.ui.LibraryAdapter;
 import com.scamera.app.gallery.ui.SelectionBar;
+import com.scamera.app.gallery.ui.MoveCopyFlow;
+import com.scamera.app.gallery.files.GalleryMoveCopy;
 import com.scamera.app.gallery.viewmodel.GalleryViewModel;
 import com.scamera.app.settings.PreferenceKeys;
 import com.scamera.app.ui.Motion;
@@ -263,7 +265,7 @@ public class ImageLibraryFragment extends Fragment implements LibraryAdapter.Hos
         trash.view.setVisibility(View.GONE);
 
         bar = new SelectionBar(c, this::clearSelection, this::compareSelected, this::shareSelected, this::deleteSelected,
-                this::favouriteSelected, this::selectAll);
+                this::favouriteSelected, this::selectAll, this::folderMenu);
         selectionBar = bar.view;
         root.addView(selectionBar, GalleryTabBar.tabParams(c));
         selectionBar.setVisibility(View.GONE);
@@ -399,6 +401,7 @@ public class ImageLibraryFragment extends Fragment implements LibraryAdapter.Hos
         final int anchorTop = anchor != null ? topOffset() : 0;
         adapter.setItems(items);
         if (anchor != null) keepTop(anchor, anchorTop);
+        else revealFromViewer(items);
         traceFirstFrame(items.size());
         // P645: the grid's first screen of thumbnails decoded ahead of a shot still processed (bounded, once per open)
         if (first) com.scamera.app.gallery.glide.DecodeBoost.forGrid();
@@ -409,6 +412,26 @@ public class ImageLibraryFragment extends Fragment implements LibraryAdapter.Hos
         empty.setVisibility(items.isEmpty() ? View.VISIBLE : View.GONE);
         onSelectionChanged();
         if (grid != null) grid.post(this::updateRange);
+    }
+
+    /**
+     * P706: back from the viewer (its feed button, back, a swipe down) the grid shows the photo that was on screen - scrolled
+     * so its row is a third down when it is not on the screen already.
+     */
+    private void revealFromViewer(List<GalleryItem> items) {
+        if (library == null || layout == null || adapter == null || grid == null) return;
+        final com.scamera.app.gallery.files.MediaFile file = library.takeReveal();
+        final int index = GalleryViewModel.indexOf(items, file);
+        if (index < 0) return;
+        final int p = adapter.positionOf(index);
+        if (p < 0) return;
+        final RecyclerView g = grid;
+        g.post(() -> {
+            if (grid != g || layout == null) return;
+            final int first = layout.findFirstCompletelyVisibleItemPosition(), last = layout.findLastCompletelyVisibleItemPosition();
+            if (first >= 0 && p >= first && p <= last) return;
+            layout.scrollToPositionWithOffset(p, g.getHeight() / 3);
+        });
     }
 
     /** P645: the key of the first row on the screen, null without one. */
@@ -888,6 +911,9 @@ public class ImageLibraryFragment extends Fragment implements LibraryAdapter.Hos
             dragBase = new LinkedHashSet<>(selection.getSelectedItems());
             onSelectionChanged();
         }));
+        // P697: into a folder
+        for (GalleryMoveCopy.Mode mode : GalleryMoveCopy.Mode.values())
+            items.add(new GalleryMenu.Item(MoveCopyFlow.icon(mode), MoveCopyFlow.label(mode), true, () -> only(g, () -> toFolder(mode))));
         items.add(new GalleryMenu.Item(R.drawable.ui_ic_trash, Lang.t("Удалить", "Delete"), true, () -> only(g, this::deleteSelected)));
         GalleryMenu.show(anchor, items);
     }
@@ -1034,6 +1060,29 @@ public class ImageLibraryFragment extends Fragment implements LibraryAdapter.Hos
         share.setType(GalleryUi.shareType(s.stream().map(g -> g.mediaFile().displayName()).collect(Collectors.toList())));
         share.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
         startActivity(Intent.createChooser(share, null));
+    }
+
+    /** P697: the selection bar's «В папку»: «Переместить в папку» / «Копировать в папку» from the button. */
+    private void folderMenu(View anchor) {
+        if (selection.getSelectedItems().isEmpty()) return;
+        List<GalleryMenu.Item> items = new ArrayList<>();
+        for (GalleryMoveCopy.Mode mode : GalleryMoveCopy.Mode.values())
+            items.add(new GalleryMenu.Item(MoveCopyFlow.icon(mode), MoveCopyFlow.label(mode), true, () -> toFolder(mode)));
+        GalleryMenu.show(anchor, items);
+    }
+
+    /**
+     * P697: the selected photos and videos moved / copied into a folder (MoveCopyFlow: the folder sheet, the work, the toasts);
+     * after it the selection is cleared and the lists are read again (the open album too).
+     */
+    private void toFolder(GalleryMoveCopy.Mode mode) {
+        List<MediaFile> files = selection.getSelectedItems().stream().map(GalleryItem::mediaFile).collect(Collectors.toList());
+        if (files.isEmpty() || getActivity() == null) return;
+        final GalleryViewModel vm = library;
+        MoveCopyFlow.start(requireActivity(), mode, files, () -> {
+            if (getView() != null && adapter != null) clearSelection();
+            if (vm != null) vm.setUpdatePending(true);
+        });
     }
 
     private List<GalleryItem> pendingDelete = new ArrayList<>();

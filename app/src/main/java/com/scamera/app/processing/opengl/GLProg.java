@@ -194,8 +194,43 @@ public class GLProg implements AutoCloseable {
                               boolean withDefaults) {
         // (the first-run dialog's run goes ahead even after the idle one: it compiles what that one left out)
         if (!WARMED.compareAndSet(false, true) && !withDefaults) return;
+        warmUpRun(idle, progress, withDefaults);
+    }
+
+    /** P713: set while a post pipeline runs (GLBasePipeline.runAllToBitmap): the warm-up beside the merge stops then. */
+    public static volatile boolean postRunning;
+
+    /**
+     * P713 (Pixel 6 Pro, Mali-G78, 2026-11-14: the first shot after the camera opened compiled scamhdr/scamrgb and why/combine in its
+     * post, 1872 ms, the idle warm-up being due only 4 s after the camera opened): when this process has not warmed up yet, the kept
+     * recipes whose driver binary is missing are compiled on a background thread as soon as a shot's merge starts (1.1 - 2.5 s on
+     * the GPU of the merge worker's process), until its post starts - a program the post needs meanwhile is waited for (COMPILING),
+     * not compiled twice. The programs and the photo are the same. scam_dev gl_warm_up_merge 0: as before.
+     */
+    public static void warmUpBesideMerge() {
+        try {
+            if (WARMED.get() || !com.scamera.app.settings.PreferenceKeys.scamDevSwitch("gl_warm_up", true)
+                    || !com.scamera.app.settings.PreferenceKeys.scamDevSwitch("gl_warm_up_merge", true)) return;
+        } catch (RuntimeException | LinkageError e) {
+            return;
+        }
+        if (!WARMED.compareAndSet(false, true)) return;
+        final Thread t = new Thread(() -> {
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);
+            Log.i(TAG, "program warm-up beside the merge (none ran in this process yet)");
+            // stopped by the post before every program was looked at: the idle warm-up of this process does the rest later
+            if (!warmUpRun(() -> !postRunning, null, false)) WARMED.set(false);
+        }, "scam-gl-warm-merge");
+        t.setDaemon(true);
+        t.start();
+    }
+
+    /** The warm-up's work; false when {@code idle} stopped it before every program was looked at. */
+    private static boolean warmUpRun(java.util.function.BooleanSupplier idle, java.util.function.BiConsumer<Integer, Integer> progress,
+                                  boolean withDefaults) {
+        boolean stopped = false;
         final GLProgramDiskCache cache = disk();
-        if (cache == null) return;
+        if (cache == null) return true;
         GLContext context = null;
         int done = 0, failed = 0, wanted = 0, built = 0, recipeKeys = 0, defaultKeys = 0;
         final long t0 = android.os.SystemClock.elapsedRealtime();
@@ -244,7 +279,7 @@ public class GLProg implements AutoCloseable {
                     continue;
                 }
                 wanted++;
-                if (idle != null && !idle.getAsBoolean()) break;
+                if (idle != null && !idle.getAsBoolean()) { stopped = true; break; }
                 // P371: a shot that needs this program meanwhile waits for it instead of compiling it a second time
                 final java.util.concurrent.CountDownLatch compiling = new java.util.concurrent.CountDownLatch(1);
                 if (COMPILING.putIfAbsent(key, compiling) != null) continue;
@@ -277,7 +312,8 @@ public class GLProg implements AutoCloseable {
                 + (android.os.SystemClock.elapsedRealtime() - t0) + " ms" + (failed > 0 ? ", " + failed + " failed" : "")
                 + " (" + recipeKeys + " programs from kept recipes, " + defaultKeys + " from the APK's defaults, " + built + " built)"
                 + (intoShared ? "; shared context: " + linkedShared + " programs linked from driver binaries in " + linkMs + " ms, checks "
-                + (checks.isEmpty() ? "none" : checks) + " in " + checksMs + " ms" : ""));
+                + (checks.isEmpty() ? "none" : checks) + " in " + checksMs + " ms" : "") + (stopped ? "; stopped by a shot" : ""));
+        return !stopped;
     }
 
     /**
@@ -973,6 +1009,25 @@ public class GLProg implements AutoCloseable {
         drawBlocks(size.x, size.y);
     }
 
+    /**
+     * P713: {@link #drawBlocks(GLTexture)}, or - when the pipeline armed it (GLDeferredDraw.arm: the post's last full-size pass of a
+     * streamed JPEG) - only recorded here and drawn band by band in step with the final output's tiles (the same draws).
+     */
+    public void drawBlocksDeferrable(GLTexture target) {
+        if (GLDeferredDraw.capture(this, target)) return;
+        drawBlocks(target);
+    }
+
+    /** P713: the quad's vertex attribute in the program in use (GLDeferredDraw draws it later). */
+    int positionAttribute() {
+        return location("vPosition", true);
+    }
+
+    /** P713: the full-viewport quad with its corners in {@code attribute} (GLDeferredDraw's bands). */
+    void drawQuad(int attribute) {
+        quad.draw(attribute);
+    }
+
     public void drawBlocks(GLTexture target) {
         target.renderInto();
         // P479: every pixel of the target is drawn below (no post shader discards): its old contents need not be loaded
@@ -994,6 +1049,24 @@ public class GLProg implements AutoCloseable {
         final String pass = activeName;
         for (int y = 0; y < h; ) {
             final int rows = Math.min(h - y, flush ? GpuPace.bandRows(pass, w, GLDrawParams.TILE_ROWS) : GLDrawParams.TILE_ROWS);
+            glViewport(0, y, w, rows);
+            draw();
+            if (flush) {
+                glFlush();
+                GpuPace.submitted(pass, (long) w * rows);
+            }
+            y += rows;
+        }
+    }
+
+    /** P713: the program over rows [{@code y0}, {@code y1}) of {@code target} only, in the bands {@link #drawBlocks(int, int)} draws. */
+    public void drawRows(GLTexture target, int y0, int y1) {
+        target.renderInto();
+        final boolean flush = !PostGlMode.legacy();
+        final int w = target.size.x;
+        final String pass = activeName;
+        for (int y = Math.max(0, y0); y < Math.min(y1, target.size.y); ) {
+            final int rows = Math.min(Math.min(y1, target.size.y) - y, flush ? GpuPace.bandRows(pass, w, GLDrawParams.TILE_ROWS) : GLDrawParams.TILE_ROWS);
             glViewport(0, y, w, rows);
             draw();
             if (flush) {

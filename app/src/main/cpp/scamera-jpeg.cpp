@@ -5,6 +5,8 @@
 #include <algorithm>
 #include <cstring>
 #include <exception>
+#include <memory>
+#include <new>
 #include <string>
 #include <thread>
 #include <vector>
@@ -228,4 +230,124 @@ Java_com_scamera_app_processing_JpegliEncoder_encodeBuffer(JNIEnv* env, jclass, 
     error = encodePixels(env, pixels, uint32_t(width), uint32_t(height), size_t(stride), quality, out, threads, modeOut, aq,
                          fastTables, chunk, write);
     return finishEncode(env, chunk, error);
+}
+
+// P713 (speed): the streamed encode of the final readback - StreamEncoder (scamera-jpeg-parallel.h) over a direct buffer of RGBA rows
+// that the caller fills from the top while the strips already done are encoded: the bytes encodeBuffer gives for the same pixels.
+namespace {
+struct JpegStream {
+    jobject buffer = nullptr;   // a global reference: the rows stay alive until finish / abort
+    std::unique_ptr<scamera_jpeg::parallel::StreamEncoder> encoder;
+    const uint8_t* pixels = nullptr;
+    int width = 0, height = 0, stride = 0, quality = 0, threads = 1;
+    bool aq = false, fastTables = true;
+};
+
+void releaseStream(JNIEnv* env, JpegStream* s) {
+    s->encoder.reset();   // joins its threads before the rows may go
+    if (s->buffer != nullptr) env->DeleteGlobalRef(s->buffer);
+    delete s;
+}
+}  // namespace
+
+// A handle, or 0 when the frame is not streamed (fewer than 4 MP or one thread, as encodeBuffer; no retained route here): the
+// caller then encodes the whole frame at the end as before.
+extern "C" JNIEXPORT jlong JNICALL
+Java_com_scamera_app_processing_JpegliEncoder_streamBegin(JNIEnv* env, jclass, jobject src, jint width, jint height, jint stride,
+                                                          jint quality, jint threads) {
+    const auto* pixels = static_cast<const uint8_t*>(env->GetDirectBufferAddress(src));
+    const jlong capacity = env->GetDirectBufferCapacity(src);
+    if (pixels == nullptr || width <= 0 || height <= 0 || capacity < 0 || int64_t(stride) < int64_t(width) * 4
+        || uint64_t(capacity) < uint64_t(height - 1) * uint64_t(stride) + uint64_t(width) * 4u)
+        return 0;
+    if (threads <= 1 || uint64_t(width) * uint64_t(height) < 4000000ull) return 0;
+    auto* s = new (std::nothrow) JpegStream();
+    if (s == nullptr) return 0;
+    s->pixels = pixels;
+    s->width = width;
+    s->height = height;
+    s->stride = stride;
+    s->quality = quality;
+    s->threads = threads;
+    s->aq = scamera_jpeg::adaptiveQuantisation().load();
+    s->fastTables = scamera_jpeg::parallel::fastHuffmanTables().load();
+    try {
+        s->encoder = std::make_unique<scamera_jpeg::parallel::StreamEncoder>(pixels, width, height, size_t(stride), quality, threads,
+                                                                            s->fastTables, s->aq);
+    } catch (const std::exception&) {
+        s->encoder.reset();
+    }
+    if (!s->encoder || !s->encoder->active()) {
+        releaseStream(env, s);
+        return 0;
+    }
+    s->buffer = env->NewGlobalRef(src);
+    if (s->buffer == nullptr) {
+        env->ExceptionClear();
+        releaseStream(env, s);
+        return 0;
+    }
+    return reinterpret_cast<jlong>(s);
+}
+
+// Rows [0, rows) of the buffer are final: their strips are encoded on the stream's threads from now on.
+extern "C" JNIEXPORT void JNICALL
+Java_com_scamera_app_processing_JpegliEncoder_streamRows(JNIEnv*, jclass, jlong handle, jint rows) {
+    auto* s = reinterpret_cast<JpegStream*>(handle);
+    if (s != nullptr && s->encoder) s->encoder->rowsReady(rows);
+}
+
+// The file into `out` (every row final now) and the handle freed; null on success, else the reason - encodeBuffer's semantics:
+// the strips that cannot be joined (nothing written yet) give the one-thread encode.
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_scamera_app_processing_JpegliEncoder_streamFinish(JNIEnv* env, jclass, jlong handle, jobject out, jintArray modeOut) {
+    auto* s = reinterpret_cast<JpegStream*>(handle);
+    if (s == nullptr) return env->NewStringUTF("no stream");
+    jmethodID write = nullptr;
+    jbyteArray chunk = nullptr;
+    std::string error;
+    if (!streamOf(env, out, write, chunk, error)) {
+        releaseStream(env, s);
+        return env->NewStringUTF(error.c_str());
+    }
+    const scamera_jpeg::Writer writer = [&](const uint8_t* data, size_t size) {
+        for (size_t at = 0; at < size;) {
+            const jsize n = jsize(std::min<size_t>(size - at, size_t(1) << 20));
+            env->SetByteArrayRegion(chunk, 0, n, reinterpret_cast<const jbyte*>(data + at));
+            env->CallVoidMethod(out, write, chunk, 0, n);
+            if (env->ExceptionCheck()) return false;
+            at += size_t(n);
+        }
+        return true;
+    };
+    bool started = false;
+    const scamera_jpeg::Writer counting = [&](const uint8_t* data, size_t size) {
+        started = true;
+        return writer(data, size);
+    };
+    jint mode = s->threads;
+    bool written = false;
+    try {
+        s->encoder->finish(counting);
+        written = true;
+    } catch (const std::exception& e) {
+        if (started) error = e.what();
+    }
+    s->encoder.reset();
+    if (!written && error.empty()) {
+        // the shared body on one thread (encodePixels' fallback), as encodeBuffer gives it when its strips cannot be joined
+        error = encodePixels(env, s->pixels, uint32_t(s->width), uint32_t(s->height), size_t(s->stride), s->quality, out, 1, modeOut,
+                             s->aq, s->fastTables, chunk, write);
+    } else if (modeOut != nullptr && env->GetArrayLength(modeOut) > 0) {
+        env->SetIntArrayRegion(modeOut, 0, 1, &mode);
+    }
+    releaseStream(env, s);
+    return finishEncode(env, chunk, error);
+}
+
+// A stream given up (the readback failed): its threads stopped, its strips and the buffer's reference released.
+extern "C" JNIEXPORT void JNICALL
+Java_com_scamera_app_processing_JpegliEncoder_streamAbort(JNIEnv* env, jclass, jlong handle) {
+    auto* s = reinterpret_cast<JpegStream*>(handle);
+    if (s != nullptr) releaseStream(env, s);
 }

@@ -5,7 +5,6 @@ import android.util.Size;
 import androidx.annotation.Nullable;
 
 import com.scamera.app.app.ScameraApp;
-import com.scamera.app.api.CameraMode;
 import com.scamera.app.capture.spoof.CameraPackageSpoof;
 import com.scamera.app.settings.PreferenceKeys;
 
@@ -208,10 +207,6 @@ public final class VivoSdkFullRes {
         final int guard = frameCount(requested, frameBytes, availableBytes);
         final int legacy = Math.min(huge ? 4 : 2, guard);
         return Math.min(guard, Math.max(legacy, seriesFit(pixels, width, frameBytes, block, grid, huge, availableBytes, halFreeBytes)));
-    }
-
-    public static boolean supportsMode(CameraMode mode) {
-        return CameraMode.isStill(mode);
     }
 
     public static boolean available(String cameraId) {

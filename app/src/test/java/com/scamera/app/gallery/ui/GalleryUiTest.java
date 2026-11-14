@@ -249,7 +249,24 @@ public class GalleryUiTest {
         chrome.bindHdr(false, false);
         assertEquals(View.GONE, chrome.hdrPill.getVisibility());
         assertEquals("the concept's viewer has no filmstrip", View.GONE, chrome.strip.getVisibility());
+        assertNotNull("P706: the feed button", chrome.top.findViewWithTag("viewer_grid"));
         assertNoOverflow(GallerySheets.details(context, details(), null), 360);
+        // P706: the properties' sections fill the sheet (a long path and a place link fit as well)
+        LinearLayout sheet = GallerySheets.details(context, details(), null);
+        PhotoProperties.Facts f = new PhotoProperties.Facts();
+        f.name = "IMG_20261114_094107_SCAMERA_very_long_name_for_the_row.jpg";
+        f.path = "/storage/emulated/0/DCIM/SCAMERA/" + f.name;
+        f.make = "vivo";
+        f.model = "vivo X200 Ultra";
+        f.iso = 100;
+        f.latitude = 55.75;
+        f.longitude = 37.62;
+        f.description = "SCAMERA\n Frames=8\n Camera=3\n Route=SHDR";
+        GallerySheets.fillSections(sheet, PhotoProperties.sections(f));
+        assertNotNull(sheet.findViewWithTag("details_file"));
+        assertNotNull(sheet.findViewWithTag("details_place"));
+        assertNotNull(sheet.findViewWithTag("details_processing"));
+        assertNoOverflow(sheet, 360);
         assertNoOverflow(GallerySheets.delete(context, 21, 123_456_789L, () -> {}, () -> {}), 360);
     }
 

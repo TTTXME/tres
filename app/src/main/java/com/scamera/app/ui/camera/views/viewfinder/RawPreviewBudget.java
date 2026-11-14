@@ -14,6 +14,11 @@ final class RawPreviewBudget {
         return size(width, height, busy ? MAX_BUSY_PIXELS : reduced ? RawPreviewLoad.REDUCED_PIXELS : Integer.MAX_VALUE);
     }
 
+    /** P711: busy (750k) or the adaptive tone's step (RawPreviewLoad.cap: Integer.MAX_VALUE at the full size); the smaller cap. */
+    static int[] size(int width, int height, boolean busy, int reducedCap) {
+        return size(width, height, Math.min(busy ? MAX_BUSY_PIXELS : Integer.MAX_VALUE, reducedCap));
+    }
+
     static int[] size(int width, int height, int maxPixels) {
         final int w = Math.max(1, width), h = Math.max(1, height);
         if ((long) w * h <= maxPixels) return new int[]{w, h};

@@ -90,6 +90,19 @@ final class LiveLensFilter {
     }
 
     /**
+     * P705: nothing of this filter is drawn - no lens filter or film diffusion, no LUT asked for (read at most twice a second): the
+     * viewfinder may then take its plain program (MainRenderer: main_plain_fs.glsl, the frame and its gain only).
+     */
+    boolean plain() {
+        refresh();
+        return plain(filter, ownLut, lutStrength, lutWanted);
+    }
+
+    static boolean plain(int filter, boolean ownLut, float lutStrength, String lutWanted) {
+        return filter == 0 && !(ownLut && lutStrength > 0f && lutWanted != null && !lutWanted.isEmpty());
+    }
+
+    /**
      * P300 (owner, 2026-10-20: «исправь лайв превью для ISZ»): a viewfinder shader of the external camera texture as one of a
      * plain 2D texture (the developed-RAW frame drawn off screen first).
      */

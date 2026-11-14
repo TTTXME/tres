@@ -94,6 +94,9 @@ LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_oldstyle_ton
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_oldstyle_live.py
 # P630b: the owner's tone-port module (vendored): its regression both profiles --full-frame, the specification's numbers, the JNI path
 python3 tools/check_tone_port.py
+# P716: «ScamMaster» shadows - V1 HDR's bright exposure from the linear frame at the frame's gain, V2's rounding dithered
+# (no contours or colour steps in smooth dark areas, the look and the noise kept)
+python3 tools/check_oldstyle_shadows.py
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_ms_denoise.py
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_motion_sharp.py
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_sports_denoise.py
@@ -157,9 +160,19 @@ LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_highlight_la
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_viewfinder_look.py
 # P365: the RAW viewfinder's fused WHY pass against P314's passes; RAW_SOURCE 0 is the photo's combine token for token
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_vf_fused.py
+# P711: the RAW viewfinder's gather linear pass (rawlinear_fs) gives rawdevelop_fs u_linear_out 1's half floats bit for bit
+LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_vf_linear.py
+# P711: the RAW viewfinder's tone against the photo's single-frame WHY tone (the same frame; and its noisy frame), CIEDE2000 / L*
+LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_vf_tone_match.py
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_why_ae_gpu.py
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_half_rgba.py
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_gainmap_gpu.py
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_ultrahdr.py --scene-luma
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_rotate.py
 LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_linear_resize.py
+# the final resize in two passes (PASS 1 + 2) equals the one-pass 2D kernel within float rounding (at most 1 8-bit level, rarely)
+LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_final_resize_separable.py
+# P713: the highlight landing's mask on a coarse grid equals the whyLow one within half-float steps, the photo within 1 level
+LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_hlmask_coarse.py
+# P713: the sharpening above 100 MP on row stripes with a halo equals the full grid's plane bit for bit
+LIBGL_ALWAYS_SOFTWARE=1 /tmp/tetra-gpu-check/bin/python tools/check_sharpen_stripes.py

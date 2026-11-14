@@ -86,6 +86,24 @@ public class WhyV2ToneTest {
         // 50 MP runs V2, the 200 MP grid keeps V1
         assertTrue(PostPipeline.whyToneV2(null, null, false, 8192L * 6144));
         assertFalse(PostPipeline.whyToneV2(null, null, false, 16320L * 12288));
+        // P718: the black-and-white filter is V1's, so V2 chosen with it on runs V1 (the style presets then do nothing)
+        manager.set("default_scope", "pref_scam_hybrid_colour_mono", "red");
+        assertTrue(PreferenceKeys.monoFilter());
+        assertTrue("the choice stays V2", PreferenceKeys.whyToneV2());
+        assertFalse(PreferenceKeys.whyToneV2Effective());
+        assertFalse(PostPipeline.whyToneV2(null, null, false, 0L));
+        manager.set("default_scope", "pref_scam_hybrid_colour_mono", "off");
+        assertTrue(PostPipeline.whyToneV2(null, null, false, 0L));
+        manager.set("default_scope", "pref_scam_hybrid_colour_mono", "no such filter");
+        assertTrue("an unknown value is off", PostPipeline.whyToneV2(null, null, false, 0L));
+    }
+
+    /** P718: «Резкость» scales V2's sharpening (V1 keeps it in WhyCombine's detail gain); 1 leaves V2 as it was. */
+    @Test public void sharpnessActsInV2() {
+        assertEquals(1f, WhyLumaSharpen.v2Gain(false, 2.5f), 0f);
+        assertEquals(1f, WhyLumaSharpen.v2Gain(true, 1f), 0f);
+        assertEquals(2.5f, WhyLumaSharpen.v2Gain(true, 2.5f), 0f);
+        assertEquals(0f, WhyLumaSharpen.v2Gain(true, -1f), 0f);
     }
 
     /** The node order buildNodes makes (default settings, no film, no lens filter, no resize). */

@@ -116,7 +116,7 @@ def resource_values(aapt2, apk):
 
 
 def built_jni_sources(repo):
-    """The C++ files CMakeLists.txt compiles (a source left out of every target - scam-probe.cpp - is not in the APK)."""
+    """The C++ files CMakeLists.txt compiles (a source left out of every target - scam-cre-compat.cpp - is not in the APK)."""
     cmake = open(os.path.join(repo, 'app/src/main/cpp/CMakeLists.txt'), errors='replace').read()
     cmake = re.sub(r'#.*', '', cmake)
     return [f for f in glob.glob(os.path.join(repo, 'app/src/main/cpp/*.cpp')) if os.path.basename(f) in cmake]

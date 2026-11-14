@@ -243,7 +243,9 @@ public class BackupRestoreUtil {
         return key.startsWith("module_") || key.startsWith("pref_sensorconfig_") || key.startsWith("lens_")
                 || key.equals(PreferenceKeys.Key.CAMERA_ID.mValue) || key.equals("user_camera_ids") || key.equals("hidden_camera_ids")
                 || key.equals("pref_camera_package_spoof_enabled") || key.endsWith("_spoof_package_key")
-                || key.equals("device_defaults_version");
+                || key.equals("device_defaults_version") || key.equals(DeviceDefaults.RAW_VF_UNLOCK_MARKER)
+                // P708: the settings mode and the wizard's mark are this phone's (a config does not switch the mode)
+                || key.equals(SettingsLevel.MODE_KEY) || key.equals(SettingsLevel.WIZARD_KEY);
     }
 
     /** Settings of a slot profile written on another phone: its local keys, minus references to files this phone lacks. */

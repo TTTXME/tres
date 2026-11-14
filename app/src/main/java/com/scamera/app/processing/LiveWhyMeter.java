@@ -229,15 +229,83 @@ public final class LiveWhyMeter {
     /** WhyAe.smartHdr on the cells of the view; null when the crop holds no colour quad. One thread at a time (the GL thread). */
     public WhyAe.Result measure(View v, float inScale, WhyAe.Settings s, int iso, int maxIso) {
         final int[] n = new int[2];
-        final int[] g = keepQuads ? grid(v) : null;
-        quadsKept = g != null && g[3] == QUADS;
-        if (quadsKept && (quadBuffer == null || quadBuffer.length < g[0] * g[1] * 12)) quadBuffer = new float[g[0] * g[1] * 12];
-        final float[] c = cells(v, inScale, n, buffer, quadsKept ? quadBuffer : null);
+        final int[] g = grid(v);
+        // P711: the quads are read for the AE's samples too (quadSamples); handed out only when asked for (keepQuads)
+        final boolean withQuads = g != null && g[3] == QUADS && (keepQuads || quadSwitch() && hasNoiseModel(v.frame));
+        quadsKept = keepQuads && withQuads;
+        if (withQuads && (quadBuffer == null || quadBuffer.length < g[0] * g[1] * 12)) quadBuffer = new float[g[0] * g[1] * 12];
+        final float[] c = cells(v, inScale, n, buffer, withQuads ? quadBuffer : null);
         if (c == null) return null;
         buffer = c;
         lastGrid[0] = n[0];
         lastGrid[1] = n[1];
+        if (withQuads && quadSwitch() && hasNoiseModel(v.frame)) {
+            final int qx = 2 * n[0], qy = 2 * n[1];
+            final float[] q = samples = quadSamples(c, quadBuffer, n[0], n[1], v.frame.noiseS, v.frame.noiseO, inScale, samples);
+            final int rowLen = qx * 3;
+            return WhyAe.smartHdr((y, row) -> System.arraycopy(q, y * rowLen, row, 0, rowLen), 3, qx, qy, s, iso, maxIso);
+        }
         final int rowLen = n[0] * 3;
         return WhyAe.smartHdr((y, row) -> System.arraycopy(c, y * rowLen, row, 0, rowLen), 3, n[0], n[1], s, iso, maxIso);
+    }
+
+    /** P711: the AE's samples of the last measure (2 nx x 2 ny RGB), reused. */
+    private float[] samples;
+
+    /** P711: scam_dev vf_meter_quads (on by default; 0: WhyAe on the cell means, as before). */
+    static boolean quadSwitch() {
+        return com.scamera.app.settings.PreferenceKeys.scamDevSwitch("vf_meter_quads", true);
+    }
+
+    static boolean hasNoiseModel(LiveRawFrame.Frame f) {
+        return f.noiseS > 0 || f.noiseO > 0;
+    }
+
+    /** P711: a quad's deviation from its cell's mean is noise below SHRINK_LO sigmas of the frame's noise, kept whole above SHRINK_HI. */
+    static final float SHRINK_LO = 2f, SHRINK_HI = 4f;
+    /** P711: a quad's luminance noise over its sites' (two sites a channel, the white balance and the matrix lifting R and B). */
+    static final float QUAD_NOISE = 1.06f;
+
+    /**
+     * P711 (owner, 2026-11-14: the RAW viewfinder «максимально близок к итоговому результату по тонмапингу»): the photo's AE reads
+     * whyLow - one value per colour quad of the merge - and the viewfinder's read the cells, each the mean of its 2 x 2 quads: a
+     * small light's rim quads were averaged with the dark beside it, so its share of the samples fell, and with a light near half a
+     * percent of the frame the 99.5th percentile fell from the light to its glow: the night street of VfAeToneMatchTest metered
+     * +0.35 EV brighter than its photo (fused display luma +11.9 codes mean), with or without the frame's noise. The quads
+     * themselves are what whyLow has, but one noisy frame's quads lift the dark percentiles where the merge has little noise (a
+     * backlit room +0.4 codes against the cells). So each quad is a sample of its own, its difference from its cell's mean taken
+     * as it is where it stands out of the frame's noise (beyond SHRINK_HI sigmas of a quad's luminance noise: a light's rim, an
+     * edge) and shrunk to the mean within SHRINK_LO sigmas (noise), smoothly between; the noise model is the frame's own (variance
+     * s x + o of the normalised raw: a quad's luminance in the cells' units, the cell's level). Night street 11.9 -> ~0.6 codes,
+     * the others as with the cell means. A frame without a noise model: the cell means as before.
+     * {@code cells} nx x ny RGB, {@code quads} 12 floats a cell (cells' order); out 2 nx x 2 ny RGB, rows in order.
+     */
+    static float[] quadSamples(float[] cells, float[] quads, int nx, int ny, double noiseS, double noiseO, float inScale, float[] into) {
+        final int qx = 2 * nx, qy = 2 * ny;
+        final float[] out = into != null && into.length >= qx * qy * 3 ? into : new float[qx * qy * 3];
+        final float scale = inScale > 0f ? inScale : 1f;
+        for (int cy = 0; cy < ny; cy++) {
+            for (int cx = 0; cx < nx; cx++) {
+                final int c = (cy * nx + cx) * 3;
+                final float mr = cells[c], mg = cells[c + 1], mb = cells[c + 2];
+                final float ym = 0.2126f * mr + 0.7152f * mg + 0.0722f * mb;
+                // the quad's luminance noise at the cell's level, in the cells' units (x inScale)
+                final double raw = Math.max(ym / scale, 0f);
+                final float sigma = (float) (scale * QUAD_NOISE * Math.sqrt(Math.max(noiseS * raw + noiseO, 0.0) / 2.0));
+                for (int j = 0; j < 2; j++) {
+                    for (int i = 0; i < 2; i++) {
+                        final int qo = (cy * nx + cx) * 12 + 3 * (j * QUADS + i);
+                        final float r = quads[qo], g = quads[qo + 1], b = quads[qo + 2];
+                        final float d = Math.abs(0.2126f * r + 0.7152f * g + 0.0722f * b - ym);
+                        final float w = sigma > 0f ? smoothstep(SHRINK_LO * sigma, SHRINK_HI * sigma, d) : 1f;
+                        final int o = ((2 * cy + j) * qx + 2 * cx + i) * 3;
+                        out[o] = mr + (r - mr) * w;
+                        out[o + 1] = mg + (g - mg) * w;
+                        out[o + 2] = mb + (b - mb) * w;
+                    }
+                }
+            }
+        }
+        return out;
     }
 }

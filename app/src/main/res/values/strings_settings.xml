@@ -832,7 +832,7 @@
     <string name="prefs_lens_filter_screen_summary">A soft glow round bright places, as from a glass filter in front of the lens: Glimmerglass, Black Pro-Mist, Pro-Mist, CineBloom.</string>
     <string name="prefs_film_lut_changes_title">What changes</string>
     <string name="prefs_photo_style_title">Photo style</string>
-    <string name="prefs_photo_style_summary">Normal colour, black and white, or film: film colours, the film simulation and a lens filter.</string>
+    <string name="prefs_photo_style_summary">Vivid, normal or neutral tone; black and white, film colours, the film simulation and a lens filter.</string>
     <string name="prefs_photo_style_category">Style</string>
     <string name="prefs_photo_style_mono_category">Black and white</string>
     <string name="prefs_photo_style_film_category">Film and filters</string>

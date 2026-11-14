@@ -3,7 +3,6 @@
     <!-- the tap-focus brackets' box (100dp from 500dp wide: values-sw500dp) -->
     <dimen name="focus_circle_size">76dp</dimen>
     <!-- the series ring over the preview (camera_viewfinder) -->
-    <dimen name="capture_progress_circle_size">150dp</dimen>
     <!-- the concept's shutter row: the shutter dominates, the gallery card and the switch about two thirds of it -->
     <dimen name="vf_shutter_size">86dp</dimen>
     <dimen name="vf_side_button_size">58dp</dimen>

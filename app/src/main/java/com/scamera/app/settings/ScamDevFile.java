@@ -87,6 +87,13 @@ public final class ScamDevFile {
      * false when neither works.
      */
     private static boolean write(@Nullable Context context, List<String> lines) {
+        final boolean written = writeLines(context, lines);
+        // P705: the app's own edit is read at the next look, not after the absent file's longer period
+        PreferenceKeys.scamDevChanged();
+        return written;
+    }
+
+    private static boolean writeLines(@Nullable Context context, List<String> lines) {
         byte[] data = (String.join("\n", lines) + (lines.isEmpty() ? "" : "\n")).getBytes(StandardCharsets.UTF_8);
         File f = file(context);
         File tmp = new File(f.getParentFile(), NAME + ".tmp");

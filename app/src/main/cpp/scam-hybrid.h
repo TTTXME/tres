@@ -18,6 +18,7 @@
 // float) in base units, canonical RGGB geometry (the caller restores the sensor origin), plus the
 // effective-frames map and the merged Bayer RAW for the DNG.
 #include "scam-superres-gpu.h"
+#include "scam-merge.h" // mergeRowBands, fastParallelFor; scam-pool.h: scamComputeThreads
 #include "scam-chroma-gpu.h" // P80 mosaicChromaMedian on the GPU
 #include "scam-la-gpu.h"     // P308 the F6 alignment on the GPU (laGpu)
 #include "scam-fast-gpu.h"    // the fast merge route's GPU side (tune fastMerge, scam-fast-merge.h at the end)
@@ -1273,6 +1274,20 @@ struct HybridTuning {
     // glFlush (the front end; the batch's merges after the batch's last frame). Row strips: 1.
     int fmFilterGather=1;
     int fmMergeBatch=1;
+    // P712 fast-merge speed keys (1 = the faster program, the same result; 0 = the previous program, for an A/B on the phone):
+    // fmOutTile: the output pass's Quad filters on a shared-memory tile (kFastOutput tiled: bit for bit the same output).
+    int fmOutTile=1;
+    // fmGuideCells: the Quad / Tetra guide (sh035) reads its cells' values made once per frame (kFastQuadCells: bit for bit the same).
+    int fmGuideCells=1;
+    // fmLatticeTiled: the Quad lattice's 32-tap sums on shared memory, its phase medians by a network (the same output).
+    int fmLatticeTiled=1;
+    // fmKeepContext: the row bands of one merge (P685) take one GPU context, its programs made once (each band made its own).
+    int fmKeepContext=1;
+    // fmChromaFused: the chroma median's box pairs (horizontal, then vertical) in one pass each (kChromaGlslBox2: the same output).
+    int fmChromaFused=1;
+    // fmAhb: hardware buffers for the readback (bit 1) and the RAW upload ring (bit 2); 3 = as before. An A/B of their GPU side on the
+    // phone (the output pass and the unpack); the same photo either way.
+    int fmAhb=3;
     // P488 (owner, 2026-11-03: the reference's Sport merge in our «Спорт»): fastMergeSport bit 1 = the reference Sport's rejection
     // overrides in the fast merge (extra_motion_robustness_boost 10 for 6, u_pixel_difference_threshold 0.35 for 0.5), bit 2 = its
     // Sport frame selector's donor gate (translation <= 15 thumbnail px for 35, sharpness >= 0.75 x the base's for 0.6; the base
@@ -1385,8 +1400,9 @@ inline std::string hybridDngReport(float headroom,int w,int h,float ceiling=0.f,
 inline void shiftOrigin(std::vector<float>& v,int w,int h,int channels,int dx,int dy) {
     if(dx==0&&dy==0)return;
     // P30: bands of rows on all cores, each bottom-up as before; the dy rows above a band (another band writes them) are read
-    // from a copy taken first. Every pixel gets the same source value as in the single pass.
-    const int threads=std::max(1,std::min(8,int(std::thread::hardware_concurrency())));
+    // from a copy taken first. Every pixel gets the same source value as in the single pass. P704: on the stage's threads
+    // (scamComputeThreads: the big cores, at least 4) instead of every hardware thread
+    const int threads=scamComputeThreads();
     const int bands=std::max(1,std::min(threads,h/std::max(64,4*dy+4)));
     const size_t row=size_t(w)*channels;
     std::vector<std::vector<float>> above(bands);
@@ -1726,6 +1742,7 @@ inline HybridTuning loadHybridTuning(const std::string& jobDir,const std::functi
             ||set("fastLightFill",&t.fastLightFill) // P607
             ||set("fastNightMotion",&t.fastNightMotion) // P675
             ||set("fmFilterGather",nullptr,&t.fmFilterGather)||set("fmMergeBatch",nullptr,&t.fmMergeBatch)
+            ||set("fmOutTile",nullptr,&t.fmOutTile)||set("fmGuideCells",nullptr,&t.fmGuideCells)||set("fmLatticeTiled",nullptr,&t.fmLatticeTiled)||set("fmKeepContext",nullptr,&t.fmKeepContext)||set("fmChromaFused",nullptr,&t.fmChromaFused)||set("fmAhb",nullptr,&t.fmAhb) // P712
             ||set("fastMergeSport",nullptr,&t.fastMergeSport)||set("rejPixDiff",&t.rejPixDiff)||set("donorShiftMax",&t.donorShiftMax) // P488
             ||set("denoise",nullptr,&t.denoise); // P600
         }
@@ -1739,12 +1756,12 @@ inline HybridTuning loadHybridTuning(const std::string& jobDir,const std::functi
 }
 
 // ---------------------------------------------------------------------------------------------
-// GLSL. kCommonShader (scam-superres-gpu.h) provides the strip-uploaded frames, sampleRaw()
+// GLSL. The common part (after the former kCommonShader of scam-superres-gpu.h) provides the strip-uploaded frames, sampleRaw()
 // (canonical RGGB coordinates, normalised by black/white, clipped at 1.0) and origin() (the backward
 // homography of frame f at reference pixel (x,y)).
 // ---------------------------------------------------------------------------------------------
-// The common part of every hybrid program (kCommonShader of scam-superres-gpu.h without its mosaic sampling, which only
-// SCAM HDR uses). P14b: the per-frame tables are one std140 uniform block instead of default-block arrays: those were limited to
+// The common part of every hybrid program (the former kCommonShader of scam-superres-gpu.h without its mosaic sampling, which
+// only SCAM HDR used). P14b: the per-frame tables are one std140 uniform block instead of default-block arrays: those were limited to
 // 32 frames (48 for fParam) by the uniform slots of the merge program, and a mosaic burst merges 4 sub-frames per frame.
 static const char* kHybCommon=R"(#version 310 es
 precision highp float;
@@ -13825,6 +13842,7 @@ inline std::vector<float> hybridReconstruct(const HybridInput& input,const Hybri
                                             std::vector<uint16_t>* mergedDng,std::vector<uint8_t>* effMap,
                                             HybridStats* statsOut=nullptr,std::vector<uint8_t>* clipFlags=nullptr,
                                             const HybridPresetAlignment* preset=nullptr,const HybridMosaicNative* native=nullptr) {
+    chromaBoxFused()=tune.fmChromaFused!=0; // P712: the chroma median's box pairs in one pass (both routes; the same output)
     // P600: a tuning built in code with denoise 0 (the file's is applied by loadHybridTuning): the denoise stages off first
     if(tune.denoise==0){
         HybridTuning t=tune;hybridDenoiseSwitch(t,report);
@@ -14367,7 +14385,7 @@ inline std::vector<float> hybridReconstruct(const HybridInput& input,const Hybri
             laBase.g0=laGrid(laBase.l0,win,stride,2);laBase.g1=laGrid(laBase.l1,16,8,4);
             const float slope=std::max(input.frames[0].slope,1e-9f),offset=std::max(input.frames[0].offset,0.f); // baseSlope, baseOffset
             laBase.v0=hybridLaV0(input,slope,offset);
-            const int threads=std::clamp(int(std::thread::hardware_concurrency()),1,std::clamp(tune.laThreads,1,8));
+            const int threads=std::clamp(scamComputeThreads(),1,std::clamp(tune.laThreads,1,8)); // P704: the big cores, not every thread
             laStream=std::make_unique<LaStream>(b,std::move(laBase),std::max(offset/std::max(slope,1e-9f),1e-5f),tune,threads,windowed);
         }
         LaStream::Job job;job.f=f;job.raw=input.frames[f].raw;job.gain=1.f/input.frames[f].exposure;job.H=H[f];
@@ -14727,7 +14745,8 @@ inline std::vector<float> hybridReconstruct(const HybridInput& input,const Hybri
         };
         std::vector<std::thread> pool;
         // P308: one core left to the GPU F6's feeder (it uploads each aligned frame meanwhile): the same shifts
-        const int cores=std::min(8,int(std::thread::hardware_concurrency()))-(laGpuWorker&&std::thread::hardware_concurrency()>2?1:0);
+        // P704: the stage's threads (scamComputeThreads: the big cores, at least 4) rather than every hardware thread
+        const int cores=scamComputeThreads()-(laGpuWorker&&scamComputeThreads()>2?1:0);
         const int threads=std::max(1,std::min(n-1,cores));
         for(int t=1;t<threads;++t)pool.emplace_back(work);
         work();
@@ -15369,7 +15388,7 @@ inline std::vector<float> hybridReconstruct(const HybridInput& input,const Hybri
                     std::atomic<size_t> next{0};
                     auto work=[&]{for(size_t i=next++;i<taken.size();i=next++)LaGpu::stats(taken[i]);};
                     std::vector<std::thread> pool;
-                    const size_t threads=std::min<size_t>(taken.size(),std::max(1u,std::min(8u,std::thread::hardware_concurrency())));
+                    const size_t threads=std::min<size_t>(taken.size(),size_t(scamComputeThreads())); // P704: the big cores
                     for(size_t t=1;t<threads;++t){try{pool.emplace_back(work);}catch(const std::system_error&){break;}}
                     work();
                     for(auto& th:pool)th.join();
@@ -15416,7 +15435,7 @@ inline std::vector<float> hybridReconstruct(const HybridInput& input,const Hybri
         std::atomic<bool> laFailed{false};std::string laFailure;std::mutex laFailureMutex;
         if(laGpuDone)report(laGpuNote);
         else {
-            int threads=std::clamp(int(std::thread::hardware_concurrency()),1,std::clamp(tune.laThreads,1,8));
+            int threads=std::clamp(scamComputeThreads(),1,std::clamp(tune.laThreads,1,8)); // P704: the big cores, not every thread
             if(large){ // any RAW size: every worker holds its frame's gray pyramid (1.25 B per pixel), together within MemAvailable / 4
                 const uint64_t avail=hybridMemAvailable();
                 const double perThread=1.25*double(w)*h;
@@ -18996,32 +19015,5 @@ struct MappedHybridBurst {
     ~MappedHybridBurst(){if(address!=MAP_FAILED)munmap(address,length);}
 };
 
-// SCAM 7-slot transport (N0..N3, L, S, ES + extra N) seen as a hybrid burst: the longest frame is the
-// bracketed one, the shortest of S/ES the ultrashort one, S otherwise dropped.
-inline HybridInput hybridFromScamBurst(const Burst& b) {
-    HybridInput in;in.w=b.w;in.h=b.h;in.cfa=b.cfa;in.white=b.white;in.black=b.black;in.diagnostics=b.diagnostics;in.mergedDng=b.mergedDng;
-    const ScamNoise nn=b.hasNormalNoise?b.normalNoise:b.cameraNoise?b.noise:imx06cHdrNoise(b.iso[forwardReferenceSlot]);
-    auto add=[&](const uint16_t* raw,int role,float exposure,unsigned iso,ScamNoise noise){
-        HybridFrame f;f.raw=raw;f.role=role;f.exposure=exposure;f.iso=iso;f.slope=noise.slope;f.offset=noise.offset;in.frames.push_back(f);
-    };
-    add(b.raw[forwardReferenceSlot],kRoleNormal,1.f,b.iso[forwardReferenceSlot],nn);
-    for(int s=0;s<4;++s)if(s!=forwardReferenceSlot&&b.raw[s]!=b.raw[forwardReferenceSlot])add(b.raw[s],kRoleNormal,1.f,b.iso[s],nn);
-    for(const uint16_t* e:b.extraNormals)add(e,kRoleNormal,1.f,b.iso[forwardReferenceSlot],nn);
-    // L (slot 4): bracketed when it is a real longer exposure; its noise model = the N model at its gain.
-    if(b.syntheticLong<=0&&b.exposure[4]>1.5f&&b.raw[4]!=b.raw[forwardReferenceSlot]){
-        ScamNoise ln=b.noiseReferenceSlot==4&&b.cameraNoise?b.noise:nn;
-        add(b.raw[4],kRoleBracketed,b.exposure[4],b.iso[4],ln);
-    }
-    // Ultrashort: the short frame closest to SCAM's TET_base/8 (S at -3 EV rather than ES at -6 EV when both exist).
-    auto distance=[&](int s){return std::abs(std::log(std::max(b.exposure[s],1e-6f)*8.f));};
-    const int shortest=distance(6)<distance(5)?6:5;
-    if(b.exposure[shortest]<1.f&&b.raw[shortest]!=b.raw[forwardReferenceSlot]){
-        // the short frame runs at a lower gain than N: read noise scales with gain^2, shot noise with gain
-        const float gRatio=float(b.iso[shortest])/float(std::max(1u,b.iso[forwardReferenceSlot]));
-        ScamNoise sn{nn.slope*gRatio,nn.offset*gRatio*gRatio};
-        add(b.raw[shortest],kRoleUltrashort,b.exposure[shortest],b.iso[shortest],sn);
-    }
-    return in;
-}
 } // namespace scam
 #include "scam-fast-merge.h" // the fast merge route (tune fastMerge)

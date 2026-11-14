@@ -35,7 +35,7 @@ check(m is not None, 'clipAt in kFastOutput')
 check(SRC.count('if(clipAt(v.r,sd))f|=1u;') == 1 and SRC.count('if(clipAt(v.g,sd))f|=2u;') == 1
       and SRC.count('if(clipAt(v.b,sd))f|=4u;') == 1, 'every channel flag through clipAt')
 check('if(cf>0.02&&cf<0.98&&!(sd&&max(v.r,max(v.g,v.b))>1.02))f|=8u;' in SRC, 'border bit not over the short frames\' light')
-check(MERGE.count('g.u1f(A::pOutput,"u_clip_short",validShorts>0?clipShort():0.f);') == 2, 'u_clip_short set in both output passes')
+check(MERGE.count('g.u1f(PO,"u_clip_short",validShorts>0?clipShort():0.f);') == 2, 'u_clip_short set in both output passes')
 check('return e>1.f?0.94f*e:0.f;' in MERGE, 'u_clip_short = 0.94 x the lowest valid short gain')
 
 xs = np.array([0.5, 0.93, 0.94, 0.99, 1.0, 1.02, 1.021, 1.5, 3.0, 8.0, 8.35, 8.4, 20.0], np.float32)

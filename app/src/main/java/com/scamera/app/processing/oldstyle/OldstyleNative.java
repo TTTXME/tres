@@ -70,7 +70,9 @@ public final class OldstyleNative {
      * low-frequency scale (-1 not run), the dehaze's shadow / white / dark cut, the module's and the stages' milliseconds;
      * P636: the threads used and the input gain's milliseconds (inside the module's).
      * P630h: {@code post} also carries the low-frequency colour's share and the tone curve's shape (entries 12 .. 14; a 12-entry
-     * array: the module's own).
+     * array: the module's own). P716 (entries 15, 16; a 15-entry array: as before): the gain the frame already carries (the
+     * gains are then over it; the output saturation takes the whole) and V1 HDR's bright exposure from the linear frame
+     * (postpipeline/OldstyleTone.post: the photo's; the viewfinder's preview keeps the 15 entries).
      */
     public static native int render(int version, ByteBuffer planar, int width, int height, float[] ccm, float gainShort,
                                     float gainLong, boolean hdr, boolean postview, float saturation, float[] post, float[] shading,

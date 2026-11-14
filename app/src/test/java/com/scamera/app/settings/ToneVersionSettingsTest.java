@@ -44,10 +44,10 @@ public class ToneVersionSettingsTest {
             assertNull(key, v2.reason(key));
         }
         // V1's own rows, groups and pages: active with V1, greyed with V2
-        for (String key : new String[]{"pref_scam_hybrid_why_sharp_gain", "pref_scam_hybrid_why_metering", "pref_scam_hybrid_why_night_dim",
+        for (String key : new String[]{"pref_scam_hybrid_why_metering", "pref_scam_hybrid_why_night_dim",
                 "pref_scam_hybrid_why_agx_look", "pref_scam_hybrid_colour_hue_lock", "pref_scam_hybrid_why_curve_boost",
                 "pref_scam_hybrid_why_fusion_layout", "pref_scam_hybrid_why_weight_dark2", "pref_scam_hybrid_why_weight_center",
-                "pref_scam_hybrid_why_clarity", "pref_scam_hybrid_why_skin_hue_center", "pref_scam_hybrid_colour_mono",
+                "pref_scam_hybrid_why_clarity", "pref_scam_hybrid_why_skin_hue_center",
                 "pref_scam_hybrid_why_portrait_curve_lift", "pref_scam_hybrid_why_face_smooth", "pref_scam_hybrid_colour_mix_red_hue",
                 "pref_scam_hybrid_colour_grade_shadows_str", "pref_scam_hybrid_why_hl_soft", "pref_scam_hybrid_why_flat_protect",
                 "scam_hybrid_why_weights_category", "portrait_mask_screen", "colour_mixer_screen"}) {
@@ -57,7 +57,7 @@ public class ToneVersionSettingsTest {
         }
         // the rows both read (WhyV2Stats.MERGED and the stages around the tone): active with either
         for (String key : new String[]{"pref_scam_hybrid_why_ae_target", "pref_scam_hybrid_why_macro_contrast", "pref_scam_hybrid_why_agx_sat",
-                "pref_scam_hybrid_colour_warmth", "pref_scam_hybrid_why_dn_factor", "pref_scam_hybrid_why_input_ev",
+                "pref_scam_hybrid_colour_warmth", "pref_scam_hybrid_colour_mono", "pref_scam_hybrid_why_sharp_gain", "pref_scam_hybrid_why_dn_factor", "pref_scam_hybrid_why_input_ev",
                 "pref_scam_hybrid_why_night_thresh", "pref_scam_hybrid_why_classic_weight_mid", "pref_scam_hybrid_why_blend_smoothness",
                 "pref_scam_hybrid_why_curve_points", "pref_scam_hybrid_why_curve_lift", "pref_scam_hybrid_why_curve_on",
                 "pref_scam_hybrid_why_aces_on", "pref_scam_hybrid_why_vibrance_hl_str", "pref_scam_hybrid_why_skin_hue_shift",

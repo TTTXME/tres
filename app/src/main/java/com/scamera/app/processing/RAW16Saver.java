@@ -5,7 +5,6 @@ import android.os.AsyncTask;
 import com.scamera.app.util.Log;
 
 import com.scamera.app.R;
-import com.scamera.app.api.CameraMode;
 import com.scamera.app.app.ScameraApp;
 
 /** Keeps the RAW frames of a burst (RAW_SENSOR, RAW10, RAW12) for the merge. */

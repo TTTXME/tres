@@ -71,7 +71,6 @@ public class ImageFrame {
     public int binnedSamples = 1;
     public float focusDiopters = Float.NaN;
     public boolean lensMoving;
-    public double blurPixels = Double.NaN;
     private CaptureResult captureMetadata;
 
     public enum CaptureRole { NORMAL, LONG, SHORT, EXTRA_SHORT }

@@ -41,6 +41,8 @@ public final class ViewerChrome {
     static final int BAR_FILL = GalleryUi.BAR;
     public final LinearLayout top, bottom;
     public final View back;
+    /** P706 (owner: «добавь кнопку для открытия ленты галереи»): the library's photo feed, at the photo shown. */
+    public final View grid;
     public final TextView metaTitle, metaSub;
     public final TextView hdrPill;
     /** P492: the histogram switch (a round icon button beside the HDR pill) and its icon. */
@@ -79,6 +81,9 @@ public final class ViewerChrome {
         /** P498: the «Ещё» sheet. */
         default void more() {}
 
+        /** P706: the gallery's feed (the grid), scrolled to the photo shown. */
+        default void grid() {}
+
         void openPosition(int position);
     }
 
@@ -92,8 +97,14 @@ public final class ViewerChrome {
         LinearLayout row = new LinearLayout(c);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        back = disc(c, R.drawable.ui_ic_back, Lang.t("Назад к сетке", "Back to the grid"), v -> a.back());
+        back = disc(c, R.drawable.ui_ic_back, Lang.t("Назад", "Back"), v -> a.back());
         row.addView(back, new LinearLayout.LayoutParams(GalleryUi.dp(c, 40), GalleryUi.dp(c, 40)));
+        // P706: the feed beside the back (the library tab's own icon)
+        grid = disc(c, R.drawable.ui_ic_photos, Lang.t("Лента галереи", "Gallery feed"), v -> a.grid());
+        grid.setTag("viewer_grid");
+        LinearLayout.LayoutParams gr = new LinearLayout.LayoutParams(GalleryUi.dp(c, 36), GalleryUi.dp(c, 36));
+        gr.setMarginStart(GalleryUi.dp(c, 6));
+        row.addView(grid, gr);
         LinearLayout meta = new LinearLayout(c);
         meta.setOrientation(LinearLayout.VERTICAL);
         meta.setGravity(Gravity.CENTER_VERTICAL);

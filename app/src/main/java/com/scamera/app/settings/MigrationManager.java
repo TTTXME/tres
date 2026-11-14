@@ -16,7 +16,10 @@ public final class MigrationManager {
     public static void migrate(SettingsManager manager) {
         PreferenceKeys.Key versionKey = PreferenceKeys.Key.KEY_PREF_VERSION;
         String versionScope = versionKey.mValue;
-        if (manager.getInteger(versionScope, versionKey, 1) >= LAYOUT) return;
+        if (manager.getInteger(versionScope, versionKey, 1) >= LAYOUT) {
+            markInstall(manager.getDefaultPreferences(), false);
+            return;
+        }
         SharedPreferences[] files = {
                 manager.getDefaultPreferences(),
                 manager.openPreferences(PreferenceKeys.Key.PER_LENS_FILE_NAME.mValue),
@@ -28,5 +31,17 @@ public final class MigrationManager {
         // A fresh install has no stored version either, and SettingsManager already wrote the one-time markers into the store
         // cleared above: write them again (on the empty store the migrations write only their markers and the device defaults).
         manager.runOneTimeMigrations();
+        markInstall(manager.getDefaultPreferences(), true);
+    }
+
+    /**
+     * P708 (owner, 2026-11-14): the settings mode of an install that has none yet - a fresh one (no stored layout version: a new
+     * install, the full reset, settings too old to read) starts in the Simple mode with the setup wizard due; an install updated
+     * from before the modes keeps every setting in view (Advanced), no wizard. A mode already stored is left as it is.
+     */
+    static void markInstall(SharedPreferences main, boolean fresh) {
+        if (main.contains(SettingsLevel.MODE_KEY)) return;
+        main.edit().putString(SettingsLevel.MODE_KEY, fresh ? SettingsLevel.SIMPLE_MODE : SettingsLevel.ADVANCED_MODE)
+                .putBoolean(SettingsLevel.WIZARD_KEY, fresh).apply();
     }
 }

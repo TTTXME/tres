@@ -28,12 +28,6 @@ public class Allocator{
      */
     public native static boolean binBlocks2(ByteBuffer dst, ByteBuffer origin, int offset, int format, int width, int height, int rowStride);
 
-    /** Reconstructs a synthetic Bayer SR mosaic while preserving CFA phases. */
-    public native static ByteBuffer reconstructMosaicSr(ByteBuffer origin,
-                                                        int inputWidth, int inputHeight,
-                                                        int outputWidth, int outputHeight,
-                                                        int kernel);
-
     public native static void free(ByteBuffer buffer);
 
     // P30: shot arenas (allocator.cpp, ShotArena): one memfd holding the frames of a shot, shared with the merge worker.

@@ -16,8 +16,7 @@ public final class TimelineSections {
 
     /** yyyymm of a timestamp (local time). */
     public static int monthKey(long millis) {
-        Calendar c = Calendar.getInstance();
-        c.setTimeInMillis(millis);
+        Calendar c = com.scamera.app.gallery.model.LocalDay.at(millis); // P706: no new Calendar a photo
         return c.get(Calendar.YEAR) * 100 + c.get(Calendar.MONTH);
     }
 

@@ -16,7 +16,7 @@ import java.util.Arrays;
 
 /**
  * P191 (owner, 2026-10-17: «переноси всё туда чтобы в data ничего не хранилось»): the one folder of the app's own files for
- * the user - scam_dev.txt, the crash report, the adb markers (dump-forward, dump-denoise, noeff), the debug dumps, the kept
+ * the user - scam_dev.txt, the crash report, the adb markers (dump-denoise, noeff), the debug dumps, the kept
  * bursts - is Download/SCAMERA, next to SCAMERA-debug.txt. Android/data/&lt;package&gt;/files is no longer used: a file
  * manager on Android 16 cannot open it. The File API writes there without a permission (the files are the app's own);
  * files a PC, adb or a file manager put there are reached through the folder grant ({@link ScameraFolder#ROOT}).
@@ -56,7 +56,7 @@ public final class ScameraFiles {
     }
 
     /**
-     * Whether a file (an adb marker such as dump-forward) is in Download/SCAMERA: the File API, else through the folder grant
+     * Whether a file (an adb marker such as dump-denoise) is in Download/SCAMERA: the File API, else through the folder grant
      * (adb's own files are not visible to the app's File API on Android 11+).
      */
     public static boolean exists(@Nullable Context context, String name) {

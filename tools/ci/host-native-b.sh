@@ -17,6 +17,10 @@ LIBGL_ALWAYS_SOFTWARE=1 EGL_PLATFORM=surfaceless /tmp/check-fast-index-free
 # a donor past the gate still dropped (a full frame and a small replay frame)
 g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined tools/check_fast_thumb_shift.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-fast-thumb-shift
 ASAN_OPTIONS=detect_leaks=0 /tmp/check-fast-thumb-shift
+# P714: the fast route's normal donors of another exposure (an AE ramp, a -0.5 EV ring widening) merge, a brighter one stays out,
+# the base stays at the base exposure; less noise, no ghosting on a mover (Pixel 6 Pro noise profile)
+g++ -pthread -std=c++17 -O1 tools/check_fast_normal_exposure.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-fast-normal-exposure
+LIBGL_ALWAYS_SOFTWARE=1 EGL_PLATFORM=surfaceless /tmp/check-fast-normal-exposure
 # P568: the Quad native merge with shared-memory tiles gives the original's floats bit for bit
 g++ -pthread -std=c++17 -O1 tools/check_nat_tile.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-nat-tile
 LIBGL_ALWAYS_SOFTWARE=1 EGL_PLATFORM=surfaceless /tmp/check-nat-tile

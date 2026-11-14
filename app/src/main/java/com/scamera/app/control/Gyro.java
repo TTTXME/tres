@@ -5,8 +5,6 @@ import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
 
-import com.scamera.app.api.CameraMode;
-import com.scamera.app.app.ScameraApp;
 import com.scamera.app.util.Log;
 
 import java.util.ArrayList;
@@ -158,11 +156,7 @@ public class Gyro {
      * instead of the camera thread: the burst rate after the series is submitted, the preview rate after the sequence. One
      * thread, so they keep their order; skipped once the camera screen unregistered the sensors.
      */
-    private static final java.util.concurrent.ExecutorService REGISTRATION = java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
-        final Thread thread = new Thread(r, "SCAMERA-gyro-registration");
-        thread.setDaemon(true);
-        return thread;
-    });
+    // P705: the registration thread is SensorThread.register's, shared with the camera screen's pause and resume (one order)
     private final Object registrationLock = new Object();
     /** The camera screen registered the sensors (register) and did not unregister them since. */
     private boolean sensorsWanted;
@@ -245,7 +239,7 @@ public class Gyro {
     }
 
     private void relistenLater(final int gyroDelayUs) {
-        REGISTRATION.execute(() -> {
+        SensorThread.register(() -> {
             synchronized (registrationLock) {
                 if (!sensorsWanted) return;
                 stopListening();
@@ -391,9 +385,9 @@ public class Gyro {
         return shakeSmoothed;
     }
 
-    /** On a tripod in a photo mode (P25: the detection moved from the retired Night mode to Photo). */
+    /** On a tripod (P25: the detection moved from the retired Night mode to the photo mode, the only camera mode). */
     public boolean getTripod() {
-        return tripodShakiness < TRIPOD_SHAKE && CameraMode.isStill(ScameraApp.getSettings().mode);
+        return tripodShakiness < TRIPOD_SHAKE;
     }
 
     // ---- the horizon's angles --------------------------------------------------------------------------------------

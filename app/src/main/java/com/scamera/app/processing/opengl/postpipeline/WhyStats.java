@@ -192,6 +192,9 @@ public final class WhyStats extends Node {
         }
         // applied by WhyAe.finish after an AgX look preset (which sets its own saturation)
         settings.ccmSat = WhyTone.ccmSatComp(pipeline.shotParams);
+        // P701: a YUV merge shot meters the scene before its shadow toe, at the day target (the camera's AE exposed it already)
+        final String yuv = WhyTone.yuvExposure(settings, pipeline.shotParams.yuvAeScale);
+        if (yuv != null) Log.i("SCAM_PIPELINE", yuv);
         return settings;
     }
 
@@ -277,7 +280,10 @@ public final class WhyStats extends Node {
             // records every metering), the old GL model, the diagnostics dump or scam_dev.txt "ae_gpu_chain 0": as before
             boolean sharpenIssued = false;
             WhyAe.Stats gpu = null;
-            WhyAeGpu.Pending chained = fixed == null && record == null && !legacy && !ScamDiagnostics.active()
+            // P713 (X300 Ultra 200 MP under the diagnostics: the whyLow read back as floats, 800 MB, and the CPU statistics took
+            // 53 s before the app was killed for LOW_MEMORY): above 100 MP the diagnostics leave whyLow on the GPU (no 02-WhyLow dump)
+            final boolean diagRead = ScamDiagnostics.active() && !ScamRgb.earlyRelease(passOut.size);
+            WhyAeGpu.Pending chained = fixed == null && record == null && !legacy && !diagRead
                     && PreferenceKeys.scamDevSwitch("ae_gpu_chain", true) ? WhyAeGpu.begin(shaderProg, st.low, settings.metering) : null;
             shaderProg.closed = true;
             if (chained != null) {
@@ -288,7 +294,7 @@ public final class WhyStats extends Node {
                 gpu = WhyAeGpu.end(chained);
             } else {
                 gpu = fixed != null ? LabFrame.scaled(fixed, rescale)
-                        : legacy || ScamDiagnostics.active() ? null : WhyAeGpu.stats(shaderProg, st.low, settings.metering);
+                        : legacy || diagRead ? null : WhyAeGpu.stats(shaderProg, st.low, settings.metering);
             }
             shaderProg.closed = true;
             if (fixed != null) Log.i("SCAM_PIPELINE", "WHY stats: the whole frame's (lab fragment, metering " + settings.metering

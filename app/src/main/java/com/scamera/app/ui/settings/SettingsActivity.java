@@ -33,7 +33,6 @@ import androidx.preference.PreferenceScreen;
 
 import com.google.android.material.snackbar.Snackbar;
 import com.scamera.app.R;
-import com.scamera.app.api.CameraMode;
 import com.scamera.app.app.ScameraApp;
 import com.scamera.app.app.base.BaseActivity;
 import com.scamera.app.settings.BackupRestoreUtil;
@@ -65,7 +64,6 @@ public class SettingsActivity extends BaseActivity implements PreferenceFragment
     /** SIMPLE_UI: the camera opens a settings page at a row (the LUT tray's «Все LUT ›»): EXTRA_PAGE, EXTRA_KEY. */
     public static final String ACTION_OPEN_PAGE = "org.codeaurora.snapcam.action.OPEN_PAGE";
     public static final String EXTRA_PAGE = "open_page", EXTRA_KEY = "open_key";
-    private static int cameraModeAsked = -1;
     
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -85,9 +83,6 @@ public class SettingsActivity extends BaseActivity implements PreferenceFragment
         setContentView(R.layout.activity_settings);
         // P584: every text of the settings in the concept's Roboto Flex, its size in dp
         ConceptFonts.follow(getWindow().getDecorView());
-        
-        // Get camera mode from intent
-        cameraModeAsked = getIntent().getIntExtra("camera_mode", -1);
         
         // Setup window insets to handle navigation bar
         setupWindowInsets();
@@ -175,6 +170,11 @@ public class SettingsActivity extends BaseActivity implements PreferenceFragment
     }
 
     void openSearchResult(SettingsSearchFragment.Entry entry) {
+        // P708: a setting the Simple or Custom mode hides: shown first (asked), then the hit as usual
+        if (entry.advanced && SimpleMode.on(PreferenceManager.getDefaultSharedPreferences(this))) {
+            askAdvanced(entry);
+            return;
+        }
         if (ScamLabFragment.SCREEN.equals(entry.page) || ScamLabFragment.SCREEN.equals(entry.key)) { openLab(); return; }
         if (ModuleRows.LENS.equals(entry.page)) {
             // P413: a row of the lens page opens a module's lens page - the module of a sensor row, else the camera's module now
@@ -190,6 +190,48 @@ public class SettingsActivity extends BaseActivity implements PreferenceFragment
         String root = "prefscreen".equals(entry.page) ? null : entry.page;
         getSupportFragmentManager().beginTransaction().replace(R.id.settings_container, pageOf(root, entry.key))
                 .addToBackStack("search_result").commit();
+    }
+
+    /**
+     * P708: «X» is hidden by the mode - the Advanced mode (no value changes), or in the Custom mode the setting added to the user's
+     * set; then the setting opens.
+     */
+    private void askAdvanced(SettingsSearchFragment.Entry entry) {
+        final SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
+        final boolean custom = SimpleMode.mode(prefs) == SimpleMode.CUSTOM;
+        final androidx.appcompat.app.AlertDialog.Builder b = DialogStyle.builder(this)
+                .setTitle(com.scamera.app.util.Lang.t(this, "Скрытая настройка", "Hidden setting"))
+                .setNegativeButton(com.scamera.app.util.Lang.t(this, "Отмена", "Cancel"), null);
+        if (custom && entry.setting) {
+            b.setMessage(com.scamera.app.util.Lang.t(this,
+                    "«" + entry.title + "» скрыта в своём режиме. Показать её в своём наборе или открыть расширенный режим? Значения не изменятся.",
+                    "\"" + entry.title + "\" is hidden in the Custom mode. Show it in your set or open the Advanced mode? No value changes."));
+            b.setPositiveButton(com.scamera.app.util.Lang.t(this, "Показать", "Show it"), (d, w) -> {
+                final com.scamera.app.settings.CustomSet set = SimpleMode.custom(prefs);
+                set.set(entry.key, entry.simple, true);
+                SimpleMode.store(prefs, set);
+                openSearchResult(new SettingsSearchFragment.Entry(entry, false));
+            });
+            b.setNeutralButton(com.scamera.app.util.Lang.t(this, "Расширенный", "Advanced"), (d, w) -> {
+                SimpleMode.set(prefs, SimpleMode.ADVANCED);
+                openSearchResult(entry);
+            });
+        } else {
+            b.setMessage(com.scamera.app.util.Lang.t(this,
+                    "«" + entry.title + "» есть только в расширенном режиме. Переключить настройки на расширенный режим? Значения не изменятся.",
+                    "\"" + entry.title + "\" is in the Advanced mode only. Switch the settings to the Advanced mode? No value changes."));
+            b.setPositiveButton(com.scamera.app.util.Lang.t(this, "Переключить", "Switch"), (d, w) -> {
+                SimpleMode.set(prefs, SimpleMode.ADVANCED);
+                openSearchResult(entry);
+            });
+        }
+        DialogStyle.track(b.show());
+    }
+
+    /** P708: the Custom mode's set over the main page («Настроить…», the wizard's Custom choice). */
+    void openCustomSet() {
+        final androidx.fragment.app.Fragment f = getSupportFragmentManager().findFragmentById(R.id.settings_container);
+        if (f instanceof SettingsFragment) ((SettingsFragment) f).openCustomSet();
     }
 
     /** P413: the module of a sensor row's key (pref_sensorconfig_<slot>_…, pref_category_sensor_<slot>), null for another row. */
@@ -244,6 +286,18 @@ public class SettingsActivity extends BaseActivity implements PreferenceFragment
         @Nullable private ModuleRows moduleRows;
         /** P385: this page as built and the user's order on it (SettingsLayoutTree). */
         @Nullable private SettingsLayoutTree.Snapshot layout;
+        /** P708: the main page's banner of changed hidden settings (null on the other pages). */
+        @Nullable private SimpleMode.Banner modeBanner;
+        /** P708: what the mode hides on this page now (null: nothing); the rows only it hides (the search finds them); the groups it hid. */
+        @Nullable private SimpleMode.Filter modeFilter;
+        private final java.util.Set<String> simpleOnly = new java.util.HashSet<>(), simpleGroups = new java.util.HashSet<>();
+        private final SimpleMode.Host simpleHost = new SimpleMode.Host() {
+            @Override public void wizard() {
+                if (getActivity() != null) SettingsWizard.show(getActivity(), false, SettingsFragment.this::wizardDone);
+            }
+            @Override public void editCustom() { openCustomSet(); }
+            @Override public void resetHidden() { askResetHidden(); }
+        };
         private final ModuleRows.Host moduleHost = new ModuleRows.Host() {
             @Override public Context context() { return requireContext(); }
             @Override public void open(androidx.fragment.app.Fragment page, String name) {
@@ -386,6 +440,8 @@ public class SettingsActivity extends BaseActivity implements PreferenceFragment
             setupPhotoFormat();
             setupSounds();
             setupCaptureReport();
+            // P708: «Режим настроек», the wizard again and the banner of changed hidden settings head the main page
+            if (rootKey == null && module == null) modeBanner = SimpleMode.addRows(getPreferenceScreen(), simpleHost);
             SettingsStyle.apply(getPreferenceScreen());
         }
 
@@ -777,8 +833,13 @@ public class SettingsActivity extends BaseActivity implements PreferenceFragment
         }
 
         private void openSearch() {
-            SettingsSearchFragment fragment = SettingsSearchFragment.create(SettingsSearchFragment.index(fullPreferenceScreen));
+            SettingsSearchFragment fragment = SettingsSearchFragment.create(searchIndex());
             getParentFragmentManager().beginTransaction().replace(R.id.settings_container, fragment).addToBackStack("settings_search").commit();
+        }
+
+        /** The search's index of the whole tree (P708: with the rows the Simple mode hides, marked). */
+        java.util.ArrayList<SettingsSearchFragment.Entry> searchIndex() {
+            return SettingsSearchFragment.index(fullPreferenceScreen, simpleOnly);
         }
 
         private void setupScalarInputs(PreferenceGroup group) {
@@ -997,7 +1058,7 @@ public class SettingsActivity extends BaseActivity implements PreferenceFragment
             // guard over whatever the tree looks like now.
             seedMissingListValues(getPreferenceScreen());
 
-            // Keep every category reachable regardless of the last camera mode.
+            // Every category stays reachable.
             showVersion();
             bindBackup();
             bindRestore();
@@ -1110,6 +1171,7 @@ public class SettingsActivity extends BaseActivity implements PreferenceFragment
                 if (!order.equals(layout.applied)) SettingsLayoutTree.apply(layout, order);
             }
             updateSettingsAvailability();
+            openCustomSetAsked();   // P708
             showFileNamePreview();
             refreshProfiles();   // P246: a config put into the folder meanwhile shows up
             settingsStore.getDefaultPreferences().registerOnSharedPreferenceChangeListener(this);
@@ -1294,8 +1356,74 @@ public class SettingsActivity extends BaseActivity implements PreferenceFragment
             if (!isAdded() || settingsStore == null) return;
             com.scamera.app.settings.SettingsAvailability state =
                     com.scamera.app.settings.DeviceAvailability.of(settingsStore.getDefaultPreferences().getAll());
+            // P708: the settings mode (never on a module's pages): its rows of the main page, then the rows and groups it hides
+            showModeRows();
+            modeFilter = SimpleMode.filter(settingsStore.getDefaultPreferences(), getPreferenceScreen(), moduleProfile() != null);
             applyAvailability(getPreferenceScreen(), state);
+            SimpleMode.groups(getPreferenceScreen(), modeFilter, simpleGroups);
             if (layout != null) SettingsLayoutTree.hideEmpty(layout);   // P385: a group that gave its rows away
+        }
+
+        /**
+         * P708: the main page's rows of the mode - «Настроить…» in the Custom mode, the banner with the number of hidden settings off
+         * their recommended default (Simple and Custom modes); the wizard's «Начать со всех» takes every setting of the tree.
+         */
+        private void showModeRows() {
+            if (modeBanner == null) return;
+            final SharedPreferences prefs = settingsStore.getDefaultPreferences();
+            CustomSetFragment.startAll(prefs, fullPreferenceScreen);
+            final int n = SimpleMode.changed(ctx, fullPreferenceScreen, prefs.getAll(), prefs).size();
+            modeBanner.show(n);
+            if (n > 0) codeHidden.remove(modeBanner.getKey());
+            else codeHidden.add(modeBanner.getKey());
+            if (SimpleMode.mode(prefs) == SimpleMode.CUSTOM) codeHidden.remove(com.scamera.app.settings.SettingsLevel.CUSTOM_ROW);
+            else codeHidden.add(com.scamera.app.settings.SettingsLevel.CUSTOM_ROW);
+        }
+
+        /** P708: «Настроить…»: the Custom mode's set, from this page's tree (its settings as this phone offers them). */
+        void openCustomSet() {
+            if (!isAdded() || fullPreferenceScreen == null) return;
+            if (SimpleMode.mode(settingsStore.getDefaultPreferences()) != SimpleMode.CUSTOM)
+                SimpleMode.set(settingsStore.getDefaultPreferences(), SimpleMode.CUSTOM);
+            updateSettingsAvailability();
+            final CustomSetFragment editor = CustomSetFragment.create(CustomSetFragment.model(fullPreferenceScreen,
+                    p -> p.isVisible() || simpleOnly.contains(p.getKey())));
+            slide(getParentFragmentManager().beginTransaction()).replace(R.id.settings_container, editor)
+                    .addToBackStack(CustomSetFragment.TAG).commit();
+        }
+
+        /** P708: «Сбросить к рекомендуемым»: the hidden settings off their default, listed and asked; then the page anew. */
+        private void askResetHidden() {
+            if (!isAdded() || fullPreferenceScreen == null) return;
+            final SharedPreferences prefs = settingsStore.getDefaultPreferences();
+            final java.util.List<String> keys = SimpleMode.changed(ctx, fullPreferenceScreen, prefs.getAll(), prefs);
+            if (keys.isEmpty()) { updateSettingsAvailability(); return; }
+            final java.util.List<String> titles = SimpleMode.titles(fullPreferenceScreen, keys);
+            final String list = String.join(", ", titles.subList(0, Math.min(6, titles.size()))) + (titles.size() > 6 ? "…" : "");
+            DialogStyle.confirm(requireContext(),
+                    com.scamera.app.util.Lang.t(ctx, "Сбросить скрытые настройки?", "Reset the hidden settings?"),
+                    com.scamera.app.util.Lang.t(ctx, "К рекомендуемым для этого телефона вернутся: " + list
+                                    + ". Остальные настройки не изменятся.",
+                            "These go back to the values recommended for this phone: " + list + ". No other setting changes."),
+                    com.scamera.app.util.Lang.t(ctx, "Сбросить", "Reset"), () -> {
+                        SimpleMode.reset(ctx, prefs, keys);
+                        if (getActivity() != null) getActivity().recreate();   // every row reads its value again
+                    });
+        }
+
+        /** P708: the wizard closed - the main page's rows it may have changed show their values again. */
+        private void wizardDone() {
+            if (!isAdded()) return;
+            SettingsWizard.syncRows(getPreferenceScreen(), settingsStore.getDefaultPreferences());
+            updateSettingsAvailability();
+        }
+
+        /** P708: the camera's first-run wizard chose the Custom mode: its set opens once the main page is there. */
+        private void openCustomSetAsked() {
+            final Activity a = getActivity();
+            if (a == null || modeBanner == null || !a.getIntent().getBooleanExtra(SettingsWizard.EXTRA_CUSTOM_SET, false)) return;
+            a.getIntent().removeExtra(SettingsWizard.EXTRA_CUSTOM_SET);
+            if (getView() != null) getView().post(this::openCustomSet);
         }
 
         /** P385: «Расположение» of this page. */
@@ -1323,6 +1451,7 @@ public class SettingsActivity extends BaseActivity implements PreferenceFragment
                     if (p instanceof PreferenceScreen) p.setEnabled(true);
                     if (!(p instanceof PreferenceScreen)) {
                         // P614: a category of one tone version: greyed as a group, its note under its title
+                        simpleRow(p, !p.isVisible() && !simpleGroups.contains(p.getKey()));   // P708: for the search
                         final String off = state.groupReason(p.getKey());
                         if (SettingsStyle.groupOff(p, off)) p.setEnabled(off == null);   // its rows follow (parent dependency)
                         applyAvailability((PreferenceGroup) p, state, off);
@@ -1337,6 +1466,7 @@ public class SettingsActivity extends BaseActivity implements PreferenceFragment
                 boolean hidden = state.hidden(key) || moduleHidden.contains(key) || codeHidden.contains(key)
                         || (moduleRows != null && moduleRows.hides(key))
                         || SettingsStyle.emptyNote(p);   // P592: a note that was only a description
+                hidden = simpleRow(p, hidden);   // P708: and the rows the Simple mode hides
                 if (p.isVisible() == hidden) p.setVisible(!hidden);
                 String reason = state.reason(key);
                 // P614: the group's own note is not repeated on each of its rows
@@ -1364,6 +1494,19 @@ public class SettingsActivity extends BaseActivity implements PreferenceFragment
                     p.setEnabled(false);
                 }
             }
+        }
+
+        /**
+         * P708: whether the mode hides {@code p} on this page too ({@code hidden}: hidden by another rule); a row only it hides is kept
+         * for the search.
+         */
+        private boolean simpleRow(Preference p, boolean hidden) {
+            final boolean simple = modeFilter != null && modeFilter.hides(p);
+            if (p.getKey() != null) {
+                if (simple && !hidden) simpleOnly.add(p.getKey());
+                else simpleOnly.remove(p.getKey());
+            }
+            return hidden || simple;
         }
 
         /** «Загрузить настройки»: a listed config, or the system picker for one elsewhere; the result as a snackbar. */
@@ -1445,6 +1588,8 @@ public class SettingsActivity extends BaseActivity implements PreferenceFragment
                     Log.e("SettingsFragment", "gallery icon not changed: " + e);
                 }
             }
+            // P708: the mode switched elsewhere (the banner, the search, the wizard): the switch shows it
+            if (key.equals(com.scamera.app.settings.SettingsLevel.MODE_KEY)) SettingsWizard.syncRows(getPreferenceScreen(), sharedPreferences);
             updateSettingsAvailability();
         }
 

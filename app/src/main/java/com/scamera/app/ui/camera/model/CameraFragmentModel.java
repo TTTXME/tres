@@ -19,7 +19,9 @@ public class CameraFragmentModel extends BaseObservable {
     /** Settings sheet shows the full settings list. */
     public static final int SHEET_FULL = 2;
 
-    private int rotation, turnMs;
+    /** P705: rotation is read on the camera thread too (CameraFragment.showLiveMetrics). */
+    private volatile int rotation;
+    private int turnMs;
     private Bitmap thumb;
     private int sheet = SHEET_HIDDEN;
     private float screenAspect = 9f / 16;

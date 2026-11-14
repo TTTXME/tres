@@ -30,24 +30,15 @@
     <string name="app_will_restart">App Will Restart</string>
     <string name="empty_file_name_error">File name cannot be an empty string</string>
     <string name="af_mode">Auto Focus Mode</string>
-    <string name="mode_unlimited">Unlimited</string>
-    <string name="mode_rawvideo">RAW Video</string>
-    <string name="mode_motion">Photo</string>
-    <string name="mode_photo">Photo</string>
-    <string name="mode_night">Night</string>
-    <string name="mode_video">Video</string>
     <string name="off">Off</string>
     <string name="golden_ratio">Golden Ratio</string>
     <string name="diag_triangle">Diag. Triangles</string>
     <string name="three_x3" translatable="false">3x3</string>
     <string name="four_x4" translatable="false">4x4</string>
     <string name="processing_processname">Processing %1$s...</string>
-    <string name="gallery_folders">Gallery Folders</string>
-    <string name="options">Options</string>
     <string name="session_on_configure_failed">System session configuration failed try changing preview format</string>
 
     <!-- the camera's video size until one is chosen -->
-    <string name="pref_video_resolution_default" translatable="false">1920x1080</string>
 
     <!-- Storage Access Framework folder picker -->
 
@@ -56,7 +47,6 @@
     <string name="perm_settings_title">Permissions needed</string>
     <string name="perm_settings_message">The camera cannot start without: %1$s.\n\nOpen the app settings, choose Permissions and allow them.</string>
     <string name="perm_group_camera">Camera</string>
-    <string name="perm_group_microphone">Microphone</string>
     <string name="perm_group_photos">Photos and videos</string>
     <string name="perm_group_files">Files and media</string>
     <string name="perm_group_storage">Storage</string>
@@ -65,7 +55,7 @@
     <string name="perm_dcim_hint">Select the DCIM folder and allow access to it</string>
     <string name="perm_dcim_wrong_folder">That is not the DCIM folder. Select DCIM</string>
     <string name="perm_rationale_dcim_title">DCIM Folder Access</string>
-    <string name="perm_dcim_failed">Without access to the DCIM folder RAW video cannot be saved and device configs cannot be read. Tap Retry and select the DCIM folder.</string>
+    <string name="perm_dcim_failed">Without access to the DCIM folder device configs cannot be read. Tap Retry and select the DCIM folder.</string>
     <string name="perm_retry">Retry</string>
 
     <string name="wide169" translatable="false">16:9</string>

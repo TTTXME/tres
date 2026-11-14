@@ -30,17 +30,6 @@ int main() {
     std::vector<uint16_t> raw(64*64);
     for(int y=0;y<64;++y)for(int x=0;x<64;++x)raw[y*64+x]=uint16_t(1000+x*80+y*32);
     for(auto& ptr:b.raw)ptr=raw.data();
-    bool called=false;
-    auto out=reconstruct(b,[](const std::vector<float>& input,std::vector<float>& output){
-        for(size_t i=0;i<output.size()/3;++i) {
-            float sample=std::max({input[i*22+3],input[i*22+4],input[i*22+5]});
-            for(int c=0;c<3;++c)output[i*3+c]=sample;
-        }
-    },[](const std::string&){},{},[&](Burst& canonical){
-        assert(canonical.canonicalRggb);called=true;
-        std::array<BackwardHomography,7> plan{};plan[1].h[2]=4;return plan;
-    });
-    assert(called);
     std::array<bool,7> failed{};failed[4]=true;
     std::array<BackwardHomography,7> replacement{};
     b.cameraNoise=true;b.iso[4]=800;b.exposure[4]=4;
@@ -51,11 +40,5 @@ int main() {
     StockMotion::replaceFailed(b,failed,replacement);
     assert(b.raw[4]==b.raw[0] && b.iso[4]==b.iso[0] && b.exposure[4]==1);
     assert(b.noise.slope==b.normalNoise.slope && b.noiseReferenceSlot==0);
-    auto domains=forwardExposureDomains(b.exposure);
-    assert(domains.normalizationEV==domains.normalEV);
-    float error=0;
-    for(int y=0;y<60;++y)for(int x=0;x<58;++x)
-        for(int c=0;c<3;++c)error=std::max(error,std::abs(out[(y*64+x)*3+c]-raw[y*64+x+4]/16383.f));
-    assert(error<.0002f);
-    std::cout<<"PASS: original matrix direction, RAW scaling, singular/horizon rejection and projective capture dispatch; mock graph error="<<error<<"\n";
+    std::cout<<"PASS: original matrix direction, singular/horizon rejection, failed-slot replacement\n";
 }

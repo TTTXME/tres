@@ -104,13 +104,13 @@ public final class HiddenFeatures {
     }
 
     /** The viewfinder request: zoom override and the low-light boost, where the camera lists them. */
-    public static void applyPreview(CaptureRequest.Builder builder, @Nullable CameraCharacteristics c, boolean manualOrVideo) {
+    public static void applyPreview(CaptureRequest.Builder builder, @Nullable CameraCharacteristics c) {
         if (builder == null || c == null) return;
         if (Build.VERSION.SDK_INT >= 34 && PreferenceKeys.scamDevSwitch("zoom_override", true)
                 && contains(c.get(CameraCharacteristics.CONTROL_AVAILABLE_SETTINGS_OVERRIDES), SETTINGS_OVERRIDE_ZOOM)) {
             builder.set(CaptureRequest.CONTROL_SETTINGS_OVERRIDE, SETTINGS_OVERRIDE_ZOOM);
         }
-        if (Build.VERSION.SDK_INT >= 35 && !manualOrVideo && !MotionMode.on() && lowLightBoostOn()
+        if (Build.VERSION.SDK_INT >= 35 && !MotionMode.on() && lowLightBoostOn()
                 && contains(c.get(CameraCharacteristics.CONTROL_AE_AVAILABLE_MODES), AE_LOW_LIGHT_BOOST)) {
             Integer ae = builder.get(CaptureRequest.CONTROL_AE_MODE);
             if (ae == null || ae == CaptureRequest.CONTROL_AE_MODE_ON) {

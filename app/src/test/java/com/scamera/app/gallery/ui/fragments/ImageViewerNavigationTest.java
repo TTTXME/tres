@@ -97,4 +97,28 @@ public class ImageViewerNavigationTest {
             assertNull("back, not a second library", nav.getPreviousBackStackEntry());
         }
     }
+
+    /**
+     * P706: the viewer's back arrow returns to the grid it was opened from; the camera's viewer (the graph's start) has no grid
+     * behind it - back leaves the gallery, the feed button opens the grid.
+     */
+    @Test
+    public void theBackArrowReturnsToTheGridOnlyWhenItIsBehind() {
+        Intent launcher = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER);
+        try (ActivityController<GalleryNavRecreateTest.Host> c = Robolectric.buildActivity(GalleryNavRecreateTest.Host.class, launcher).setup()) {
+            NavController nav = GalleryNavRecreateTest.nav(c.get());
+            nav.navigate(R.id.open_photo);
+            shadowOf(Looper.getMainLooper()).idle();
+            assertTrue("opened from the grid", ImageViewerFragment.backReturnsToGrid(nav));
+        }
+        Intent camera = new Intent().putExtra("CameraFragment", true);
+        try (ActivityController<GalleryNavRecreateTest.Host> c = Robolectric.buildActivity(GalleryNavRecreateTest.Host.class, camera).setup()) {
+            NavController nav = GalleryNavRecreateTest.nav(c.get());
+            assertEquals(R.id.gallery_viewer, nav.getCurrentDestination().getId());
+            assertFalse("the camera's viewer: nothing behind it", ImageViewerFragment.backReturnsToGrid(nav));
+            ImageViewerFragment.toGrid(nav); // the feed button
+            shadowOf(Looper.getMainLooper()).idle();
+            assertEquals(R.id.gallery_library, nav.getCurrentDestination().getId());
+        }
+    }
 }

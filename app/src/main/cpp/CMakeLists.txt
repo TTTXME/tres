@@ -64,9 +64,9 @@ set_property(TARGET scameraFilm APPEND PROPERTY LINK_DEPENDS ${SRC_DIR}/film-ref
 # P683: zlib for the packed Hanatos spectra (film-reference-resources.cpp)
 target_link_libraries(scameraFilm PRIVATE vulkan dl log z)
 
-# P129: scamAe (SCAM HDR's stock AE observer) and the scamProbe launch check went with SCAM HDR; scam-probe.cpp stays
-# (the worker includes it). P175: scamNeuralProbe (the neural remosaic's model probe, loaded by nothing) went with the
-# neural remosaic.
+# P129: scamAe (SCAM HDR's stock AE observer) and the scamProbe launch check went with SCAM HDR. P175: scamNeuralProbe (the
+# neural remosaic's model probe, loaded by nothing) went with the neural remosaic. P704: scam-probe.cpp (the QNN probe the
+# worker carried) went with the worker's SCAM HDR paths.
 
 # P24: every saved JPEG through jpegli, 4:4:4 (third_party/README.md); Highway gives it NEON / SVE.
 set(HWY_DIR ${SRC_DIR}/third_party/highway)

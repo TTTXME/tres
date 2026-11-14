@@ -17,7 +17,6 @@ public final class DeviceAvailability {
 
     public static SettingsAvailability of(Map<String, ?> values) {
         return new SettingsAvailability(values)
-                .rawViewfinder(DeviceDefaults.rawViewfinderSoc())
                 .heic10Unavailable(com.scamera.app.processing.heif.Heic10Support.unavailableReason())
                 .hdrUnavailable(com.scamera.app.processing.color.HdrOutput.unavailableReason())
                 .colorMethodOverride(colorMethodOverride())

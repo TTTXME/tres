@@ -41,7 +41,7 @@ final class PermissionPlan {
     }
 
     /** Permission groups as the system app settings name them, for the settings dialog text. */
-    enum Group {CAMERA, MICROPHONE, PHOTOS, FILES, STORAGE}
+    enum Group {CAMERA, PHOTOS, FILES, STORAGE}
 
     final int sdk;
     private int requests;
@@ -55,20 +55,21 @@ final class PermissionPlan {
     }
 
     /**
-     * The runtime permissions the camera needs on {@code sdk}: camera, microphone and media read (Android 13+:
-     * photos and videos; 11-12: read storage; 10 and older: read and write storage). INTERNET is a normal
-     * permission and is never requested.
+     * The runtime permissions the camera needs on {@code sdk}: camera and media read (Android 13+: photos and
+     * videos - the gallery shows videos; 11-12: read storage; 10 and older: read and write storage). INTERNET is a
+     * normal permission and is never requested. No microphone (P707): nothing records audio since the photo mode is
+     * the only camera mode, and the manifest no longer declares the permission.
      */
     static String[] runtimePermissions(int sdk) {
         if (sdk >= Build.VERSION_CODES.TIRAMISU) {
-            return new String[]{Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO,
+            return new String[]{Manifest.permission.CAMERA,
                     Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VIDEO};
         }
         if (sdk >= Build.VERSION_CODES.R) {
-            return new String[]{Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO,
+            return new String[]{Manifest.permission.CAMERA,
                     Manifest.permission.READ_EXTERNAL_STORAGE};
         }
-        return new String[]{Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO,
+        return new String[]{Manifest.permission.CAMERA,
                 Manifest.permission.WRITE_EXTERNAL_STORAGE, Manifest.permission.READ_EXTERNAL_STORAGE};
     }
 
@@ -81,7 +82,7 @@ final class PermissionPlan {
         return out.toArray(new String[0]);
     }
 
-    /** Android 11+ also needs SAF access to DCIM (RAW video, device configs). */
+    /** Android 11+ also needs SAF access to DCIM (device configs). */
     boolean needsDcimAccess() {
         return sdk >= Build.VERSION_CODES.R;
     }
@@ -167,8 +168,6 @@ final class PermissionPlan {
         switch (permission) {
             case Manifest.permission.CAMERA:
                 return Group.CAMERA;
-            case Manifest.permission.RECORD_AUDIO:
-                return Group.MICROPHONE;
             case Manifest.permission.READ_MEDIA_IMAGES:
             case Manifest.permission.READ_MEDIA_VIDEO:
                 return Group.PHOTOS;

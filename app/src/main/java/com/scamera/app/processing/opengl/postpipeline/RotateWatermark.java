@@ -44,6 +44,9 @@ public class RotateWatermark extends Node {
         final Point raw = post.finalSize != null ? prevPass.passOut.size : hostPipeline.shotParams.rawSize;
         shaderProg.setVar("cropSize", post.cropSize);
         shaderProg.setVar("rawSize", raw);
+        // P713: the deferred last pass (GLDeferredDraw) draws the lines each output tile reads, by this pass's mapping
+        final com.scamera.app.processing.opengl.GLDeferredDraw deferred = com.scamera.app.processing.opengl.GLDeferredDraw.pending();
+        if (deferred != null) deferred.mapTiles(prevPass.passOut, turns, hostPipeline.shotParams.mirrored, raw.y - post.cropSize.y);
         Log.d(passName, "Crop size:" + post.cropSize + " Raw size:" + hostPipeline.shotParams.rawSize);
     }
 }

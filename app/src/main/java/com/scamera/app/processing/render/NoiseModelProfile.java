@@ -101,10 +101,6 @@ public final class NoiseModelProfile {
         imported = profile;
     }
 
-    public static NoiseModelProfile getImported() {
-        return imported;
-    }
-
     public static NoiseModelProfile byId(String id) {
         if (id == null || AUTO_ID.equals(id)) {
             return null;

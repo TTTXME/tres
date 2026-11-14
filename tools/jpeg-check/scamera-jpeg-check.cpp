@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "scamera-jpeg-core.h"
@@ -114,6 +115,45 @@ int main(int argc, char** argv) {
     // the strips must give the one-thread pixels (only jpegli's adaptive quantisation at a strip's edge may differ)
     if (same < 60) { std::printf("FAIL: the strips differ from the one-thread JPEG (%.1f dB)\n", same); return 1; }
     if (multi.size() > single.size() * 11 / 10) { std::printf("FAIL: the strips' file is more than 10 %% larger\n"); return 1; }
+    // P713: the streamed encode (StreamEncoder: strips encoded while the rows arrive) gives encodeRgba's bytes, whatever the order
+    // and size of the row hand-overs; its tail after the last rows is what stays on the photo's path
+    {
+        double fullMs = 1e30;
+        std::vector<uint8_t> ref;
+        for (int r = 0; r < 2; ++r) {
+            ref.clear();
+            const auto a = std::chrono::steady_clock::now();
+            scamera_jpeg::parallel::encodeRgba(px.data(), w, h, size_t(w) * 4, q, threads, 0,
+                                               [&](const uint8_t* d, size_t n) { ref.insert(ref.end(), d, d + n); return true; });
+            fullMs = std::min(fullMs, std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - a).count());
+        }
+        const int steps[] = {1, 7, 64, 256, h};
+        for (int step : steps) {
+            for (int pace = 0; pace < 2; ++pace) {
+                std::vector<uint8_t> streamed;
+                scamera_jpeg::parallel::StreamEncoder enc(px.data(), w, h, size_t(w) * 4, q, threads);
+                // pace 1: the rows arrive over about the full encode's time (a GPU still drawing), else all at once
+                const double perRowMs = pace ? fullMs / h : 0.0;
+                for (int y = step; y < h + step; y += step) {
+                    if (perRowMs > 0) std::this_thread::sleep_for(std::chrono::microseconds(int64_t(perRowMs * step * 1000)));
+                    enc.rowsReady(std::min(y, h));
+                }
+                const auto a = std::chrono::steady_clock::now();
+                enc.finish([&](const uint8_t* d, size_t n) { streamed.insert(streamed.end(), d, d + n); return true; });
+                const double tail = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - a).count();
+                const bool same = streamed == ref;
+                std::printf("  streamed (rows by %d%s, %s): %zu B, %s; after the last rows %.0f ms (whole encode %.0f ms)\n", step,
+                            pace ? ", paced" : "", enc.active() ? "strips while the rows arrive" : "whole frame at the end",
+                            streamed.size(), same ? "byte for byte encodeRgba's" : "DIFFERENT", tail, fullMs);
+                if (!same) { std::printf("FAIL: the streamed JPEG differs from encodeRgba's\n"); return 1; }
+            }
+        }
+        // an abandoned stream (the readback failed) stops its threads and frees its strips
+        {
+            scamera_jpeg::parallel::StreamEncoder enc(px.data(), w, h, size_t(w) * 4, q, threads);
+            enc.rowsReady(h / 2);
+        }
+    }
     FILE* f = std::fopen((out + "/single.jpg").c_str(), "wb");
     if (f) { std::fwrite(single.data(), 1, single.size(), f); std::fclose(f); }
     f = std::fopen((out + "/parallel.jpg").c_str(), "wb");

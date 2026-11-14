@@ -11,7 +11,8 @@ uniform mat3 sensorToIntermediate;
 uniform mat3 intermediateToSRGB;
 uniform vec3 neutralPointU;         // unset -> 1
 uniform float inScaleU;             // why_input_ev; <= 0 -> 1
-uniform float uScale;               // the module's input scale x 4095
+uniform float uScale;               // the module's input scale x 4095 (x V1's frame gain, P716)
+uniform float uDither;              // P716: 1 - the rounding dithered (the module lifts its steps); unset 0: OldstyleAe.sample
 out ivec4 Output;
 
 void main() {
@@ -28,5 +29,9 @@ void main() {
 #if PRE_CCM == 0
     c = intermediateToSRGB * (sensorToIntermediate * c);
 #endif
-    Output = ivec4(ivec3(clamp(floor(c * uScale + 0.5), -32768.0, 32767.0)), 0);
+    // P716: a step of the rounding the module lifts by its gains (V2 HDR: the light within white, 8 x it from a sun) becomes a
+    // contour and, a channel a level apart from the next, a colour step: the rounding then takes a uniform +-0.5 of interleaved
+    // gradient noise (high-frequency, one value for the three channels: no colour of its own; the mean of a flat area kept)
+    float d = uDither * (fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715)))) - 0.5);
+    Output = ivec4(ivec3(clamp(floor(c * uScale + 0.5 + d), -32768.0, 32767.0)), 0);
 }

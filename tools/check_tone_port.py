@@ -12,9 +12,10 @@ the app's JNI path into it (oldstyle-tone-jni.cpp, processing/oldstyle/OldstyleN
   byte for byte).
 P636 (speed, the same bytes): the module's regression at 1, 2, 3, 4 and 7 threads (TONE_PORT_THREADS; more than one thread
 takes the row kernels and the bands); the JNI checks below run on one thread and on four against the one-thread direct call;
-tools/bench_oldstyle_tone.cpp: the app's path on one thread (P630e's) == the banded path, nine cases (V1 / V2, HDR / SDR, the
+tools/bench_oldstyle_tone.cpp: the app's path on one thread (P630e's) == the banded path, eleven cases (V1 / V2, HDR / SDR, the
 stages; three with P630h's rows away from their defaults: the curve's shape, half the low-frequency transfer, a matrix
-stronger than a camera's) on frames that are and are not multiples of 8 / 32.
+stronger than a camera's; two of P716: V1 HDR's bright exposure from the linear frame with a frame gain) on frames that are
+and are not multiples of 8 / 32. P716's shadows: tools/check_oldstyle_shadows.py.
 P630e, the owner's supplement (third_party/tone_supplement, hdr-ae-color-27-31.md):
 - its 45 plan rows (2.7 YUV, 3.1 YUV, 3.1 RAW): plan27 / plan31 from the table's S*, L*, F give its HDR, S, L and fusion_gains
   (S0 = 8, P = 1, M = 16) its gS / gL, each within 2e-7 of the value; the same rows through OldstyleAe's Java port and through
@@ -430,8 +431,8 @@ def main():
         for w, h, threads in ((1234, 1001, 4), (1000, 744, 3), (2048, 1536, 7), (67, 45, 2), (640, 20, 5)):
             r = subprocess.run([str(d / 'bench'), str(w), str(h), str(threads), '1'], capture_output=True, text=True)
             rows = r.stdout.strip().splitlines()
-            check(r.returncode == 0 and len(rows) == 9 and all('SAME BYTES' in row for row in rows),
-                  'Oldstyle tone %dx%d: one thread == %d threads, %d of 9 cases the same bytes' % (
+            check(r.returncode == 0 and len(rows) == 11 and all('SAME BYTES' in row for row in rows),
+                  'Oldstyle tone %dx%d: one thread == %d threads, %d of 11 cases the same bytes' % (
                       w, h, threads, sum('SAME BYTES' in row for row in rows)))
         # 2. the specification's numbers through the module
         (d / 'spec').mkdir()

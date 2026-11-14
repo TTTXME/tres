@@ -31,13 +31,22 @@ public abstract class CustomOrientationEventListener extends OrientationEventLis
         return 0;
     }
 
+    /**
+     * P705: whether a reading would change anything - another quarter entered, or another Surface rotation to report. Only then is
+     * the auto-rotate setting asked (it was read for every reading, several a second on the main thread).
+     */
+    static boolean changes(int entered, int quarter, int reported, int surface) {
+        return (entered != 0 && entered != quarter) || reported != surface;
+    }
+
     @Override
     public void onOrientationChanged(int orientation) {
+        final int entered = quarterFor(orientation, quarter);
+        final int surface = entered != 0 ? entered - 1 : ORIENTATION_UNKNOWN; // Surface.ROTATION_0 .. ROTATION_270
+        if (!changes(entered, quarter, reported, surface)) return;
         // auto-rotate off: the screen keeps its orientation, so do the controls
         if (Settings.System.getInt(context.getContentResolver(), Settings.System.ACCELEROMETER_ROTATION, 0) == 0) return;
-        final int entered = quarterFor(orientation, quarter);
         if (entered != 0) quarter = entered;
-        final int surface = entered != 0 ? entered - 1 : ORIENTATION_UNKNOWN; // Surface.ROTATION_0 .. ROTATION_270
         if (reported == surface || orientation == ORIENTATION_UNKNOWN) return;
         reported = surface;
         if (surface != ORIENTATION_UNKNOWN) onSimpleOrientationChanged(quarter);

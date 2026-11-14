@@ -33,7 +33,10 @@ public class JpegStreamContractTest {
 
     @Test public void bothNativeEntriesShareOneEncodeBody() throws IOException {
         final String cpp = read("src/main/cpp/scamera-jpeg.cpp");
-        assertEquals("encodePixels: its definition and the two entries' calls", 3, count(cpp, "encodePixels("));
+        // P713: and the streamed encode's one-thread fallback (streamFinish), on the same body
+        assertEquals("encodePixels: its definition, the two entries' calls and the stream's fallback", 4, count(cpp, "encodePixels("));
+        assertTrue("the stream's fallback is the shared body on one thread",
+                cpp.substring(cpp.indexOf("JpegliEncoder_streamFinish")).contains("size_t(s->stride), s->quality, out, 1, modeOut,"));
         // the parallel strips and the one-thread fallback only in the shared body
         assertEquals(1, count(cpp, "scamera_jpeg::parallel::encodeRgba("));
         assertEquals(1, count(cpp, "scamera_jpeg::encodeRgba("));

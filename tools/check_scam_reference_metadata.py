@@ -6,7 +6,6 @@ No device/photographic equivalence is claimed. Requires Java 17 with jdk.compile
 from pathlib import Path
 import subprocess
 import tempfile
-import struct
 
 ROOT = Path(__file__).resolve().parents[1]
 BASE = 'com/scamera/app/'
@@ -165,13 +164,8 @@ public class Check {
   check(invalid.adrcGain==null && invalid.invalidAdrc,"invalid gain accepted");
   try {ScamScene.fromReference(other);throw new AssertionError("unmatched scene metadata accepted");}
   catch(IllegalArgumentException expected){}
-  ByteBuffer transport=ByteBuffer.allocate(4*32).order(java.nio.ByteOrder.LITTLE_ENDIAN);
-  for(var value:java.util.List.of(scene,missing,zero,invalid))value.writeTransport(transport);
-  java.nio.file.Files.write(java.nio.file.Path.of(args[0]),transport.array());
-  try {scene.writeTransport(ByteBuffer.allocate(32));throw new AssertionError("big endian transport accepted");}
-  catch(IllegalArgumentException expected){}
-  try {scene.writeTransport(ByteBuffer.allocate(31).order(java.nio.ByteOrder.LITTLE_ENDIAN));
-       throw new AssertionError("short transport accepted");}catch(IllegalArgumentException expected){}
+  // P703: ScamScene.writeTransport went with its only reader (the worker's 7-slot route, P704); the scene's own values
+  // are what is left to check
   System.out.println("PASS: actual ImageFrame retains timestamp-matched ZSL/reference metadata and resets missing noise");
   System.out.println("PASS: N/L/S request roles survive reordering/dropped frames; unknown roles rejected");
   System.out.println("PASS: scene inputs use matched RAW metadata, preserve absence, validate values and retain source");
@@ -189,37 +183,7 @@ def main():
         scene = ROOT/'app/src/main/java'/BASE/'processing/opengl/postpipeline/ScamScene.java'
         subprocess.run(['java','-m','jdk.compiler/com.sun.tools.javac.Main','-d',str(out),
                         *map(str,out.rglob('*.java')),str(source),str(scene)],check=True)
-        fixture = out/'scene.bin'
-        subprocess.run(['java','-cp',str(out),'Check',str(fixture)],check=True)
-        header = bytearray(128)
-        struct.pack_into('<6If',header,0,0x3143484e,6,64,64,0,7,16383.)
-        struct.pack_into('<7f',header,44,1,1,1,1,4,.25,.125)
-        struct.pack_into('<7I',header,72,*([100]*7))
-        struct.pack_into('<ffIff',header,100,.00015,.000002,0,.00015,.000002)
-        extensions = fixture.read_bytes()
-        for i in range(4):
-            (out/f'burst{i}').write_bytes(header+extensions[i*32:(i+1)*32]+bytes(64*64*14))
-        driver = out/'scene.cpp'
-        driver.write_text(r'''#include "scam-capture.h"
-    #include <cassert>
-    int main(int argc,char** argv) {
-     assert(argc==2);
-     for(int i=0;i<4;++i) {
-      scam::MappedScamBurst b(std::string(argv[1])+"/burst"+std::to_string(i));
-      auto s=b.burst.scene;
-      assert(s.timestamp==123456789012ULL);
-      const unsigned flags[]={3,0,1,12},sources[]={2,0,1,1};
-      assert(s.flags==flags[i] && s.luxSource==sources[i]);
-      if(i==0)assert(s.hasLux()&&s.hasAdrc()&&s.lux==410.7971f&&s.adrc==2.5f);
-      if(i==2)assert(s.hasLux()&&!s.hasAdrc()&&s.lux==0.f);
-      assert(b.burst.raw[0][0]==0 && b.burst.raw[6][4095]==0);
-     }
-    }
-    ''')
-        subprocess.run(['c++','-std=c++17','-O1','-Wall','-Wextra','-I',str(ROOT/'app/src/main/cpp'),
-                        str(driver),'-o',str(out/'scene-check')],check=True)
-        subprocess.run([str(out/'scene-check'),str(out)],check=True)
-        print('PASS: actual Java scene transport reaches native RAW reader with timestamp, units, source and missing/invalid flags intact')
+        subprocess.run(['java','-cp',str(out),'Check'],check=True)
 
 if __name__ == '__main__':
     main()

@@ -218,7 +218,7 @@ public final class OcrIndex {
                 }
                 if (!gate(self, waited)) return;
                 if (done % 10 == 0 && !batteryOk(app)) {
-                    Log.i(TAG, "index: paused on a low battery after " + done);
+                    Log.i(TAG, "index: paused on a low battery or the battery saver after " + done);
                     return;
                 }
                 MediaFile f = todo.get(at++);
@@ -267,14 +267,25 @@ public final class OcrIndex {
     static boolean batteryOk(Context c) {
         try {
             Intent i = c.registerReceiver(null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
-            if (i == null) return true;
-            int status = i.getIntExtra(BatteryManager.EXTRA_STATUS, -1);
-            if (status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL) return true;
-            int level = i.getIntExtra(BatteryManager.EXTRA_LEVEL, -1), scale = i.getIntExtra(BatteryManager.EXTRA_SCALE, 100);
-            return level < 0 || scale <= 0 || level * 100 / scale >= MIN_BATTERY;
+            boolean saver = false;
+            android.os.PowerManager pm = (android.os.PowerManager) c.getSystemService(Context.POWER_SERVICE);
+            if (pm != null) saver = pm.isPowerSaveMode();
+            if (i == null) return !saver;
+            return batteryOk(i.getIntExtra(BatteryManager.EXTRA_STATUS, -1), i.getIntExtra(BatteryManager.EXTRA_LEVEL, -1),
+                    i.getIntExtra(BatteryManager.EXTRA_SCALE, 100), saver);
         } catch (RuntimeException e) {
             return true;
         }
+    }
+
+    /**
+     * Whether the index may read on this battery: charging (or full) always; else at least {@link #MIN_BATTERY} % and - P706 -
+     * not in the battery saver (the user asked the phone to spare its battery: the index waits for the next visit).
+     */
+    static boolean batteryOk(int status, int level, int scale, boolean powerSave) {
+        if (status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL) return true;
+        if (powerSave) return false;
+        return level < 0 || scale <= 0 || level * 100 / scale >= MIN_BATTERY;
     }
 
     /** Stores the text read on a photo (here and in the database). */

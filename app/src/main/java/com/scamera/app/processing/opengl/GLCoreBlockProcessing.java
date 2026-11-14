@@ -49,8 +49,13 @@ public class GLCoreBlockProcessing extends GLContext implements AutoCloseable {
 
     /** The image the output was made for (closed with this processing). */
     public GLImage outImage = null;
-    /** One tile of read-back rows (null after the last read-back). */
+    /**
+     * One tile of read-back rows, made on the first read-back that needs it (the strip and 10-bit paths; the pixel-pack buffer
+     * paths and the gain map's context never do: 4 - 16 MB of zeroed native memory a shot saved); null again after the read-back.
+     */
     public ByteBuffer tileBuffer;
+    /** The rows the tile target was made with (TILE_ROWS then). */
+    private final int builtTileRows = GLDrawParams.TILE_ROWS;
     /** The output's size and its format. */
     private final int outW, outH;
     private final GLFormat outFormat;
@@ -67,6 +72,26 @@ public class GLCoreBlockProcessing extends GLContext implements AutoCloseable {
      */
     public interface RgbaSink {
         boolean accept(ByteBuffer rgba, int width, int height);
+
+        /**
+         * P713: the rows of {@code frame} (a buffer of the whole picture, tightly packed RGBA rows) handed over as they arrive from
+         * the top, for an encode that starts before the last tile is read back; null: not streamed (accept takes the whole frame).
+         */
+        default RowStream stream(ByteBuffer frame, int width, int height) {
+            return null;
+        }
+    }
+
+    /** P713: an {@link RgbaSink#stream} in progress. */
+    public interface RowStream {
+        /** Rows [0, {@code rows}) of the frame are final. */
+        void ready(int rows);
+
+        /** Every row is final: true - the sink took the frame (no bitmap); false - the bitmap is made from the frame. */
+        boolean finish();
+
+        /** The stream is given up (the readback failed): nothing of it is used. */
+        void abort();
     }
 
     /** P483: set by the caller before {@link #drawBlocksToBitmap} (the pixel-pack buffer path only); null: always a bitmap. */
@@ -88,13 +113,17 @@ public class GLCoreBlockProcessing extends GLContext implements AutoCloseable {
         Log.v(TAG, op + ": glError: " + GLUtils.getEGLErrorString(error) + " (" + Integer.toHexString(error) + ")");
     }
 
+    /** P713: the output's size. */
+    public int outputWidth() { return outW; }
+
+    public int outputHeight() { return outH; }
+
     /** A processing context of its own, for an output of {@code size} in {@code format}. */
     public GLCoreBlockProcessing(Point size, GLFormat format, GLDrawParams.Allocate allocation) {
         super(size.x, GLDrawParams.TILE_ROWS);
         outFormat = format;
         outW = size.x;
         outH = size.y;
-        tileBuffer = newTileBuffer();
         createTileTarget();
     }
 
@@ -114,7 +143,6 @@ public class GLCoreBlockProcessing extends GLContext implements AutoCloseable {
         outFormat = format;
         outW = size.x;
         outH = size.y;
-        tileBuffer = newTileBuffer();
         createTileTarget();
         outImage = out;
         if (tenBitOutput) enableTenBit();
@@ -180,9 +208,12 @@ public class GLCoreBlockProcessing extends GLContext implements AutoCloseable {
         storeTileTarget(outFormat.getGLFormatInternal());
     }
 
+    /** The tile buffer, made now when there is none; throws when TILE_ROWS changed after the tile target was made. */
     private void requireTileBuffer() {
         final int rows = GLDrawParams.TILE_ROWS;
-        if (tileBuffer == null || tileBuffer.capacity() < outW * 4 * Math.min(rows, outH))
+        if (rows != builtTileRows) throw new IllegalStateException("tile target made for " + builtTileRows + " rows, TILE_ROWS " + rows);
+        if (tileBuffer == null) tileBuffer = newTileBuffer();
+        if (tileBuffer.capacity() < outW * 4 * Math.min(rows, outH))
             throw new IllegalStateException("tile buffer does not match TILE_ROWS " + rows);
     }
 
@@ -214,10 +245,21 @@ public class GLCoreBlockProcessing extends GLContext implements AutoCloseable {
             GLES30.glFinish();
             timing.pending = timing.lap();
         }
+        // P713: the post's last pass recorded for drawing beside the tiles (GLDeferredDraw): the streamed JPEG's path, or drawn here
+        // in full before any other path reads its texture
+        final GLDeferredDraw deferred = GLDeferredDraw.pending();
+        if (deferred != null || streamedWanted(outW, outH, rgbaSink)) {
+            final Bitmap streamed = drawBlocksStreamed(timing, deferred);
+            if (deferred != null) deferred.release();
+            if (sinkTook) return null;
+            if (streamed != null) return streamed;
+            timing.reset();
+        }
         if (tenBit) return drawBlocksToBitmap1010102(timing);
         if (!rgba8Output())
             throw new IllegalStateException("bitmap readback needs an RGBA8 output, not " + outFormat.mFormat + "x" + outFormat.mChannels);
-        requireTileBuffer();
+        if (GLDrawParams.TILE_ROWS != builtTileRows)
+            throw new IllegalStateException("tile target made for " + builtTileRows + " rows, TILE_ROWS " + GLDrawParams.TILE_ROWS);
         String path = "tiles";
         if (pboReadbackWanted(outW, outH)) {
             final Bitmap direct = drawBlocksToBitmapPbo(timing);
@@ -243,6 +285,7 @@ public class GLCoreBlockProcessing extends GLContext implements AutoCloseable {
             timing.reset();
             path = "tiles (after the pixel-pack ring failed)";
         }
+        requireTileBuffer();
         final Bitmap dst = Bitmap.createBitmap(outW, outH, Bitmap.Config.ARGB_8888);
         try (TileBlitter blitter = new TileBlitter(dst, stripRows())) {
             glBindFramebuffer(GL_FRAMEBUFFER, tileFramebuffer[0]);
@@ -592,6 +635,177 @@ public class GLCoreBlockProcessing extends GLContext implements AutoCloseable {
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
             drainGlErrors(); // the fallback starts clean
         }
+    }
+
+    /**
+     * P713 (speed): scam_dev jpeg_stream_tiles (on): the streamed JPEG's frame read back tile by tile through a ring of pixel-pack
+     * buffers into one buffer, each tile's rows handed to the encoder (RgbaSink.stream) as soon as they are copied, so the encode
+     * of the first strips runs while the GPU draws the later tiles - and the post's last pass with them (GLDeferredDraw). Up to
+     * {@link #STREAM_MAX_PIXELS}, 8-bit, not in post_ab's old model or its read-back A/B; 0: the paths as before.
+     */
+    public static boolean streamedWanted(int width, int height, RgbaSink sink) {
+        if (sink == null || width <= 0 || height <= 0 || (long) width * height > STREAM_MAX_PIXELS) return false;
+        if (PostGlMode.legacy() || PostGlMode.tileReadback()) return false;
+        try {
+            return PreferenceKeys.scamDevSwitch("jpeg_stream_tiles", true);
+        } catch (RuntimeException | LinkageError e) {
+            return false;
+        }
+    }
+
+    /** P713: the largest frame streamed into the encoder (a 50 MP one: its 200 MB frame buffer instead of the ring's bitmap). */
+    static final long STREAM_MAX_PIXELS = 64_000_000L;
+
+    /**
+     * P713: {@link #streamedWanted}'s path. The deferred last pass ({@code deferred}, may be null) draws the lines each tile reads
+     * right before the tile; the tile goes into buffer k % ring of the ring and is copied into the frame once the next ring - 1
+     * tiles are queued (GLDeferredDraw / ringSteps), then the sink's stream gets the rows. Returns null with {@link #sinkTook} set
+     * when the sink took the frame, a bitmap of the frame when it declined at its end, and null otherwise (a GL call failed, a
+     * buffer was lost, the frame did not fit): the caller reads the tiles again by another path (the deferred pass drawn in full).
+     */
+    private Bitmap drawBlocksStreamed(OutputTiming timing, GLDeferredDraw deferred) {
+        sinkTook = false;
+        final RgbaSink sink = rgbaSink;
+        final boolean wanted = !tenBit && rgba8Output() && streamedWanted(outW, outH, sink);
+        final int[] mapping = deferred != null ? deferred.tileMapping() : null;
+        if (!wanted || mapping == null) {
+            if (deferred != null) deferred.drawAll();
+            if (!wanted) return null;
+        }
+        final long frameBytes = (long) outW * outH * 4;
+        final long tileBytes = (long) outW * GLDrawParams.TILE_ROWS * 4;
+        if (frameBytes > Integer.MAX_VALUE || tileBytes > Integer.MAX_VALUE) {
+            if (deferred != null) deferred.drawAll();
+            return null;
+        }
+        ByteBuffer frame = null;
+        RowStream stream = null;
+        final java.util.ArrayList<int[]> tileList = new java.util.ArrayList<>();
+        final GLBlockDivider divider = new GLBlockDivider(outH, GLDrawParams.TILE_ROWS);
+        for (int[] t = new int[2]; divider.nextBlock(t); ) tileList.add(t.clone());
+        // a tile is copied once the next one is queued (the GPU busy with it meanwhile); 3 without a deferred pass, as the ring path
+        final int ring = Math.min(deferred != null ? 2 : 3, Math.max(1, tileList.size()));
+        final int[] pbo = new int[ring];
+        boolean mapped = false;
+        boolean done = false;
+        drainGlErrors();
+        try {
+            try {
+                frame = com.scamera.app.util.Allocator.allocate((int) frameBytes);
+            } catch (RuntimeException | OutOfMemoryError e) {
+                frame = null;
+            }
+            if (frame == null) {
+                if (deferred != null) deferred.drawAll();
+                return null;
+            }
+            frame.order(java.nio.ByteOrder.nativeOrder());
+            stream = sink.stream(frame, outW, outH);
+            if (stream == null) {
+                if (deferred != null) deferred.drawAll();
+                return null;
+            }
+            GLES30.glGenBuffers(ring, pbo, 0);
+            for (int b : pbo) if (b == 0) return failStreamed(deferred);
+            for (int b : pbo) {
+                GLES30.glBindBuffer(GLES30.GL_PIXEL_PACK_BUFFER, b);
+                GLES30.glBufferData(GLES30.GL_PIXEL_PACK_BUFFER, (int) tileBytes, null, GLES30.GL_STREAM_READ);
+            }
+            if (glGetError() != GL_NO_ERROR) return failStreamed(deferred);
+            glBindFramebuffer(GL_FRAMEBUFFER, tileFramebuffer[0]);
+            final boolean invalidate = PostGlMode.invalidate();
+            final int[] colour = {GLES30.GL_COLOR_ATTACHMENT0};
+            for (int[] step : ringSteps(tileList.size(), ring)) {
+                final int[] tile = tileList.get(step[0]);
+                final int bytes = outW * tile[1] * 4;
+                if (step[1] == 0) {
+                    if (deferred != null && mapping != null) {
+                        final int[] lines = GLDeferredDraw.sourceLines(mapping[0], mapping[1] != 0, tile[0], tile[0] + tile[1],
+                                mapping[2], mapping[3], mapping[4]);
+                        deferred.lines(lines[2] != 0, lines[0], lines[1]);
+                    }
+                    GLES30.glBindBuffer(GLES30.GL_PIXEL_PACK_BUFFER, pbo[step[0] % ring]);
+                    if (invalidate) GLES30.glInvalidateFramebuffer(GLES30.GL_FRAMEBUFFER, 1, colour, 0);
+                    glViewport(0, 0, outW, tile[1]);
+                    program.setVar("yOffset", tile[0]);
+                    program.draw();
+                    timing.rendered();
+                    GLES30.glReadPixels(0, 0, outW, tile[1], outFormat.getGLFormatExternal(), outFormat.getGLType(), 0);
+                    GpuPace.block(); // P668: a submission per tile on the paced post
+                    timing.readBack();
+                    timing.tiles++;
+                    continue;
+                }
+                GLES30.glBindBuffer(GLES30.GL_PIXEL_PACK_BUFFER, pbo[step[0] % ring]);
+                final Buffer view = GLES30.glMapBufferRange(GLES30.GL_PIXEL_PACK_BUFFER, 0, bytes, GLES30.GL_MAP_READ_BIT);
+                mapped = view != null;
+                if (!(view instanceof ByteBuffer) || view.capacity() < bytes || glGetError() != GL_NO_ERROR) return failStreamed(deferred);
+                timing.readBack(); // the map waits for the GPU's copy of this tile
+                final ByteBuffer src = (ByteBuffer) view;
+                src.clear();
+                src.limit(bytes);
+                final ByteBuffer dst = frame.duplicate();
+                dst.clear();
+                dst.position((int) pboOffset(tile[0], outW));
+                dst.put(src);
+                mapped = false;
+                // false: the buffer's contents were lost while it was mapped: the rows copied are not used
+                if (!GLES30.glUnmapBuffer(GLES30.GL_PIXEL_PACK_BUFFER)) {
+                    Log.w(TAG, "final readback: a streamed tile's buffer was lost while mapped, the tiles are read again");
+                    return failStreamed(deferred);
+                }
+                timing.copied();
+                stream.ready(tile[0] + tile[1]);
+            }
+            if (glGetError() != GL_NO_ERROR) return failStreamed(deferred);
+            if (deferred != null) {
+                deferred.drawAll(); // lines no tile read (none: every output row reads the frame) - the texture stays complete
+                Log.i("SCAM_PIPELINE", "final output: " + deferred.describe());
+            }
+            GLES30.glBindBuffer(GLES30.GL_PIXEL_PACK_BUFFER, 0);
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            done = true;
+            final RowStream finishing = stream;
+            stream = null;
+            if (finishing.finish()) {
+                sinkTook = true;
+                tileBuffer = null;
+                timing.log("pbo ring -> jpeg streamed", outW, outH);
+                return null;
+            }
+            // the sink declined at its end: the bitmap of the same frame
+            final Bitmap out = Bitmap.createBitmap(outW, outH, Bitmap.Config.ARGB_8888);
+            frame.clear();
+            if (!JpegliEncoder.copyPixels(frame, out)) out.copyPixelsFromBuffer(frame);
+            tileBuffer = null;
+            timing.log("pbo ring -> bitmap (the streamed JPEG declined)", outW, outH);
+            return out;
+        } catch (RuntimeException | OutOfMemoryError e) {
+            Log.w(TAG, "final readback streamed into the JPEG failed (" + e + "), the tiles are read again");
+            if (!done) return failStreamed(deferred);
+            return null;
+        } finally {
+            if (stream != null) stream.abort();
+            if (mapped) GLES30.glUnmapBuffer(GLES30.GL_PIXEL_PACK_BUFFER);
+            GLES30.glBindBuffer(GLES30.GL_PIXEL_PACK_BUFFER, 0);
+            if (pbo[0] != 0) GLES30.glDeleteBuffers(ring, pbo, 0);
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            if (frame != null) com.scamera.app.util.Allocator.free(frame);
+            drainGlErrors(); // the fallback starts clean
+        }
+    }
+
+    /** P713: a failed streamed readback: the deferred pass drawn in full for the path that reads the tiles again. */
+    private static Bitmap failStreamed(GLDeferredDraw deferred) {
+        if (deferred != null) {
+            try {
+                deferred.drawAll();
+            } catch (RuntimeException e) {
+                Log.w(TAG, "the deferred last pass could not be drawn in full: " + e);
+                throw e;
+            }
+        }
+        return null;
     }
 
     /**

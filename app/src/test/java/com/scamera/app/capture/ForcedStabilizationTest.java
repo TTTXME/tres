@@ -32,12 +32,11 @@ public class ForcedStabilizationTest {
     /** P54c: the AE restore frame leaves the viewfinder only on the forced phone, with the RAW stream in the repeating request. */
     @Test
     public void aeRestoreFrameSkipsTheViewfinderOnlyWhenSafe() {
-        assertTrue(ForcedStabilization.dropViewfinder(true, true, true, false));
-        assertFalse(ForcedStabilization.dropViewfinder(false, true, true, false));
-        assertFalse(ForcedStabilization.dropViewfinder(true, false, true, false));
+        assertTrue(ForcedStabilization.dropViewfinder(true, true, true));
+        assertFalse(ForcedStabilization.dropViewfinder(false, true, true));
+        assertFalse(ForcedStabilization.dropViewfinder(true, false, true));
         // Without the RAW stream the frame would have no target left.
-        assertFalse(ForcedStabilization.dropViewfinder(true, true, false, false));
-        assertFalse(ForcedStabilization.dropViewfinder(true, true, true, true));
+        assertFalse(ForcedStabilization.dropViewfinder(true, true, false));
     }
 
     /** Test that OIS is detected correctly for both Qualcomm [0, 1] and MediaTek/Vivo [1] HALs. */
@@ -52,7 +51,7 @@ public class ForcedStabilizationTest {
 
     /**
      * P54d's photo-mode stabilisation is for vivo only: on the Xiaomi 13 Ultra and the OPPO Find X9 Ultra (2026-10-10) a photo
-     * session with it (and its session parameters) stalled or killed the HAL. Video keeps ON everywhere. (Build.BRAND is not
+     * session with it (and its session parameters) stalled or killed the HAL; EIS Photo off: none. (Build.BRAND is not
      * vivo in the unit tests.)
      */
     @Test
@@ -60,9 +59,8 @@ public class ForcedStabilizationTest {
         android.hardware.camera2.CameraCharacteristics chars = org.mockito.Mockito.mock(android.hardware.camera2.CameraCharacteristics.class);
         org.mockito.Mockito.when(chars.get(android.hardware.camera2.CameraCharacteristics.CONTROL_AVAILABLE_VIDEO_STABILIZATION_MODES))
                 .thenReturn(new int[]{0, 1, 2});
-        assertFalse(CaptureController.vivoBrand());
-        assertEquals(0, CaptureController.getPreferredVideoStabilizationMode(chars, false, true));
-        assertEquals(1, CaptureController.getPreferredVideoStabilizationMode(chars, true, true));
-        assertEquals(0, CaptureController.getPreferredVideoStabilizationMode(chars, true, false));
+        assertFalse(OisSupport.vivoBrand());
+        assertEquals(0, CaptureController.getPreferredVideoStabilizationMode(chars, true));
+        assertEquals(0, CaptureController.getPreferredVideoStabilizationMode(chars, false));
     }
 }

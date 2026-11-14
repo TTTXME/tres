@@ -64,10 +64,10 @@ public final class ForcedStabilization {
     /**
      * P54c: whether a manual preview-side frame drops the viewfinder target: only under the forced stabilisation, with the
      * switch on, when the repeating request carries the RAW stream (the frame keeps a target and still delivers its RAW to
-     * the ring as before) and not while recording.
+     * the ring as before).
      */
-    static boolean dropViewfinder(boolean forced, boolean rawOnlySwitch, boolean rawInRepeating, boolean recording) {
-        return forced && rawOnlySwitch && rawInRepeating && !recording;
+    static boolean dropViewfinder(boolean forced, boolean rawOnlySwitch, boolean rawInRepeating) {
+        return forced && rawOnlySwitch && rawInRepeating;
     }
 
     /** The flush decision of a shot: a wanted flush is skipped under the forced stabilisation. */

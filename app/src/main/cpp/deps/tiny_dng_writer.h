@@ -529,6 +529,9 @@ private:
 #include <iostream>
 #include <sstream>
 #include <limits>
+#include <array>
+#include <thread>
+#include <vector>
 
 // Undef if you want to use builtin function for clz
 #if 0
@@ -1075,6 +1078,145 @@ void writeBody(lje *self) {
   self->encodedWritten = w;
 }
 
+// P704 (DNG save speed): the encoder's two passes for the common call - no delinearize table, the image one contiguous tile
+// (skipLength 0; DngCreator's mosaic as 2W x H/2) - with the same predictor 6, the same histogram, Huffman table and bit
+// stream, byte for byte (tools/check_dng_lj92.cpp against the passes above). The histogram is integer counts summed over
+// row bands on up to 4 threads; the body packs each sample's Huffman code and value bits (at most 32) into a 64-bit
+// accumulator instead of bit by bit, and grows its buffer when needed (the 3 bytes per sample above could be overrun by 16-bit
+// data: up to 4 bytes plus the 0xFF stuffing per sample).
+static inline int lj92Ssss(int diff, int bitdepth) {
+  const int half = 1 << (bitdepth - 1);
+  const unsigned full_mask = (1U << bitdepth) - 1U;
+  diff = (int)(((unsigned)diff + (unsigned)half) & full_mask) - half;
+  return diff == 0 ? 0 : (32 - __builtin_clz((unsigned)abs(diff)));
+}
+static inline int lj92Predict(const uint16_t *cur, const uint16_t *prev, int col, int bitdepth) {
+  if (!prev) return col == 0 ? 1 << (bitdepth - 1) : cur[col - 1];
+  if (col == 0) return prev[0];
+  return prev[col] + ((cur[col - 1] - prev[col - 1]) >> 1);
+}
+static int frequencyScanRows(const lje *self, int row0, int row1, int *hist) {
+  const int width = self->width, bitdepth = self->bitdepth, maxval = 1 << bitdepth;
+  for (int row = row0; row < row1; ++row) {
+    const uint16_t *cur = self->image + (size_t)row * width;
+    const uint16_t *prev = row > 0 ? cur - width : nullptr;
+    for (int col = 0; col < width; ++col) {
+      if (cur[col] >= maxval) return LJ92_ERROR_TOO_WIDE;
+      hist[lj92Ssss(cur[col] - lj92Predict(cur, prev, col, bitdepth), bitdepth)]++;
+    }
+  }
+  return LJ92_ERROR_NONE;
+}
+static int frequencyScanFast(lje *self) {
+  const int height = self->height;
+  int threads = (int)std::min(4u, std::max(1u, std::thread::hardware_concurrency()));
+  if ((size_t)self->width * height < ((size_t)1 << 20)) threads = 1;
+  std::vector<std::array<int, 18>> hists((size_t)threads, std::array<int, 18>{});
+  std::vector<int> errors((size_t)threads, LJ92_ERROR_NONE);
+  std::vector<std::thread> pool;
+  auto band = [&](int t) {
+    errors[(size_t)t] = frequencyScanRows(self, (int)((int64_t)height * t / threads), (int)((int64_t)height * (t + 1) / threads),
+                                          hists[(size_t)t].data());
+  };
+  for (int t = 1; t < threads; ++t) {
+    try { pool.emplace_back(band, t); } catch (...) { break; }
+  }
+  // (a band whose thread could not start runs here)
+  for (int t = (int)pool.size() + 1; t < threads; ++t) band(t);
+  band(0);
+  for (auto &th : pool) th.join();
+  for (int t = 0; t < threads; ++t) {
+    if (errors[(size_t)t] != LJ92_ERROR_NONE) return errors[(size_t)t];
+    for (int i = 0; i < 18; ++i) self->hist[i] += hists[(size_t)t][(size_t)i];
+  }
+  return LJ92_ERROR_NONE;
+}
+static bool writeBodyFast(lje *self) {
+  const int width = self->width, height = self->height, bitdepth = self->bitdepth;
+  uint32_t code[17];
+  int length[17];
+  for (int ssss = 0; ssss < 17; ++ssss) {
+    const int index = self->huffsym[ssss];
+    code[ssss] = self->huffenc[index];
+    length[ssss] = self->huffbits[index];
+  }
+  // the exact bit count from the histogram; the stuffing bytes (one per 0xFF) come on top: grown when they are many
+  uint64_t bits = 0;
+  for (int ssss = 0; ssss < 17; ++ssss) bits += (uint64_t)self->hist[ssss] * (uint64_t)(length[ssss] + ssss);
+  size_t capacity = (size_t)self->encodedWritten + (size_t)(bits / 8) + (size_t)(bits / 8 / 128) + 4096;
+  if (capacity > (size_t)self->encodedLength) {
+    uint8_t *grown = (uint8_t *)realloc(self->encoded, capacity);
+    if (!grown) return false;
+    self->encoded = grown;
+    self->encodedLength = (int)std::min<size_t>(capacity, (size_t)INT32_MAX);
+  }
+  uint8_t *out = self->encoded;
+  size_t w = (size_t)self->encodedWritten, cap = (size_t)self->encodedLength;
+  uint64_t acc = 0;
+  int nacc = 0; // bits in acc not yet written (below 32 between samples; a sample adds at most 32)
+  const int half = 1 << (bitdepth - 1);
+  const unsigned full_mask = (1U << bitdepth) - 1U;
+  for (int row = 0; row < height; ++row) {
+    const uint16_t *cur = self->image + (size_t)row * width;
+    const uint16_t *prev = row > 0 ? cur - width : nullptr;
+    if (cap - w < (size_t)width * 10 + 16) { // (a row's worst case: 32 bits a sample, every byte stuffed)
+      const size_t want = std::max(cap + cap / 2, w + (size_t)width * 10 + 16);
+      if (want > (size_t)INT32_MAX) return false;
+      uint8_t *grown = (uint8_t *)realloc(self->encoded, want);
+      if (!grown) return false;
+      self->encoded = out = grown;
+      cap = want;
+    }
+    // (the predictor of row 0 and column 0 apart: the rest of the row without a branch per sample)
+    auto put = [&](int col, int predicted) {
+      int diff = cur[col] - predicted;
+      diff = (int)(((unsigned)diff + (unsigned)half) & full_mask) - half;
+      const int ssss = diff == 0 ? 0 : (32 - __builtin_clz((unsigned)abs(diff)));
+      const int vt = ssss > 0 ? (1 << (ssss - 1)) : 0;
+      if (diff < vt) diff += (1 << ssss) - 1;
+      const int len = length[ssss] + ssss;
+      acc = (acc << len) | ((uint64_t)code[ssss] << ssss) | ((uint64_t)(unsigned)diff & ((1ull << ssss) - 1));
+      nacc += len;
+      if (nacc >= 32) { // four whole bytes: stored at once unless one of them is 0xFF (stuffed one by one)
+        nacc -= 32;
+        const uint32_t word = (uint32_t)(acc >> nacc);
+        const bool anyFF = ((word & 0xffu) == 0xffu) || ((word & 0xff00u) == 0xff00u) || ((word & 0xff0000u) == 0xff0000u)
+                           || ((word & 0xff000000u) == 0xff000000u);
+        if (!anyFF) {
+          out[w] = (uint8_t)(word >> 24); out[w + 1] = (uint8_t)(word >> 16); out[w + 2] = (uint8_t)(word >> 8); out[w + 3] = (uint8_t)word;
+          w += 4;
+        } else {
+          for (int k = 24; k >= 0; k -= 8) {
+            const uint8_t byte = (uint8_t)(word >> k);
+            out[w++] = byte;
+            if (byte == 0xff) out[w++] = 0x0;
+          }
+        }
+      }
+    };
+    put(0, prev ? prev[0] : 1 << (bitdepth - 1));
+    if (prev) {
+      for (int col = 1; col < width; ++col) put(col, prev[col] + ((cur[col - 1] - prev[col - 1]) >> 1));
+    } else {
+      for (int col = 1; col < width; ++col) put(col, cur[col - 1]);
+    }
+  }
+  while (nacc >= 8) { // the whole bytes left
+    nacc -= 8;
+    const uint8_t byte = (uint8_t)(acc >> nacc);
+    out[w++] = byte;
+    if (byte == 0xff) out[w++] = 0x0;
+  }
+  if (nacc > 0) { // the final bits, padded with zeros
+    const uint8_t byte = (uint8_t)(acc << (8 - nacc));
+    out[w++] = byte;
+    if (byte == 0xff) out[w++] = 0x0;
+  }
+  self->encodedLength = (int)cap;
+  self->encodedWritten = (int)w;
+  return true;
+}
+
 /* Encoder
  * Read tile from an image and encode in one shot
  * Return the encoded data
@@ -1094,14 +1236,18 @@ int lj92_encode(uint16_t *image, int width, int height, int bitdepth,
   self->skipLength = skipLength;
   self->delinearize = delinearize;
   self->delinearizeLength = delinearizeLength;
-  self->encodedLength = width * height * 3 + 200;
+  // P704: the common call (no delinearize table, one contiguous tile) takes the fast passes above; its buffer starts at the
+  // header's size and is sized from the histogram (no 3 bytes per sample reserved up front)
+  const bool fast = delinearize == NULL && skipLength == 0 && width > 0 && height > 0 && bitdepth >= 2 && bitdepth <= 16
+                    && getenv("SCAM_LJ92_REFERENCE") == NULL;
+  self->encodedLength = fast ? 4096 : width * height * 3 + 200;
   self->encoded = (uint8_t*)malloc(self->encodedLength);
   if (self->encoded == NULL) {
     free(self);
     return LJ92_ERROR_NO_MEMORY;
   }
   // Scan through data to gather frequencies of ssss prefixes
-  ret = frequencyScan(self);
+  ret = fast ? frequencyScanFast(self) : frequencyScan(self);
   if (ret != LJ92_ERROR_NONE) {
     free(self->encoded);
     free(self);
@@ -1112,7 +1258,15 @@ int lj92_encode(uint16_t *image, int width, int height, int bitdepth,
   // Write JPEG head and scan header
   writeHeader(self);
   // Scan through and do the compression
-  writeBody(self);
+  if (fast) {
+    if (!writeBodyFast(self)) {
+      free(self->encoded);
+      free(self);
+      return LJ92_ERROR_NO_MEMORY;
+    }
+  } else {
+    writeBody(self);
+  }
   // Finish
   writePost(self);
 #ifdef DEBUG

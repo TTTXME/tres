@@ -41,6 +41,63 @@ public class VivoSdkFullResCaptureTest {
         verifyProfile("3", new VivoSdkFullRes.Profile(512, 512, 4, 2), 4, 2, true);
     }
 
+    /**
+     * P710 (X300 Ultra 2026-11-14: the tele's 200 MP stills asked at ISO 12800 came at the mode's 800, x0.06 of the plan): no still
+     * above the full-size mode's gain - the shutter takes the rest, up to 0.5 s for an automatic exposure.
+     */
+    @Test public void theStillsAskNoMoreGainThanTheFullSizeModeGives() throws Exception {
+        final String cameraId = "5";
+        CameraDevice device = mock(CameraDevice.class);
+        CameraCaptureSession session = mock(CameraCaptureSession.class);
+        List<CaptureRequest> requests = new ArrayList<>();
+        when(device.createCaptureRequest(anyInt())).thenAnswer(call -> {
+            Class<?> metadata = Class.forName("android.hardware.camera2.impl.CameraMetadataNative");
+            return CaptureRequest.Builder.class.getConstructor(metadata, boolean.class, int.class, String.class, java.util.Set.class)
+                    .newInstance(metadata.getConstructor().newInstance(), false, -1, cameraId, null);
+        });
+        when(session.capture(any(), any(), any())).thenAnswer(call -> {
+            requests.add(call.getArgument(0));
+            return requests.size();
+        });
+        Class<?> nativeMetadata = Class.forName("android.hardware.camera2.impl.CameraMetadataNative");
+        CaptureRequest preview = CaptureRequest.Builder.class
+                .getConstructor(nativeMetadata, boolean.class, int.class, String.class, java.util.Set.class)
+                .newInstance(nativeMetadata.getConstructor().newInstance(), false, -1, cameraId, null).build();
+        VivoSdkFullResCapture capture = new VivoSdkFullResCapture(device, session, mock(VivoSdkRawSession.class), mock(Surface.class),
+                null, mock(ImageSaver.class), new Handler(Looper.getMainLooper()), () -> 10L, 90, 1, 10, 3,
+                new VivoSdkFullRes.Profile(512, 512, 4, 2), preview, java.util.Collections.emptyList(),
+                new VivoSdkFullResCapture.Listener() {
+                    public void started() { }
+                    public void result(int index, TotalCaptureResult result) { }
+                    public void complete(ScamCaptureSequence sequence, HashMap<Long, Double> exposures) { }
+                    public void failed(String reason) { fail(reason); }
+                }, null, 3);
+        capture.manualNormals(76_923_077L, 12800);
+        capture.ultrashortLast(9_615_385L, 12800);
+        capture.isoCap(VivoSdkFullResCapture.stillIsoCap(true, new android.util.Range<>(50, 800), Integer.MAX_VALUE),
+                VivoSdkFullResCapture.stillShutterCeiling(false, 25_406_733_039L));
+        capture.start();
+        assertEquals(3, requests.size());
+        for (int i = 0; i < 2; i++) {
+            assertEquals(Integer.valueOf(800), requests.get(i).get(CaptureRequest.SENSOR_SENSITIVITY));
+            assertEquals(Long.valueOf(500_000_000L), requests.get(i).get(CaptureRequest.SENSOR_EXPOSURE_TIME));
+        }
+        assertEquals(Integer.valueOf(800), requests.get(2).get(CaptureRequest.SENSOR_SENSITIVITY));
+        assertEquals(Long.valueOf(153_846_160L), requests.get(2).get(CaptureRequest.SENSOR_EXPOSURE_TIME));
+        capture.cancel();
+    }
+
+    @Test public void theFullSizeCapIsTheLearnedOneAndTheX300StillOnlyDeclaredTop() {
+        assertEquals(1600, VivoSdkFullResCapture.stillIsoCap(false, new android.util.Range<>(50, 1600), 1600));
+        assertEquals(Integer.MAX_VALUE, VivoSdkFullResCapture.stillIsoCap(false, new android.util.Range<>(50, 800), Integer.MAX_VALUE));
+        assertEquals(800, VivoSdkFullResCapture.stillIsoCap(true, new android.util.Range<>(50, 800), Integer.MAX_VALUE));
+        assertEquals(600, VivoSdkFullResCapture.stillIsoCap(true, new android.util.Range<>(50, 800), 600));
+        assertEquals(800, VivoSdkFullResCapture.stillIsoCap(true, null, 800));
+        assertEquals(500_000_000L, VivoSdkFullResCapture.stillShutterCeiling(false, 25_406_733_039L));
+        assertEquals(25_406_733_039L, VivoSdkFullResCapture.stillShutterCeiling(true, 25_406_733_039L));
+        assertEquals(201_349_441L, VivoSdkFullResCapture.stillShutterCeiling(false, 201_349_441L));
+    }
+
     @Test public void nativeRawOnlyRejectsBayerPixelsInsteadOfCallingThemQuad() throws Exception {
         verifyProfile("3", new VivoSdkFullRes.Profile(512, 512, 4, 2), 1, 1);
     }

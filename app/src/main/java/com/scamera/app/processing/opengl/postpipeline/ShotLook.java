@@ -27,6 +27,8 @@ public final class ShotLook {
     public final boolean portraitSensorWindowUnknown;
     /** P614: «Why тон» V2 chosen at the press (PreferenceKeys.whyToneV2). */
     public final boolean toneV2;
+    /** P718: the «Стиль» tone preset at the press (PhotoStyle, PreferenceKeys.photoStyle; V2's tone takes it). */
+    public final int toneStyle;
     /**
      * P630: the «Oldstyle» mode at the press - its tone version, settings and style (null: another mode, the
      * «Why тон» of {@link #toneV2}).
@@ -71,7 +73,8 @@ public final class ShotLook {
         this.colour = colour;
         portraitEnabled = PreferenceKeys.isPortraitEnabled();
         portraitSkinWarmth = PreferenceKeys.isPortraitSkinWarmthEnabled();
-        toneV2 = PreferenceKeys.whyToneV2();
+        toneV2 = PreferenceKeys.whyToneV2Effective();
+        toneStyle = PreferenceKeys.photoStyle();
         oldstyle = Oldstyle.now();
         portraitSensorWindowUnknown = portraitEnabled && (
                 com.scamera.app.capture.IszCapturePolicy.mosaicModule(com.scamera.app.settings.ModuleRegistry.active())
@@ -89,6 +92,7 @@ public final class ShotLook {
     public String toString() {
         // P380: the whole recipe (a diffusion or the couplers changed meanwhile shows too)
         return "film " + (film == null ? "none" : film.recipe()) + ", LUT " + (lut.isEmpty() ? "none" : lut + " " + lutStrength)
-                + (oldstyle != null ? ", " + oldstyle : "");
+                + (oldstyle != null ? ", " + oldstyle : "")
+                + (toneStyle != com.scamera.app.settings.PhotoStyle.NORMAL ? ", style " + com.scamera.app.settings.PhotoStyle.id(toneStyle) : "");
     }
 }

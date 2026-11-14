@@ -103,18 +103,6 @@
                     app:layout_constraintEnd_toEndOf="@id/texture"/>
         </androidx.constraintlayout.widget.ConstraintLayout>
 
-        <!-- a series' progress ring; SIMPLE_UI §1 keeps one ring only (round the gallery card), this one stays hidden -->
-        <ProgressBar
-                android:id="@+id/series_ring"
-                style="@style/Widget.AppCompat.ProgressBar.Horizontal"
-                android:layout_width="@dimen/capture_progress_circle_size"
-                android:layout_height="@dimen/capture_progress_circle_size"
-                android:layout_gravity="center"
-                android:indeterminate="false"
-                android:max="100"
-                android:progressDrawable="@drawable/circular_progress_bar"
-                android:visibility="gone"/>
-
         <!-- the self-timer's seconds, large, in the middle -->
         <TextView
                 android:id="@+id/self_timer_count"

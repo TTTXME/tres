@@ -1,6 +1,43 @@
 # SCAMERA changes
 
-English copy of CHANGELOG.md (the Russian file is the one posted to Telegram), from 2026-11-09 on.
+English copy of CHANGELOG.md, from 2026-11-09 on; the build post carries both, section for section (same date, same place).
+
+## 2026-11-14 (night) — Settings modes
+
+- Settings modes: «Simple» (45 main settings, the rest tuned for the phone), «Custom» (you choose what is shown) and «Advanced» (as before).
+- An animated wizard on a fresh install; an update stays on «Advanced», nothing disappears.
+- Hidden settings keep their values and search finds them; a «Reset to recommended» banner when they were changed.
+- «Photo style»: Vivid (brighter shadows, richer colour) / Normal / Neutral (gentler contrast, calmer colour) presets with thumbnails, all on Why tone V2; with the B&W filter a shot takes V1; «Sharpness» works with V2 too.
+
+## 2026-11-14 (night) — Speed and battery
+
+- The final downscale ran twice: fixed, plus a separable resize — up to ~8x less GPU work in that step.
+- Ultra HDR / HDR HEIC without an extra GL context and frame copy (up to −200 MB at 50 MP); the merge lost 5,700 lines of dead code and follows the real cores.
+- A lighter viewfinder: a short shader without filters, no depth buffer, no needless wakeups; sensors off the main thread.
+- The screen times out after 3 min without touches (never during a shot); on phones above 8 GB a touch asks for the top refresh rate.
+- The live RAW viewfinder can be turned on on any phone; «Size» shows only the resolution (12.5 / 50 / 200 MP).
+
+## 2026-11-14 (night) — Gallery
+
+- RAWs without a processing record (older DNGs, other apps' DNGs) develop from their own DNG tags and the camera's current settings.
+- Move and copy photos into folders: «To folder» in the selection, the menu and the viewer; RAW+JPEG pairs move together.
+- Detailed photo properties in sections (file, camera, SCAMERA processing, RAW, location); long press copies a value.
+- A feed button in the full-screen viewer: opens the grid at the current photo.
+- Our DNGs preview without dark corners, smoother grid, memory by the phone's class.
+
+## 2026-11-14 (night) — 50 and 200 MP, LOFIC
+
+- X300 Ultra: 200 MP on the main and 2.4x cameras uses the camera's remosaic; no lost presses.
+- X300 Ultra: 50 MP on the ultra wide merges every frame that fits in memory; the notice names the real reason.
+- Xiaomi 17 Ultra: DCG+LOFIC in «Photo» runs two RAW streams, no black viewfinder; 4:3 without root is tried, else 16:10.
+- Find X9 Ultra: 50 MP is tried again — first with the ISP stream on the working sensor modes (main 13/12/5, UW 5/9, 3x 8/15/39, 10x 25/0); after a crash 50 MP turns off, «Try again» restarts the camera.
+- X300 Ultra: 200 and 50 MP no longer ask for ISO above the mode — the shutter makes up the rest; no camera restarts during a 50/200 MP merge.
+- Pixel and others with drifting exposure: «Fast» merges frames down to −0.5 EV from the base — noticeably less noise.
+
+## 2026-11-14 (night) — YUV merge
+
+- MediaTek: YUV shots no longer blown out or smeared — frames are decoded through the camera's sRGB.
+- YUV shadows closer to stock, denoise follows the lifted shadows; no oversaturation.
 
 ## 2026-11-14 (evening) — Speed and memory
 

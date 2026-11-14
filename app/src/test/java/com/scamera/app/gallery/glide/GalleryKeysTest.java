@@ -38,5 +38,7 @@ public class GalleryKeysTest {
         ImageFile b = new ImageFile(1, (Uri) null, "IMG_1.avif", 5_000L, 200, "content://media/1");
         assertNotEquals(GalleryKeys.of(a), GalleryKeys.of(b));
         assertEquals(GalleryKeys.key("", "IMG_1.avif", 5_000L, 100), "IMG_1.avif|5000|100");
+        // P706: a DNG's key names the render that shades it (the thumbnails cached before P706 are made again)
+        assertEquals("IMG_1.DNG|5000|100|lsc", GalleryKeys.key("", "IMG_1.DNG", 5_000L, 100));
     }
 }

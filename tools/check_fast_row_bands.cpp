@@ -4,7 +4,8 @@
 //  - fastMergeGpuBytes holds the merge's own count of its GPU objects (on the host every buffer is counted: no hardware buffers)
 //    from above, within 10 %: Bayer and Tetra, the highlight path on and off, one pass and row strips;
 //  - the plan: a merge within its share of MemAvailable stays whole; above it, bands whose estimate plus the frame's outputs fit
-//    the budget; a budget the smallest bands miss leaves the oldest donors out first;
+//    the budget; a budget the smallest bands miss leaves out the frame whose drop lowers their need the most (P699: never a donor
+//    that costs a band nothing - the X300 Ultra's 50 MP lost 4 of 5 N for no byte - one short frame at a time);
 //  - hybridFastRoute in row bands (forced, and by a small MemAvailable) against the whole frame's merge: the same frame pick, white
 //    balance and highlight path in every band (their log lines), every finite pixel, PSNR >= 48 dB over the frame and in the seams'
 //    rows, no step at a seam (the rows across it differ no more than the rows beside it), the clip flags / highlight mask rows equal
@@ -128,6 +129,23 @@ static void plan() {
     setenv("SCAM_FM_MEMAVAIL_MB", "60", 1);
     p = fastRowPlan(b.in, t, 1, false, false, true);
     expect(p.bands && (p.keepDonors >= 0 || p.dropShorts || !p.fits), "plan: a budget the smallest bands miss: frames left out (or said so)");
+    // P699: the smallest bands fit with every donor once the short frame is out: the donors (no row strips: no cost) all stay
+    {
+        const int most = std::max(2, b.h / kFastRowMinCore), core = ((b.h + most - 1) / most + kFastRowStep - 1) / kFastRowStep * kFastRowStep;
+        const int rows = std::min(b.h, core + 2 * kFastBandMargin);
+        const uint64_t noShort = fastMergeBytes(fastShapeOf(b.in, t, 1, rows, 2, 0, true, false, true)),
+                       withShort = fastMergeBytes(fastShapeOf(b.in, t, 1, rows, 2, 1, true, false, true)),
+                       noDonor = fastMergeBytes(fastShapeOf(b.in, t, 1, rows, 0, 1, true, false, true));
+        expect(noDonor == withShort && noShort < withShort, "plan: without row strips a donor costs a band nothing, a short frame does");
+        const uint64_t fixed = p.fixed;
+        const int mb = int(double(fixed + noShort) / kFastMemBands / (1 << 20)) + 2;
+        setenv("SCAM_FM_MEMAVAIL_MB", std::to_string(mb).c_str(), 1);
+        p = fastRowPlan(b.in, t, 1, false, false, true);
+        const bool shortMisses = double(fixed + withShort) > kFastMemBands * double(uint64_t(mb) << 20);
+        expect(!shortMisses || (p.bands && p.fits && p.keepDonors < 0 && p.dropShorts && p.keepShorts == 0),
+               "plan: " + std::to_string(mb) + " MB: the short frame out, every donor kept (keepDonors " + std::to_string(p.keepDonors)
+               + ", keepShorts " + std::to_string(p.keepShorts) + ")");
+    }
     unsetenv("SCAM_FM_MEMAVAIL_MB");
 }
 

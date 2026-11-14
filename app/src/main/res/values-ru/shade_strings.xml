@@ -214,9 +214,9 @@
     <string name="shade_title_style">Стиль снимка</string>
     <string name="shade_t_mirror">Селфи</string>
     <string-array name="shade_l_style">
+        <item>Насыщенный</item>
         <item>Обычный</item>
-        <item>Ч/б</item>
-        <item>Плёнка</item>
+        <item>Нейтральный</item>
     </string-array>
     <string-array name="shade_l_mirror">
         <item>Зеркало</item>

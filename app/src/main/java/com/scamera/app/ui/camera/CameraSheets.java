@@ -447,12 +447,14 @@ public final class CameraSheets {
         card.setBackground(SettingsStyle.shape(c, ROW, 0, UiScale.dpF(c, 24) / c.getResources().getDisplayMetrics().density));
         card.setClipToOutline(true);
         card.setTag("size_sheet");
+        // P705 (owner, 2026-11-14: «в разделе размер убери текст и оставь только разрешение 12 MP/50 MP/200MP и тд»): a row is
+        // named by its resolution alone, as the top row's badge; what the size gives stays in its long press
         String[][] rows = {
                 // P319: the lens's own normal size, not a fixed «12»
-                {Lang.t(c, "Обычный · ", "Normal · ") + (normalSize != null ? normalSize : PhotoSize.normalBadge()), Lang.t(c, "Быстро и немного места. Подходит почти всегда", "Fast and small. Fits nearly always")},
+                {normalSize != null ? normalSize : PhotoSize.normalBadge(), Lang.t(c, "Обычный размер: быстро и немного места. Подходит почти всегда", "The normal size: fast and small. Fits nearly always")},
                 // P608: the lens's own full size (the nubia tele's «64 Мп»)
-                {Lang.t(c, "Подробный · ", "Detailed · ") + PhotoSize.fullName(), Lang.t(c, "Больше деталей при хорошем свете. Снимок дольше", "More detail in good light. A slower shot")},
-                {Lang.t(c, "Максимум · 200 Мп", "Maximum · 200 MP"), Lang.t(c, "Для печати и кадрирования", "For prints and cropping")}};
+                {PhotoSize.fullName(), Lang.t(c, "Подробный размер: больше деталей при хорошем свете. Снимок дольше", "The detailed size: more detail in good light. A slower shot")},
+                {PhotoSize.label(PhotoSize.MAX), Lang.t(c, "Максимальный размер: для печати и кадрирования", "The maximum size: for prints and cropping")}};
         int[] sizes = {PhotoSize.NORMAL, PhotoSize.FULL, PhotoSize.MAX};
         int accent = ShadeStyle.accent(c);
         for (int i = 0; i < 3; i++) {

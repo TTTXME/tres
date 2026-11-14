@@ -79,6 +79,8 @@ precision highp int;
 #define FILM_LUT 0
 // P154 «Мягкость засветов»: blown light lands smoothly on the white point, the path to white goes up (WhyCombine sets 1)
 #define HL_LANDING 0
+// P713: WhyHl on a coarse grid with a margin (why/hlmask.glsl DECIMATE 1): hlGridU maps the frame's uv into it (WhyCombine sets 1)
+#define HL_COARSE 0
 // P216: real Bento headroom above WhyAe's capped clip (WhyCombine sets 1 when WhyAe's hr > 0; 0 = the shader before P216)
 #define HEADROOM_WIDE 0
 // P623 HL_MEASURED 1 (owner, 2026-11-11, the sun on «Быстрый»: «на сцене с солнцем у нас есть обводка на солнце, а у V2 нет»): the
@@ -384,6 +386,9 @@ uniform ivec2 vpSizeU;              // P365: the viewport's size (the tone size)
 #if HL_LANDING == 1
 uniform float hlSoftU;              // P154 highlight landing: where it starts below the data ceiling (fraction, 0 = off)
 uniform sampler2D WhyHl;            // P154: the blurred share of the ceiling (why/hlmask.glsl), whyLow size, linear filter
+#if HL_COARSE == 1
+uniform vec4 hlGridU;               // P713: uv * xy + zw = the uv in WhyHl (its coarse grid's margin outside the frame)
+#endif
 #if HL_OPPOSED == 1
 uniform sampler2D OppShare;         // P378: the nearness of a light «Inpaint opposed» rebuilt (scamhdr/suncore.glsl MODE 2, 3, 1),
                                     // linear; .g that light's gate (1: its glow lands on white)
@@ -2664,7 +2669,11 @@ void main() {
 #endif
 #if HL_LANDING == 1
     if (headroomU != 0 && hlSoftU > 0.0) {
+#if HL_COARSE == 1
+        float rBlur = texture(WhyHl, (vec2(xy) + 0.5) / vec2(size) * hlGridU.xy + hlGridU.zw).r;
+#else
         float rBlur = texture(WhyHl, (vec2(xy) + 0.5) / vec2(size)).r;
+#endif
 #if SKY == 1
         // P378 (L4): less glow of the landing in the clear sky - the blurred share spread the brightest clouds' landing over their
         // darker neighbours (near a low ceiling, no Bento: a soft white veil, the bases lifted towards the tops); there the landing

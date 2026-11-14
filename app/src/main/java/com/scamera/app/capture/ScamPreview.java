@@ -14,7 +14,7 @@ public final class ScamPreview {
     // libvivo.vaf.system.so) would choose among several modes 0..13 using
     // stock-app-internal UI/session inputs (captureType, uiMode, AI scene
     // score...) that a third-party app cannot supply; that classifier is
-    // ported (scam-scene-selector.h, verified against 10000 native cases)
+    // ported (scam-scene-selector.h, verified against 10000 native cases; removed in P704, unused)
     // but not wired to a live input source. Per explicit user direction
     // (2026-09-22: a maximally-close port, not a required byte-identical
     // live classifier), this always requests the SCAM bracket (mode 9) rather

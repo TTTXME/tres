@@ -6,12 +6,16 @@ import com.scamera.app.processing.opengl.GLInterface;
 import org.junit.Test;
 import org.mockito.InOrder;
 
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 /**
  * processing-hdr-context-leak: RunHDRGainMap gave the gain-map pass a context of its own and dropped runPass()'s; close() closed
@@ -66,5 +70,30 @@ public class PostPipelineTeardownTest {
         order.verify(run).makeCurrent();
         order.verify(run).close();
         assertNull(pipeline.glIface);
+    }
+
+    /** The gain map on Run's own context: no second context, and close() closes Run's once. */
+    @Test public void gainMapReusesTheRunContext() {
+        final GLCoreBlockProcessing run = mock(GLCoreBlockProcessing.class);
+        when(run.makeCurrentReset()).thenReturn(true);
+        final PostPipeline pipeline = new PostPipeline();
+        final GLInterface iface = new GLInterface(run);
+        pipeline.glIface = iface;
+        assertTrue(pipeline.reuseRunContext());
+        assertSame(iface, pipeline.glIface);
+        verify(run, times(0)).close();
+        pipeline.close();
+        verify(run, times(1)).close();
+        assertNull(pipeline.glIface);
+    }
+
+    /** A context EGL refuses (or none) is not reused: the caller makes the gain map's own. */
+    @Test public void aRefusedRunContextIsNotReused() {
+        final GLCoreBlockProcessing run = mock(GLCoreBlockProcessing.class);
+        when(run.makeCurrentReset()).thenReturn(false);
+        final PostPipeline pipeline = new PostPipeline();
+        pipeline.glIface = new GLInterface(run);
+        assertFalse(pipeline.reuseRunContext());
+        assertFalse(new PostPipeline().reuseRunContext());
     }
 }

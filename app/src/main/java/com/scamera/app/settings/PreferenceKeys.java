@@ -4,7 +4,6 @@ import android.app.Activity;
 import android.content.Context;
 import android.content.res.Resources;
 import com.scamera.app.R;
-import com.scamera.app.api.CameraMode;
 import com.scamera.app.app.ScameraApp;
 import com.scamera.app.util.Log;
 import java.util.Arrays;
@@ -104,7 +103,6 @@ public class PreferenceKeys {
         s.setInitial(SCOPE_GLOBAL, Key.KEY_ULTRAHDR, res.getBoolean(R.bool.pref_ultrahdr_default));
         s.setInitial(SCOPE_GLOBAL, Key.KEY_AE_MODE, res.getString(R.string.pref_ae_mode_default));
         s.setInitial(SCOPE_GLOBAL, Key.CAMERA_MODE, res.getString(R.string.pref_camera_mode_default));
-        s.setInitial(SCOPE_GLOBAL, Key.KEY_VIDEO_RESOLUTION, res.getString(R.string.pref_video_resolution_default));
         for (Key zero : new Key[]{Key.KEY_FPS_PREVIEW, Key.KEY_COUNTDOWN_TIMER, Key.KEY_BRACKETING_MODE})
             s.setInitial(SCOPE_GLOBAL, zero, 0);
         s.setInitial(SCOPE_GLOBAL, Key.KEY_AE_METERING_STD, -1);
@@ -352,6 +350,14 @@ public class PreferenceKeys {
     public static String getRawLscMode() { return settings.getString(SCOPE_GLOBAL, "pref_raw_lsc_mode", "auto"); }
     /** P134 «Плёночный LUT»: the .cube file in Download/SCAMERA/LUT ("" = none). */
     public static String filmLut() { return settings.getString(SCOPE_GLOBAL, com.scamera.app.processing.color.FilmLut.KEY, ""); }
+    /** P718: the «Стиль» tone preset (PhotoStyle: NORMAL when unset or the settings are not ready). */
+    public static int photoStyle() {
+        try {
+            return PhotoStyle.of(settings.getString(SCOPE_GLOBAL, PhotoStyle.KEY, ""));
+        } catch (RuntimeException notReady) {
+            return PhotoStyle.NORMAL;
+        }
+    }
     /** P134: the strength of the film LUT, 0..1 (default 1). */
     public static float filmLutStrength() {
         try {
@@ -828,6 +834,21 @@ public class PreferenceKeys {
         // keeps the rejection as before (worker fastNightMotion, default 1; its strength 0..1); "hybrid_fast_night_motion 0" = before
         final float nightMotion = hybridValue("fast_night_motion", 1f);
         if (nightMotion != 1f) out.append("fastNightMotion ").append(Math.max(0f, Math.min(1f, nightMotion))).append('\n');
+        // P712 (owner, 2026-11-14: «Ускорением обработки и работы занимайся углублённо»): the fast route's faster GPU programs with
+        // the same output - the output pass's Quad filters on a shared-memory tile (worker fmOutTile), the Quad / Tetra guide from
+        // its cells' values made once (fmGuideCells), the Quad lattice's sums on shared memory and its medians by a network
+        // (fmLatticeTiled), one GPU context through the row bands of a large merge (fmKeepContext), the chroma median's box pairs in
+        // one pass each (fmChromaFused); each default 1, "hybrid_fm_out_tile 0" / "hybrid_fm_guide_cells 0" /
+        // "hybrid_fm_lattice_tiled 0" / "hybrid_fm_keep_context 0" / "hybrid_fm_chroma_fused 0" = as before (A/B)
+        if (hybridValue("fm_out_tile", 1f) == 0f) out.append("fmOutTile 0\n");
+        if (hybridValue("fm_guide_cells", 1f) == 0f) out.append("fmGuideCells 0\n");
+        if (hybridValue("fm_lattice_tiled", 1f) == 0f) out.append("fmLatticeTiled 0\n");
+        if (hybridValue("fm_keep_context", 1f) == 0f) out.append("fmKeepContext 0\n");
+        if (hybridValue("fm_chroma_fused", 1f) == 0f) out.append("fmChromaFused 0\n");
+        // P712: where the fast merge's readback (bit 1) and RAW upload ring (bit 2) live: hardware buffers (3, the default) or the
+        // driver's own storage - an A/B of the output pass's / the unpack's GPU time ("hybrid_fm_ahb 0..3")
+        final float ahb = hybridValue("fm_ahb", 3f);
+        if (ahb != 3f) out.append("fmAhb ").append(Math.round(Math.max(0f, Math.min(3f, ahb)))).append('\n');
         // P607 «Качество»: an ultrashort frame the GPU homography refused for too few inliers starts its registration from that
         // homography (worker usWeakHom 1), and the Bento blend flags a colour at the ultrashort clip where the frames holding half
         // its weight are clipped (usClipVote 1); "hybrid_us_weak_hom 0" / "hybrid_us_clip_vote 0" = before
@@ -1031,6 +1052,12 @@ public class PreferenceKeys {
      * was) or "v2" (the reference tone ported one to one: WhyV2Stats / WhyV2Fusion / WhyV2Tone).
      */
     public static boolean whyToneV2() { return "v2".equals(hybridString("tone_version", "v1")); }
+    /** P718: «Чёрно-белый» (pref_scam_hybrid_colour_mono) is V1's: with it on a shot and the live tone take V1, as a film does. */
+    public static boolean monoFilter() {
+        return java.util.Arrays.asList(com.scamera.app.processing.color.ColourLook.MONO).indexOf(hybridString("colour_mono", "off")) > 0;
+    }
+    /** P718: the «Why тон» version a shot or the live tone runs: V2 when chosen, unless the black-and-white filter is on. */
+    public static boolean whyToneV2Effective() { return whyToneV2() && !monoFilter(); }
     /**
      * P474: «Режим обработки» (pref_scam_hybrid_processing): "fast" (default) or "quality" (the full merge). P627 (owner,
      * 2026-11-11): every mode stays the mode chosen - no route hands a shot to another (moving frames, Quad / Tetra / DCG, GPU
@@ -1104,7 +1131,8 @@ public class PreferenceKeys {
     /** Normal-exposure N frames taken from the ZSL ring: SCAM HDR 4..50; on a hybrid shot the hybrid's own count. */
     public static int getScamZslFrames() { return Math.round(routeInternalValue("zsl_frames", 4f)); }
 
-    private static long scamDevStamp = -1, scamDevChecked;
+    private static long scamDevStamp = -1;
+    private static volatile long scamDevChecked;
     private static java.util.Map<String, Float> scamDevValues = java.util.Collections.emptyMap();
     /**
      * Developer overrides for the SCAM internal values: "key value" lines in Download/SCAMERA/scam_dev.txt (P191;
@@ -1171,7 +1199,7 @@ public class PreferenceKeys {
             refreshScamDev();
             return;
         }
-        if (System.nanoTime() - scamDevChecked <= 2_000_000_000L || !scamDevLoading.compareAndSet(false, true)) return;
+        if (System.nanoTime() - scamDevChecked <= scamDevPeriodNs || !scamDevLoading.compareAndSet(false, true)) return;
         try {
             SCAM_DEV_IO.execute(() -> {
                 try {
@@ -1183,6 +1211,26 @@ public class PreferenceKeys {
         } catch (RuntimeException e) {
             scamDevLoading.set(false);
         }
+    }
+
+    /**
+     * P705: how often the background refresh looks for the file: {@link #SCAM_DEV_PERIOD_NS} while there is one,
+     * {@link #SCAM_DEV_ABSENT_PERIOD_NS} while there was none at the last look. Every look without the file asked the storage
+     * daemon (a FUSE stat) and the folder grants, and with a grant of Download/SCAMERA listed the folder through its documents
+     * provider (another process) - every 2 s while the viewfinder ran, on every phone without a scam_dev.txt. A file the app's
+     * own page writes is read at once ({@link #scamDevChanged}); one copied in from a PC is read within 10 s.
+     */
+    static final long SCAM_DEV_PERIOD_NS = 2_000_000_000L, SCAM_DEV_ABSENT_PERIOD_NS = 10_000_000_000L;
+    private static volatile long scamDevPeriodNs = SCAM_DEV_PERIOD_NS;
+
+    /** P705: the period of the next look after one that found the file ({@code found}) or none. */
+    static long scamDevPeriod(boolean found) {
+        return found ? SCAM_DEV_PERIOD_NS : SCAM_DEV_ABSENT_PERIOD_NS;
+    }
+
+    /** P705: scam_dev.txt was written by the app (ScamDevFile): the next read looks at it again. */
+    static void scamDevChanged() {
+        scamDevChecked = System.nanoTime() - SCAM_DEV_ABSENT_PERIOD_NS - 1;
     }
 
     private static synchronized void refreshScamDev() { // P319: the background refresh and a first read never interleave
@@ -1221,6 +1269,7 @@ public class PreferenceKeys {
                         } catch (NumberFormatException ignored) { }
                     }
                 }
+                scamDevPeriodNs = scamDevPeriod(text != null);
             } catch (RuntimeException ignored) { }
             scamDevStamp = stamp;
             scamDevValues = values;
@@ -1462,9 +1511,13 @@ public class PreferenceKeys {
     /** P182: FULLRES 50 MP by the sensor's hardware remosaic instead of the own (VivoSdkFullRes.PREF_HW_REMOSAIC). */
     public static boolean isFullResHwRemosaic() { return settings.getBoolean(SCOPE_GLOBAL, "pref_fullres_hw_remosaic", false); }
 
+    /**
+     * «RAW-видоискатель». P705 (owner, 2026-11-14: «разблокируй эту настройку на смартфонах на 8 ген 3 и старше. Включение
+     * настройки по желанию должно быть доступно везде»): the setting alone, on every phone; on by default only on the tier above
+     * the 8 Gen 3 (DeviceDefaults v6), a stored «on» that tier gate kept off is turned off once (DeviceDefaults.unlockRawViewfinderOnce).
+     */
     public static boolean isLiveViewfinderRawEnabled() {
-        return DeviceDefaults.rawViewfinderSoc() && settings.getBoolean(
-                SCOPE_GLOBAL, Key.KEY_LIVE_VIEWFINDER_RAW, false);
+        return settings.getBoolean(SCOPE_GLOBAL, Key.KEY_LIVE_VIEWFINDER_RAW, false);
     }
 
     /**
@@ -1552,9 +1605,10 @@ public class PreferenceKeys {
 
     public static void setAeMode(int value) { store(Key.KEY_AE_MODE, value); }
 
-    public static int getCameraModeOrdinal() { return num(Key.CAMERA_MODE); }
+    /** The camera mode's stored number (CameraMode.fromStored reads it; CameraMode.STORED is the photo mode's). */
+    public static int getStoredCameraMode() { return num(Key.CAMERA_MODE); }
 
-    public static void setCameraModeOrdinal(int value) { store(Key.CAMERA_MODE, value); }
+    public static void setStoredCameraMode(int value) { store(Key.CAMERA_MODE, value); }
 
     public static String getToneMap() { return settings.getString(SCOPE_GLOBAL, Key.TONEMAP); }
 
@@ -1565,8 +1619,6 @@ public class PreferenceKeys {
     public static boolean getBool(Key key) { return settings.getBoolean(SCOPE_GLOBAL, key); }
 
     public static float getFloat(Key key) { return settings.getFloat(SCOPE_GLOBAL, key).floatValue(); }
-
-    public static String getVideoResolution() { return settings.getString(SCOPE_GLOBAL, Key.KEY_VIDEO_RESOLUTION, "1920x1080"); }
 
     /**
      * The settings keys this class reads. The text is the stored key itself (users' settings and backups are keyed by it);
@@ -1593,7 +1645,6 @@ public class PreferenceKeys {
         KEY_AE_METERING_STD("pref_ae_metering_std_mode_key"),
         KEY_BRACKETING_MODE("pref_bracketing_mode_key"),
         KEY_COUNTDOWN_TIMER("pref_countdown_timer_key"),
-        KEY_VIDEO_RESOLUTION("pref_video_resolution_key"),
         KEY_SHOW_AF_DATA("pref_show_afdata_key"),
         KEY_SHOW_HORIZON("pref_horizon"),
         KEY_SAVE_RAW("pref_save_raw_key"),

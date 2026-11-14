@@ -190,13 +190,13 @@ final class Ettr {
 
     /**
      * Why the boost is held (null: it runs): the switch off, the own native AE or a vivo SDK session (their own exposure), the
-     * «Движение» mode (short shutters: its ceiling's request is AE off, the shot takes the ring alone), a hand-set shutter (the
+     * «Спорт» mode (short shutters: its ceiling's request is AE off, the shot takes the ring alone), a hand-set shutter (the
      * light is the shutter: a boost would only raise the ISO), the forced stabilisation (the viewfinder request keeps AE on).
      */
     @androidx.annotation.Nullable
     static String hold(boolean on, boolean nativeAe, boolean vivoSdk, boolean motion, boolean shutterByHand, boolean aeOffUnsafe) {
         return !on ? "off" : nativeAe ? "own native AE" : vivoSdk ? "vivo SDK"
-                : motion ? "the motion mode (short shutters)" : shutterByHand ? "hand-set shutter"
+                : motion ? "the Sport mode (short shutters)" : shutterByHand ? "hand-set shutter"
                 : aeOffUnsafe ? "forced stabilisation" : null;
     }
 
@@ -205,7 +205,7 @@ final class Ettr {
         switch (held) {
             case "own native AE": return "nae";
             case "vivo SDK": return "sdk";
-            case "the motion mode (short shutters)": return "mm";
+            case "the Sport mode (short shutters)": return "mm";
             case "hand-set shutter": return "man";
             case "forced stabilisation": return "stab";
             default: return held;

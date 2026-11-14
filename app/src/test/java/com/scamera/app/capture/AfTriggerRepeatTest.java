@@ -1,6 +1,7 @@
 package com.scamera.app.capture;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
@@ -53,5 +54,24 @@ public class AfTriggerRepeatTest {
         idleBeforeEveryRepeat("lockFocus", body(src, "private void lockFocus()"));
         idleBeforeEveryRepeat("releaseShotAfLock", body(src, "void releaseShotAfLock()"));
         assertTrue("a SCAM-routed shot releases its AF lock", src.contains("unlockHandler.post(CaptureController.this::releaseShotAfLock)"));
+    }
+
+    /**
+     * P707: the AF reset of a session start / a shot's end sends one repeating request (IDLE) - restore3A's keys go with it, not
+     * in a repeating request of their own that was replaced at once (and repeated the CANCEL trigger meanwhile).
+     */
+    @Test public void theAfResetSendsOneRepeatingRequest() throws Exception {
+        String src = new String(Files.readAllBytes(new File(
+                "src/main/java/com/scamera/app/capture/CaptureController.java").toPath()), StandardCharsets.UTF_8);
+        String unlock = body(src, "public void unlockFocus()").replaceAll("//[^\\n]*", "");
+        assertTrue(unlock.contains("restore3AKeys();"));
+        assertFalse("no repeating request of restore3A in the reset", unlock.contains("restore3A();"));
+        Matcher repeats = Pattern.compile("rebuildPreviewBuilder\\(\\)").matcher(unlock);
+        int n = 0;
+        while (repeats.find()) n++;
+        assertEquals("one repeating request", 1, n);
+        // the public restore3A (a tap's end, the shot's AE restore) still sends its keys at once
+        String restore = body(src, "public void restore3A()");
+        assertTrue(restore.indexOf("restore3AKeys();") < restore.indexOf("rebuildPreviewBuilder();"));
     }
 }

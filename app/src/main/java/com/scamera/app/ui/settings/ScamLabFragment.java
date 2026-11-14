@@ -128,7 +128,15 @@ public class ScamLabFragment extends ModuleConceptFragment {
     private static final Map<String, int[]> crops = new HashMap<>();
     private static final Map<String, Integer> shares = new HashMap<>();
     private static PreferenceScreen tree;
-    private static final android.util.LruCache<String, Bitmap> thumbs = new android.util.LruCache<>(24);
+    /** P705: the thumbnails' memory at most (the list shows a screenful). */
+    static final int THUMB_BYTES = 16 << 20;
+    /**
+     * The shots' list thumbnails (an eighth of the preview each). P705: bounded by their bytes, not their count - 24 of a 50 MP
+     * shot's eighth (~3 MB each) kept ~70 MB for the rest of the process after the lab was closed.
+     */
+    private static final android.util.LruCache<String, Bitmap> thumbs = new android.util.LruCache<String, Bitmap>(THUMB_BYTES) {
+        @Override protected int sizeOf(String key, Bitmap b) { return b.getAllocationByteCount(); }
+    };
     private static Bitmap shotPhoto;
     private static String shotPhotoPath;
 

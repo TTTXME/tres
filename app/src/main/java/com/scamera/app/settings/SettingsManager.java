@@ -90,6 +90,7 @@ public class SettingsManager {
         SettingsMigration.migrateMultiFrame(p);
         SettingsMigration.migrateAntibanding(p);
         DeviceDefaults.applyOnce(appContext, p);
+        DeviceDefaults.unlockRawViewfinderOnce(appContext, p); // P705
         // After the device defaults: the SCAM Hybrid's own section takes over the SCAM HDR engine choice.
         SettingsMigration.migrateScamHybrid(appContext, p);
         // The old quick buttons and favourites become the shade's tiles before their keys become obsolete.

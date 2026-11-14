@@ -219,6 +219,9 @@ public final class WhyV2Stats extends Node {
         st.factor = WhyTone.lowFactor(pipeline.shotParams);
         st.inScale = (float) Math.pow(2.0, WhyTone.value("input_ev", 0f));
         final State v2 = new State();
+        // P718: the «Стиль» preset of the press (the settings' now for a render without a shot's look) on the user's rows
+        final int style = pipeline.look != null ? pipeline.look.toneStyle : PreferenceKeys.photoStyle();
+        WhyV2Ae.applyStyle(v2.params, style);
         pipeline.whyV2 = v2;
         final Point size = passOut.size;
         GLTexture gainMap = pipeline.GainMap;
@@ -277,7 +280,7 @@ public final class WhyV2Stats extends Node {
             shim.clip = r.clip;
             st.ae = shim;
             pipeline.linearDisplayGain = r.ae;
-            Log.i("SCAM_PIPELINE", "WHY V2 stats " + r.describe() + " stride=" + stride + " samples=" + sw + "x" + sh
+            Log.i("SCAM_PIPELINE", "WHY V2 stats " + r.describe() + " style=" + com.scamera.app.settings.PhotoStyle.id(style) + " stride=" + stride + " samples=" + sw + "x" + sh
                     + " max=" + max + " bento=" + ScamHybridBurst.lastBentoApplied + " shorts=" + shorts + " noise=" + noise[0] + "/" + noise[1]
                     + " (stacked model " + pipeline.noiseS + "/" + pipeline.noiseO + ")"
                     + " ms=" + (System.currentTimeMillis() - started));

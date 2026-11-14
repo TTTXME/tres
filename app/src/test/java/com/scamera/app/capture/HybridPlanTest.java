@@ -352,6 +352,89 @@ public class HybridPlanTest {
         }
     }
 
+    /**
+     * P710 (X300 Ultra main 50 MP, owner's log 2026-11-14 ~09:30: 125 ms at ISO 4552 asked, the full-size mode gave 1600; every N
+     * came x0.351 of the plan, was taken for an ultrashort frame and the shot failed): an ISO above the learned cap of the mode
+     * goes into the shutter, the N exposure kept; the bracketed frame's gain stays within the cap.
+     */
+    @Test public void manualLongMovesAnIsoAboveTheModesCapIntoTheShutter() {
+        ExposureLimits limits = new ExposureLimits("3/8160x6128");
+        CaptureRequest q = mock(CaptureRequest.class);
+        when(q.get(CaptureRequest.CONTROL_AE_MODE)).thenReturn(CaptureRequest.CONTROL_AE_MODE_OFF);
+        when(q.get(CaptureRequest.SENSOR_SENSITIVITY)).thenReturn(4552);
+        when(q.get(CaptureRequest.SENSOR_EXPOSURE_TIME)).thenReturn(100_000_000L);
+        limits.observeManual(q, result(100_000_000L, 1600));
+        limits.observeManual(q, result(100_000_000L, 1600));
+        assertEquals(1600, limits.isoCap());
+        CameraCharacteristics c = mock(CameraCharacteristics.class);
+        when(c.get(CameraCharacteristics.SENSOR_INFO_EXPOSURE_TIME_RANGE)).thenReturn(new Range<>(34_592L, 30_000_000_000L));
+        when(c.get(CameraCharacteristics.SENSOR_INFO_SENSITIVITY_RANGE)).thenReturn(new Range<>(50, 1600));
+        HybridPlan plan = HybridPlan.manualLong(125_000_000L, 4552, 0f, c, limits, false);
+        assertEquals(1600, plan.nIso);
+        assertEquals(355_625_000L, plan.nShutterNs, 1_000L);
+        int normals = 0;
+        for (HybridPlan.Request r : plan.requests) {
+            assertTrue(plan.description, r.iso <= 1600);
+            if (r.role != ImageFrame.CaptureRole.NORMAL) continue;
+            normals++;
+            assertEquals(1600, r.iso);
+            assertEquals(355_625_000L, r.shutterNs, 1_000L);
+        }
+        assertEquals(HybridPlan.MANUAL_NORMALS, normals);
+        assertTrue(plan.description, plan.description.contains("ISO 4552 above the 1600"));
+        // within the cap: as asked
+        HybridPlan within = HybridPlan.manualLong(125_000_000L, 800, 0f, c, limits, false);
+        assertEquals(800, within.nIso);
+        assertEquals(125_000_000L, within.nShutterNs);
+    }
+
+    @Test public void anIsoAboveTheCapGoesIntoTheShutterUpToTheCeiling() {
+        assertArrayEquals(new long[]{1_230_769_232L, 800}, HybridPlan.isoOntoShutter(76_923_077L, 12800, 800, 2_000_000_000L));
+        assertArrayEquals(new long[]{500_000_000L, 800}, HybridPlan.isoOntoShutter(76_923_077L, 12800, 800, 500_000_000L));
+        assertArrayEquals(new long[]{76_923_077L, 400}, HybridPlan.isoOntoShutter(76_923_077L, 400, 800, 500_000_000L));
+        // never shorter than asked, whatever the ceiling
+        assertArrayEquals(new long[]{600_000_000L, 800}, HybridPlan.isoOntoShutter(600_000_000L, 1600, 800, 500_000_000L));
+        assertArrayEquals(new long[]{76_923_077L, 12800}, HybridPlan.isoOntoShutter(76_923_077L, 12800, Integer.MAX_VALUE, 500_000_000L));
+    }
+
+    private static CaptureResult delivered(int index, ImageFrame.CaptureRole role, long ns, int iso) {
+        CaptureResult r = result(ns, iso);
+        CaptureRequest q = request(index, role);
+        when(r.getRequest()).thenReturn(q);
+        return r;
+    }
+
+    /**
+     * P710: the same log's series after the shutter: every N still at ISO 1600 for the 4552 asked (x0.351, all alike), the two
+     * ultrashort stills as planned. The N stay N against the N delivered (no shot without a base), the ultrashort stay ultrashort.
+     */
+    @Test public void nStillsTheModeClampedAllAlikeStayN() {
+        java.util.List<HybridPlan.Request> asked = new java.util.ArrayList<>();
+        for (int i = 0; i < 6; i++) asked.add(new HybridPlan.Request(ImageFrame.CaptureRole.NORMAL, 125_000_000L, 4552, 1.0));
+        asked.add(new HybridPlan.Request(ImageFrame.CaptureRole.EXTRA_SHORT, 125_000_000L, 569, 0.125));
+        asked.add(new HybridPlan.Request(ImageFrame.CaptureRole.EXTRA_SHORT, 125_000_000L, 569, 0.125));
+        HybridPlan plan = HybridPlan.of(asked, 125_000_000L, 4552, "test");
+        java.util.List<CaptureResult> results = new java.util.ArrayList<>();
+        for (int i = 0; i < 6; i++) results.add(delivered(i, ImageFrame.CaptureRole.NORMAL, 125_000_000L, 1600));
+        results.add(delivered(6, ImageFrame.CaptureRole.EXTRA_SHORT, 125_000_000L, 569));
+        results.add(delivered(7, ImageFrame.CaptureRole.EXTRA_SHORT, 125_000_000L, 569));
+        // as before: each N alone is taken for an ultrashort frame
+        assertEquals(ImageFrame.CaptureRole.EXTRA_SHORT, plan.classify(results.get(0).getRequest(), results.get(0)));
+        HybridPlan verdict = plan.withDeliveredNormals(results);
+        assertNotSame(plan, verdict);
+        assertEquals(1600, verdict.nIso);
+        assertEquals(125_000_000L, verdict.nShutterNs);
+        for (int i = 0; i < 6; i++)
+            assertEquals(ImageFrame.CaptureRole.NORMAL, verdict.classify(results.get(i).getRequest(), results.get(i)));
+        assertEquals(ImageFrame.CaptureRole.EXTRA_SHORT, verdict.classify(results.get(6).getRequest(), results.get(6)));
+        // one N as planned: the plan holds (the other N are judged frame by frame, as before)
+        results.set(2, delivered(2, ImageFrame.CaptureRole.NORMAL, 125_000_000L, 4552));
+        assertSame(plan, plan.withDeliveredNormals(results));
+        // N that disagree among themselves: the plan holds
+        results.set(2, delivered(2, ImageFrame.CaptureRole.NORMAL, 125_000_000L, 800));
+        assertSame(plan, plan.withDeliveredNormals(results));
+    }
+
     /** P84b: a Shasta frame of a long hand-set shutter takes its light from the shutter, the gain only past the ceiling. */
     @Test public void manualShastaTakesALongerShutterFirst() {
         HybridPlan.Request r = HybridPlan.manualShasta(4_000_000_000L, 72, 2.0, 32_000_000_000L, 12800);

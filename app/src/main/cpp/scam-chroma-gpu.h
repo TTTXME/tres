@@ -139,6 +139,51 @@ void main(){
     o[i]=m;
 }
 )";
+// P712 (speed: the chroma median at 50 MP, 1.1 - 1.4 s of the X200 Ultra's shot in its 13 passes): a horizontal box and the vertical
+// box of its result (radius r <= 6) in one pass. A group of 32 x 8 outputs loads its inputs (+ r each side, clamped) into shared
+// memory, makes the horizontal means of its rows and the r rows above / below (each the old horizontal pass's value at that row:
+// the same taps, sums in the same order, the rows clamped as the vertical pass read them), then each output sums its column's 2r + 1
+// in the old vertical pass's order: kChromaGlslBox twice, bit for bit, one storage write and read a pixel less. HIGH_PASS as there.
+static const char* kChromaGlslBox2 = R"(
+layout(local_size_x=32,local_size_y=8) in;
+layout(std430,binding=4) readonly buffer In{T a[];};
+layout(std430,binding=5) writeonly buffer Out{T o[];};
+layout(std430,binding=6) readonly buffer Lf{float lum[];};
+uniform int r;
+uniform int hp;
+#define RMAX 6
+shared T tin[8+2*RMAX][32+2*RMAX];
+shared T thr[8+2*RMAX][32];
+void main(){
+    int lx=int(gl_LocalInvocationID.x),ly=int(gl_LocalInvocationID.y),tid=ly*32+lx;
+    int x0=int(gl_WorkGroupID.x)*32,y0=rowBase+int(gl_WorkGroupID.y)*8;
+    int tw=32+2*r,tr=8+2*r;
+    for(int k=tid;k<tw*tr;k+=256){
+        int ty=k/tw,tx=k-ty*tw;
+        tin[ty][tx]=a[clamp(y0-r+ty,0,size.y-1)*size.x+clamp(x0-r+tx,0,size.x-1)];
+    }
+    barrier();
+    for(int k=tid;k<32*tr;k+=256){
+        int ty=k/32,tx=k-ty*32;
+        T s=T(0.0);
+        for(int j=0;j<=2*r;j++)s+=tin[ty][tx+j];
+        thr[ty][tx]=s/float(2*r+1);
+    }
+    barrier();
+    int x=x0+lx,y=y0+ly;
+    if(x>=size.x||y>=size.y)return;
+    T s=T(0.0);
+    for(int j=0;j<=2*r;j++)s+=thr[ly+j][lx];
+    T m=s/float(2*r+1);
+    int i=y*size.x+x;
+#ifdef HIGH_PASS
+    if(hp!=0){o[i]=lum[i]-m;return;}
+#endif
+    o[i]=m;
+}
+)";
+// P712: the box pairs as one pass (kChromaGlslBox2; the same output) - 0 = two passes as before (A/B)
+inline bool& chromaBoxFused() { static bool on = true; return on; }
 // soft sign-change count of the luma high-pass (mosaicSoftSignChange, kMosaicLumaTau)
 static const char* kChromaGlslSign = R"(
 layout(local_size_x=8,local_size_y=8) in;
@@ -367,7 +412,19 @@ int phaseX(int x,int d){int p=x&3,n=(size.x-p+3)>>2;return p+4*clamp((x>>2)+d,0,
 int phaseY(int gy,int d){int p=gy&3,n=(strip.y-p+3)>>2;return rowOf(p+4*clamp((gy>>2)+d,0,n-1));}
 // P591: the median of 8 phase samples (the mean before let a moving edge in one or two of them leak into the pattern: rows of
 // 1 px lines 4 rows apart across legs, a curb, a car's sill on the burst 20261026_142159); the mean of the middle two
+#ifdef MED8_NET
+// P712: the same two middle values by a selection network (Batcher's 8-sort less the comparators that never reach places 3 and 4:
+// 17 compare-exchanges for the bubble sort's 28; checked over every 0 / 1 input): the same median
+#define CE(a,b) {float lo_=min(a,b);b=max(a,b);a=lo_;}
+float med8(float v[8]){
+    float v0=v[0],v1=v[1],v2=v[2],v3=v[3],v4=v[4],v5=v[5],v6=v[6],v7=v[7];
+    CE(v0,v1) CE(v2,v3) CE(v4,v5) CE(v6,v7) CE(v0,v2) CE(v1,v3) CE(v4,v6) CE(v5,v7) CE(v1,v2) CE(v5,v6)
+    CE(v0,v4) CE(v1,v5) CE(v2,v6) CE(v3,v7) CE(v2,v4) CE(v3,v5) CE(v3,v4)
+    return 0.5*(v3+v4);
+}
+#else
 float med8(float v[8]){for(int a=0;a<7;a++)for(int b=0;b<7-a;b++){float lo=min(v[b],v[b+1]),hi=max(v[b],v[b+1]);v[b]=lo;v[b+1]=hi;}return 0.5*(v[3]+v[4]);}
+#endif
 void main(){
     int x=int(gl_GlobalInvocationID.x),y=rowBase+int(gl_GlobalInvocationID.y);
     if(x>=size.x||y>=size.y)return;
@@ -410,6 +467,52 @@ void main(){
 #endif
 }
 )";
+// P712 (X200 Ultra, 50 MP Quad: the lattice's passes 379 - 534 ms a shot): passes 3 and 4 summed their 32 taps from the storage
+// buffer, 64 loads a pixel. Here a group loads its rows' (3: 64 columns of 4 rows, + 31) or columns' (4: 8 rows of 32 columns, + 31
+// rows) inputs into shared memory once and each output sums its 32 taps from there in the same order (dx, dy = -16 .. 15): the same
+// sums. Pass 4's clip as before. Dispatched by latticeStrip (chromaQlTiled; 0 = kQuadLatticeGlsl's passes 3 and 4).
+static const char* kQuadLatticeRowsGlsl = R"(
+layout(local_size_x=64,local_size_y=4) in;
+layout(std430,binding=0) readonly buffer Src{float src[];};
+layout(std430,binding=1) writeonly buffer Dst{float dst[];};
+shared float t[4][95];
+void main(){
+    int lx=int(gl_LocalInvocationID.x),ly=int(gl_LocalInvocationID.y);
+    int x0=int(gl_WorkGroupID.x)*64,y=rowBase+int(gl_WorkGroupID.y)*4+ly,yl=min(y,size.y-1);
+    for(int k=lx;k<95;k+=64)t[ly][k]=src[yl*size.x+clamp(x0-16+k,0,size.x-1)];
+    barrier();
+    int x=x0+lx;
+    if(x>=size.x||y>=size.y)return;
+    float m=0.0;
+    for(int k=0;k<32;k++)m+=t[ly][lx+k];
+    dst[y*size.x+x]=m;
+}
+)";
+static const char* kQuadLatticeColsGlsl = R"(
+layout(local_size_x=32,local_size_y=8) in;
+layout(std430,binding=0) readonly buffer Src{float src[];};
+layout(std430,binding=1) writeonly buffer Dst{float dst[];};
+layout(std430,binding=2) buffer Aux{float aux[];};
+uniform ivec2 strip;
+uniform float clipK;
+int rowOf(int gy){gy=clamp(gy,0,strip.y-1);return clamp(gy-strip.x,0,size.y-1);}
+shared float t[39][32];
+void main(){
+    int lx=int(gl_LocalInvocationID.x),ly=int(gl_LocalInvocationID.y);
+    int x0=int(gl_WorkGroupID.x)*32,y0=rowBase+int(gl_WorkGroupID.y)*8;
+    for(int k=ly*32+lx;k<39*32;k+=256){int r=k/32,c=k-r*32;t[r][c]=src[rowOf(strip.x+y0-16+r)*size.x+min(x0+c,size.x-1)];}
+    barrier();
+    int x=x0+lx,y=y0+ly;
+    if(x>=size.x||y>=size.y)return;
+    float m=0.0;
+    for(int k=0;k<32;k++)m+=t[ly+k][lx];
+    float sg=clipK*1.2533*m*(1.0/1024.0);
+    int i=y*size.x+x;
+    dst[i]=clamp(aux[i],-sg,sg);
+}
+)";
+// P712: the lattice's faster passes (shared-memory sums, the median network; the same output) - 0 = kQuadLatticeGlsl's (A/B)
+inline bool& chromaQlTiled() { static bool on = true; return on; }
 // P603 round 2: the Tetra motion smoothing (scam-hybrid.h hybridTetraMotionSmooth is its CPU twin: the same box and taps in the same
 // order): the coverage's 8 x 8 box sets the share; a 5 x 5 gaussian (sigma 1.5) gated by the luma's difference against k x the
 // noise at the pixel. Rows and the coverage's rows clamped to the image and to the strip (a halo row's result is not kept).
@@ -464,9 +567,12 @@ class ChromaMedianGpu {
     EGLContext context = EGL_NO_CONTEXT;
     EGLSurface surface = EGL_NO_SURFACE;
     GLuint pRatio = 0, pMedian = 0, pBoxF = 0, pBoxV2 = 0, pSign = 0, pBlend = 0, pSmooth = 0;
+    GLuint pBox2F = 0, pBox2V2 = 0; // P712: the box pairs in one pass (kChromaGlslBox2; 0 when the GPU refused them)
     GLuint pAlongRows = 0, pAlongApply = 0, pNotchRows = 0, pNotchApply = 0; // P531 (mosaicPost; built by ensurePost)
     GLuint pSmoothT = 0; // P603 round 2: the Tetra motion smoothing (mosaicPost's third pass)
     GLuint pQl[8]{}; // P571: quadLattice's passes 1..7 (built by ensureQuadLattice)
+    GLuint pQlT[8]{}; // P712: passes 3 / 4 on shared memory, 5 / 6 with the median network (built by ensureQuadLattice)
+    bool qlTriedT = false; // P712: their build tried (refused: 0, the passes as before)
     enum { kRgb, kUv, kT, kX, kL, kA, kS, kOsc, kPostA, kPostB, kPostEff, kPostT0, kPostT1, kPostCnt, kQA, kQB, kQ1, kQ2, kQ3, kQT, kSlots };
     GLuint buf[kSlots]{};
     size_t bufBytes[kSlots]{}; // P610: the bytes of each slot's storage (alloc)
@@ -480,8 +586,9 @@ class ChromaMedianGpu {
     void cleanup() noexcept {
         if (display == EGL_NO_DISPLAY) return;
         if (context != EGL_NO_CONTEXT && eglMakeCurrent(display, surface, surface, context)) {
-            for (GLuint p : {pRatio, pMedian, pBoxF, pBoxV2, pSign, pBlend, pSmooth, pAlongRows, pAlongApply, pNotchRows, pNotchApply, pSmoothT}) if (p) glDeleteProgram(p);
+            for (GLuint p : {pRatio, pMedian, pBoxF, pBoxV2, pSign, pBlend, pSmooth, pAlongRows, pAlongApply, pNotchRows, pNotchApply, pSmoothT, pBox2F, pBox2V2}) if (p) glDeleteProgram(p);
             for (GLuint p : pQl) if (p) glDeleteProgram(p);
+            for (GLuint p : pQlT) if (p) glDeleteProgram(p); // P712
             glDeleteBuffers(kSlots, buf);
             eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
         }
@@ -597,6 +704,25 @@ class ChromaMedianGpu {
         glFlush();
         glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
     }
+    // P712: run() for a program of gx x gy groups (rows in dispatches of 256 as there)
+    void runGroups(GLuint p, int gx, int gy) {
+        glUniform2i(glGetUniformLocation(p, "size"), w, h);
+        const GLint l = glGetUniformLocation(p, "rowBase");
+        for (int r = 0; r < h; r += 256) {
+            glUniform1i(l, r);
+            glDispatchCompute(GLuint((w + gx - 1) / gx), GLuint((std::min(256, h - r) + gy - 1) / gy), 1);
+        }
+        glFlush();
+        glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+    }
+    // P712: kChromaGlslBox2 (a box pair in one pass): groups of 32 x 8 outputs, rows in dispatches of 256
+    void box2(GLuint p, int in, int out, int r, int hpMode, int lum) {
+        glUseProgram(p);
+        bind(4, in); bind(5, out); bind(6, lum);
+        glUniform1i(glGetUniformLocation(p, "r"), r);
+        glUniform1i(glGetUniformLocation(p, "hp"), hpMode);
+        runGroups(p, 32, 8);
+    }
     void box(GLuint p, int in, int out, int r, int dir, int hpMode, int lum) {
         glUseProgram(p);
         bind(4, in); bind(5, out); bind(6, lum);
@@ -651,6 +777,10 @@ public:
             pSign = compile("", kChromaGlslSign);
             pBlend = compile("", kChromaGlslBlend);
             pSmooth = compile("", kChromaGlslSmooth);
+            try { // P712 (a refused program: the two passes as before)
+                pBox2F = compile("#define T float\n#define HIGH_PASS 1\n", kChromaGlslBox2);
+                pBox2V2 = compile("#define T vec2\n", kChromaGlslBox2);
+            } catch (const std::exception&) { if (pBox2F) glDeleteProgram(pBox2F); pBox2F = pBox2V2 = 0; glGetError(); }
             glGenBuffers(kSlots, buf);
             check("init");
             trimCache();
@@ -719,13 +849,16 @@ public:
     // passes, then its rows [y0, y1) read back into dst (image row y0 at dst). quadLattice's strip; the fused median bands' too.
     void latticeStrip(int W, int H, int ga, int rows, int y0, int y1, float clipK, bool relative, float* dst, double& passMs, double& readMs) {
         auto u = Clock::now();
+        const bool tiled = chromaQlTiled() && pQlT[6]; // P712
         auto pass = [&](int m, int s, int d, int a) {
-            glUseProgram(pQl[m]);
+            const GLuint p = tiled && pQlT[m] ? pQlT[m] : pQl[m];
+            glUseProgram(p);
             bind(0, s); bind(1, d); bind(2, a);
-            glUniform2i(glGetUniformLocation(pQl[m], "strip"), stripRow0, H);
-            glUniform1f(glGetUniformLocation(pQl[m], "clipK"), clipK);
-            glUniform1i(glGetUniformLocation(pQl[m], "relU"), relative ? 1 : 0);
-            run(pQl[m]);
+            glUniform2i(glGetUniformLocation(p, "strip"), stripRow0, H);
+            glUniform1f(glGetUniformLocation(p, "clipK"), clipK);
+            glUniform1i(glGetUniformLocation(p, "relU"), relative ? 1 : 0);
+            if (tiled && (m == 3 || m == 4)) runGroups(p, m == 3 ? 64 : 32, m == 3 ? 4 : 8);
+            else run(p);
         };
         w = W; h = rows; stripRow0 = ga;
         pass(1, kQA, kQ1, kQ3);   // Y -> Q1
@@ -775,8 +908,20 @@ public:
     void latticeRelease() { for (int sl : {kQA, kQB, kQ1, kQ2, kQ3, kQT}) if (bufBytes[sl] > 16) alloc(sl, 16); }
     // P610: quadLattice's programs (on the prewarm's thread when chromaPrewarm(.., true) built the context, else on first use)
     void ensureQuadLattice() {
-        if (pQl[7]) return;
-        for (int m = 1; m <= 7; ++m) pQl[m] = compile(("#define MODE " + std::to_string(m) + "\n").c_str(), kQuadLatticeGlsl);
+        if (pQl[7] && (!chromaQlTiled() || pQlT[6] || qlTriedT)) return;
+        if (!pQl[7]) for (int m = 1; m <= 7; ++m) pQl[m] = compile(("#define MODE " + std::to_string(m) + "\n").c_str(), kQuadLatticeGlsl);
+        if (chromaQlTiled() && !pQlT[6] && !qlTriedT) { // P712 (a refused program: the passes as before)
+            qlTriedT = true;
+            try {
+                pQlT[3] = compile("", kQuadLatticeRowsGlsl);
+                pQlT[4] = compile("", kQuadLatticeColsGlsl);
+                pQlT[5] = compile("#define MODE 5\n#define MED8_NET 1\n", kQuadLatticeGlsl);
+                pQlT[6] = compile("#define MODE 6\n#define MED8_NET 1\n", kQuadLatticeGlsl);
+            } catch (const std::exception&) {
+                for (GLuint& p : pQlT) { if (p) glDeleteProgram(p); p = 0; }
+                glGetError();
+            }
+        }
         check("quad lattice programs");
         trimCache();
     }
@@ -977,19 +1122,32 @@ public:
         glUniform1i(glGetUniformLocation(pMedian, "dir"), 1);
         run(pMedian);
         // luma high-pass hp = L - box(L, r1) into S; sign count into A; z = box(sc, r2) into S
-        box(pBoxF, kL, kA, r1, 0, 0, kL);
-        box(pBoxF, kA, kS, r1, 1, 1, kL);   // reads the luma for the high-pass
+        // P712: a box pair of radius <= 6 in one pass (box2: the same values; Quad r1 / r2 / r3 = 2 / 4 / 6, Tetra r1 = 4)
+        const bool fused = chromaBoxFused() && pBox2F && pBox2V2;
+        if (fused && r1 <= 6) box2(pBox2F, kL, kS, r1, 1, kL);
+        else {
+            box(pBoxF, kL, kA, r1, 0, 0, kL);
+            box(pBoxF, kA, kS, r1, 1, 1, kL);   // reads the luma for the high-pass
+        }
         glUseProgram(pSign);
         bind(4, kS); bind(5, kA); bind(6, kL);
         run(pSign);
         // (the luma binding is the input again where unused: no buffer bound for reading and writing in one dispatch)
-        box(pBoxF, kA, kL, r2, 0, 0, kA);
-        box(pBoxF, kL, kS, r2, 1, 0, kL);
+        if (fused && r2 <= 6) box2(pBox2F, kA, kS, r2, 0, kL);
+        else {
+            box(pBoxF, kA, kL, r2, 0, 0, kA);
+            box(pBoxF, kL, kS, r2, 1, 0, kL);
+        }
         // wide ratios: box(box(uv, r3), r3) into X
-        box(pBoxV2, kUv, kT, r3, 0, 0, kA);
-        box(pBoxV2, kT, kX, r3, 1, 0, kA);
-        box(pBoxV2, kX, kT, r3, 0, 0, kA);
-        box(pBoxV2, kT, kX, r3, 1, 0, kA);
+        if (fused && r3 <= 6) {
+            box2(pBox2V2, kUv, kT, r3, 0, kA);
+            box2(pBox2V2, kT, kX, r3, 0, kA);
+        } else {
+            box(pBoxV2, kUv, kT, r3, 0, 0, kA);
+            box(pBoxV2, kT, kX, r3, 1, 0, kA);
+            box(pBoxV2, kX, kT, r3, 0, 0, kA);
+            box(pBoxV2, kT, kX, r3, 1, 0, kA);
+        }
         // P306: taps d >= 2: the blend takes the medians smoothed by [1 2 1] x [1 2 1] (into T, free after the wide boxes)
         int medians = kUv;
         if (d >= 2) {

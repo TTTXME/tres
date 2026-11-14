@@ -252,13 +252,16 @@ public class LoficPairTest {
         assertEquals(0, ring.size());
     }
 
-    @Test public void theLadderStartsWithThePair() {
+    /** P700: the pair rung after the single-frame LOFIC rungs (a plain session lost every request of it, log 2026-11-14). */
+    @Test public void theLadderHasOnePairRungAfterTheSingleFrameOnes() {
         final java.util.List<XiaomiDualGain.Variant> lofic = XiaomiDualGain.ladder(XiaomiDualGain.Kind.LOFIC, 5, 5, true);
-        assertEquals("lofic-pair", lofic.get(0).id);
-        assertTrue(lofic.get(0).pair);
+        final XiaomiDualGain.Variant pair = lofic.get(3);
+        assertEquals("lofic-pair", pair.id);
+        assertTrue(pair.pair);
         assertEquals("lofic-pair {enableLofic 1, EnableHDRDCGMode 1, current_mode 5} + the overflow stream (RAW10, use case 0x8010a)",
-                lofic.get(0).toString());
-        for (int i = 1; i < lofic.size(); i++) assertFalse("the single-frame rungs follow", lofic.get(i).pair);
+                pair.toString());
+        for (int i = 0; i < lofic.size(); i++) if (i != 3) assertFalse("one pair rung only", lofic.get(i).pair);
+        for (int i = 0; i < 3; i++) assertTrue("the single-frame LOFIC rungs first", lofic.get(i).id.startsWith("lofic+"));
         for (XiaomiDualGain.Variant v : XiaomiDualGain.ladder(XiaomiDualGain.Kind.DCG, 4, 4, true)) assertFalse(v.pair);
         assertEquals(524554L, LoficPair.USE_CASE);
     }

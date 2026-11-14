@@ -5,7 +5,6 @@ import android.content.SharedPreferences;
 import android.hardware.camera2.CaptureRequest;
 
 import com.scamera.app.api.VendorTagUtils;
-import com.scamera.app.api.CameraMode;
 import com.scamera.app.app.ScameraApp;
 import com.scamera.app.settings.ModuleRegistry;
 import com.scamera.app.settings.TunableKeyManager;
@@ -54,9 +53,7 @@ public final class VivoPd2454NativeRaw {
     public static boolean active(String physicalId) {
         Context context = ScameraApp.getAppContext();
         String slot = ModuleRegistry.active();
-        CameraMode mode = ScameraApp.getSettings().mode;
-        return context != null && (mode == CameraMode.PHOTO || mode == CameraMode.MOTION || mode == CameraMode.NIGHT)
-                && ModuleRegistry.visible(slot)
+        return context != null && ModuleRegistry.visible(slot)
                 && physicalId != null && physicalId.equals(ModuleRegistry.camera(slot))
                 && eligible(VivoQcomModes.device(), context.getPackageName(), physicalId,
                 ModuleRegistry.sensorMode(slot), PixelPro10.fullResOn(), Dcg14Mode.on());

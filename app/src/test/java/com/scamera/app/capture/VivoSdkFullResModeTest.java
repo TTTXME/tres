@@ -106,8 +106,7 @@ public class VivoSdkFullResModeTest {
     }
 
     @Test public void thePhotoModeShownByTheUiActuallyOpensSdkAndUsesFutureRaw() throws Exception {
-        settings.mode = CameraMode.userModeAt(0);
-        assertEquals(CameraMode.MOTION, settings.mode);
+        settings.mode = CameraMode.PHOTO;
         prepare();
         sdk.verify(VivoSdkRawSession::open);
         assertNotNull(session());
@@ -116,19 +115,21 @@ public class VivoSdkFullResModeTest {
         assertFalse(controller.isZslMode());
     }
 
-    @Test public void videoAndRetiredUnlimitedModesNeverOpenTheSdkPhotoGraph() throws Exception {
-        for (CameraMode mode : new CameraMode[]{CameraMode.VIDEO, CameraMode.RAWVIDEO, CameraMode.UNLIMITED}) {
-            settings.mode = mode;
+    /** P702: a number an older build stored for a retired mode (5: video, 0: unlimited) is the photo mode, its SDK graph opens. */
+    @Test public void aRetiredModesStoredNumberOpensTheSdkPhotoGraph() throws Exception {
+        for (int stored : new int[]{5, 0}) {
+            settings.mode = CameraMode.fromStored(stored);
             prepare();
-            assertNull(session());
+            assertNotNull(session());
+            Method close = CaptureController.class.getDeclaredMethod("closeVivoSdkRawSession", CameraDevice.class);
+            close.setAccessible(true);
+            close.invoke(controller, new Object[]{null});
         }
-        sdk.verify(VivoSdkRawSession::open, never());
-        assertEquals(Integer.valueOf(0), provider.values.get(40));
-        assertEquals(Integer.valueOf(1), provider.values.get(33));
+        sdk.verify(VivoSdkRawSession::open, times(2));
     }
 
     @Test public void sdkPreviewKeepsVariableFpsInsteadOfTheMotionRingRate() throws Exception {
-        settings.mode = CameraMode.userModeAt(0);
+        settings.mode = CameraMode.PHOTO;
         prepare();
         android.util.Range<Integer> auto = new android.util.Range<>(15, 30);
         Field fps = CaptureController.class.getDeclaredField("FpsRangeAuto");
@@ -164,7 +165,7 @@ public class VivoSdkFullResModeTest {
             requested.set(call.getArgument(0));
             return null;
         });
-        settings.mode = CameraMode.userModeAt(0);
+        settings.mode = CameraMode.PHOTO;
         prepare();
         assertNotNull(session());
         Method refuse = CaptureController.class.getDeclaredMethod("retryWithoutVivoSdkFullRes",

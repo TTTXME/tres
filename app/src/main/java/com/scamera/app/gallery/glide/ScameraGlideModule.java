@@ -50,7 +50,10 @@ public final class ScameraGlideModule extends AppGlideModule {
         builder.setSourceExecutor(com.bumptech.glide.load.engine.executor.GlideExecutor.newSourceBuilder().setThreadFactory(DecodeBoost.factory()).build());
         builder.setDiskCacheExecutor(com.bumptech.glide.load.engine.executor.GlideExecutor.newDiskCacheBuilder().setThreadFactory(DecodeBoost.factory()).build());
         // the grid's thumbnails (~0.5 MB each at a 4-column cell) for about three screens of the full-screen size Glide counts in
-        builder.setMemorySizeCalculator(new com.bumptech.glide.load.engine.cache.MemorySizeCalculator.Builder(context).setMemoryCacheScreens(3));
+        // P706: by the phone's memory (GalleryTier: 2 / 3 / 5 screens; Glide caps it by the memory class anyway)
+        final com.scamera.app.util.RamClass ram = com.scamera.app.util.RamClass.get(context);
+        builder.setMemorySizeCalculator(new com.bumptech.glide.load.engine.cache.MemorySizeCalculator.Builder(context)
+                .setMemoryCacheScreens(GalleryTier.memoryCacheScreens(GalleryTier.of(ram.totalBytes, ram.lowRamDevice))));
     }
 
     /**

@@ -168,7 +168,6 @@ public class SettingsMovesKeepValuesTest {
                 "KEY_AE_METERING_STD", "pref_ae_metering_std_mode_key",
                 "KEY_BRACKETING_MODE", "pref_bracketing_mode_key",
                 "KEY_COUNTDOWN_TIMER", "pref_countdown_timer_key",
-                "KEY_VIDEO_RESOLUTION", "pref_video_resolution_key",
                 "KEY_SHOW_AF_DATA", "pref_show_afdata_key",
                 "KEY_SHOW_HORIZON", "pref_horizon",
                 "KEY_SAVE_RAW", "pref_save_raw_key",

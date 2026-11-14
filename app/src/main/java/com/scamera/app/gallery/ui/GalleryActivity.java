@@ -438,6 +438,8 @@ public class GalleryActivity extends BaseActivity {
             if (page instanceof ImageViewerFragment) ((ImageViewerFragment) page).handleImagesDeletedCallback(ok);
             else if (page instanceof ImageLibraryFragment) ((ImageLibraryFragment) page).handleImagesDeletedCallback(ok);
         }
+        // P697: the system's write request of a move into a folder (another app's files) answered
+        if (requestCode == com.scamera.app.gallery.files.GalleryMoveCopy.REQUEST_PERM_WRITE) MoveCopyFlow.writeAnswered(this, ok);
         // P502: a restore / delete for good of «Недавно удаленные» that went through the system's dialog
         if (requestCode == com.scamera.app.gallery.files.GalleryTrash.REQUEST_TRASH_ACTION) {
             Fragment page = page();

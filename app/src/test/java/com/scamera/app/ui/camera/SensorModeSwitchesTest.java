@@ -60,7 +60,7 @@ public class SensorModeSwitchesTest {
         PreferenceKeys.initialise(manager);
         settings = new Settings();
         settings.cameraId = "3";
-        settings.mode = CameraMode.userModeAt(0);
+        settings.mode = CameraMode.PHOTO;
         app.when(ScameraApp::getSettings).thenReturn(settings);
         preferences = mockStatic(PreferenceKeys.class, CALLS_REAL_METHODS);
         pixel = mockStatic(PixelPro10.class, CALLS_REAL_METHODS);
@@ -115,13 +115,13 @@ public class SensorModeSwitchesTest {
         fragment.showSnackBar(Dcg14Button.toggleMode(fragment));
     }
 
-    @Test public void fullResUiFromRemosaicIszSelectsBaseAndActuallyEnablesSdkInMotion() throws Exception {
+    @Test public void fullResUiFromRemosaicIszSelectsBaseAndActuallyEnablesSdkInThePhotoMode() throws Exception {
         String json = force(6);
         Dcg14Mode.setMode(Dcg14Mode.DCG);
         assertTrue(VivoSdkFullRes.offered("3"));
         assertFalse(VivoSdkFullRes.available("3"));
         toggleFullRes();
-        assertEquals(CameraMode.MOTION, settings.mode);
+        assertEquals(CameraMode.PHOTO, settings.mode);
         assertEquals("back0", ModuleRegistry.active());
         assertEquals("3", PreferenceKeys.getCameraID());
         assertTrue(PixelPro10.fullResOn());

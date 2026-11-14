@@ -58,12 +58,17 @@ public class CameraCloseOverlapTest {
     private MockedConstruction<CameraManager2> managers;
 
     private static Object get(Object o, String name) throws Exception {
+        // P707: the LOFIC readers live in their holders (LoficOverflowReader, XiaomiLoficReaders)
+        if (name.equals("mLoficReader")) return ((LoficOverflowReader) get(o, "mLoficOverflow")).reader;
+        if (name.equals("mLoficRawA")) return ((XiaomiLoficReaders) get(o, "mLofic")).rawA;
         Field f = CaptureController.class.getDeclaredField(name);
         f.setAccessible(true);
         return f.get(o);
     }
 
     private static void put(Object o, String name, Object value) throws Exception {
+        if (name.equals("mLoficReader")) { ((LoficOverflowReader) get(o, "mLoficOverflow")).reader = (ImageReader) value; return; }
+        if (name.equals("mLoficRawA")) { ((XiaomiLoficReaders) get(o, "mLofic")).rawA = (ImageReader) value; return; }
         Field f = CaptureController.class.getDeclaredField(name);
         f.setAccessible(true);
         f.set(o, value);
@@ -173,12 +178,11 @@ public class CameraCloseOverlapTest {
     }
 
     @Test public void aPauseClosesOffTheMainThreadOnlyWithoutALeaseAnSdkSessionOrAVideo() {
-        assertTrue(CaptureController.pauseCloseAsync(false, false, false, false, true));
-        assertFalse("scam_dev pause_close_async 0", CaptureController.pauseCloseAsync(false, false, false, false, false));
-        assertFalse("a vivo SDK lease (P640)", CaptureController.pauseCloseAsync(true, false, false, false, true));
-        assertFalse("a FULLRES SDK session", CaptureController.pauseCloseAsync(false, true, false, false, true));
-        assertFalse("a video", CaptureController.pauseCloseAsync(false, false, true, false, true));
-        assertFalse("closed for a FULLRES merge", CaptureController.pauseCloseAsync(false, false, false, true, true));
+        assertTrue(CaptureController.pauseCloseAsync(false, false, false, true));
+        assertFalse("scam_dev pause_close_async 0", CaptureController.pauseCloseAsync(false, false, false, false));
+        assertFalse("a vivo SDK lease (P640)", CaptureController.pauseCloseAsync(true, false, false, true));
+        assertFalse("a FULLRES SDK session", CaptureController.pauseCloseAsync(false, true, false, true));
+        assertFalse("closed for a FULLRES merge", CaptureController.pauseCloseAsync(false, false, true, true));
     }
 
     @Test public void aPauseStopsTheViewfinderRequestAndTheTextureWaitsForTheClose() throws Exception {

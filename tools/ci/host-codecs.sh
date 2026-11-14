@@ -26,6 +26,11 @@ cmake -S tools/jpeg-check -B /tmp/jpeg-check -DCMAKE_BUILD_TYPE=Release && cmake
 g++ -std=c++17 -O1 -pthread -fsanitize=address tools/check_row_copy.cpp -o /tmp/check-row-copy && /tmp/check-row-copy
 g++ -std=c++17 -O1 -fsanitize=address tools/check_dng_memory.cpp -o /tmp/check-dng-memory
 ASAN_OPTIONS=detect_leaks=0 /tmp/check-dng-memory /tmp
+# P704: the DNG writer's lossless JPEG through its fast passes is byte for byte the original passes' stream
+g++ -pthread -std=c++17 -O2 -fsanitize=address,undefined -fno-sanitize-recover=all -Iapp/src/main/cpp/deps tools/check_dng_lj92.cpp -o /tmp/check-dng-lj92
+ASAN_OPTIONS=detect_leaks=0 /tmp/check-dng-lj92
 LIBGL_ALWAYS_SOFTWARE=1 /usr/bin/python3 tools/checks/preview_gl.py
 # P662: the RAW viewfinder's copy pass is the identity where MainRenderer.directTone skips it
 LIBGL_ALWAYS_SOFTWARE=1 /usr/bin/python3 tools/checks/vf_direct_tone_gl.py
+# P705: the ISP viewfinder's plain program gives main_fs's bytes where MainRenderer.plainDraw takes it
+LIBGL_ALWAYS_SOFTWARE=1 /usr/bin/python3 tools/checks/vf_plain_gl.py

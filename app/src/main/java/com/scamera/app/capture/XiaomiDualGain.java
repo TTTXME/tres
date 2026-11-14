@@ -39,7 +39,7 @@ import java.util.Map;
  * index: 4 … capability: DCG»; results: current_mode 4, com.xiaomi.sensor.sensormode.modetype 18, dynamic black 1024 under the
  * declared 64), and its RAW_SENSOR buffer held packed MIPI RAW14 (the same payload P72 met on the 75 mm);</li>
  * <li>DCG + LOFIC is two reads on two streams in the vendor's own sessions (mivistreamformat.json LoficFormat [324, 37]: a RAW14
- * and a RAW10 stream; smartae «Lofic zsl 4ev0, 4ev-»). P641d: the ladder's first rung asks for the second stream too and merges
+ * and a RAW10 stream; smartae «Lofic zsl 4ev0, 4ev-»). P641d: one rung (P700: after the single-frame ones) asks for the second stream too and merges
  * the pair once the frames prove it ({@link LoficPair}); the other rungs take the LOFIC row's 14-bit frame alone;</li>
  * <li>EnableHDRDCGMode, HDRModePreference, numHDRexposure and com.xiaomi.sessionparams.enableLofic are listed session keys of
  * cameras 2, 3 and 4; current_mode is a result key only (a value the app sends comes back as an echo: it proves nothing).</li>
@@ -216,19 +216,23 @@ public final class XiaomiDualGain {
      * for DCG + LOFIC with enableLofic - the HAL picks its row), then with the row asked by current_mode (the selector the 4x ISZ
      * kit's authors used on this phone's 75 mm), then the list's own mode type as the key's value, then the row alone, and on the
      * main camera last the 15 Ultra's session mode 0x9203 with the row (P230; this phone's configs name the mode's family only).
-     * P641d: DCG + LOFIC starts with «lofic-pair» - the vendor's two streams (the main RAW and a RAW10 stream of use case 524554
-     * for the overflow read) with both listed keys and the row; it is proven by the depth and by the pair ({@link LoficPair}).
+     * P641d: DCG + LOFIC has «lofic-pair» - the vendor's two streams (the main RAW and a RAW10 stream of use case 524554 for the
+     * overflow read) with both listed keys and the row; it is proven by the depth and by the pair ({@link LoficPair}).
+     * P700: the pair comes after the single-frame LOFIC rungs. In a plain session (operation mode 0, no xiaomi.app.module, the
+     * recipe's TEMPLATE_RECORD missing) the HAL lost every result and buffer of it (log 2026-11-14 11:18:25, 11:24:39); the
+     * vendor's two LOFIC streams came only in the recipe's own session ({@link XiaomiLofic}, which «DCG+LOFIC» runs first), while
+     * the same plain session took the listed key and current_mode for DCG (rung «hdr+row» proven at 14 bit, 11:18:24).
      */
     static List<Variant> ladder(Kind kind, int row, int type, boolean main) {
         final List<Variant> out = new ArrayList<>();
         final boolean lofic = kind == Kind.LOFIC;
         if (lofic) {
-            out.add(new Variant("lofic-pair", 0, "the vendor's two streams: the dual-gain frame and the overflow read",
-                    K_LOFIC, 1, K_HDR_DCG, 1, K_MODE, row).paired());
             out.add(new Variant("lofic+hdr", 0, "listed session keys", K_LOFIC, 1, K_HDR_DCG, 1));
             out.add(new Variant("lofic+hdr+row", 0, "listed session keys and the vendor's row", K_LOFIC, 1, K_HDR_DCG, 1, K_MODE, row));
             if (type > 1) out.add(new Variant("lofic+type+row", 0, "the static list's mode type as the key's value",
                     K_LOFIC, 1, K_HDR_DCG, type, K_MODE, row));
+            out.add(new Variant("lofic-pair", 0, "the vendor's two streams: the dual-gain frame and the overflow read",
+                    K_LOFIC, 1, K_HDR_DCG, 1, K_MODE, row).paired());
         } else {
             out.add(new Variant("hdr", 0, "listed session key", K_HDR_DCG, 1));
             out.add(new Variant("hdr+row", 0, "listed session key and the vendor's row", K_HDR_DCG, 1, K_MODE, row));
@@ -425,6 +429,17 @@ public final class XiaomiDualGain {
         return sSession != null;
     }
 
+    /** P700: the running session's kind and rung for the screen («DCG+LOFIC 1/6»), null without a session. */
+    @Nullable
+    public static String sessionLabel() {
+        final Session s = sSession;
+        return s == null ? null : label(s.kind, s.index, s.ladderSize);
+    }
+
+    static String label(Kind kind, int index, int ladderSize) {
+        return kind.label + " " + (index + 1) + "/" + ladderSize;
+    }
+
     @Nullable
     private static String currentCamera() {
         try {
@@ -507,6 +522,12 @@ public final class XiaomiDualGain {
         return offered.get(0);
     }
 
+    /** P700: the kind this ladder runs for {@code kind}: DCG instead of LOFIC when the LOFIC rungs are out ({@code noLoficRungs}). */
+    @Nullable
+    static Kind ladderKind(@Nullable Kind kind, boolean noLoficRungs) {
+        return kind == Kind.LOFIC && noLoficRungs ? Kind.DCG : kind;
+    }
+
     /** DCG + LOFIC can be chosen on the active module's camera. */
     public static boolean loficOffered(@Nullable CameraCharacteristics c) {
         return offered(c).contains(Kind.LOFIC);
@@ -529,6 +550,15 @@ public final class XiaomiDualGain {
      */
     @Nullable
     public static String sessionStart(@Nullable String cameraId, @Nullable CameraCharacteristics c, boolean wanted) {
+        return sessionStart(cameraId, c, wanted, false);
+    }
+
+    /**
+     * P700: {@code noLoficRungs} - «DCG+LOFIC» is the two-RAW recipe's ({@link XiaomiLofic}); a session of this ladder under it
+     * (the recipe's setups gone) runs DCG, not the single-frame LOFIC rungs.
+     */
+    @Nullable
+    public static String sessionStart(@Nullable String cameraId, @Nullable CameraCharacteristics c, boolean wanted, boolean noLoficRungs) {
         sSession = null;
         com.scamera.app.processing.RawPayloadCheck.setKeepDepth(false);
         if (!wanted || cameraId == null || !enabled()) return null;
@@ -536,7 +566,7 @@ public final class XiaomiDualGain {
         final List<Kind> offered = offered(cameraId, c);
         String message = null;
         for (int step = 0; step < 2; step++) {
-            final Kind kind = kindOf(Dcg14Mode.mode(), offered);
+            final Kind kind = ladderKind(kindOf(Dcg14Mode.mode(), offered), noLoficRungs);
             if (kind == null || role == null) return message;
             final int[] modes = hdrModes(c);
             final int row = row(role, kind, SensorModeBand.table(c), forcedRow());

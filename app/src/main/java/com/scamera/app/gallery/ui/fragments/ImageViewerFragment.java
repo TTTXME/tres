@@ -406,7 +406,8 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
 
     private void buildChrome(Context c) {
         chrome = new ViewerChrome(c, new ViewerChrome.Actions() {
-            @Override public void back() { onGalleryButtonClick(); }
+            @Override public void back() { onBackArrow(); }
+            @Override public void grid() { onGalleryButtonClick(); }
             @Override public void share() { onShareButtonClick(); }
             @Override public void edit() { onEditButtonClick(); }
             @Override public void compare() { onQuickCompare(); }
@@ -418,6 +419,7 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
             @Override public void more() { onMoreClick(); }
             @Override public void openPosition(int position) { if (pagerView != null) pagerView.setCurrentItem(position, true); }
         });
+        if (secureReview()) chrome.grid.setVisibility(View.GONE); // P621: no library over the lock screen
         chrome.edit.setOnLongClickListener(v -> {
             onEditElsewhere(); // P351: the long press keeps the old «edit in another app»
             return true;
@@ -509,7 +511,7 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
         if (root != null) root.performHapticFeedback(android.view.HapticFeedbackConstants.CONTEXT_CLICK);
     }
 
-    /** P498: «Ещё» - slideshow, set as (photos), open with another app. */
+    /** P498: «Ещё» - slideshow, set as (photos), open with another app; P697: move / copy into a folder. */
     private void onMoreClick() {
         GalleryItem item = currentItem();
         if (item == null || getContext() == null || notYet(item)) return;
@@ -525,6 +527,11 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
             actions.add(new GallerySheets.Action(R.drawable.ui_ic_text, Lang.t("Текст на фото", "Text in the photo"),
                     () -> com.scamera.app.gallery.ui.TextSheet.show(c, item.mediaFile())));
         actions.add(new GallerySheets.Action(R.drawable.ui_ic_open, Lang.t("Открыть в другом приложении", "Open in another app"), () -> sendTo(item, Intent.ACTION_VIEW)));
+        // P697: the shown photo or video into a folder (a file of the library: one opened from another app has no row of its own)
+        if (item.mediaFile().rowId() >= 0)
+            for (com.scamera.app.gallery.files.GalleryMoveCopy.Mode mode : com.scamera.app.gallery.files.GalleryMoveCopy.Mode.values())
+                actions.add(new GallerySheets.Action(com.scamera.app.gallery.ui.MoveCopyFlow.icon(mode), com.scamera.app.gallery.ui.MoveCopyFlow.label(mode),
+                        () -> toFolder(item, mode)));
         // P579 (owner, 2026-11-09: «… в ней надо стиль также обновить»): the pull-down menu at the «Ещё» button (the shared menu's look);
         // the sheet of rows when the button is not on screen
         View anchor = chrome != null ? chrome.more : null;
@@ -535,6 +542,15 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
             return;
         }
         GallerySheets.showActions(c, Lang.t("Ещё", "More"), actions);
+    }
+
+    /** P697: {@code item} moved / copied into a folder; the lists are read again when the grid shows (its pending update). */
+    private void toFolder(GalleryItem item, com.scamera.app.gallery.files.GalleryMoveCopy.Mode mode) {
+        if (getActivity() == null) return;
+        final com.scamera.app.gallery.viewmodel.GalleryViewModel vm = library;
+        com.scamera.app.gallery.ui.MoveCopyFlow.start(requireActivity(), mode, Collections.singletonList(item.mediaFile()), () -> {
+            if (vm != null) vm.setUpdatePending(true);
+        });
     }
 
     private void sendTo(GalleryItem item, String action) {
@@ -763,7 +779,9 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
         pagerView.setPageTransformer(true, new DepthPageTransformer());
         // P117: every page of HEIC / WebP / AVIF / DNG is one decoded bitmap (up to 4096 px, ~50 MB): 3 kept on each side were
         // 350 MB a viewer, twice that in compare and again while a swap built the new panes (the app died on the swap button)
-        pagerView.setOffscreenPageLimit(isCompareMode() ? 1 : 2);
+        // P706: one a side on a phone of at most 4 GB (GalleryTier)
+        pagerView.setOffscreenPageLimit(com.scamera.app.gallery.glide.GalleryTier.viewerOffscreenPages(
+                com.scamera.app.gallery.glide.GalleryTier.get(), isCompareMode()));
         pagerView.addOnPageChangeListener(new ViewPager.SimpleOnPageChangeListener() {
             @Override
             public void onPageSelected(int position) {
@@ -1019,12 +1037,38 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
     private void onGalleryButtonClick() {
         if (navigation == null) return;
         // P621: a lock-screen review (REVIEW_SECURE) never shows the library: leaving the photo closes the gallery
-        if (getActivity() instanceof com.scamera.app.gallery.ui.GalleryActivity
-                && ((com.scamera.app.gallery.ui.GalleryActivity) getActivity()).secureReview()) {
+        if (secureReview()) {
             getActivity().finish();
             return;
         }
+        // P706: the grid comes back scrolled to the photo shown
+        if (library != null && pagerView != null && !photos.isEmpty() && !coverPending()) {
+            final int at = current();
+            if (at >= 0 && at < photos.size()) library.revealInGrid(photos.get(at).mediaFile());
+        }
         toGrid(navigation);
+    }
+
+    private boolean secureReview() {
+        return getActivity() instanceof com.scamera.app.gallery.ui.GalleryActivity
+                && ((com.scamera.app.gallery.ui.GalleryActivity) getActivity()).secureReview();
+    }
+
+    /**
+     * P706: the back arrow is the system's back - to the grid the viewer was opened from, else (the camera's thumbnail, another
+     * app's photo) out of the gallery to where it came from; the feed button beside it ({@link #onGalleryButtonClick}) opens the
+     * grid from anywhere.
+     */
+    private void onBackArrow() {
+        if (navigation == null || getActivity() == null) return;
+        if (backReturnsToGrid(navigation)) onGalleryButtonClick();
+        else getActivity().getOnBackPressedDispatcher().onBackPressed();
+    }
+
+    /** P706: whether back from the viewer lands on the grid (opened from it) rather than leaving the gallery. */
+    static boolean backReturnsToGrid(NavController nav) {
+        final androidx.navigation.NavBackStackEntry previous = nav.getPreviousBackStackEntry();
+        return previous != null && previous.getDestination().getId() == R.id.gallery_library;
     }
 
     /** From the viewer back to the grid: up, or to the library when the viewer is the graph's start (navigateUp does nothing there). */
@@ -1135,7 +1179,14 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
         };
         model.addOnPropertyChangedCallback(histogramCallback);
         factsModel.updateHistogramView((ImageFile) item.mediaFile());
-        GallerySheets.show(c, GallerySheets.details(c, details(item, model, pageAdapter != null && pageAdapter.isHdrAvailable(position)), histogramView));
+        final boolean ultraHdr = pageAdapter != null && pageAdapter.isHdrAvailable(position);
+        final GallerySheets.Details d = details(item, model, ultraHdr);
+        final View sheet = GallerySheets.details(c, d, histogramView);
+        final com.google.android.material.bottomsheet.BottomSheetDialog dialog = GallerySheets.show(c, sheet);
+        // P706: the file's properties by section, read off the main thread (the EXIF read here before held the tap)
+        com.scamera.app.gallery.ui.PhotoPropertiesReader.load(c, item.mediaFile(), d.width, d.height, d.format, ultraHdr, sections -> {
+            if (dialog.isShowing()) GallerySheets.fillSections(sheet, sections);
+        });
     }
 
     private GallerySheets.Details details(GalleryItem item, ExifDialogModel m, boolean ultraHdr) {
@@ -1160,14 +1211,6 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
         d.width = video ? 0 : m.getWidth();
         d.height = video ? 0 : m.getHeight();
         d.bytes = item.mediaFile().sizeBytes();
-        // P492: the rest of the EXIF (the header only: a few ms on the main thread)
-        androidx.exifinterface.media.ExifInterface exif = null;
-        if (getContext() != null && !video) try (java.io.InputStream in = requireContext().getContentResolver().openInputStream(item.mediaFile().contentUri())) {
-            if (in != null) exif = new androidx.exifinterface.media.ExifInterface(in);
-        } catch (Exception | OutOfMemoryError ignored) {
-            // no EXIF rows: the file's place only
-        }
-        d.more = com.scamera.app.gallery.ui.PhotoMore.rows(exif, item.mediaFile().filePath());
         return d;
     }
 
@@ -1353,7 +1396,11 @@ public class ImageViewerFragment extends Fragment implements ImageAdapter.HdrSta
 
     public void handleImagesDeletedCallback(boolean isDeleted) {
         if (isDeleted && deletingAt >= 0 && deletingAt < photos.size()) {
-            photos.remove(deletingAt);
+            // P706: a copy without the photo - the list is the view model's (the folder's own list when no view filter is on,
+            // shared with the grid): removing from it changed the folder under the grid before its reload
+            final List<GalleryItem> rest = new ArrayList<>(photos);
+            rest.remove(deletingAt);
+            photos = rest;
             shownPage = Math.min(deletingAt, Math.max(0, photos.size() - 1));
             if (!photos.isEmpty()) bindPhotos(photos);
             if (getContext() != null) com.scamera.app.gallery.ui.GalleryToast.show(getContext(), Lang.t("Удалено: ", "Deleted: ") + GalleryUi.shots(1));

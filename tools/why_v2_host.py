@@ -43,7 +43,7 @@ import java.io.*; import java.nio.*; import java.nio.file.*;
 public final class WhyV2AeHost {
     public static void main(String[] a) throws Exception {
         // a[0]: float32 samples file (sw*sh*3, x fastest), a[1] sw, a[2] sh, a[3] stride, a[4] ceiling, a[5] S, a[6] O,
-        // a[7] face rect "l,t,r,b" or "-", a[8] (optional) a file of Params overrides "field=value" (curveMods: 7 numbers, commas)
+        // a[7] face rect "l,t,r,b" or "-", a[8] (optional) a file of Params overrides "field=value" (curveMods: 7 numbers, commas; style=N: WhyV2Ae.applyStyle)
         ByteBuffer b = ByteBuffer.wrap(Files.readAllBytes(Paths.get(a[0]))).order(ByteOrder.LITTLE_ENDIAN);
         int sw = Integer.parseInt(a[1]), sh = Integer.parseInt(a[2]), stride = Integer.parseInt(a[3]);
         float ceiling = Float.parseFloat(a[4]);
@@ -53,6 +53,7 @@ public final class WhyV2AeHost {
         if (a.length > 8) for (String line : Files.readAllLines(Paths.get(a[8]))) {
             int eq = line.indexOf('='); if (eq < 0) continue;
             String k = line.substring(0, eq).trim(), v = line.substring(eq + 1).trim();
+            if (k.equals("style")) { WhyV2Ae.applyStyle(p, Integer.parseInt(v)); continue; }   // P718: a preset on the rows above
             java.lang.reflect.Field fl = WhyV2Ae.Params.class.getField(k);
             if (k.equals("curveMods")) { String[] m = v.split(","); for (int i = 0; i < 7; i++) p.curveMods[i] = Float.parseFloat(m[i]); }
             else if (fl.getType() == float.class) fl.setFloat(p, Float.parseFloat(v));

@@ -10,7 +10,6 @@ import androidx.lifecycle.Observer;
 
 import com.scamera.app.R;
 import com.scamera.app.api.CameraManager2;
-import com.scamera.app.api.CameraMode;
 import com.scamera.app.app.ScameraApp;
 import com.scamera.app.capture.CaptureController;
 import com.scamera.app.capture.FlashMode;
@@ -29,7 +28,7 @@ import com.scamera.app.util.Lang;
 import com.scamera.app.util.Log;
 
 /**
- * The camera screen's taps as actions: the shutter (the self-timer, a series, a video clip), the top row's toggles, the bottom
+ * The camera screen's taps as actions: the shutter (with the self-timer), the top row's toggles, the bottom
  * row's modes, the lens buttons and the front / back switch; the shade's camera controls arrive as {@link TopBarSettingsData}.
  */
 final class CameraUIController implements CameraUIEventsListener, Observer<TopBarSettingsData<?, ?>>, AuxButtonsLayout.AuxButtonListener {
@@ -67,29 +66,11 @@ final class CameraUIController implements CameraUIEventsListener, Observer<TopBa
         else if (id == R.id.flip_button) flipTapped(v);
     }
 
-    /** Photo: the self-timer (a tap while it counts stops it); a series or a video clip: started or stopped. */
+    /** The shutter: the self-timer starts (a tap while it counts stops it), the shot follows it. */
     private void shutterTapped(View button) {
         shutter = button;
-        final CaptureController camera = camera();
-        switch (ScameraApp.getSettings().mode) {
-            case UNLIMITED:
-            case RAWVIDEO:
-                final boolean seriesRuns = camera.seriesRunning;
-                if (seriesRuns) camera.stopEndlessSeries();
-                else camera.startEndlessSeries();
-                button.setActivated(seriesRuns);
-                break;
-            case VIDEO:
-                final boolean recording = camera.recordingVideo;
-                if (recording) camera.stopVideoClip();
-                else camera.startVideoClip();
-                button.setActivated(recording);
-                break;
-            default: // PHOTO, MOTION, NIGHT
-                if (button.isHovered()) stopSelfTimer();
-                else startSelfTimer();
-                break;
-        }
+        if (button.isHovered()) stopSelfTimer();
+        else startSelfTimer();
     }
 
     /**
@@ -114,7 +95,7 @@ final class CameraUIController implements CameraUIEventsListener, Observer<TopBa
 
     /**
      * P590: the flash modes (pref_ae_mode 0 torch, 1 off, 2 auto, 3 on); a tap takes the next: off, auto, on, torch, off (a
-     * lens without a flash and the video: off and torch).
+     * lens without a flash: off and torch).
      */
     private void flashTapped() {
         final int mode = FlashMode.tap();
@@ -235,13 +216,6 @@ final class CameraUIController implements CameraUIEventsListener, Observer<TopBa
 
     private void openLens(String id) {
         PreferenceKeys.setCameraID(String.valueOf(id));
-        reopenCamera();
-    }
-
-    @Override
-    public void modeChosen(CameraMode mode) {
-        Log.d(TAG, "camera mode now " + mode);
-        PreferenceKeys.setCameraModeOrdinal(mode.ordinal());
         reopenCamera();
     }
 

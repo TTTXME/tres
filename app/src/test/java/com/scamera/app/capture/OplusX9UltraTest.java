@@ -113,8 +113,15 @@ public class OplusX9UltraTest {
 
     /** What the report shows per camera, and what the native OPPO route made of it before P689. */
     @Test public void theReportsRowsAndWhatTheNativeRouteMadeOfThem() {
-        // the recipe's rows are full-size QBC rows of each table
-        assertArrayEquals(new int[]{8160, 6128, 30}, SensorModeBand.modeEntry(CAMERA_2, 13));
+        // the recipe's rows are full-size QBC rows of each table; P709: the config's main row is 6 (report line 25953), the
+        // recipe's 13 is in no config entry - the owner's working rows (2026-11-14, ISP auto) are the main's 5 / 12 / 13, all of the size
+        assertArrayEquals(new int[]{8160, 6128, 30}, SensorModeBand.modeEntry(CAMERA_2, 6));
+        for (int r : new int[]{5, 12, 13}) assertArrayEquals(new int[]{8160, 6128, 30}, SensorModeBand.modeEntry(CAMERA_2, r));
+        for (int r : new int[]{5, 9}) assertArrayEquals(new int[]{8192, 6144, 15}, SensorModeBand.modeEntry(CAMERA_3, r));
+        for (int r : new int[]{8, 15, 39}) assertArrayEquals(new int[]{8192, 6144, 30}, SensorModeBand.modeEntry(CAMERA_4, r));
+        for (int r : new int[]{0, 25}) assertArrayEquals(new int[]{8192, 6144, 15}, SensorModeBand.modeEntry(CAMERA_5, r));
+        // the tele's [0x0030][-1] = 19 (report line 26077) is no full-size row: the photo operation mode's 8 (line 26121) is
+        assertArrayEquals(new int[]{4096, 2560, 30}, SensorModeBand.modeEntry(CAMERA_4, 19));
         assertArrayEquals(new int[]{8192, 6144, 15}, SensorModeBand.modeEntry(CAMERA_3, 5));
         assertArrayEquals(new int[]{8192, 6144, 30}, SensorModeBand.modeEntry(CAMERA_4, 8));
         assertArrayEquals(new int[]{8192, 6144, 15}, SensorModeBand.modeEntry(CAMERA_5, 25));
@@ -146,6 +153,16 @@ public class OplusX9UltraTest {
         assertTrue(OplusX9Ultra.gate(OplusX9Ultra.lens("2"), true, false, CAMERA_2).contains("is.sdk.camera.package"));
         assertTrue("another firmware's table: no guess", OplusX9Ultra.gate(OplusX9Ultra.lens("2"), true, true, CAMERA_3)
                 .contains("row 13 of this firmware's table is 4096x2560, not 8160x6128"));
+        // P709: the lenses' rows, the full-size one first (owner, 2026-11-14: working with ISP auto)
+        assertArrayEquals(new int[]{13, 12, 5}, OplusX9Ultra.lens("2").rows);
+        assertArrayEquals(new int[]{5, 9}, OplusX9Ultra.lens("3").rows);
+        assertArrayEquals(new int[]{8, 15, 39}, OplusX9Ultra.lens("4").rows);
+        assertArrayEquals(new int[]{25, 0}, OplusX9Ultra.lens("5").rows);
+        assertArrayEquals(new int[]{22}, OplusX9Ultra.lens("1").rows);
+        assertArrayEquals("every row at the full size on the report's tables", new int[]{13, 12, 5}, OplusX9Ultra.usableRows(OplusX9Ultra.lens("2"), CAMERA_2));
+        assertArrayEquals(new int[]{25, 0}, OplusX9Ultra.usableRows(OplusX9Ultra.lens("5"), CAMERA_5));
+        assertArrayEquals("a row of another size is left out", new int[]{5}, OplusX9Ultra.usableRows(OplusX9Ultra.lens("3"),
+                new int[]{6, 3, 8192, 6144, 15, 4096, 3072, 30, 4096, 3072, 30, 4096, 3072, 30, 4096, 3072, 30, 8192, 6144, 15}));
     }
 
     /** The recipe per lens: sizes, format, usage, keys and their scopes, frames, the native block. */
@@ -166,6 +183,9 @@ public class OplusX9UltraTest {
             assertEquals("up to 3 frames a merge", 3, r.frames);
             assertEquals(0, r.operationMode);
             assertEquals("the front's row is not the recipe's", "1".equals(cameras[i]), r.experimental);
+            assertEquals(0, r.operationMode);
+            assertEquals(OplusX9Ultra.PHOTO_OP_MODE, FullResRecipePresets.x9Ultra(cameras[i], tables[i], FullResRecipe.Preview.RAW,
+                    OplusX9Ultra.operationMode(OplusX9Ultra.OFF_OWN_PHOTO)).operationMode);
             assertEquals(2, OplusX9Ultra.lens(cameras[i]).block);
             assertEquals(3, r.tags.size());
             final FullResRecipe.Tag pkg = r.tags.get(0), ext = r.tags.get(1), mode = r.tags.get(2);
@@ -176,15 +196,26 @@ public class OplusX9UltraTest {
         }
         assertNull("the logical camera", FullResRecipePresets.x9Ultra("0", CAMERA_2, FullResRecipe.Preview.FAKE));
         assertNull("a table with another row 13", FullResRecipePresets.x9Ultra("2", CAMERA_3, FullResRecipe.Preview.FAKE));
-        // the lens page's preset is «Поток ISP» Auto's first variant
+        // P709: a variant's row on the stills; a row not of the lens, or of another size, gives none
+        assertEquals("com.oplus.engineercamera.agingtest.mode.select=i32:12@still",
+                FullResRecipePresets.x9Ultra("2", CAMERA_2, FullResRecipe.Preview.BOTH, 0, 12).tags.get(2).toString());
+        assertEquals("com.oplus.engineercamera.agingtest.mode.select=i32:0@still",
+                FullResRecipePresets.x9Ultra("5", CAMERA_5, FullResRecipe.Preview.BOTH, 0, 0).tags.get(2).toString());
+        assertNull("row 6 is not among the owner's working rows", FullResRecipePresets.x9Ultra("2", CAMERA_2, FullResRecipe.Preview.BOTH, 0, 6));
+        assertNull(FullResRecipePresets.x9Ultra("3", new int[]{10, 3, 8192, 6144, 15, 4096, 3072, 30, 4096, 3072, 30, 4096, 3072, 30, 4096,
+                3072, 30, 8192, 6144, 15, 4096, 3072, 30, 4096, 3072, 30, 4096, 3072, 30, 4096, 3072, 30}, FullResRecipe.Preview.BOTH, 0, 9));
+        // the lens page's preset is «Поток ISP» Auto's first variant: P709, the ISP stream on (owner: his rows work with ISP auto)
         final FullResRecipe preset = FullResRecipePresets.preset(new FullResRecipePresets.Device("OPPO", "OPPO", "OP627CL1", "PMA110"), "4", CAMERA_4);
-        assertEquals(FullResRecipe.Preview.FAKE, preset.preview);
+        assertEquals(FullResRecipe.Preview.BOTH, preset.preview);
         assertEquals("OPPO Find X9 Ultra 50 MP (3x)", preset.id);
     }
 
     /** The session the engine builds: the binned RAW viewfinder, the photo RAW10 in the stills only, the keys in their scopes. */
     @Test public void theSessionOfTheRecipe() {
-        final FullResRecipePlan.Env env = new FullResRecipePlan.Env(1440, 1080, 4080, 3064, FullResRecipePlan.RAW_SENSOR, Collections.<int[]>emptyList());
+        // P709: the viewfinder's binned RAW in the capture's RAW10 (the camera lists both formats at 4080x3064)
+        final int viewFormat = FullResRecipePlan.viewfinderRawFormat(FullResRecipe.RAW10, true, true);
+        assertEquals(FullResRecipePlan.RAW10, viewFormat);
+        final FullResRecipePlan.Env env = new FullResRecipePlan.Env(1440, 1080, 4080, 3064, viewFormat, Collections.<int[]>emptyList());
         final FullResRecipePlan fake = FullResRecipePlan.of(FullResRecipePresets.x9Ultra("2", CAMERA_2, FullResRecipe.Preview.FAKE), env);
         assertNotNull(fake);
         assertTrue(fake.ispStream());
@@ -199,6 +230,8 @@ public class OplusX9UltraTest {
         assertEquals(FullResRecipePlan.RAW10, fake.captureFormat());
         assertEquals(0x3L, capture.usage);
         assertEquals("the viewfinder's RAW is the binned 4080x3064", 4080, fake.output(FullResRecipePlan.Stream.RAW_PREVIEW).width);
+        assertEquals("P709: both RAW streams RAW10, as the recipe", FullResRecipePlan.RAW10, fake.output(FullResRecipePlan.Stream.RAW_PREVIEW).format);
+        assertTrue(fake.describe("2"), fake.describe("2").contains("{raw_preview 4080x3064 fmt 0x25} {raw_capture 8160x6128 fmt 0x25 usage 0x3}"));
         assertEquals(2, fake.sessionTags().size());
         assertTrue("the mode never on the viewfinder's request", fake.requestTags(false).isEmpty());
         assertEquals(1, fake.requestTags(true).size());
@@ -226,21 +259,90 @@ public class OplusX9UltraTest {
     }
 
     /**
-     * Owner, 2026-11-14 («Для рабочего фокуса на 9 ультра наверняка нужен либо ISP off, либо ISP FAKE OFF»): «Поток ISP» Auto
-     * tries fake off first, off after it failed; a set value is the user's alone.
+     * P709: the viewfinder RAW's format beside the capture RAW - the capture's own where listed (the X9 Ultra recipe's two RAW10
+     * streams), RAW_SENSOR as before for a RAW_SENSOR capture.
      */
-    @Test public void x9UltraAutoIsFakeOffThenOff() {
-        assertArrayEquals(new int[]{OplusX9Ultra.ISP_FAKE, OplusX9Ultra.ISP_OFF}, OplusX9Ultra.ladder(OplusX9Ultra.ISP_AUTO));
-        for (int set = 1; set <= 3; set++) assertArrayEquals("the user's " + set, new int[]{set}, OplusX9Ultra.ladder(set));
-        assertEquals(FullResRecipe.Preview.FAKE, OplusX9Ultra.preview(OplusX9Ultra.ISP_FAKE));
-        assertEquals(FullResRecipe.Preview.RAW, OplusX9Ultra.preview(OplusX9Ultra.ISP_OFF));
-        assertEquals(FullResRecipe.Preview.BOTH, OplusX9Ultra.preview(OplusX9Ultra.ISP_ON));
-        final int[] auto = OplusX9Ultra.ladder(OplusX9Ultra.ISP_AUTO);
-        assertEquals(OplusX9Ultra.ISP_FAKE, OplusX9Ultra.variant(auto, Collections.<Integer>emptySet()));
-        assertEquals(OplusX9Ultra.ISP_OFF, OplusX9Ultra.variant(auto, Collections.singleton(OplusX9Ultra.ISP_FAKE)));
-        assertEquals(-1, OplusX9Ultra.variant(auto, new java.util.HashSet<>(Arrays.asList(OplusX9Ultra.ISP_FAKE, OplusX9Ultra.ISP_OFF))));
-        assertEquals("the user's fake off failed: off is not taken in its place", -1,
-                OplusX9Ultra.variant(OplusX9Ultra.ladder(OplusX9Ultra.ISP_FAKE), Collections.singleton(OplusX9Ultra.ISP_FAKE)));
+    @Test public void theViewfinderRawTakesTheCapturesFormat() {
+        assertEquals(FullResRecipePlan.RAW10, FullResRecipePlan.viewfinderRawFormat(FullResRecipe.RAW10, true, true));
+        assertEquals(FullResRecipePlan.RAW10, FullResRecipePlan.viewfinderRawFormat(FullResRecipe.RAW10, false, true));
+        assertEquals("no RAW10 listed: RAW_SENSOR", FullResRecipePlan.RAW_SENSOR, FullResRecipePlan.viewfinderRawFormat(FullResRecipe.RAW10, true, false));
+        assertEquals("a RAW_SENSOR capture as before", FullResRecipePlan.RAW_SENSOR, FullResRecipePlan.viewfinderRawFormat(FullResRecipe.RAW16, true, true));
+        assertEquals(FullResRecipePlan.RAW10, FullResRecipePlan.viewfinderRawFormat(FullResRecipe.RAW16, false, true));
+        assertEquals("none listed", 0, FullResRecipePlan.viewfinderRawFormat(FullResRecipe.RAW10, false, false));
+    }
+
+    /**
+     * Owner, 2026-11-14: P689's fake off and off both died (his log); his rows work with «Поток ISP» Auto («Основа - mode 5/12/13;
+     * Ширик - mode 5/9; 3х теле - mode 8/15/39; 10х теле - mode 0/25»). P709: Auto tries the ISP stream on with the app's package on
+     * each of the lens's rows (the full-size one first), then on the full-size row the ISP stream on under the own package, fake
+     * off, off (own), off (the app's), off (own) in the photo operation mode 0x8001 - all with two RAW10 streams; a set value runs
+     * its own «Поток ISP».
+     */
+    @Test public void x9UltraAutoLadder() {
+        final int[] main = {13, 12, 5};
+        assertArrayEquals(new int[]{13021, 12021, 5021, 13011, 13013, 13012, 13022, 13112}, OplusX9Ultra.ladder(OplusX9Ultra.ISP_AUTO, true, main));
+        assertArrayEquals("without a package spoof the app's package is the own one", new int[]{13011, 12011, 5011, 13013, 13012, 13112},
+                OplusX9Ultra.ladder(OplusX9Ultra.ISP_AUTO, false, main));
+        assertArrayEquals("the 10x: row 25 first, then row 0", new int[]{25021, 21, 25011, 25013, 25012, 25022, 25112},
+                OplusX9Ultra.ladder(OplusX9Ultra.ISP_AUTO, true, new int[]{25, 0}));
+        for (int set = 1; set <= 3; set++)
+            assertArrayEquals("the user's " + set, new int[]{8000 + OplusX9Ultra.APP + set, 15000 + OplusX9Ultra.APP + set, 39000 + OplusX9Ultra.APP + set,
+                    8000 + OplusX9Ultra.OWN + set, 8000 + OplusX9Ultra.PHOTO + OplusX9Ultra.OWN + set}, OplusX9Ultra.ladder(set, true, new int[]{8, 15, 39}));
+        assertArrayEquals(new int[]{5012, 9012, 5112}, OplusX9Ultra.ladder(OplusX9Ultra.ISP_OFF, false, new int[]{5, 9}));
+        assertEquals("no rows: no variant", 0, OplusX9Ultra.ladder(OplusX9Ultra.ISP_AUTO, true, new int[0]).length);
+        // the variants' parts
+        final int first = OplusX9Ultra.id(13, OplusX9Ultra.ON_APP);
+        assertEquals(13021, first);
+        assertEquals(13, OplusX9Ultra.row(first));
+        assertEquals(OplusX9Ultra.ISP_ON, OplusX9Ultra.isp(first));
+        assertFalse(OplusX9Ultra.ownPackage(first));
+        assertEquals(0, OplusX9Ultra.operationMode(first));
+        assertEquals(FullResRecipe.Preview.BOTH, OplusX9Ultra.preview(first));
+        assertEquals("mode 13, ISP stream on, RAW10, package spoofed", OplusX9Ultra.variantName(first));
+        final int photo = OplusX9Ultra.id(25, OplusX9Ultra.OFF_OWN_PHOTO);
+        assertEquals(25112, photo);
+        assertEquals(25, OplusX9Ultra.row(photo));
+        assertTrue(OplusX9Ultra.ownPackage(photo));
+        assertEquals(OplusX9Ultra.ISP_OFF, OplusX9Ultra.isp(photo));
+        assertEquals(0x8001, OplusX9Ultra.operationMode(photo));
+        assertEquals(FullResRecipe.Preview.RAW, OplusX9Ultra.preview(photo));
+        assertEquals("mode 25, ISP stream off, RAW10, no package spoof, session mode 0x8001 (photo)", OplusX9Ultra.variantName(photo));
+        final int row0 = OplusX9Ultra.id(0, OplusX9Ultra.FAKE_OWN);
+        assertEquals(0, OplusX9Ultra.row(row0));
+        assertEquals(FullResRecipe.Preview.FAKE, OplusX9Ultra.preview(row0));
+        assertEquals("mode 0, ISP stream fake off, RAW10, no package spoof", OplusX9Ultra.variantName(row0));
+        assertEquals("P689's variant in an older trial", "ISP stream off", OplusX9Ultra.variantName(OplusX9Ultra.ISP_OFF));
+        // the order of the trials
+        final int[] auto = OplusX9Ultra.ladder(OplusX9Ultra.ISP_AUTO, true, main);
+        final java.util.Set<Integer> failed = new java.util.HashSet<>();
+        for (int v : auto) {
+            assertEquals(v, OplusX9Ultra.variant(auto, failed));
+            failed.add(v);
+        }
+        assertEquals(-1, OplusX9Ultra.variant(auto, failed));
+        assertEquals("P689's failures (r1 ids) name none of them", 13021,
+                OplusX9Ultra.variant(auto, new java.util.HashSet<>(Arrays.asList(OplusX9Ultra.ISP_FAKE, OplusX9Ultra.ISP_OFF))));
+        assertEquals("P709: the revision of the trials moved past P689's", 2, OplusX9Ultra.TRIALS);
+    }
+
+    /**
+     * P709: a variant the camera died in (the provider restarts, the devices are gone for seconds) turns 50 MP off - the normal
+     * session reopens and the owner's next «50 Мп» runs the next variant, never a chain of dying sessions; a camera alive goes on
+     * at once while a variant is left.
+     */
+    @Test public void aDeadVariantTurnsFiftyOff() {
+        final int a = OplusX9Ultra.id(5, OplusX9Ultra.ON_OWN), b = OplusX9Ultra.id(9, OplusX9Ultra.ON_OWN);
+        assertFalse(OplusX9Ultra.fiftyStaysOn(FullResTrials.DIED, b));
+        assertFalse("none left", OplusX9Ultra.fiftyStaysOn(FullResTrials.NO_FRAME, -1));
+        assertTrue(OplusX9Ultra.fiftyStaysOn(FullResTrials.NO_FRAME, b));
+        assertTrue(OplusX9Ultra.fiftyStaysOn(FullResTrials.REFUSED, b));
+        assertEquals(FullResTrials.DIED, FullResTrials.code("camera error 4"));
+        final String died = OplusX9Ultra.message(a, b, FullResTrials.phrase(FullResTrials.DIED, false), false);
+        assertTrue(died, died.contains("50 MP is off; choose 50 MP again to try “mode 9, ISP stream on, RAW10, no package spoof”"));
+        final String alive = OplusX9Ultra.message(a, b, FullResTrials.phrase(FullResTrials.NO_FRAME, false), true);
+        assertTrue(alive, alive.contains("(no frame); trying “mode 9, ISP stream on, RAW10, no package spoof”"));
+        final String none = OplusX9Ultra.message(b, -1, FullResTrials.phrase(FullResTrials.DIED, false), false);
+        assertTrue(none, none.startsWith("FULLRES 50 MP is not available on this camera (the camera failed): every variant was tried."));
     }
 
     /** The variants' memory: per camera and firmware, under the camera's OPPO trial keys («Попробовать снова» clears it). */
@@ -248,17 +350,25 @@ public class OplusX9UltraTest {
         final String a = FullResTrials.stamp(OplusX9Ultra.TRIALS, "OPPO/CPH2841/OP627CL1:16/BP2A.250605.015/A:user/release-keys"),
                 b = FullResTrials.stamp(OplusX9Ultra.TRIALS, "OPPO/CPH2841/OP627CL1:16/BP2A.250605.015/B:user/release-keys");
         assertTrue(OplusX9Ultra.failed(prefs, "2", a).isEmpty());
-        OplusX9Ultra.noteFailed(prefs, "2", OplusX9Ultra.ISP_FAKE, "no preview frame for 3000 ms", a);
+        final int fake = OplusX9Ultra.id(13, OplusX9Ultra.FAKE_OWN), off = OplusX9Ultra.id(13, OplusX9Ultra.OFF_OWN);
+        OplusX9Ultra.noteFailed(prefs, "2", fake, "no preview frame for 3000 ms", a);
         final Map<Integer, String> failed = OplusX9Ultra.failed(prefs, "2", a);
-        assertEquals(Collections.singleton(OplusX9Ultra.ISP_FAKE), failed.keySet());
-        assertEquals(FullResTrials.NO_FRAME, failed.get(OplusX9Ultra.ISP_FAKE));
+        assertEquals(Collections.singleton(fake), failed.keySet());
+        assertEquals(FullResTrials.NO_FRAME, failed.get(fake));
         assertTrue("another camera keeps its own", OplusX9Ultra.failed(prefs, "4", a).isEmpty());
         assertTrue("a new firmware tries them again", OplusX9Ultra.failed(prefs, "2", b).isEmpty());
-        OplusX9Ultra.noteWorked(prefs, "2", OplusX9Ultra.ISP_OFF, a);
-        assertEquals(OplusX9Ultra.ISP_OFF, OplusX9Ultra.worked(prefs, "2", a));
+        OplusX9Ultra.noteWorked(prefs, "2", off, a);
+        assertEquals(off, OplusX9Ultra.worked(prefs, "2", a));
         assertEquals(-1, OplusX9Ultra.worked(prefs, "2", b));
         final String status = OplusX9Ultra.status(prefs, "2", a);
-        assertTrue(status, status.startsWith("FULLRES 50 MP: ISP stream fake off — no frame."));
+        assertTrue(status, status.startsWith("FULLRES 50 MP: mode 13, ISP stream fake off, RAW10, no package spoof — no frame."));
+        // P709: P689's failures (route revision 1) do not count under revision 2 on the same firmware
+        final String fw = "OPPO/CPH2841/OP627CL1:17/CP2A.260605.016/B:user/release-keys";
+        OplusX9Ultra.noteFailed(prefs, "3", OplusX9Ultra.ISP_FAKE, "camera error 4", FullResTrials.stamp(1, fw));
+        OplusX9Ultra.noteFailed(prefs, "3", OplusX9Ultra.ISP_OFF, "camera error 4", FullResTrials.stamp(1, fw));
+        assertEquals(2, OplusX9Ultra.failed(prefs, "3", FullResTrials.stamp(1, fw)).size());
+        assertTrue(OplusX9Ultra.failed(prefs, "3", FullResTrials.stamp(OplusX9Ultra.TRIALS, fw)).isEmpty());
+        FullResTrials.clear(prefs, OppoNativeFullRes.base("3"));
         assertTrue("the main's 200 MP is explained there too", status.contains("200 MP without root is not available"));
         assertNull("no failed variant: nothing to say", OplusX9Ultra.status(prefs, "3", a));
         assertTrue("under the camera's OPPO trial keys", OplusX9Ultra.base("2").startsWith(OppoNativeFullRes.base("2") + "_"));
@@ -271,7 +381,7 @@ public class OplusX9UltraTest {
         x9Ultra();
         assertTrue(OplusX9Ultra.on());
         final String line = OplusX9Ultra.learn("2", true, true, CAMERA_2);
-        assertTrue(line, line.contains("row 13 8160x6128, Quad 2x2"));
+        assertTrue(line, line.contains("rows [13, 12, 5] (first: 13) 8160x6128, Quad 2x2"));
         assertTrue(line, line.contains("200 MP 16320x12256 not offered"));
         assertTrue(OplusX9Ultra.learn("4", true, true, CAMERA_4).contains("200 MP 16384x12288 not offered"));
         assertFalse(OplusX9Ultra.learn("3", true, true, CAMERA_3).contains("200 MP"));
@@ -280,16 +390,48 @@ public class OplusX9UltraTest {
         assertTrue(OplusX9Ultra.offered("3"));
         assertFalse(OplusX9Ultra.offered("0"));
         assertFalse(OppoNativeFullRes.twoSizes("2"));
-        // both Auto variants fail: «50 Мп» dimmed, with its reasons
-        OplusX9Ultra.noteFailed(prefs, "2", OplusX9Ultra.ISP_FAKE, "no preview frame for 3000 ms", OplusX9Ultra.stamp());
-        assertTrue(OplusX9Ultra.offered("2"));
-        assertEquals(OplusX9Ultra.ISP_OFF, OplusX9Ultra.current("2", OplusX9Ultra.ISP_AUTO));
-        OplusX9Ultra.noteFailed(prefs, "2", OplusX9Ultra.ISP_OFF, "camera error 4", OplusX9Ultra.stamp());
+        // P709: every Auto variant fails in turn (no package spoof in the test: the own-package ones), the main's rows 13, 12, 5 with
+        // the ISP stream on first: «50 Мп» dimmed at the end, with its reasons
+        final int[] order = {13011, 12011, 5011, 13013, 13012, 13112};
+        for (int k = 0; k < order.length; k++) {
+            assertTrue(OplusX9Ultra.offered("2"));
+            assertEquals(order[k], OplusX9Ultra.current("2", OplusX9Ultra.ISP_AUTO));
+            OplusX9Ultra.noteFailed(prefs, "2", order[k], k % 2 == 0 ? "camera error 4" : "no preview frame for 3000 ms", OplusX9Ultra.stamp());
+        }
         assertFalse(OplusX9Ultra.offered("2"));
         assertTrue(OplusX9Ultra.exhausted("2"));
         assertFalse(OplusX9Ultra.exhausted("3"));
-        assertEquals("the user's On is a variant of its own", OplusX9Ultra.ISP_ON, OplusX9Ultra.current("2", OplusX9Ultra.ISP_ON));
-        assertTrue(OplusX9Ultra.status(prefs, "2", OplusX9Ultra.stamp()).contains("the camera failed"));
+        assertEquals("the user's fake off: its own row-12 variant is left", 12013, OplusX9Ultra.current("2", OplusX9Ultra.ISP_FAKE));
+        final String status = OplusX9Ultra.status(prefs, "2", OplusX9Ultra.stamp());
+        assertTrue(status, status.contains("mode 13, ISP stream on, RAW10, no package spoof — the camera failed"));
+        // «Попробовать снова» (FullResTrials.clear of the camera's OPPO keys): the first variant again
+        assertTrue(FullResTrials.clear(prefs, OppoNativeFullRes.base("2")) > 0);
+        assertTrue(OplusX9Ultra.offered("2"));
+        assertEquals(13011, OplusX9Ultra.current("2", OplusX9Ultra.ISP_AUTO));
+    }
+
+    /** P709: on the phone a variant the camera died in turns «50 Мп» off; a variant without a frame leaves it for the next one. */
+    @Test public void onThePhoneADeadVariantTurnsTheSizeOff() {
+        x9Ultra();
+        app.when(ScameraApp::getAppContext).thenReturn(RuntimeEnvironment.getApplication());
+        OplusX9Ultra.learn("3", true, true, CAMERA_3);
+        PixelPro10.setFullRes(true);
+        assertTrue(PixelPro10.fullResChosen());
+        assertEquals(5011, OplusX9Ultra.current("3", OplusX9Ultra.ISP_AUTO));
+        final String noFrame = OplusX9Ultra.failed("3", 5011, "no preview frame for 3000 ms");
+        assertTrue(noFrame, noFrame.contains("trying “mode 9, ISP stream on, RAW10, no package spoof”"));
+        assertTrue("alive: the next variant at once", PixelPro10.fullResChosen());
+        final String died = OplusX9Ultra.failed("3", 9011, "camera error 4");
+        assertTrue(died, died.contains("50 MP is off; choose 50 MP again to try “mode 5, ISP stream fake off, RAW10, no package spoof”"));
+        assertFalse("died: the normal session reopens", PixelPro10.fullResChosen());
+        assertTrue(OplusX9Ultra.offered("3"));
+        PixelPro10.setFullRes(true);
+        for (int v : new int[]{5013, 5012}) OplusX9Ultra.failed("3", v, "no preview frame for 3000 ms");
+        assertTrue(PixelPro10.fullResChosen());
+        final String last = OplusX9Ultra.failed("3", 5112, "no preview frame for 3000 ms");
+        assertTrue(last, last.contains("every variant was tried"));
+        assertFalse("none left: off", PixelPro10.fullResChosen());
+        assertTrue(OplusX9Ultra.exhausted("3"));
     }
 
     @Test public void notOnAnotherPhone() {

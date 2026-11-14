@@ -52,17 +52,21 @@ public final class DevKeys {
      * matrix of the Parameters, hybrid_clip_flags: a flag of the burst); or only the DNG reads them; or nothing does any more.
      */
     static final Set<String> NOT_IN_LAB = Collections.unmodifiableSet(new HashSet<>(Arrays.asList(
-            "post_priority", "gpu_low_priority", "post_gpu_pace", "post_band_ms", "jpeg_threads", "rgba_upload", "gl_warm_up", "release_async", "dng_async", "worker_watchdog",
+            "post_priority", "gpu_low_priority", "post_gpu_pace", "post_band_ms", "jpeg_threads", "rgba_upload", "gl_warm_up", "gl_warm_up_merge", "release_async", "dng_async", "worker_watchdog",
             "gl_warm_up_recipes", "ok_read", "worker_nice", "worker_prespawn", "worker_keep_ready", "thermal_async", "black_scan_bulk", "zero_copy_read", // P371: speed only
             "raw_crop_in_place", "prep_warm", // P625: speed only (the same samples)
             "oldstyle_threads", "oldstyle_read16", "exif_beside_encode", // P636: speed only (the same bytes)
             "post_pbo_readback", // P440: how the photo leaves the GPU (the same bytes either way)
             "post_pbo_ring", "post_half_mapped", "gl_warm_up_shared", // P662: speed only (the same bytes)
+            "gainmap_run_context", // the gain map on the shot's own GL context (the same pixels, speed only)
+            "resize_separable", // the final resize in two passes (the same pixels within float rounding, speed only)
             "jpeg_stream", // P483: the JPEG encoded from the mapped readback (the same bytes)
+            "hybrid_fm_out_tile", "hybrid_fm_guide_cells", "hybrid_fm_lattice_tiled", "hybrid_fm_keep_context", "hybrid_fm_chroma_fused", "hybrid_fm_ahb", // P712: speed only (the same photo)
             "jpeg_stream_marks", // P642: the watermark and the ES / L stamp drawn into the streamed JPEG's rows (the same file)
+            "jpeg_stream_tiles", "jpeg_stream_combine", // P713: the JPEG encoded while the GPU draws the later tiles (the same file)
+            "sharpen_stripes", // P713: the sharpening above 100 MP on stripes (the same plane, less memory)
             "prewarm_give_up", // P656: whether a prewarm that keeps crashing is run (speed only: the shot compiles the same programs)
             "ahb_transport", // P482: the merge RGB in the app's hardware buffer instead of the memfd (the same bytes)
-            "tex_pool", // P477: the textures' storage reused within a post run (memory, the same pixels)
             "post_noise_quantile_gpu",
             "jpeg_aq", "jpeg_fast_tables", // P443: how the JPEG is written, not the replayed image
             "hybrid_la_threads", "hybrid_la_stream", "hybrid_la_scam", "hybrid_rgb_half", "worker_gpu_normal_priority",
@@ -271,9 +275,26 @@ public final class DevKeys {
                 "RAW viewfinder: the intermediate frames a pass draws whole are marked as not needed before it (the GPU does not load their old contents). Off: as before")));
         k.add(s(vf, "vf_direct_tone", true, Lang.t("RAW-видоискатель: тон Why рисуется прямо на экран, когда проход копирования после него ничего не меняет (размер экрана, без фильтра, пикинга и стиля ScamMaster). Выкл — через промежуточный кадр, как раньше",
                 "RAW viewfinder: the Why tone is drawn straight to the screen when the copy pass after it would change nothing (the screen's size, no filter, peaking or ScamMaster style). Off: through an intermediate frame, as before")));
+        // P705: the display kept on only while the camera screen is used (IdleScreen); the touches' refresh rate (TouchRefresh)
+        k.add(n(vf, "idle_screen_min", "3", Lang.t("Экран камеры гаснет по системному тайм-ауту после стольких минут без касаний (пока снимок не обрабатывается); 0 — экран не гаснет, как раньше",
+                "The camera screen turns off by the system's timeout after this many minutes without a touch (unless a shot is processed); 0: it stays on, as before")));
+        k.add(s(vf, "ui_touch_refresh", true, Lang.t("Пока палец на экране и 1,5 с после — наибольшая частота обновления дисплея (флагманы больше 8 ГБ, Android 12+, без смены разрешения); в покое частоту выбирает система. Выкл — частоту всегда выбирает система",
+                "While a finger is on the screen and 1.5 s after, the display's highest refresh rate (flagships above 8 GB, Android 12+, the same resolution); at rest the system chooses. Off: the system always chooses")));
+        // P705: the ISP viewfinder's plain program while nothing but the frame is drawn (MainRenderer.plainDraw)
+        k.add(s(vf, "vf_plain", true, Lang.t("Видоискатель ISP: без фильтра, LUT, стиля и пикинга кадр рисуется коротким шейдером (тот же результат, меньше работы GPU). Выкл — всегда полный шейдер, как раньше",
+                "ISP viewfinder: with no filter, LUT, style or peaking the frame is drawn by a short shader (the same result, less GPU work). Off: always the full shader, as before")));
         // P683: the RAW viewfinder's tone at ~1.1 MP while the GPU does not keep up at full size (MainRenderer, RawPreviewLoad)
         k.add(s(vf, "vf_adaptive_tone", true, Lang.t("RAW-видоискатель: если GPU не успевает (кадр рисуется дольше 11 мс или теряется больше 20% кадров два окна по 2 с подряд), тон Why считается в ~1,1 Мп вместо полного размера; обратно — после нескольких хороших окон. Фото не меняется. Выкл — всегда полный размер, как раньше",
                 "RAW viewfinder: when the GPU does not keep up (a frame drawn in over 11 ms or more than 20% of the frames lost, two 2 s windows in a row) the Why tone is made at ~1.1 MP instead of the full size; back after a few good windows. The photo does not change. Off: always the full size, as before")));
+        // P711: the tone's GPU time (timer queries) in RawPreviewLoad's windows and its steps (MainRenderer, ToneGpuTimer)
+        k.add(s(vf, "vf_gpu_timer", true, Lang.t("RAW-видоискатель: время GPU на тон Why замеряется (запросы таймера, без ожидания GPU) и решает, уменьшать ли тон по шагам ~1,1 / 0,75 / 0,5 Мп, — до потери кадров. Выкл — только по времени отрисовки и потерянным кадрам, как раньше",
+                "RAW viewfinder: the GPU time of the Why tone is measured (timer queries, the GPU never waited for) and decides whether the tone goes down the steps ~1.1 / 0.75 / 0.5 MP - before frames are lost. Off: by the draw time and the lost frames only, as before")));
+        // P711: P314's linear frame from textureGather (preview/rawlinear_fs, LiveWhyTone.linearProgram)
+        k.add(s(vf, "vf_gather_linear", true, Lang.t("RAW-видоискатель: линейный кадр для тона Why считается отдельным коротким шейдером из textureGather (5 выборок на пиксель вместо 20, те же значения). Выкл — шейдером rawdevelop, как раньше",
+                "RAW viewfinder: the linear frame of the Why tone is drawn by a short shader of its own from textureGather (5 fetches a pixel instead of 20, the same values). Off: by the rawdevelop shader, as before")));
+        // P711: the AE samples are the cells' quads, noise shrunk to their cell (LiveWhyMeter.quadSamples)
+        k.add(s(vf, "vf_meter_quads", true, Lang.t("RAW-видоискатель: замер экспозиции тона Why по отдельным цветовым квадратам кадра (как у фото), шум кадра сжат к среднему ячейки — маленькие яркие источники не теряются. Выкл — по средним ячеек, как раньше",
+                "RAW viewfinder: the Why tone's exposure is metered on the frame's single colour quads (as the photo's), the frame's noise shrunk to its cell's mean - small bright lights are not lost. Off: on the cells' means, as before")));
         // P683: the WHY tone's AE meter off the GL thread (LiveWhyTone.startAePoint); the own look's meter not run for the WHY frame
         k.add(s(vf, "vf_meter_async", true, Lang.t("RAW-видоискатель: замер экспозиции тона Why считается в отдельном потоке, результат берёт следующий кадр (поток отрисовки не ждёт замер); замер собственного вида не считается для кадра тона Why, который его не читает. Выкл — всё в потоке отрисовки, как раньше",
                 "RAW viewfinder: the Why tone's exposure meter runs on a thread of its own, the next frame takes its result (the draw thread does not wait for it); the own look's meter is not run for the Why tone's frame, which never reads it. Off: everything on the draw thread, as before")));
@@ -385,6 +406,19 @@ public final class DevKeys {
                 "«Kernel by the light» by day: the merge kernel does not widen in the shadows (bark, foliage, brick in the shade stay sharp), the lit areas as before; off: as before")));
         k.add(n(merge, "hybrid_fast_light_fill", "1", Lang.t("«Быстрый»: заполнение отвергнутых коротких кадров в светах только между двумя сторонами света и не темнее склейки - фонарь ночью без тёмных пятен и рваной звезды в ядре, края сохраняют спад яркости (1 вкл., 0 как раньше; 0..1)",
                 "«Fast»: the fill where the short frames were refused in highlights only between two sides of light and never darker than the merge - a street lamp at night without dark blotches and a ragged star in its core, its rim keeps the falloff (1 on, 0 as before; 0..1)")));
+        // P712: speed only (the same photo): the previous GPU programs of the fast route for an A/B of the merge's time
+        k.add(s(merge, "hybrid_fm_out_tile", true, Lang.t("«Быстрый», Quad / Tetra: фильтры решётки и муара на выходе склейки читают соседей из общей памяти группы GPU - тот же снимок быстрее (выкл. - как раньше, для сравнения времени)",
+                "«Fast», Quad / Tetra: the output's lattice and moire filters read their neighbours from the GPU group's shared memory - the same photo, faster (off: as before, to compare the time)")));
+        k.add(s(merge, "hybrid_fm_guide_cells", true, Lang.t("«Быстрый», Quad / Tetra: гайд кадра берёт значения ячеек, посчитанные один раз, а не 25 раз для каждого пикселя - тот же снимок быстрее (выкл. - как раньше)",
+                "«Fast», Quad / Tetra: the frame's guide takes its cells' values made once instead of 25 times a pixel - the same photo, faster (off: as before)")));
+        k.add(s(merge, "hybrid_fm_lattice_tiled", true, Lang.t("«Быстрый», Quad: снятие решётки суммирует окна через общую память GPU и берёт медианы сетью сравнений - тот же снимок быстрее (выкл. - как раньше)",
+                "«Fast», Quad: the lattice removal sums its windows through the GPU's shared memory and takes its medians by a comparison network - the same photo, faster (off: as before)")));
+        k.add(s(merge, "hybrid_fm_keep_context", true, Lang.t("«Быстрый», 50 / 200 Мп по полосам: один контекст GPU на все полосы склейки, программы не загружаются заново для каждой полосы - тот же снимок быстрее (выкл. - как раньше)",
+                "«Fast», 50 / 200 MP in row bands: one GPU context for every band of the merge, the programs not loaded again for each band - the same photo, faster (off: as before)")));
+        k.add(s(merge, "hybrid_fm_chroma_fused", true, Lang.t("Quad / Tetra: медиана цветности считает пары окон (по строкам, затем по столбцам) за один проход GPU - тот же снимок быстрее (выкл. - как раньше)",
+                "Quad / Tetra: the chroma median makes its window pairs (along the rows, then the columns) in one GPU pass - the same photo, faster (off: as before)")));
+        k.add(n(merge, "hybrid_fm_ahb", "3", Lang.t("«Быстрый»: где лежат буферы склейки на GPU - чтения результата (1) и загрузки RAW (2) в аппаратных буферах (3 как раньше, 0 оба в памяти драйвера); для сравнения времени выхода и распаковки (снимок тот же)",
+                "«Fast»: where the merge's GPU buffers live - the result's readback (1) and the RAW upload (2) in hardware buffers (3 as before, 0 both in the driver's memory); to compare the output's and the unpack's time (the same photo)")));
         k.add(n(merge, "hybrid_fast_night_motion", "1", Lang.t("«Быстрый» ночью: кадр, который вокруг точки отличается от базового сильнее шума, там не склеивается - листва на ветру и проезжающая машина не просвечивают, неподвижные места очищаются как раньше; днём без изменений (1 вкл., 0 как раньше; 0..1)",
                 "«Fast» at night: a frame that differs from the base around a pixel beyond the noise is not merged there - wind-blown leaves and a passing car are no longer see-through, static areas are cleaned as before; by day unchanged (1 on, 0 as before; 0..1)")));
         k.add(n(merge, "hybrid_us_weak_hom", "1", Lang.t("«Качество», ночь: короткий кадр, у которого выравнивание нашло мало точек, начинает со своей гомографии, а не со сдвига всего кадра - фонари у края кадра на месте, без серого овала и призрачной дуги (1 вкл., 0 как раньше)",
@@ -442,25 +476,21 @@ public final class DevKeys {
                 "Framebuffer contents invalidated before an overwrite (the same result)")));
         k.add(s(post, "scamrgb_tail", true, Lang.t("Хвост загрузки пересветов на вспомогательном потоке (тот же результат); выкл — на основном",
                 "The highlight upload tail on the helper thread (the same result); off: on the main one")));
-        k.add(s(post, "snr_async", false, Lang.t("Чтение SNR без остановки GPU (тот же результат); выкл — с ожиданием как раньше",
-                "The SNR read-back without draining the GPU (the same result); off: with the wait as before")));
-        // P479b (owner, 2026-11-03: at most 1 level of the 8-bit JPEG, invisible); off = the exact route before
-        k.add(s(post, "ms_fuse", false, Lang.t("Пирамидальный шумодав: сборка уровня 0 и RGB слиты в finish (быстрее, но отдельные пиксели до 11 уровней, поэтому выкл)",
-                "Pyramid denoise: level 0's rebuild and RGB fused into finish (faster, but single pixels up to 11 levels off, hence off)")));
-        k.add(s(post, "ms_fuse_lab", false, Lang.t("Пирамидальный шумодав: lab слит в optics (до порогов фильтра: отдельные пиксели до 11 уровней, поэтому выкл)",
-                "Pyramid denoise: lab fused into optics (before the filter's thresholds: single pixels up to 11 levels off, hence off)")));
         k.add(s(post, "opposed_gpu_mean", true, Lang.t("Поправка цвета «Inpaint opposed» суммируется на GPU (без чтения в CPU и ожидания GPU; ±1 уровень JPEG); выкл — чтение и сумма на CPU как раньше",
                 "The «Inpaint opposed» chrominance summed on the GPU (no read-back, no wait for the GPU; within 1 JPEG level); off: the read-back and the CPU sum as before")));
         k.add(s(post, "hlmask_fast", true, Lang.t("Маска мягких пересветов: веса гауссианы один раз на CPU, парные выборки (±1 уровень JPEG); выкл — exp на каждую выборку как раньше",
                 "The soft highlight mask: the gaussian's weights once on the CPU, paired taps (within 1 JPEG level); off: an exp per tap as before")));
+        // P713: above 100 MP the sharpening on row stripes (bit for bit, tools/check_sharpen_stripes.py)
+        k.add(s(post, "sharpen_stripes", true, Lang.t("Резкость выше 100 Мп считается полосами строк с запасом по краям (тот же результат; на 200 Мп ~1,1 ГБ текстур вместо ~2,4 ГБ); выкл — по всему кадру как раньше",
+                "The sharpening above 100 MP computed on row stripes with a margin (the same result; ~1.1 GB of textures instead of ~2.4 GB at 200 MP); off: over the whole frame as before")));
+        // P713: the same mask on a grid ~sigma / 6 times coarser (tools/check_hlmask_coarse.py)
+        k.add(s(post, "hlmask_coarse", true, Lang.t("Маска мягких пересветов на сетке в 2-8 раз грубее (размытие на 1.2 % ширины, в пределах 1 уровня JPEG); выкл — на сетке whyLow как раньше",
+                "The soft highlight mask on a grid 2 - 8 times coarser (a blur of 1.2 % of the width, within 1 JPEG level); off: on the whyLow grid as before")));
         k.add(s(post, "ae_gpu_chain", true, Lang.t("Статистика экспозиции WHY: два прохода связаны на GPU, резкость ставится в очередь до чтения (±1 уровень JPEG); выкл — чтение между проходами как раньше",
                 "WHY exposure statistics: the two passes chained on the GPU, the sharpening queued before the read-back (within 1 JPEG level); off: the read-back between the passes as before")));
         // P494: the shade's «HDR» (long / ultrashort frames) as an A/B override
         k.add(s(post, "hdr_frames", true, Lang.t("Длинные и сверхкороткие кадры (плитка «HDR»); выкл — только обычные кадры",
                 "Long and ultrashort frames (the «HDR» tile); off: normal frames only")));
-        // P482: the highlight clip statistics on the GPU (exact)
-        k.add(s(post, "hl_stats_gpu", false, Lang.t("Статистика пересветов на GPU (тот же результат); выкл — на процессоре как раньше",
-                "The highlight clip statistics on the GPU (the same result); off: on the CPU as before")));
         // P487: the film simulation exposed like the shot without it (the WHY AE it replaces)
         k.add(s(post, "film_why_ae", true, Lang.t("Плёнка получает экспозицию снимка (наша AE); выкл — экспозиция съёмки как раньше",
                 "The film gets the shot's exposure (our AE); off: the capture's exposure as before")));
@@ -490,6 +520,10 @@ public final class DevKeys {
                 "Tone: the one-channel windows (the luma B-spline, the edge hold) read in 2 x 2 blocks (the same result, fewer reads); off: one by one as before")));
         k.add(s(post, "post_shared_context", true, Lang.t("Один GPU-контекст обработки на всё время работы: программы шейдеров не загружаются заново на каждый снимок (выкл — новый контекст на каждый снимок)",
                 "One processing GPU context for the whole run: the shader programs are not loaded again for every shot (off: a new context every shot)")));
+        k.add(s(post, "resize_separable", true, Lang.t("«Уменьшить до»: ресайз в два прохода (по строкам, затем по столбцам; Lanczos-3 2:1 — в 5 раз меньше выборок, тот же результат). Выкл — один 2D-проход, как раньше",
+                "«Downscale to»: the resize in two passes (rows, then columns; Lanczos-3 at 2:1 takes 5 times fewer samples, the same result). Off: one 2D pass as before")));
+        k.add(s(post, "gainmap_run_context", true, Lang.t("Карта усиления Ultra HDR / HDR HEIC считается в GPU-контексте обработки снимка (те же пиксели; без нового контекста и загрузки шейдеров на каждый снимок). Выкл — свой контекст, как раньше",
+                "The Ultra HDR / HDR HEIC gain map runs on the shot's processing GPU context (the same pixels; no new context and shader loading every shot). Off: a context of its own as before")));
         k.add(s(post, "effmap_real", true, Lang.t("Карта числа кадров для шумоподавления — реальная (выкл — старая)", "Frame-count map for the denoise: the real one (off: the old one)")));
         // P214d: ScamDenoise.lscTerm
         // P214e: WhyLumaSharpen.smoothedSource (R1); P214z: not above 100 MP (r1Fits)
@@ -707,8 +741,8 @@ public final class DevKeys {
         k.add(n(xiaomi, "xiaomi17_lofic", "-1", Lang.t("LOFIC: -1 — по переключателю DCG+LOFIC, 1 — всегда на основной камере, 0 — выкл (DCG+LOFIC"
                         + " тогда работает по-старому)",
                 "LOFIC: -1 follows the DCG+LOFIC switch, 1 always on the main camera, 0 off (DCG+LOFIC then runs the older way)")));
-        k.add(n(xiaomi, "xiaomi17_lofic_setup", "0", Lang.t("LOFIC: 0 — сначала 4:3 · 30 к/с, потом 16:10 · 60 к/с; 1 — только 16:10",
-                "LOFIC: 0 tries 4:3 · 30 fps first, then 16:10 · 60 fps; 1 runs 16:10 only")));
+        k.add(n(xiaomi, "xiaomi17_lofic_setup", "0", Lang.t("LOFIC: 0 — сначала варианты 4:3 · 30 к/с, потом 16:10 · 60 к/с; 1 — только 16:10",
+                "LOFIC: 0 tries the 4:3 · 30 fps variants first, then 16:10 · 60 fps; 1 runs 16:10 only")));
         k.add(n(xiaomi, "xiaomi17_lofic_window", String.valueOf(com.scamera.app.capture.XiaomiLofic.WINDOW), Lang.t(
                 "LOFIC: за сколько кадров видоискателя режим должен пройти проверку", "LOFIC: the viewfinder frames a setup has to pass its checks in")));
         k.add(n(xiaomi, "lofic_pairs", String.valueOf(com.scamera.app.capture.XiaomiLofic.PAIRS), Lang.t(
@@ -760,6 +794,17 @@ public final class DevKeys {
         // P650 «Склейка YUV», серия после затвора (capture/YuvMergeRoute)
         k.add(s(cap, "yuv_awb_lock", true, Lang.t("«Склейка YUV», серия после затвора: 0 — не фиксировать баланс белого на серию (у каждого кадра свой; цвет на лице может «разъезжаться»)",
                 "“YUV merge”, the series after the shutter: 0 - do not lock the white balance for the series (each frame keeps its own; the colour on the face can split)")));
+        // P701 «Склейка YUV»: where the camera applies our capture curve, the merged colour's chroma (processing/yuv)
+        k.add(n(cap, "yuv_curve_model", "0", Lang.t("«Склейка YUV», наша кривая: к чему камера применяет её точки, если в серии нет короткого или длинного кадра (с ними это меряется по кадрам): 1 — к линейному свету (как в Camera2), 2 — к своему сигналу sRGB (MediaTek), 0 — то, что измерила последняя серия этой камеры на этой прошивке, иначе по процессору",
+                "“YUV merge”, our curve: what the camera applies its points to when the series has no short or long frame (with one it is measured from the frames): 1 linear light (as Camera2 says), 2 its own sRGB signal (MediaTek), 0 what this camera's last series measured on this firmware, else by the SoC")));
+        k.add(n(cap, "yuv_chroma", "0.8", Lang.t("«Склейка YUV»: насыщенность склеенного цвета перед тоном (0.5–1.5; 1 — как дала камера). Кадр YUV уже несёт цвет камеры, а тон WHY добавляет свою сочность",
+                "“YUV merge”: the merged colour's saturation before the tone (0.5–1.5; 1 as the camera gave it). A YUV frame carries the camera's colour already, the WHY tone adds its own vibrance")));
+        k.add(n(cap, "yuv_toe", "0.6", Lang.t("«Склейка YUV»: подъём теней перед тоном (гамма ниже среднего уровня сцены, 0.3–1; 1 — без подъёма). Рендер камеры (и стоковое фото) держит тени светлее, чем кривая тона WHY",
+                "“YUV merge”: the shadow lift before the tone (the gamma under the scene's mean level, 0.3–1; 1 - none). The camera's rendering (and the stock photo) keeps the shadows lighter than the WHY tone's curve")));
+        k.add(n(cap, "yuv_toe_cap", "2", Lang.t("«Склейка YUV»: наибольшее усиление теней подъёмом (1–4; 2 — одна ступень)",
+                "“YUV merge”: the shadow lift's largest gain (1–4; 2 - one stop)")));
+        k.add(s(cap, "yuv_ae_day", true, Lang.t("«Склейка YUV»: экспозиция тона WHY по дневной цели (кадры уже экспонированы автоэкспозицией камеры); 0 — ночное правило, как у RAW",
+                "“YUV merge”: the WHY tone's exposure at the day target (the camera's AE exposed the frames already); 0 - the night rule, as for RAW")));
         k.add(s(cap, "xiaomi_row_raw_only", true, Lang.t("Xiaomi: полноразмерный режим сенсора (17 Ultra, 50 Мп) — сессия только с RAW, без ISP-потока; цветовой блок мозаики меряется от собственного уровня чёрного кадра",
                 "Xiaomi: the sensor's full-size row (17 Ultra, 50 MP) in a RAW-only session, no ISP stream; the mosaic's colour block measured over the frame's own black floor")));
         // P586: the OnePlus 16 (PYB110): FULLRES 50 / 200 MP, ISZ and DCG / DAG without the remosaic (OppoNativeFullRes, OplusIsz, OplusDcg)
@@ -788,8 +833,8 @@ public final class DevKeys {
                 "OnePlus 16, main: with no 50 MP row left, 50 MP is the 200 MP mode binned 2x2 per Tetra cell. Off: 50 MP is dimmed")));
         k.add(s(cap, "x9u_fullres", true, Lang.t("OPPO Find X9 Ultra: «50 Мп» по рецепту полного разрешения X9 Ultra (RAW10 полного размера только в снимках, режим сенсора — только в снимке). Выкл — FULLRES на X9 Ultra нет",
                 "OPPO Find X9 Ultra: «50 MP» by the X9 Ultra full-resolution recipe (the full-size RAW10 in the stills only, the sensor mode on the still only). Off: no FULLRES on the X9 Ultra")));
-        k.add(s(cap, "x9u_isp_fake_first", true, Lang.t("OPPO Find X9 Ultra, «50 Мп», «Поток ISP» Авто: сначала поток ISP фиктивно выкл. (для автофокуса), при сбое — выкл. Выкл — сразу выкл., как в рецепте",
-                "OPPO Find X9 Ultra, «50 MP», «ISP stream» Auto: the ISP stream fake off first (for the autofocus), off after a failure. Off: off at once, as the recipe has it")));
+        k.add(s(cap, "x9u_isp_fake_first", true, Lang.t("OPPO Find X9 Ultra, «50 Мп», «Поток ISP» Авто: после вариантов с потоком ISP вкл. (рабочие режимы владельца) пробовать и поток ISP фиктивно выкл. Выкл — без него",
+                "OPPO Find X9 Ultra, «50 MP», «ISP stream» Auto: after the ISP-stream-on variants (the owner's working modes) also try the ISP stream fake off. Off: without it")));
         k.add(s(cap, "oplus_dead_rows_last", true, Lang.t("OnePlus 16, основная, 50 Мп: режим 9 (камера падала) после режима 25. Выкл — по порядку таблицы",
                 "OnePlus 16, main, 50 MP: mode 9 (the camera died in it) after mode 25. Off — in the table's order")));
         k.add(s(cap, "oplus_dcg_hdr_key", true, Lang.t("OnePlus 16, DCG / DAG: EnableHDRDCGMode = 1 в сессии и каждом запросе (если камера его перечисляет)",
@@ -849,6 +894,9 @@ public final class DevKeys {
         // P237: the idle compile of the post-pipeline programs missing from the disk cache (GLProg.warmUp)
         k.add(s(post, "gl_warm_up", true, Lang.t("Шейдеры обработки, которых нет в кэше на диске (после обновления драйвера, вытеснения), компилируются в фоне через 4 с после открытия камеры, пока она не снимает. Выкл — только при снимке, как до P237",
                 "Processing shaders missing from the disk cache (after a driver update, eviction) are compiled in the background 4 s after the camera opens, while it is idle. Off: only at a shot, as before P237")));
+        // P713: when no warm-up ran in this process yet, the post's missing programs are compiled while a shot's merge runs
+        k.add(s(post, "gl_warm_up_merge", true, Lang.t("Если фоновый прогрев шейдеров ещё не прошёл, недостающие шейдеры обработки компилируются, пока идёт склейка снимка (тот же снимок). Выкл — их компилирует обработка, как раньше",
+                "When the background shader warm-up has not run yet, the missing processing shaders are compiled while the shot is merged (the same photo). Off: the processing compiles them, as before")));
         // P371: recipes of the post programs, made again from the installed APK by that warm-up (the first shot after an install)
         k.add(s(post, "gl_warm_up_recipes", true, Lang.t("Рецепты шейдеров обработки (ассет и define-ы) сохраняются, и фоновый прогрев собирает их заново из установленного APK: первый снимок после обновления не компилирует ~46 шейдеров (~0,8 с). Выкл — как до P371",
                 "Recipes of the processing shaders (asset and defines) are kept and the background warm-up builds them again from the installed APK: the first shot after an update does not compile ~46 shaders (~0.8 s). Off: as before P371")));
@@ -881,9 +929,6 @@ public final class DevKeys {
                 "The merge's half-float RGB is copied into the GPU buffer on four threads through a mapping of the buffer (the same bytes). Off: the driver's copy on one thread, as before P662")));
         k.add(s(post, "gl_warm_up_shared", true, Lang.t("Фоновый прогрев шейдеров (через 4 с после открытия камеры) готовит общий GPU-контекст обработки: загружает в него шейдеры и делает разовые проверки драйвера — первый снимок этого не ждёт. Выкл — свой контекст прогрева, как до P662",
                 "The background shader warm-up (4 s after the camera opens) prepares the shared processing GPU context: loads the shaders into it and runs the one-time driver checks - the first shot does not wait for them. Off: a context of its own, as before P662")));
-        // P477: closed textures of 4 MB or more kept for the next of their size and format within a post run (capped, none across runs)
-        k.add(s(post, "tex_pool", false, Lang.t("Память обработки: пул закрытых текстур в пределах снимка (не больше 640 МБ). Выкл: на complete30 пул поднял пик текстур 564 -> 938 МБ и замедлил обработку",
-                "Processing memory: a pool of closed textures within a shot (at most 640 MB). Off: on complete30 it raised the texture peak 564 -> 938 MB and slowed the post")));
         k.add(s(post, "ms_reuse", true, Lang.t("Память обработки: в пирамидальном шумодаве плоскость уровня после своего прохода деталей становится его сборкой (те же пиксели, на 96 МБ ниже пик на 12 Мп). Выкл — новая текстура, как раньше",
                 "Processing memory: in the pyramid denoise a level's plane takes its rebuild after its detail pass (the same pixels, a 96 MB lower peak at 12 MP). Off: a new texture as before")));
         // P483: a caller that only saves (PostPipeline.streamJpeg) gets the JPEG from the mapped readback, no bitmap
@@ -892,6 +937,11 @@ public final class DevKeys {
         // P642: the streamed JPEG draws the watermark and the ES / L stamp into its own rows
         k.add(s(post, "jpeg_stream_marks", true, Lang.t("Водяной знак и отметка ES / L рисуются прямо в строки потокового JPEG (тот же файл, без картинки в памяти). Выкл — снимок со знаком идёт через картинку, как раньше",
                 "The watermark and the ES / L stamp are drawn straight into the streamed JPEG's rows (the same file, no bitmap in memory). Off: a shot with a mark goes through the bitmap, as before")));
+        // P713: the streamed JPEG's strips encoded while the GPU draws the later tiles, the WHY combine drawn beside them
+        k.add(s(post, "jpeg_stream_tiles", true, Lang.t("JPEG кодируется полосами, пока GPU рисует следующие плитки (тот же файл). Выкл — кодирование после чтения всего кадра, как раньше",
+                "The JPEG encoded strip by strip while the GPU draws the next tiles (the same file). Off: the encode after the whole frame is read, as before")));
+        k.add(s(post, "jpeg_stream_combine", true, Lang.t("Последний проход тона WHY рисуется полосами рядом с плитками вывода, кодирование начинается раньше (тот же снимок). Выкл — весь проход сразу, как раньше",
+                "The WHY tone's last pass drawn in bands beside the output tiles, so the encode starts earlier (the same photo). Off: the whole pass at once, as before")));
         k.add(s(post, "post_noise_quantile_gpu", true, Lang.t("Ускоренная оценка шума на GPU. При несовместимости используется прежний расчёт на CPU; результат шумоподавления сохраняется",
                 "Faster noise estimation on the GPU. Incompatible cases use the original CPU calculation; denoising is unchanged")));
         k.add(s(post, "thermal_async", true, Lang.t("Температурный статус после склейки запрашивается в фоне (вызов системы не задерживает обработку). Выкл — на потоке обработки, как до P371",

@@ -184,7 +184,7 @@ public class VivoPd2454IszTest {
         assertEquals(6, shown().size());
     }
 
-    @Test public void nativeForceIsAnArrayOnEveryBuilderAndInactiveInVideo() throws Exception {
+    @Test public void nativeForceIsAnArrayOnEveryBuilderAndActiveInThePhotoMode() throws Exception {
         nativeContext();
         prefs.edit().putString("module_auto_back0", "3").apply();
         save("back0", VivoQcomIsz.sessionKey(3));
@@ -193,14 +193,15 @@ public class VivoPd2454IszTest {
             VivoPd2454NativeRaw.apply(request, "3");
             assertArrayEquals(new int[]{3}, request.get(new CaptureRequest.Key<>(VivoQcomIsz.KEY, int[].class)));
         }
-        ScameraApp.getSettings().mode = com.scamera.app.api.CameraMode.MOTION;
-        assertTrue(VivoPd2454NativeRaw.active("3"));
-        ScameraApp.getSettings().mode = com.scamera.app.api.CameraMode.NIGHT;
-        assertTrue(VivoPd2454NativeRaw.active("3"));
-        ScameraApp.getSettings().mode = com.scamera.app.api.CameraMode.VIDEO;
-        assertFalse(VivoPd2454NativeRaw.active("3"));
+        // P702: the photo mode, whatever number an older build stored (5 was the retired video mode)
+        for (int stored : new int[]{2, 3, 4, 5}) {
+            ScameraApp.getSettings().mode = com.scamera.app.api.CameraMode.fromStored(stored);
+            assertTrue(VivoPd2454NativeRaw.active("3"));
+        }
+        // another camera than the module's: no force
+        assertFalse(VivoPd2454NativeRaw.active("5"));
         CaptureRequest.Builder request = builder();
-        VivoPd2454NativeRaw.apply(request, "3");
+        VivoPd2454NativeRaw.apply(request, "5");
         assertNull(request.get(new CaptureRequest.Key<>(VivoQcomIsz.KEY, int[].class)));
     }
 

@@ -46,6 +46,8 @@ CONDITIONS = {
     'lut != null': False,                  # no LUT / film by default
     '!pipeline.tenBitOutput': True,        # JPEG by default: the 8-bit output
     'v2.fusedScale > 1': False,            # WhyV2Fusion: the fusion at the full grid by default
+    'hlPlan != null': True,                # P713: WhyCombine's highlight mask on its coarse grid (CoarseMask) from a ~1 MP whyLow up
+    'hw != null': True,                    # WhyCombine: the highlight mask's blur with its weights from the CPU (hlmask_fast, on)
 }
 # helper methods that take a program and its MODE: pattern -> (kind, asset or None: the call's first argument, MODE group)
 HELPERS = [

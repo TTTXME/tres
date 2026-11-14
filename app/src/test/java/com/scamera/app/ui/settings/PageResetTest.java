@@ -114,8 +114,8 @@ public class PageResetTest {
         final PhotoStylePreference style = new PhotoStylePreference(c);
         style.setKey("photo_style");
         prefs = page(c, style);
-        PhotoStyle.apply(prefs, PhotoStyle.MONO);
-        assertEquals(PhotoStyle.MONO, PhotoStyle.current(prefs));
+        PhotoStyle.apply(prefs, PhotoStyle.VIVID);
+        assertEquals(PhotoStyle.VIVID, PhotoStyle.current(prefs));
         assertEquals("a non-persistent row resets itself", 1, PageReset.reset(c, style.getParent()));
         assertEquals(PhotoStyle.NORMAL, PhotoStyle.current(prefs));
         assertEquals(0, PageReset.reset(c, style.getParent()));

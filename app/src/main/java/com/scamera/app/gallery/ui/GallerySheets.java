@@ -617,8 +617,6 @@ public final class GallerySheets {
         @Nullable public String lens, device;
         public int width, height;
         public long bytes;
-        /** P492: the «Подробнее» rows (title, value), PhotoMore.rows. */
-        public java.util.List<String[]> more = new java.util.ArrayList<>();
     }
 
     /**
@@ -671,30 +669,11 @@ public final class GallerySheets {
             grid.addView(line, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         }
         s.addView(grid);
-        if (!d.more.isEmpty()) { // P492: the rest of the file's EXIF, one row each
-            s.addView(caption(c, Lang.t("Подробнее", "More")));
-            LinearLayout more = GalleryUi.group(c, 16);
-            more.setTag("details_more");
-            for (int i = 0; i < d.more.size(); i++) {
-                String[] row = d.more.get(i);
-                LinearLayout line = new LinearLayout(c);
-                line.setOrientation(LinearLayout.HORIZONTAL);
-                line.setMinimumHeight(GalleryUi.dp(c, 44));
-                line.setGravity(Gravity.CENTER_VERTICAL);
-                line.setPadding(GalleryUi.dp(c, 16), GalleryUi.dp(c, 10), GalleryUi.dp(c, 16), GalleryUi.dp(c, 10));
-                TextView k = GalleryUi.text(c, row[0], 14, GalleryUi.TEXT);
-                TextView val = GalleryUi.text(c, row[1], 14, GalleryUi.MUTED);
-                val.setGravity(Gravity.END);
-                val.setTextIsSelectable(true);
-                line.addView(k, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-                LinearLayout.LayoutParams vp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.4f);
-                vp.setMarginStart(GalleryUi.dp(c, 10));
-                line.addView(val, vp);
-                line.setContentDescription(row[0] + " " + row[1]);
-                more.addView(line);
-            }
-            s.addView(more);
-        }
+        // P706: the file's properties by section (PhotoProperties), read off the main thread and filled in by fillSections
+        LinearLayout sections = new LinearLayout(c);
+        sections.setOrientation(LinearLayout.VERTICAL);
+        sections.setTag(SECTIONS);
+        s.addView(sections, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         if (d.route != null) {
             View note = com.scamera.app.ui.settings.custompreferences.LutChangesPreference.noteView(c, Lang.t(
                     "Снимок склеен из нескольких кадров (" + d.route + "): меньше шума, светлые и тёмные места сохранены.",
@@ -718,6 +697,68 @@ public final class GallerySheets {
         }
         s.setContentDescription(d.fileName);
         return s;
+    }
+
+    /** P706: the tag of the details sheet's sections holder. */
+    public static final String SECTIONS = "details_sections";
+
+    /**
+     * P706: the properties' sections into the details sheet {@code sheet} (from {@link #details}): a caption and a card each, one
+     * row a value; a long press copies the value, a row with a link (a place) opens it on a tap.
+     */
+    public static void fillSections(View sheet, java.util.List<PhotoProperties.Section> list) {
+        final View holder = sheet.findViewWithTag(SECTIONS);
+        if (!(holder instanceof LinearLayout)) return;
+        final LinearLayout box = (LinearLayout) holder;
+        final Context c = box.getContext();
+        box.removeAllViews();
+        for (PhotoProperties.Section section : list) {
+            box.addView(caption(c, section.title));
+            LinearLayout card = GalleryUi.group(c, 16);
+            card.setTag("details_" + section.tag);
+            for (String[] row : section.rows) card.addView(propertyRow(c, row));
+            box.addView(card);
+        }
+    }
+
+    /** P706: one property: the title and the value (the value wraps, right-aligned); long press copies, a link opens. */
+    static LinearLayout propertyRow(Context c, String[] row) {
+        LinearLayout line = new LinearLayout(c);
+        line.setOrientation(LinearLayout.HORIZONTAL);
+        line.setMinimumHeight(GalleryUi.dp(c, 44));
+        line.setGravity(Gravity.CENTER_VERTICAL);
+        line.setPadding(GalleryUi.dp(c, 16), GalleryUi.dp(c, 10), GalleryUi.dp(c, 16), GalleryUi.dp(c, 10));
+        TextView k = GalleryUi.text(c, row[0], 14, GalleryUi.TEXT);
+        TextView val = GalleryUi.text(c, row[1], 14, row.length > 2 ? GalleryUi.TEXT : GalleryUi.MUTED);
+        val.setGravity(Gravity.END);
+        if (row.length > 2) val.setPaintFlags(val.getPaintFlags() | android.graphics.Paint.UNDERLINE_TEXT_FLAG); // opens the map
+        line.addView(k, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        LinearLayout.LayoutParams vp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.4f);
+        vp.setMarginStart(GalleryUi.dp(c, 10));
+        line.addView(val, vp);
+        line.setContentDescription(row[0] + " " + row[1]);
+        line.setBackground(GalleryUi.pressable(GalleryUi.round(c, 0, 0, 0)));
+        line.setOnLongClickListener(v -> {
+            copy(v.getContext(), row[0], row[1]);
+            return true;
+        });
+        if (row.length > 2) line.setOnClickListener(v -> {
+            try {
+                v.getContext().startActivity(new android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(row[2])));
+            } catch (RuntimeException e) { // no maps app
+                copy(v.getContext(), row[0], row[1]);
+            }
+        });
+        return line;
+    }
+
+    /** P706: {@code value} on the clipboard; the toast where the system shows none (before Android 13). */
+    static void copy(Context c, String title, String value) {
+        android.content.ClipboardManager clip = (android.content.ClipboardManager) c.getSystemService(Context.CLIPBOARD_SERVICE);
+        if (clip == null) return;
+        clip.setPrimaryClip(android.content.ClipData.newPlainText(title, value));
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.TIRAMISU)
+            GalleryToast.show(c, Lang.t("Скопировано: ", "Copied: ") + title);
     }
 
     /** P579: the hairline between two values of a line (0.5dp wide, inset from the top and bottom). */

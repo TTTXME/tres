@@ -193,6 +193,19 @@ public class EttrSessionTest {
         return c == null ? 0 : c;
     }
 
+    /** P707: the stamp's note of a hold is made once per hold, the same text as before ("✗ " and the hold's code). */
+    @Test
+    public void aHoldsNoteIsMadeOncePerHold() throws Exception {
+        final Method m = CaptureController.class.getDeclaredMethod("ettrHoldNote", String.class);
+        m.setAccessible(true);
+        final String off = (String) m.invoke(controller, "off");
+        assertEquals("✗ off", off);
+        assertTrue("no new string per frame", off == m.invoke(controller, new String("off")));
+        assertEquals("✗ man", m.invoke(controller, "hand-set shutter"));
+        assertEquals("✗ " + Ettr.holdCode("forced stabilisation"), m.invoke(controller, "forced stabilisation"));
+        assertEquals("✗ off", m.invoke(controller, "off"));
+    }
+
     @Test
     public void thePlainZslSessionMetersAndTheSessionsEndClearsTheBoost() throws Exception {
         controller.mPreviewRequestBuilder = newRequestBuilder();

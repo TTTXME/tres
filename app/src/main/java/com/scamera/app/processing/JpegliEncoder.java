@@ -169,6 +169,98 @@ public final class JpegliEncoder {
                 + (mode[0] > 1 && fastTables ? " token reuse allowed" : "") + " ms=" + (System.nanoTime() - started) / 1000000);
     }
 
+    private static native long streamBegin(java.nio.ByteBuffer src, int width, int height, int stride, int quality, int threads);
+
+    private static native void streamRows(long handle, int rows);
+
+    private static native String streamFinish(long handle, OutputStream out, int[] mode);
+
+    private static native void streamAbort(long handle);
+
+    /**
+     * P713 (speed): the JPEG of a frame whose rows arrive from the top (the final readback's tiles while the GPU still draws the
+     * later ones): every strip of rows already there is encoded on the encoder's threads straight away, and {@link #finish} only
+     * waits for the last strips, then writes the file - the bytes {@link #compress(java.nio.ByteBuffer, int, int, int, int,
+     * OutputStream)} gives for the same pixels (tools/jpeg-check). The rows handed over must not change afterwards.
+     */
+    public static final class Stream implements AutoCloseable {
+        private long handle;
+        private final java.nio.ByteBuffer pixels;
+        private final int width, height, quality;
+        private final boolean aq, fastTables;
+        private final long started = System.nanoTime();
+        private long lastRows;
+        private int rowsGiven;
+
+        private Stream(long handle, java.nio.ByteBuffer pixels, int width, int height, int quality, boolean aq, boolean fastTables) {
+            this.handle = handle;
+            this.pixels = pixels;
+            this.width = width;
+            this.height = height;
+            this.quality = quality;
+            this.aq = aq;
+            this.fastTables = fastTables;
+        }
+
+        /**
+         * A stream over the direct buffer {@code rgba} (rows {@code stride} bytes apart from its start), or null when it is not
+         * streamed (the library, fewer than 4 MP, one thread, the token reuse off, no memory budget): the caller encodes the whole
+         * frame at the end as before.
+         */
+        @androidx.annotation.Nullable
+        public static Stream begin(java.nio.ByteBuffer rgba, int width, int height, int stride, int quality) {
+            if (!AVAILABLE || rgba == null || !rgba.isDirect() || width <= 0 || height <= 0 || stride < 4 * width) return null;
+            try {
+                final boolean aq = adaptiveQuantization();
+                setAdaptiveQuantization(aq);
+                final boolean fastTables = com.scamera.app.settings.PreferenceKeys.scamDevSwitch("jpeg_fast_tables", true);
+                setFastHuffmanTables(fastTables);
+                final long h = streamBegin(rgba, width, height, stride, quality, threads());
+                return h != 0 ? new Stream(h, rgba, width, height, quality, aq, fastTables) : null;
+            } catch (UnsatisfiedLinkError old) {
+                return null;
+            }
+        }
+
+        /** Rows [0, {@code rows}) are final. */
+        public void rows(int rows) {
+            if (handle == 0 || rows <= rowsGiven) return;
+            rowsGiven = Math.min(rows, height);
+            if (rowsGiven >= height) lastRows = System.nanoTime();
+            streamRows(handle, rowsGiven);
+        }
+
+        /** Every row is final: the file into {@code out}. Throws as compress does (the caller has the pixels for a retry). */
+        public void finish(OutputStream out) throws IOException {
+            if (handle == 0) throw new IOException("jpegli stream closed");
+            if (rowsGiven < height) rows(height);
+            final long tail0 = System.nanoTime();
+            final int[] mode = {1};
+            final long h = handle;
+            handle = 0;
+            final String error = streamFinish(h, out, mode);
+            if (error != null) throw new IOException("jpegli: " + error);
+            final long now = System.nanoTime();
+            Log.d(TAG, "jpegli " + width + "x" + height + " (mapped buffer, streamed) q" + quality + " "
+                    + (mode[0] > 1 ? "strips on " + mode[0] + " threads while the rows arrived" : "one thread") + (aq ? " aq" : "")
+                    + (mode[0] > 1 && fastTables ? " token reuse allowed" : "") + " ms=" + (now - started) / 1000000
+                    + " after the last rows=" + (now - (lastRows != 0 ? lastRows : tail0)) / 1000000);
+        }
+
+        /** Gives the stream up when it was not finished (its threads stopped before the rows may go). */
+        @Override
+        public void close() {
+            final long h = handle;
+            handle = 0;
+            if (h != 0) streamAbort(h);
+        }
+
+        /** The buffer the stream reads (held until it is finished or closed). */
+        java.nio.ByteBuffer pixels() {
+            return pixels;
+        }
+    }
+
     /** Android's encoder (4:2:0), the fallback when jpegli failed. */
     public static void compressFallback(Bitmap bitmap, int quality, OutputStream out) throws IOException {
         if (!bitmap.compress(Bitmap.CompressFormat.JPEG, quality, out))

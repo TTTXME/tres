@@ -33,7 +33,7 @@ def check(ok, what):
 m = re.search(r'static const char\* kFastOutput=R"FM\((.*?)\)FM";', SRC, re.S)
 check(m is not None, 'kFastOutput in scam-fast-gpu.h')
 SHADER = m.group(1).replace('#version 310 es', '#version 430') if m else ''
-check(MERGE.count('g.u1f(A::pOutput,"u_fill_light",std::clamp(tune.fastLightFill,0.f,1.f));') == 2,
+check(MERGE.count('g.u1f(PO,"u_fill_light",std::clamp(tune.fastLightFill,0.f,1.f));') == 2,
       'u_fill_light set in both output passes (tuning fastLightFill)')
 check('float fastLightFill=1.f;' in HYB and 'set("fastLightFill",&t.fastLightFill)' in HYB, 'fastLightFill: default 1, read from the tuning')
 

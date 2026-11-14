@@ -102,6 +102,9 @@ public class CameraSheetsTest {
         assertNull(sheet.findViewWithTag("size_" + PhotoSize.MAX));
         assertTrue(picked.isEmpty());
         assertTrue(refused.isEmpty());
+        // P705 (owner, 2026-11-14): a row reads its resolution only, no «Обычный · » / «Подробный · » before it
+        assertEquals(PhotoSize.normalBadge(), firstText((ViewGroup) sheet.findViewWithTag("size_" + PhotoSize.NORMAL)));
+        assertEquals(PhotoSize.fullName(), firstText((ViewGroup) sheet.findViewWithTag("size_" + PhotoSize.FULL)));
         sheet.findViewWithTag("size_" + PhotoSize.FULL).performClick();
         assertEquals(Arrays.asList(PhotoSize.FULL), picked);
         render(sheet.getRootView(), "size-sheet.png");
@@ -168,5 +171,18 @@ public class CameraSheetsTest {
         try (FileOutputStream out = new FileOutputStream(new File(dir, name))) {
             image.compress(Bitmap.CompressFormat.PNG, 100, out);
         }
+    }
+
+    /** The first text in a row (its title). */
+    private static String firstText(ViewGroup group) {
+        for (int i = 0; i < group.getChildCount(); i++) {
+            final View v = group.getChildAt(i);
+            if (v instanceof TextView) return String.valueOf(((TextView) v).getText());
+            if (v instanceof ViewGroup) {
+                final String t = firstText((ViewGroup) v);
+                if (t != null) return t;
+            }
+        }
+        return null;
     }
 }

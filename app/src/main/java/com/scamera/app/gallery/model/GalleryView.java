@@ -64,9 +64,7 @@ public final class GalleryView {
 
     /** The calendar year of a timestamp (ms, local time). */
     public static int yearOf(long millis) {
-        java.util.Calendar cal = java.util.Calendar.getInstance();
-        cal.setTimeInMillis(millis);
-        return cal.get(java.util.Calendar.YEAR);
+        return LocalDay.at(millis).get(java.util.Calendar.YEAR); // P706: no new Calendar a photo
     }
 
     /** P502: whether the filter sheet narrows the list (its chip shows; «Сбросить» clears it). */

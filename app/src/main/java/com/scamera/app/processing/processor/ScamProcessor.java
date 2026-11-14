@@ -9,7 +9,6 @@ import android.hardware.camera2.CaptureResult;
 
 import com.scamera.app.util.Log;
 import com.scamera.app.api.Camera2ApiAutoFix;
-import com.scamera.app.api.CameraMode;
 import com.scamera.app.api.ParseExif;
 import com.scamera.app.app.ScameraApp;
 import com.scamera.app.capture.CaptureController;
@@ -45,9 +44,8 @@ public class ScamProcessor extends ProcessorBase {
     private HashMap<Long, Double> frameExposures;
     private ArrayList<GyroBurst> burstGyro;
     private int imageFormat;
-    /** configure(): alignment, RAW saving, mode. */
+    /** configure(): alignment, RAW saving. */
     private int alignMode, rawSaving;
-    private CameraMode cameraMode;
     private String stageName = "initialization";
     private ByteBuffer scamOwnedOutput;
     private Parameters scamOutputParameters;
@@ -88,11 +86,10 @@ public class ScamProcessor extends ProcessorBase {
         super(listener);
     }
 
-    /** The settings of the next shot: its alignment, whether its RAW is saved (and how), its mode. */
-    public void configure(int align, int raw, CameraMode mode) {
+    /** The settings of the next shot: its alignment, whether its RAW is saved (and how). */
+    public void configure(int align, int raw) {
         alignMode = align;
         rawSaving = raw;
-        cameraMode = mode;
     }
 
     // Per-shot copy when processing is queued: the camera thread rebuilds the
@@ -701,6 +698,8 @@ public class ScamProcessor extends ProcessorBase {
                 {
                     stageName = "Hybrid merge";
                     com.scamera.app.processing.ShotTimeline.mark("hybrid_call");
+                    // P713: the post's programs this process has not compiled yet, compiled while the merge runs (GLProg)
+                    com.scamera.app.processing.opengl.GLProg.warmUpBesideMerge();
                     // P212d: only this shot's merge jobs give row profiles (a shot merged without the worker gives none)
                     com.scamera.app.processing.opengl.postpipeline.ScamNeuralClient.lastRowProfiles = java.util.Collections.emptyList();
                     // P220: the merge worker's heartbeat moves the ring (MergeProgress, from ScamNeuralClient's reader thread)
@@ -1098,6 +1097,11 @@ public class ScamProcessor extends ProcessorBase {
                 }
                 @Override public boolean draws() {
                     return stampOn || watermarkOn;
+                }
+                @Override public int firstDrawnRow(int width, int height) {
+                    // P713: the stamp sits at the top (everything waits for it); the watermark from its rectangle's top
+                    if (stampOn) return 0;
+                    return watermarkOn ? com.scamera.app.processing.watermark.PhotoWatermark.firstTouchedRow(width, height, streamExif) : height;
                 }
                 @Override public Runnable draw(java.nio.ByteBuffer pixels, int width, int height, int strideBytes) {
                     // P642: the bitmap route's two drawings, in its order (the stamp, then the watermark over what is there),

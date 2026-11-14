@@ -88,6 +88,14 @@ final class VivoSdkFullResCapture {
     /** P684: the colour block the stills' pixels proved (-1: none confident) and the last seamlessMode reported (null: none). */
     private volatile int deliveredBlock = -1;
     @androidx.annotation.Nullable private volatile Long seamlessSeen;
+    /** P699: the full-grid check of the series' first Bayer still (null: none yet). */
+    @androidx.annotation.Nullable private volatile FullGridCheck.Result grid;
+    /** P699: the failure of a still whose 2x2 cells repeat their green (FullGridCheck): a 50 MP readout, no 200 MP photo. */
+    static final String REPLICATED_WHY = "full-size still is a 2x2-replicated 50 MP readout (FullGridCheck), not a 200 MP photo";
+    /** P699: the colour block this series' confident stills agreed on (-1: none yet; seriesBlock). */
+    private volatile int seriesBlock = -1;
+    /** P699: this variant delivered the HAL's remosaicked Bayer before (StillOnly200): a still the detector cannot read is Bayer. */
+    private boolean bayerExpected;
 
     VivoSdkFullResCapture(CameraDevice device, CameraCaptureSession session, VivoSdkRawSession sdk,
                          Surface raw, Surface jpeg, ImageSaver saver, Handler handler,
@@ -170,15 +178,37 @@ final class VivoSdkFullResCapture {
                 if (profile.nativeRoute()) {
                     final MosaicBlockDetector.Result mosaic = MosaicBlockDetector.detect(plane.getBuffer(), image.getWidth(), image.getHeight(),
                             plane.getRowStride(), 64, 1023, 64);
-                    if (mosaic.confident) deliveredBlock = mosaic.block;
-                    if (mosaic.confident && mosaic.block != profile.nativeBlock) {
-                        image.close();
-                        com.scamera.app.util.Log.w("SCAM_CAPTURE", "native FULLRES still: block " + mosaic.block + ", the profile's "
-                                + profile.nativeBlock + (fullSize != null ? " (" + fullSize + ", P684)" : ""));
-                        serial.fail("Native FULLRES mosaic does not match its sensor profile");
-                        return;
+                    if (mosaic.confident) {
+                        deliveredBlock = mosaic.block;
+                        // P699: a 200 MP still-only still the HAL remosaicked (block 1) is taken as a Bayer series, not failed
+                        final int taken = seriesBlock(profile, seriesBlock, mosaic.block);
+                        if (taken < 0) {
+                            image.close();
+                            com.scamera.app.util.Log.w("SCAM_CAPTURE", "native FULLRES still: block " + mosaic.block + ", the "
+                                    + (seriesBlock > 0 ? "series' earlier stills " + seriesBlock : "profile's " + profile.nativeBlock)
+                                    + (fullSize != null ? " (" + fullSize + ", P684)" : ""));
+                            serial.fail("Native FULLRES mosaic does not match its sensor profile");
+                            return;
+                        }
+                        if (seriesBlock <= 0 && taken != profile.nativeBlock)
+                            com.scamera.app.util.Log.i("SCAM_CAPTURE", "200 MP still-only still: block " + taken + " (" + (taken == 1
+                                    ? "the HAL's remosaicked Bayer" : "the sensor's native Tetra") + "), the profile's " + profile.nativeBlock
+                                    + ": the series is taken as block " + taken + (fullSize != null ? " (" + fullSize + ")" : "") + " (P699)");
+                        seriesBlock = taken;
                     }
                     nativeMosaicVerified |= mosaic.confident && mosaic.block == profile.nativeBlock;
+                    // P699: the first Bayer still of a 200 MP still-only series - detail at its own grid or a 50 MP readout blown
+                    // up (FullGridCheck): logged; a still whose 2x2 cells repeat their green is no 200 MP photo
+                    if (profile.stillOnly && grid == null && shotBlock() == 1) {
+                        grid = FullGridCheck.measure(plane.getBuffer(), image.getWidth(), image.getHeight(), plane.getRowStride(), 64, 1023, 32);
+                        com.scamera.app.util.Log.i("SCAM_CAPTURE", "200 MP still-only still " + image.getWidth() + "x" + image.getHeight()
+                                + " full-grid check: " + grid + (fullSize != null ? " (" + fullSize + ")" : "") + " (P699)");
+                        if (grid.replicated()) {
+                            image.close();
+                            serial.fail(REPLICATED_WHY);
+                            return;
+                        }
+                    }
                 }
                 saver.initProcess(image);
                 serial.raw(timestamp);
@@ -223,6 +253,45 @@ final class VivoSdkFullResCapture {
 
     /** P684: the colour block the stills proved (-1: none confident). */
     int deliveredBlock() { return deliveredBlock; }
+
+    /** P699: the full-grid check of the first Bayer still (null: none). */
+    @androidx.annotation.Nullable FullGridCheck.Result grid() { return grid; }
+
+    /**
+     * P699: a 200 MP still-only variant that delivered the HAL's remosaicked Bayer before (StillOnly200.Choice.bayer): stills the
+     * detector cannot read (a flat or dark scene) are that Bayer, not an unproven Tetra. Before {@link #start}.
+     */
+    void bayerExpected(boolean on) {
+        bayerExpected = on && profile.nativeRoute() && profile.stillOnly;
+    }
+
+    /**
+     * P699: the colour block the shot is merged with - the one its stills proved, else the HAL's Bayer the variant gave before
+     * ({@link #bayerExpected}), else the profile's.
+     */
+    int shotBlock() {
+        return shotBlock(profile, seriesBlock, bayerExpected);
+    }
+
+    static int shotBlock(VivoSdkFullRes.Profile profile, int seriesBlock, boolean bayerExpected) {
+        if (seriesBlock > 0) return seriesBlock;
+        return bayerExpected ? 1 : Math.max(1, profile.nativeBlock);
+    }
+
+    /**
+     * P699 (owner, X300 Ultra 2026-11-14: «Исправь все фулрезы которые нормально не работают»; every 200 MP variant of cameras 3 and
+     * 5 failed as «block 1, the profile's 4» - the HAL remosaicked the full-size stills whatever the stock keys asked): the colour
+     * block a series takes after a confident still of {@code block}, given the block its earlier stills agreed on ({@code series},
+     * -1 none); -1 when the still contradicts them or the profile. The first confident still of a 200 MP still-only series may be
+     * the sensor's native Tetra or the HAL's remosaicked Bayer (block 1: a working photo, merged as Bayer, never an assumed Tetra);
+     * every other route keeps its profile's block (a 50 MP row the HAL remosaics still moves on to the next row, P188).
+     */
+    static int seriesBlock(VivoSdkFullRes.Profile profile, int series, int block) {
+        if (series > 0) return block == series ? series : -1;
+        if (block == profile.nativeBlock) return block;
+        if (profile.nativeRoute() && profile.stillOnly && (block == 1 || block == 4)) return block;
+        return -1;
+    }
 
     /** P684: the last seamlessMode a still reported (null: none). */
     @androidx.annotation.Nullable Long seamlessSeen() { return seamlessSeen; }
@@ -477,6 +546,48 @@ final class VivoSdkFullResCapture {
     }
 
     /**
+     * P710: no still of the series asks for more gain than the full-size mode gives ({@code isoCap}; 0 or MAX_VALUE: none known):
+     * the manual stills above it take the cap and a shutter longer by the ratio, up to {@code ceilingNs} (X300 Ultra 2026-11-14:
+     * the tele's 200 MP stills at ISO 12800 came at the mode's 800, x0.06 of the plan; the main's 50 MP N at 4552 came at 1600).
+     * After the exposures are set ({@link #plan}, {@link #manualNormals}, {@link #ultrashortLast}), before {@link #start}.
+     */
+    void isoCap(int isoCap, long ceilingNs) {
+        if (isoCap <= 0 || isoCap == Integer.MAX_VALUE) return;
+        final StringBuilder moved = new StringBuilder();
+        for (int i = 0; i < count; i++) {
+            if (manualNs[i] <= 0 || manualIso[i] <= isoCap) continue;
+            final long[] e = HybridPlan.isoOntoShutter(manualNs[i], manualIso[i], isoCap, ceilingNs);
+            if (moved.length() < 400) moved.append(String.format(java.util.Locale.ROOT, " #%d %s %.3fms*ISO%d -> %.3fms*ISO%d", i,
+                    roles[i], manualNs[i] / 1e6, manualIso[i], e[0] / 1e6, e[1]));
+            manualNs[i] = e[0];
+            manualIso[i] = (int) e[1];
+        }
+        if (moved.length() > 0) com.scamera.app.util.Log.i("SCAM_CAPTURE", "FULLRES stills: ISO above the " + isoCap
+                + " the full-size mode gives, the shutter takes the rest (ceiling " + ceilingNs / 1_000_000L + " ms):" + moved + " (P710)");
+    }
+
+    /**
+     * P710: the ISO the full-size stills of this series may ask for: {@code learnedCap} (ExposureLimits of the session's RAW
+     * size); on the X300 Ultra's still-only 200 MP route ({@code stillOnlyX300}) at most the declared sensitivity range's top as
+     * well - its viewfinder runs the normal mode, so nothing learns the full-size mode's ceiling there, and the declared range is
+     * that mode's (2026-11-14: tele declared [50, 800], 200 MP stills at ISO 12800 asked came at 800; main [50, 1600], its 50 MP 1600).
+     */
+    static int stillIsoCap(boolean stillOnlyX300, @androidx.annotation.Nullable android.util.Range<Integer> declared, int learnedCap) {
+        int cap = learnedCap > 0 ? learnedCap : Integer.MAX_VALUE;
+        if (stillOnlyX300 && declared != null && declared.getUpper() > 0) cap = Math.min(cap, declared.getUpper());
+        return cap;
+    }
+
+    /** P710: the longest shutter {@link #isoCap} gives an automatic still (a hand-set shutter: the camera's whole range). */
+    static final long AUTO_STILL_SHUTTER_MAX_NS = 500_000_000L;
+
+    /** P710: the shutter ceiling of {@link #isoCap}: the camera's range ({@code shutterMaxNs}), at most 0.5 s unless {@code handSet}. */
+    static long stillShutterCeiling(boolean handSet, long shutterMaxNs) {
+        final long range = shutterMaxNs > 0 ? shutterMaxNs : AUTO_STILL_SHUTTER_MAX_NS;
+        return handSet ? range : Math.min(range, AUTO_STILL_SHUTTER_MAX_NS);
+    }
+
+    /**
      * P198: the stills are the 12 MP Hybrid's post-shutter frames of {@code plan} (ultrashort / Bento, bracketed / Shasta), one per
      * request, each with the plan's role and exposure; a still that comes back at another exposure keeps the role its measured
      * exposure gives (HybridPlan.classify) or leaves the merge. Before {@link #start}.
@@ -707,9 +818,13 @@ final class VivoSdkFullResCapture {
     private void finish() {
         try {
             // P194: a Bayer still the detector cannot tell (a flat scene) is no mosaic either: only Quad / Tetra must be proven
-            if (profile.nativeBlock > 1) {
+            // P699: a still-only series whose stills proved the HAL's Bayer (block 1) is that Bayer: no mosaic to prove
+            if (profile.nativeBlock > 1 && seriesBlock != 1) {
                 final String key = proofKey(profile);
                 if (nativeMosaicVerified) MosaicProof.remember(key);
+                else if (seriesBlock <= 0 && bayerExpected)
+                    com.scamera.app.util.Log.i("SCAM_CAPTURE", "native FULLRES: the scene shows no confident colour block; this variant"
+                            + " delivered the HAL's remosaicked Bayer before: block 1 (P699)");
                 // owner, 2026-10-19 (X200 Ultra 200 MP, a blurred flat sheet: «Native FULLRES mosaic has not been verified from RAW
                 // pixels», the shot lost): a scene the detector cannot read proves nothing either way. No still contradicted the
                 // profile (that fails at once above); the HAL's reported sensor mode or an earlier proof of this camera's mosaic on
@@ -727,10 +842,18 @@ final class VivoSdkFullResCapture {
                     : ScamCaptureSequence.hybridFuture(requests, cutoff);
             HashMap<Long, Double> exposures = new HashMap<>();
             for (ImageFrame frame : past) exposures.put(frame.timestamp, frame.measuredExposure / 1e9 * frame.measuredIso);
+            // P710: a series after the shutter whose N stills the mode clamped all alike keeps them as its N (none was left as the
+            // base: «SDK RAW base metadata missing», the shot lost); a ZSL shot's N are the ring's
+            HybridPlan verdict = plan;
+            if (plan != null && past.isEmpty()) {
+                verdict = plan.withDeliveredNormals(results);
+                if (verdict != plan) com.scamera.app.util.Log.w("SCAM_CAPTURE", "native FULLRES series: " + verdict.description
+                        .substring(Math.max(0, verdict.description.lastIndexOf(" | N delivered")) + 3) + " (P710)");
+            }
             int offRole = 0;
             for (TotalCaptureResult result : results) {
-                if (plan != null) {
-                    ImageFrame.CaptureRole role = plan.classify(result.getRequest(), result);
+                if (verdict != null) {
+                    ImageFrame.CaptureRole role = verdict.classify(result.getRequest(), result);
                     if (role == null) { sequence.lost(result.getRequest(), "exposure outside every hybrid role"); offRole++; continue; }
                     sequence.reclassify(result.getRequest(), role);
                 }

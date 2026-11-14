@@ -6,8 +6,8 @@ WhyMsDenoise's optics pass filters the colour of every pixel the lens shading li
 pass per strip writes rgb_to_oklab of every pixel of the strip and its two rows above and below into an RGBA32F texture (exact
 floats: the same numbers the filter computed), and the filter reads them (OKLAB_CACHE 2). This draws the pass as WhyMsDenoise
 does - in one draw without the cache, strip by strip with it (strips of 256, 37 and 5 rows) - on a frame of RGBA16F input with
-the shading gain in alpha (below and above the corner threshold, zero, missing), the speckle median on and off, with and without
-OUT_LAB: the RGBA16F outputs must be equal. It also times both on llvmpipe (indicative only).
+the shading gain in alpha (below and above the corner threshold, zero, missing), the speckle median off and at three strengths:
+the RGBA16F outputs must be equal. It also times both on llvmpipe (indicative only).
 """
 import sys
 import time
@@ -58,8 +58,8 @@ def main():
             if k in p:
                 p[k].value = v
 
-    def run(inp, w, h, cache, strip, speckle, outlab):
-        p = prog(OUT_LAB=outlab, OKLAB_CACHE=2 if cache else 0)
+    def run(inp, w, h, cache, strip, speckle):
+        p = prog(OKLAB_CACHE=2 if cache else 0)
         base = {'u_width': w, 'u_height': h, 'u_quad_speckle_strength': speckle, 'u_quad_speckle_threshold': 0.15}
         out = ctx.texture((w, h), 4, dtype='f2')
         out.filter = (moderngl.NEAREST, moderngl.NEAREST)
@@ -73,7 +73,7 @@ def main():
             uniforms(p, dict(base, u_tex_rgb=0))
             vao.render(vertices=3)
         else:
-            c = prog(OUT_LAB=outlab, OKLAB_CACHE=1)
+            c = prog(OKLAB_CACHE=1)
             cvao = ctx.vertex_array(c, [])
             ctex = ctx.texture((w, min(h, strip + 4)), 4, dtype='f4')
             ctex.filter = (moderngl.NEAREST, moderngl.NEAREST)
@@ -112,26 +112,25 @@ def main():
         a[rng.random((h, w)) < 0.01, :3] = 0.0
         inp = ctx.texture((w, h), 4, a.astype(np.float16).tobytes(), dtype='f2')
         inp.filter = (moderngl.NEAREST, moderngl.NEAREST)
-        for speckle in (0.0, 0.7):
-            for outlab in (0, 1):
-                whole, _ = run(inp, w, h, False, 0, speckle, outlab)
-                for strip in (256, 37, 5):
-                    got, _ = run(inp, w, h, True, strip, speckle, outlab)
-                    tried += 1
-                    if got != whole:
-                        x = np.frombuffer(whole, np.uint16).reshape(h, w, 4)
-                        y = np.frombuffer(got, np.uint16).reshape(h, w, 4)
-                        ys, xs = np.nonzero((x != y).any(-1))
-                        check(False, '%dx%d speckle %.1f OUT_LAB %d strips of %d: %d pixels differ, first at %s'
-                              % (w, h, speckle, outlab, strip, ys.size, (int(xs[0]), int(ys[0]))))
+        for speckle in (0.0, 0.35, 0.7, 1.0):
+            whole, _ = run(inp, w, h, False, 0, speckle)
+            for strip in (256, 37, 5):
+                got, _ = run(inp, w, h, True, strip, speckle)
+                tried += 1
+                if got != whole:
+                    x = np.frombuffer(whole, np.uint16).reshape(h, w, 4)
+                    y = np.frombuffer(got, np.uint16).reshape(h, w, 4)
+                    ys, xs = np.nonzero((x != y).any(-1))
+                    check(False, '%dx%d speckle %.1f strips of %d: %d pixels differ, first at %s'
+                          % (w, h, speckle, strip, ys.size, (int(xs[0]), int(ys[0]))))
         inp.release()
     # timing: a 1536 x 1024 frame lifted everywhere (the corner filter on every pixel, as at a gain map mean of 2)
     w, h = 1536, 1024
     a = np.concatenate([rng.uniform(0.0, 1.0, (h, w, 3)), np.full((h, w, 1), 2.0)], -1)
     inp = ctx.texture((w, h), 4, a.astype(np.float16).tobytes(), dtype='f2')
     for k in range(2):
-        whole, t0 = run(inp, w, h, False, 0, 0.0, 0)
-        got, t1 = run(inp, w, h, True, 256, 0.0, 0)
+        whole, t0 = run(inp, w, h, False, 0, 0.0)
+        got, t1 = run(inp, w, h, True, 256, 0.0)
     check(whole == got, 'timing frame differs')
     timing = (t0, t1)
     print('     resolvedn/optics with the Oklab cache: %d cases, %s; llvmpipe %dx%d: %.0f ms without, %.0f ms with (cache + filter)'

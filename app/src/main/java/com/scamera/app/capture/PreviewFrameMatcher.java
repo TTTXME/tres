@@ -7,7 +7,9 @@ import java.util.function.Consumer;
 /**
  * Owns at most {@link #DEFAULT_IMAGES} preview images while waiting for their exact CaptureResult. P653: a session whose HAL
  * returns the viewfinder's results a few frames after their images (the Xiaomi 17 Ultra with a full-size output of a vendor
- * stream use case configured) keeps more ({@link #imageLimit(int)}); the counters say how late the results ran.
+ * stream use case configured) keeps more ({@link #imageLimit(int)}); the counters say how late the results ran. P707: a pair is
+ * delivered after this matcher's lock is left (the delivery - the live RAW frame's meters and ring copy, 10-100 ms - held it, and
+ * {@link #clear} on the main thread waited for it); the caller's thread runs it as before.
  */
 public final class PreviewFrameMatcher<T, R> {
     /** Unmatched images kept by default (of the viewfinder reader's buffers). */
@@ -29,26 +31,37 @@ public final class PreviewFrameMatcher<T, R> {
         trim();
     }
     public synchronized int imageLimit() { return imageLimit; }
-    public synchronized void image(long timestamp, T image) {
-        R result=results.remove(timestamp);
-        if(result!=null) { matched++; deliver.accept(image,result); return; }
-        T old=images.put(timestamp,image);
-        if(old!=null) { dropped++; release.accept(old); }
-        trim();
+    public void image(long timestamp, T image) {
+        final R result;
+        synchronized (this) {
+            result=results.remove(timestamp);
+            if(result==null) {
+                T old=images.put(timestamp,image);
+                if(old!=null) { dropped++; release.accept(old); }
+                trim();
+                return;
+            }
+            matched++;
+        }
+        deliver.accept(image,result);
     }
-    public synchronized void result(long timestamp,R result) {
-        if(images.containsKey(timestamp)) {
+    public void result(long timestamp,R result) {
+        final T image;
+        synchronized (this) {
+            if(!images.containsKey(timestamp)) {
+                results.put(timestamp,result);
+                while(results.size()>16) results.remove(results.keySet().iterator().next());
+                return;
+            }
             // how many images came after this one while it waited for its result: the result's lag in frames
             int later=0;
             boolean after=false;
             for(Long t:images.keySet()) { if(after) later++; else if(t==timestamp) after=true; }
             maxLate=Math.max(maxLate,later);
             matched++;
-            deliver.accept(images.remove(timestamp),result);
-            return;
+            image=images.remove(timestamp);
         }
-        results.put(timestamp,result);
-        while(results.size()>16) results.remove(results.keySet().iterator().next());
+        deliver.accept(image,result);
     }
     public synchronized void clear() {
         for(T image:images.values()) release.accept(image);

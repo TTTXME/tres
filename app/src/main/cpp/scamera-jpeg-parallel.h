@@ -27,7 +27,10 @@
 #include <thread>
 #include <vector>
 #include <climits>
+#include <condition_variable>
+#include <deque>
 #include <memory>
+#include <mutex>
 #include "lib/jpegli/bitstream.h"
 
 #include "lib/jpegli/common.h"
@@ -478,18 +481,9 @@ inline size_t retainedMemoryBudget(int width, int height, int rows) {
     return cap;
 }
 
-inline std::vector<Parts> prepareRetained(const uint8_t* pixels, int width, int height,
-        size_t stride, int quality, int threads, int rows, bool aq, size_t memoryCap) {
-    const int strips = (height + rows - 1) / rows;
-    if (memoryCap < (8u << 20) || !retainedGeometryFits(width, height, rows, memoryCap)) throw std::runtime_error("JPEG retained memory budget");
-    std::vector<std::unique_ptr<RetainedStrip>> retained(static_cast<size_t>(strips));
-    forEach(strips, threads, [&](int i) {
-        const int y0 = i * rows, h = std::min(rows, height - y0);
-        auto item = std::make_unique<RetainedStrip>();
-        item->feed(pixels + size_t(y0) * stride, width, h, stride, quality, aq,
-                   memoryCap / size_t(strips));
-        retained[size_t(i)] = std::move(item);
-    });
+/** The shared optimal tables of every retained strip's symbol counts, then each strip's entropy-coded data with them (parsed). */
+inline std::vector<Parts> finishRetained(std::vector<std::unique_ptr<RetainedStrip>>& retained, int threads) {
+    const int strips = int(retained.size());
     std::vector<std::vector<int64_t>> counts(4, std::vector<int64_t>(256, 0));
     for (const auto& item : retained)
         for (size_t t = 0; t < 4; ++t)
@@ -508,6 +502,70 @@ inline std::vector<Parts> prepareRetained(const uint8_t* pixels, int width, int 
         retained[size_t(i)].reset();
     });
     return parts;
+}
+
+
+inline std::vector<Parts> prepareRetained(const uint8_t* pixels, int width, int height,
+        size_t stride, int quality, int threads, int rows, bool aq, size_t memoryCap) {
+    const int strips = (height + rows - 1) / rows;
+    if (memoryCap < (8u << 20) || !retainedGeometryFits(width, height, rows, memoryCap)) throw std::runtime_error("JPEG retained memory budget");
+    std::vector<std::unique_ptr<RetainedStrip>> retained(static_cast<size_t>(strips));
+    forEach(strips, threads, [&](int i) {
+        const int y0 = i * rows, h = std::min(rows, height - y0);
+        auto item = std::make_unique<RetainedStrip>();
+        item->feed(pixels + size_t(y0) * stride, width, h, stride, quality, aq,
+                   memoryCap / size_t(strips));
+        retained[size_t(i)] = std::move(item);
+    });
+    return finishRetained(retained, threads);
+}
+
+/** The file from the strips' parts: SOI, strip 0's leading segments, SOF of the full height, DHT, DRI, SOS, the strips, EOI. */
+inline void writeJoined(const std::vector<Parts>& parts, int height, int interval, const std::function<bool(const uint8_t*, size_t)>& writer) {
+    const int strips = int(parts.size());
+    // every strip must carry the same tables and scan header as strip 0
+    const Parts& first = parts[0];
+    auto same = [](const Parts& a, std::pair<size_t, size_t> x, const Parts& b, std::pair<size_t, size_t> y) {
+        return x.second == y.second && std::memcmp(&a.bytes[x.first], &b.bytes[y.first], x.second) == 0;
+    };
+    for (int i = 1; i < strips; ++i) {
+        const Parts& p = parts[size_t(i)];
+        if (p.dht.size() != first.dht.size() || p.before.size() != first.before.size())
+            throw std::runtime_error("strips differ in their headers");
+        for (size_t k = 0; k < p.dht.size(); ++k)
+            if (!same(first, first.dht[k], p, p.dht[k])) throw std::runtime_error("strips differ in their Huffman tables");
+        for (size_t k = 0; k < p.before.size(); ++k)
+            if (!same(first, first.before[k], p, p.before[k])) throw std::runtime_error("strips differ in their quantisation");
+        if (!same(first, {first.sos, first.sosLen}, p, {p.sos, p.sosLen})) throw std::runtime_error("strips differ in their scan");
+        // SOF: the same apart from the height (bytes 5..6)
+        if (p.sofLen != first.sofLen || std::memcmp(&p.bytes[p.sof], &first.bytes[first.sof], 5) != 0
+            || std::memcmp(&p.bytes[p.sof + 7], &first.bytes[first.sof + 7], first.sofLen - 7) != 0)
+            throw std::runtime_error("strips differ in their frame");
+    }
+    // the file: SOI, strip 0's leading segments, SOF with the full height, DHT, DRI, SOS, the strips with RSTn between, EOI
+    std::vector<uint8_t> head{0xFF, 0xD8};
+    for (const auto& seg : first.before) head.insert(head.end(), first.bytes.begin() + std::ptrdiff_t(seg.first),
+                                                     first.bytes.begin() + std::ptrdiff_t(seg.first + seg.second));
+    std::vector<uint8_t> sof(first.bytes.begin() + std::ptrdiff_t(first.sof), first.bytes.begin() + std::ptrdiff_t(first.sof + first.sofLen));
+    sof[5] = uint8_t(height >> 8);
+    sof[6] = uint8_t(height & 0xFF);
+    head.insert(head.end(), sof.begin(), sof.end());
+    for (const auto& seg : first.dht) head.insert(head.end(), first.bytes.begin() + std::ptrdiff_t(seg.first),
+                                                  first.bytes.begin() + std::ptrdiff_t(seg.first + seg.second));
+    const uint8_t dri[6] = {0xFF, 0xDD, 0x00, 0x04, uint8_t(interval >> 8), uint8_t(interval & 0xFF)};
+    head.insert(head.end(), dri, dri + 6);
+    head.insert(head.end(), first.bytes.begin() + std::ptrdiff_t(first.sos), first.bytes.begin() + std::ptrdiff_t(first.sos + first.sosLen));
+    if (!writer(head.data(), head.size())) throw std::runtime_error("JPEG output stream failed");
+    for (int i = 0; i < strips; ++i) {
+        const Parts& p = parts[size_t(i)];
+        if (!writer(&p.bytes[p.entropy], p.entropyEnd - p.entropy)) throw std::runtime_error("JPEG output stream failed");
+        if (i + 1 < strips) {
+            const uint8_t rst[2] = {0xFF, uint8_t(0xD0 + (i & 7))};
+            if (!writer(rst, 2)) throw std::runtime_error("JPEG output stream failed");
+        }
+    }
+    const uint8_t eoi[2] = {0xFF, 0xD9};
+    if (!writer(eoi, 2)) throw std::runtime_error("JPEG output stream failed");
 }
 
 /**
@@ -610,50 +668,157 @@ inline void encodeRgba(const uint8_t* pixels, int width, int height, size_t stri
             parts[size_t(i)] = parse(encodeStrip(pixels + size_t(y0) * stride, width, h, stride, quality, order, aq));
         });
     }
-    // every strip must carry the same tables and scan header as strip 0
-    const Parts& first = parts[0];
-    auto same = [](const Parts& a, std::pair<size_t, size_t> x, const Parts& b, std::pair<size_t, size_t> y) {
-        return x.second == y.second && std::memcmp(&a.bytes[x.first], &b.bytes[y.first], x.second) == 0;
-    };
-    for (int i = 1; i < strips; ++i) {
-        const Parts& p = parts[size_t(i)];
-        if (p.dht.size() != first.dht.size() || p.before.size() != first.before.size())
-            throw std::runtime_error("strips differ in their headers");
-        for (size_t k = 0; k < p.dht.size(); ++k)
-            if (!same(first, first.dht[k], p, p.dht[k])) throw std::runtime_error("strips differ in their Huffman tables");
-        for (size_t k = 0; k < p.before.size(); ++k)
-            if (!same(first, first.before[k], p, p.before[k])) throw std::runtime_error("strips differ in their quantisation");
-        if (!same(first, {first.sos, first.sosLen}, p, {p.sos, p.sosLen})) throw std::runtime_error("strips differ in their scan");
-        // SOF: the same apart from the height (bytes 5..6)
-        if (p.sofLen != first.sofLen || std::memcmp(&p.bytes[p.sof], &first.bytes[first.sof], 5) != 0
-            || std::memcmp(&p.bytes[p.sof + 7], &first.bytes[first.sof + 7], first.sofLen - 7) != 0)
-            throw std::runtime_error("strips differ in their frame");
-    }
-    // the file: SOI, strip 0's leading segments, SOF with the full height, DHT, DRI, SOS, the strips with RSTn between, EOI
-    std::vector<uint8_t> head{0xFF, 0xD8};
-    for (const auto& seg : first.before) head.insert(head.end(), first.bytes.begin() + std::ptrdiff_t(seg.first),
-                                                     first.bytes.begin() + std::ptrdiff_t(seg.first + seg.second));
-    std::vector<uint8_t> sof(first.bytes.begin() + std::ptrdiff_t(first.sof), first.bytes.begin() + std::ptrdiff_t(first.sof + first.sofLen));
-    sof[5] = uint8_t(height >> 8);
-    sof[6] = uint8_t(height & 0xFF);
-    head.insert(head.end(), sof.begin(), sof.end());
-    for (const auto& seg : first.dht) head.insert(head.end(), first.bytes.begin() + std::ptrdiff_t(seg.first),
-                                                  first.bytes.begin() + std::ptrdiff_t(seg.first + seg.second));
-    const uint8_t dri[6] = {0xFF, 0xDD, 0x00, 0x04, uint8_t(interval >> 8), uint8_t(interval & 0xFF)};
-    head.insert(head.end(), dri, dri + 6);
-    head.insert(head.end(), first.bytes.begin() + std::ptrdiff_t(first.sos), first.bytes.begin() + std::ptrdiff_t(first.sos + first.sosLen));
-    if (!writer(head.data(), head.size())) throw std::runtime_error("JPEG output stream failed");
-    for (int i = 0; i < strips; ++i) {
-        const Parts& p = parts[size_t(i)];
-        if (!writer(&p.bytes[p.entropy], p.entropyEnd - p.entropy)) throw std::runtime_error("JPEG output stream failed");
-        if (i + 1 < strips) {
-            const uint8_t rst[2] = {0xFF, uint8_t(0xD0 + (i & 7))};
-            if (!writer(rst, 2)) throw std::runtime_error("JPEG output stream failed");
+    writeJoined(parts, height, interval, writer);
+}
+
+/**
+ * P713: the streamed encode - {@link #encodeRgba}'s retained route fed strip by strip while the rows arrive (the final readback's
+ * tiles: the GPU still draws the later ones). {@link #rowsReady} hands every strip whose rows are all there to the encoder's
+ * threads (one full DCT a strip, its tokens and symbol counts kept); {@link #finish} waits for the last ones, then makes the
+ * shared tables, the strips' entropy-coded data and the file exactly as encodeRgba's retained route does - the same strips, the
+ * same per-strip memory cap, the same tables, the same bytes (tools/jpeg-check: byte for byte). When the route cannot run here
+ * (one strip, no memory budget, the token reuse off, a strip that failed) finish encodes the whole frame with encodeRgba as before.
+ * The pixels must stay valid and unchanged in the rows handed over until finish (or the destructor) returns.
+ */
+class StreamEncoder {
+public:
+    StreamEncoder(const uint8_t* pixels, int width, int height, size_t stride, int quality, int threads,
+                  bool fastTables = fastHuffmanTables().load(), bool aq = adaptiveQuantisation().load())
+        : pixels_(pixels), width_(width), height_(height), stride_(stride), quality_(quality), threads_(std::max(1, threads)),
+          fastTables_(fastTables), aq_(aq) {
+        if (pixels == nullptr || width <= 0 || height <= 0 || stride < size_t(width) * 4) throw std::runtime_error("JPEG: bad image geometry");
+        rows_ = stripRows(width, height, threads_, 0);
+        strips_ = (height + rows_ - 1) / rows_;
+        const int mcusPerRow = (width + 7) / 8;
+        interval_ = mcusPerRow * (rows_ / 8);
+        if (!fastTables || strips_ < 2 || interval_ > 65535) return;
+        memoryCap_ = retainedMemoryBudget(width, height, rows_);
+        if (memoryCap_ < (8u << 20) || !retainedGeometryFits(width, height, rows_, memoryCap_)) return;
+        retained_.resize(size_t(strips_));
+        active_ = true;
+        try {
+            for (int k = 0; k < std::min(threads_, strips_); ++k) pool_.emplace_back([this] { work(); });
+        } catch (const std::exception&) {
+            // fewer helpers: finish feeds what is left on its own thread
         }
     }
-    const uint8_t eoi[2] = {0xFF, 0xD9};
-    if (!writer(eoi, 2)) throw std::runtime_error("JPEG output stream failed");
-}
+
+    StreamEncoder(const StreamEncoder&) = delete;
+    StreamEncoder& operator=(const StreamEncoder&) = delete;
+
+    ~StreamEncoder() { stop(); }
+
+    /** Whether the strips go to the threads as their rows arrive (else finish encodes the whole frame). */
+    bool active() const { return active_; }
+
+    int stripRowsOf() const { return rows_; }
+
+    /** Rows [0, rows) are final: their complete strips are queued. */
+    void rowsReady(int rows) {
+        if (!active_) return;
+        std::lock_guard<std::mutex> lock(mutex_);
+        while (queued_ < strips_ && (std::min(height_, (queued_ + 1) * rows_) <= rows)) queue_.push_back(queued_++);
+        wake_.notify_all();
+    }
+
+    /** The whole file into {@code writer} (the bytes of encodeRgba's retained route for these pixels; else encodeRgba itself). */
+    void finish(const std::function<bool(const uint8_t*, size_t)>& writer) {
+        if (active_) {
+            rowsReady(height_);
+            // this thread feeds what no helper took, then waits for the helpers' strips
+            for (;;) {
+                int i = -1;
+                {
+                    std::lock_guard<std::mutex> lock(mutex_);
+                    if (!queue_.empty()) { i = queue_.front(); queue_.pop_front(); }
+                }
+                if (i < 0) break;
+                feed(i);
+            }
+            {
+                std::unique_lock<std::mutex> lock(mutex_);
+                done_.wait(lock, [this] { return fed_ == strips_; });
+            }
+            stop();
+            if (!failed_) {
+                std::vector<Parts> parts;
+                try {
+                    parts = finishRetained(retained_, threads_);
+                } catch (const std::exception&) {
+                    parts.clear();
+                }
+                if (!parts.empty()) {
+                    writeJoined(parts, height_, interval_, writer);
+                    return;
+                }
+            }
+            retained_.clear();
+        }
+        encodeRgba(pixels_, width_, height_, stride_, quality_, threads_, 0, writer, 0, fastTables_, aq_);
+    }
+
+private:
+    void feed(int i) {
+        bool ok = false;
+        if (!failed_.load()) {
+            try {
+                const int y0 = i * rows_, h = std::min(rows_, height_ - y0);
+                auto item = std::make_unique<RetainedStrip>();
+                item->feed(pixels_ + size_t(y0) * stride_, width_, h, stride_, quality_, aq_, memoryCap_ / size_t(strips_));
+                retained_[size_t(i)] = std::move(item);
+                ok = true;
+            } catch (const std::exception&) {
+                ok = false;
+            }
+        }
+        if (!ok) failed_.store(true);
+        std::lock_guard<std::mutex> lock(mutex_);
+        ++fed_;
+        done_.notify_all();
+    }
+
+    void work() {
+        for (;;) {
+            int i;
+            {
+                std::unique_lock<std::mutex> lock(mutex_);
+                wake_.wait(lock, [this] { return stopping_ || !queue_.empty(); });
+                if (queue_.empty()) return;   // stopping, nothing left
+                i = queue_.front();
+                queue_.pop_front();
+            }
+            feed(i);
+        }
+    }
+
+    void stop() {
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            stopping_ = true;
+            queue_.clear();   // an abort: strips not started are dropped (finish has taken all of them by now)
+        }
+        wake_.notify_all();
+        for (auto& t : pool_) if (t.joinable()) t.join();
+        pool_.clear();
+    }
+
+    const uint8_t* pixels_;
+    int width_, height_;
+    size_t stride_;
+    int quality_, threads_;
+    bool fastTables_, aq_;
+    int rows_ = 0, strips_ = 0, interval_ = 0;
+    size_t memoryCap_ = 0;
+    bool active_ = false;
+    std::vector<std::unique_ptr<RetainedStrip>> retained_;
+    std::vector<std::thread> pool_;
+    std::mutex mutex_;
+    std::condition_variable wake_, done_;
+    std::deque<int> queue_;
+    int queued_ = 0, fed_ = 0;
+    bool stopping_ = false;
+    std::atomic<bool> failed_{false};
+};
 
 }  // namespace parallel
 }  // namespace scamera_jpeg

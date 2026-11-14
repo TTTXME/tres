@@ -11,6 +11,8 @@ uniforms over a frame of 200 rows in one draw (the 256-row band of before), then
 a 16-row boundary, the last one shorter) - the RGBA32F bytes must be equal. why/combine also with the photo's defines.
 P683: and in bands of 8 rows - the tiles a picture under 8 MP was drawn in until P683 (PostPipeline then set TILE_ROWS 8), now
 256 as for every other picture: the same pixels prove that change keeps the photo bit for bit.
+P713: and in bands of 16 and 40 COLUMNS (viewports x .. x + n over the full height) - GLDeferredDraw draws the WHY combine of a
+streamed JPEG in column bands beside a 90 / 270 degree photo's output tiles; the combine also with the coarse highlight mask.
 """
 import os
 import re
@@ -26,6 +28,7 @@ DIRS = ['why', 'scamdn', 'scamhdr', 'hlrecovery', 'chromadn', 'scamlc', 'resolve
         'RotateWatermark', 'ultrahdr', 'utils']
 W, H = 96, 200
 BANDS = [8, 16, 48, 112]
+COLUMN_BANDS = [16, 40]
 FAILURES = []
 VS = '#version 310 es\nin vec4 vPosition;\nvoid main(){gl_Position=vPosition;}\n'
 
@@ -126,7 +129,7 @@ def fill(ctx, prog, seed):
     return textures
 
 
-def render(ctx, prog, bands):
+def render(ctx, prog, bands, columns=False):
     out = ctx.texture((W, H), 4, dtype='f4')
     fb = ctx.framebuffer([out])
     fb.use()
@@ -135,9 +138,9 @@ def render(ctx, prog, bands):
     names = [n for n in prog if n == 'vPosition']
     vao = ctx.vertex_array(prog, [(quad, '2f', 'vPosition')] if names else [])
     y = 0
-    while y < H:
-        rows = min(H - y, bands)
-        ctx.viewport = (0, y, W, rows)
+    while y < (W if columns else H):
+        rows = min((W if columns else H) - y, bands)
+        ctx.viewport = (y, 0, rows, H) if columns else (0, y, W, rows)
         vao.render(mode=5 if names else 4, vertices=4 if names else 3)
         y += rows
     data = out.read()
@@ -163,7 +166,7 @@ def variants():
     combine = expand((SH / 'why/combine.glsl').read_text(encoding='utf-8'))
     photo = combine
     for k, v in [('DITHER_TPDF', '1'), ('HL_LOCAL', '1'), ('HL_LOCAL_SMOOTH', '1'), ('RIM_SMOOTH', '1'), ('EDGE_HOLD', '1'),
-                 ('WHY_BASE', '1'), ('WHY_VIBRANCE', '1'), ('HL_LANDING', '1')]:
+                 ('WHY_BASE', '1'), ('WHY_VIBRANCE', '1'), ('HL_LANDING', '1'), ('HL_COARSE', '1')]:
         photo = set_define(photo, k, v)
     yield 'why/combine (photo defines)', with_header(photo)
 
@@ -196,12 +199,20 @@ def main():
                 rows = sorted(set(np.nonzero((a != g).any(axis=(1, 2)))[0].tolist()))
                 check(False, '%s: bands of %d rows differ from one draw in rows %s' % (name, b, rows[:12]))
                 same = False
+        for b in COLUMN_BANDS:
+            got = render(ctx, prog, b, columns=True)
+            if got != whole:
+                a = np.frombuffer(whole, 'u4').reshape(H, W, 4)
+                g = np.frombuffer(got, 'u4').reshape(H, W, 4)
+                cols = sorted(set(np.nonzero((a != g).any(axis=(0, 2)))[0].tolist()))
+                check(False, '%s: bands of %d columns differ from one draw in columns %s' % (name, b, cols[:12]))
+                same = False
         equal += same
         for t in textures:
             t.release()
         prog.release()
-    print('     %d post fragment programs drawn in bands of %s rows and in one draw: %d bit for bit equal (%d not compiled by llvmpipe)'
-          % (tried, BANDS, equal, skipped))
+    print('     %d post fragment programs drawn in bands of %s rows, of %s columns and in one draw: %d bit for bit equal (%d not compiled'
+          ' by llvmpipe)' % (tried, BANDS, COLUMN_BANDS, equal, skipped))
     check(tried >= 20, 'at least 20 post programs compiled (%d)' % tried)
     print('ALL OK' if not FAILURES else 'FAILED: %d' % len(FAILURES))
     return 1 if FAILURES else 0

@@ -30,23 +30,6 @@ public interface CameraUIView {
     default void processingStage(ProcessingProgress progress) {
     }
 
-    /** The capture ring empty and hidden. */
-    default void captureRingReset() {
-    }
-
-    default void captureRingStep(int frames) {
-    }
-
-    default void captureRingAlpha(float alpha) {
-    }
-
-    default void captureRingMax(int frames) {
-    }
-
-    /** P234: the capture ring at {@code frames} (a long ZSL series: those frames are taken already). */
-    default void captureRingAt(int frames) {
-    }
-
     /** The receiver of the screen's clicks (the top bar, the shutter row). */
     default void listenTo(CameraUIEventsListener listener) {
     }
@@ -61,10 +44,6 @@ public interface CameraUIView {
 
     /** During a burst everything but the shutter (the burst's own control) takes no touch and is dimmed. */
     default void lockForBurst(boolean locked) {
-    }
-
-    /** The video recording line under the shutter. */
-    default void recordingLine(boolean visible) {
     }
 
     /** The screen's views are gone (onDestroy). */

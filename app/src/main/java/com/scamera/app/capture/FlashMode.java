@@ -41,23 +41,14 @@ public final class FlashMode {
         return sFlashUnit;
     }
 
-    /** The camera is in the video mode (the torch only). */
-    public static boolean videoMode() {
-        try {
-            return com.scamera.app.app.ScameraApp.getSettings().mode == com.scamera.app.api.CameraMode.VIDEO;
-        } catch (RuntimeException e) {
-            return false;
-        }
-    }
-
-    /** The mode the top row and the shade show: the stored one as this lens and mode allow it. */
+    /** The mode the top row and the shade show: the stored one as this lens allows it. */
     public static int shown() {
-        return effective(com.scamera.app.settings.PreferenceKeys.getAeMode(), sFlashUnit, videoMode());
+        return effective(com.scamera.app.settings.PreferenceKeys.getAeMode(), sFlashUnit);
     }
 
     /** The mode a tap on the top row's item or the shade's tile chooses. */
     public static int tap() {
-        return next(com.scamera.app.settings.PreferenceKeys.getAeMode(), sFlashUnit, videoMode());
+        return next(com.scamera.app.settings.PreferenceKeys.getAeMode(), sFlashUnit);
     }
 
     /** A stored value outside 0..3 is off (the default). */
@@ -66,19 +57,19 @@ public final class FlashMode {
     }
 
     /**
-     * The mode in force: a lens without a flash unit (the front lens: its torch is the screen light, P507) and the video take the
-     * torch or off - Auto / On are off there.
+     * The mode in force: a lens without a flash unit (the front lens: its torch is the screen light, P507) takes the torch or
+     * off - Auto / On are off there.
      */
-    public static int effective(int mode, boolean flashUnit, boolean video) {
+    public static int effective(int mode, boolean flashUnit) {
         mode = normalize(mode);
-        if ((mode == AUTO || mode == ON) && (!flashUnit || video)) return OFF;
+        if ((mode == AUTO || mode == ON) && !flashUnit) return OFF;
         return mode;
     }
 
-    /** The mode a tap chooses after {@code mode}: the whole cycle with a flash unit for photos, else off <-> torch. */
-    public static int next(int mode, boolean flashUnit, boolean video) {
-        final int current = effective(mode, flashUnit, video);
-        final boolean flashModes = flashUnit && !video;
+    /** The mode a tap chooses after {@code mode}: the whole cycle with a flash unit, else off <-> torch. */
+    public static int next(int mode, boolean flashUnit) {
+        final int current = effective(mode, flashUnit);
+        final boolean flashModes = flashUnit;
         int at = 0;
         for (int i = 0; i < CYCLE.length; i++) if (CYCLE[i] == current) at = i;
         for (int k = 1; k <= CYCLE.length; k++) {
@@ -90,10 +81,10 @@ public final class FlashMode {
 
     /**
      * The preview's CONTROL_AE_MODE: Auto ON_AUTO_FLASH, On ON_ALWAYS_FLASH (the AE then reports FLASH_REQUIRED and the still
-     * request fires the flash); otherwise ON. {@code flashShots} false (no flash unit, a sensor-mode route, the video): ON.
+     * request fires the flash); otherwise ON. {@code flashShots} false (no flash unit, a sensor-mode route): ON.
      */
-    public static int previewAeMode(int mode, boolean flashShots, boolean video) {
-        switch (effective(mode, flashShots, video)) {
+    public static int previewAeMode(int mode, boolean flashShots) {
+        switch (effective(mode, flashShots)) {
             case AUTO: return CameraMetadata.CONTROL_AE_MODE_ON_AUTO_FLASH;
             case ON: return CameraMetadata.CONTROL_AE_MODE_ON_ALWAYS_FLASH;
             default: return CameraMetadata.CONTROL_AE_MODE_ON;

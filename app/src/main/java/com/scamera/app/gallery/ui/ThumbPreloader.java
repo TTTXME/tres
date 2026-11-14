@@ -24,6 +24,8 @@ public final class ThumbPreloader extends RecyclerView.OnScrollListener {
     static final int AHEAD_ROWS = 4;
     static final int MAX_TARGETS = 48;
 
+    /** P706: the rows ahead on this phone (GalleryTier: 2 / 4 / 6). */
+    private final int rows;
     private final LibraryAdapter adapter;
     private final RequestManager glide;
     private final ArrayDeque<Target<?>> targets = new ArrayDeque<>();
@@ -34,6 +36,7 @@ public final class ThumbPreloader extends RecyclerView.OnScrollListener {
     public ThumbPreloader(@NonNull RequestManager glide, @NonNull LibraryAdapter adapter) {
         this.adapter = adapter;
         this.glide = glide;
+        this.rows = com.scamera.app.gallery.glide.GalleryTier.preloadRows(com.scamera.app.gallery.glide.GalleryTier.get());
     }
 
     @Override
@@ -42,13 +45,18 @@ public final class ThumbPreloader extends RecyclerView.OnScrollListener {
         GridLayoutManager lm = (GridLayoutManager) rv.getLayoutManager();
         int first = lm.findFirstVisibleItemPosition(), last = lm.findLastVisibleItemPosition();
         if (first < 0 || last < 0) return;
-        int[] range = range(first, last, lm.getSpanCount(), adapter.getItemCount(), dy > 0);
+        int[] range = range(first, last, lm.getSpanCount(), adapter.getItemCount(), dy > 0, rows);
         preload(range[0], range[1], dy > 0);
     }
 
     /** The positions to preload, [from, to): {@code rows} rows of {@code span} cells past the visible ones in the direction. */
     static int[] range(int first, int last, int span, int count, boolean down) {
-        int n = Math.max(1, span) * AHEAD_ROWS;
+        return range(first, last, span, count, down, AHEAD_ROWS);
+    }
+
+    /** {@link #range} with {@code rows} rows ahead. */
+    static int[] range(int first, int last, int span, int count, boolean down, int rows) {
+        int n = Math.max(1, span) * Math.max(1, rows);
         return down ? new int[]{Math.min(count, last + 1), Math.min(count, last + 1 + n)}
                 : new int[]{Math.max(0, first - n), Math.max(0, first)};
     }

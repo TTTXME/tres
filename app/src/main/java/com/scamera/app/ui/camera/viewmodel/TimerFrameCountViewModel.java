@@ -5,13 +5,11 @@ import android.os.Looper;
 
 import androidx.lifecycle.ViewModel;
 
-import com.scamera.app.api.CameraMode;
-import com.scamera.app.app.ScameraApp;
 import com.scamera.app.ui.camera.model.TimerFrameCountModel;
 
 /**
  * The series' counters (frames left, the time left as m:s) from the capture thread's frame events, set on the main thread.
- * The time shows for a series longer than 4 s and for an endless one (unlimited / RAW video: no frame count to reach).
+ * The time shows for a series longer than 4 s.
  */
 public class TimerFrameCountViewModel extends ViewModel {
     private final TimerFrameCountModel counters = new TimerFrameCountModel();
@@ -22,8 +20,7 @@ public class TimerFrameCountViewModel extends ViewModel {
     }
 
     public void setFrameTimeCnt(FrameCntTime at) {
-        final CameraMode mode = ScameraApp.getSettings().mode;
-        final int last = mode == CameraMode.UNLIMITED || mode == CameraMode.RAWVIDEO ? 0 : at.maxframe;
+        final int last = at.maxframe;
         final int frame = at.frame;
         final double perFrame = at.time;
         main.post(() -> show(frame, last, perFrame));

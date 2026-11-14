@@ -226,6 +226,9 @@ public final class SettingsMotion {
     public static final class ItemAnimator extends DefaultItemAnimator {
         /** The share of the glide's time after which the new rows rise (after the fade-outs, when there are some). */
         static final float ADD_AT = 0.4f;
+        /** P708: the rise of each next new row starts this much later, up to this many rows. */
+        static final long STAGGER_MS = 14;
+        static final int STAGGER_ROWS = 6;
         private final float rise;
         private final List<RecyclerView.ViewHolder> adds = new ArrayList<>();
         /** The rows rising now and their animators (in the order they started). */
@@ -277,7 +280,9 @@ public final class SettingsMotion {
             if (adds.isEmpty()) return;
             final List<RecyclerView.ViewHolder> now = new ArrayList<>(adds);
             adds.clear();
-            for (RecyclerView.ViewHolder h : now) riseIn(h, delay);
+            // P708: top to bottom, a little apart (the rows of the Advanced mode, an opened card): a short cascade, capped
+            now.sort((x, y) -> Integer.compare(x.getLayoutPosition(), y.getLayoutPosition()));
+            for (int i = 0; i < now.size(); i++) riseIn(now.get(i), delay + Math.min(i, STAGGER_ROWS) * STAGGER_MS);
         }
 
         private void riseIn(RecyclerView.ViewHolder h, long delay) {

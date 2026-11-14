@@ -11,6 +11,16 @@ uniform float sigmaU;                // texels
 // P479b (speed, owner 2026-11-03: <= 1 level of the JPEG): 1 = the gaussian's weights from WhyCombine (weightsU, packed 4 a vec4,
 // radiusU taps a side) and the two sides of each tap added first - no exp per tap and per pixel; "hlmask_fast 0": as before
 #define FAST 0
+// P713 (speed, owner 2026-11-14: «на глаз разницы быть не должно»): 1 = the share on a grid blockU times coarser (dirU (0, 0): the
+// mean of blockU x blockU whyLow texels' shares round the coarse texel's centre, scaleU whyLow texels a coarse one), so the two
+// gaussian passes run on 1 / blockU^2 of the texels with 1 / blockU of the taps; the landing reads the result bilinearly as before
+// (tools/check_hlmask_coarse.py: the mask within 1e-3 of the share, the photo within one 8-bit level). "hlmask_coarse 0": as before
+#define DECIMATE 0
+#if DECIMATE == 1
+uniform int blockU;
+uniform vec2 scaleU;
+uniform ivec2 marginU;   // coarse texels of margin on each side: their blocks lie outside whyLow (its edge texels, clamped)
+#endif
 #if FAST == 1
 uniform vec4 weightsU[40];
 uniform int radiusU;
@@ -21,6 +31,18 @@ void main() {
     ivec2 xy = ivec2(gl_FragCoord.xy);
     ivec2 extent = textureSize(InputBuffer, 0);
     if (dirU == ivec2(0)) {
+#if DECIMATE == 1
+        ivec2 first = ivec2(floor((vec2(xy - marginU) + 0.5) * scaleU - 0.5 * float(blockU) + 0.5));
+        float total = 0.0;
+        for (int j = 0; j < blockU; j++) {
+            for (int i = 0; i < blockU; i++) {
+                vec3 t = texelFetch(InputBuffer, clamp(first + ivec2(i, j), ivec2(0), extent - 1), 0).rgb;
+                total += clamp(max(t.r, max(t.g, t.b)) * invClipU, 0.0, 4.0);
+            }
+        }
+        Output = vec4(total / float(blockU * blockU), 0.0, 0.0, 1.0);
+        return;
+#endif
         vec3 c = texelFetch(InputBuffer, xy, 0).rgb;
         float m = max(c.r, max(c.g, c.b));
         Output = vec4(clamp(m * invClipU, 0.0, 4.0), 0.0, 0.0, 1.0);

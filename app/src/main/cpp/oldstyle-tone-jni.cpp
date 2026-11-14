@@ -30,8 +30,8 @@ void raise(JNIEnv* env, const std::string& message) {
 Post post_from(JNIEnv* env, jfloatArray array) {
     Post p;
     if (!array || env->GetArrayLength(array) < 12) return p;
-    float v[15] = {0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f};
-    env->GetFloatArrayRegion(array, 0, std::min<jsize>(15, env->GetArrayLength(array)), v);
+    float v[17] = {0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f, 1.f, 0.f};
+    env->GetFloatArrayRegion(array, 0, std::min<jsize>(17, env->GetArrayLength(array)), v);
     p.dehaze = v[0] > .5f;
     p.max_dark = std::clamp(static_cast<int>(std::lround(v[1])), 0, 255);
     p.percentile = v[2];
@@ -47,6 +47,8 @@ Post post_from(JNIEnv* env, jfloatArray array) {
     p.lf_strength = v[12] == v[12] ? std::clamp(v[12], 0.f, 1.f) : 1.f;
     p.curve_mid = v[13] == v[13] ? v[13] : 0.f;
     p.curve_contrast = v[14] == v[14] ? v[14] : 0.f;
+    p.frame_gain = v[15] > 0.f && std::isfinite(v[15]) ? v[15] : 1.f; // P716
+    p.linear_bright = v[16] > .5f;
     return p;
 }
 

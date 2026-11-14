@@ -137,7 +137,15 @@ public final class PhotoSize {
         fullDead = false;
         fullHere = fullHere || VivoSdkFullRes.offered(boundCamera)
                 || com.scamera.app.capture.NubiaFullRes.offeredHere(boundCamera); // P575
+        // P709: the size may be chosen still (a route that leaves FULLRES on when its last trial fails): set() changes nothing then,
+        // so the camera restarts here - the trials start again at once, not at some later restart
+        final boolean chosen = size == current();
         String message = set(fragment, size);
+        if (chosen && fragment.captureController != null) {
+            Log.i("PhotoSize", "camera " + boundCamera + ": " + size + " MP chosen already, the camera restarts for the trials (P709)");
+            fragment.captureController.restartCamera();
+            message = Lang.t("Размер: " + label(size) + " · перезапуск", "Size: " + label(size) + " · restart");
+        }
         if (message != null) fragment.showSnackBar(message);
         fragment.refreshTopBar();
     }

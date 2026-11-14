@@ -287,6 +287,11 @@ public class MainRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFr
         final boolean why = whyOn && (direct || directP314 || rawTarget(tone[0], tone[1]));
         boolean fusedFailedNow = false;
         if (why) {
+            // P711: P314's linear frame from LiveWhyTone's gather pass when it is linked (rawdevelop_fs otherwise)
+            mRawRenderer.setLinearProgram(mWhyTone.linearProgram());
+            // P711: the GPU time of this draw's tone passes (ToneGpuTimer: read a few frames later; toned frames count)
+            final long tonedBefore = mVfRawToned;
+            mToneTimer.begin();
             // P319 (user report: «Лайв-вью работает гораздо тормознее»): an ISP frame wakes this thread too (1x sessions keep the
             // ISP stream), and each such draw toned the same RAW frame again - up to half the draws. The tone in rawFbo is reused
             // while the RAW frame, the target and the geometry are the same and it is fresh; only the filter / peaking pass runs.
@@ -337,6 +342,7 @@ public class MainRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFr
                 }
                 if (rawActive) drawRawFiltered(peaking);
             }
+            mToneTimer.end(mVfRawToned != tonedBefore);
             if (rawActive) {
                 final long version = ((long) com.scamera.app.processing.LiveRawFrame.currentSession() << 32)
                         ^ (com.scamera.app.processing.LiveRawFrame.getVersion() & 0xffffffffL);
@@ -366,6 +372,8 @@ public class MainRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFr
                     final double s = (now - mVfRawAtNs) / 1e9;
                     // P683: the window's pace decides the next windows' tone size (RawPreviewLoad: logged when it switches)
                     final double drawMs = com.scamera.app.processing.VfStages.meanMs(com.scamera.app.processing.VfStages.Stage.DRAW);
+                    // P711: and the tone's GPU time (NaN: not measured on this GPU)
+                    mToneLoad.gpu(mToneTimer.takeMeanMs());
                     if (adaptiveTone() && mToneLoad.window(drawMs, mVfRawFresh / s, (mVfRawFresh + dropped - mVfRawDropped0) / s,
                             (long) tone[0] * tone[1], mToneFullPixels, com.scamera.app.util.ThermalPolicy.processingNow()))
                         Log.i("VF_RAW", mToneLoad.last());
@@ -431,27 +439,45 @@ public class MainRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFr
 
         // P228: the live lens filter's blur pyramid of this frame (its own program and framebuffer), before the main pass
         mLensFilter.prepass(quadXY, quadUV, turn, ispTex, mirrored, mFrameGain);
-        // Every pass owns its GL state: RAW and histogram passes use other programs/attributes.
-        GLES20.glUseProgram(ispProgram);
-        bindIspTexture();
-        GLES20.glEnableVertexAttribArray(aXY);
-        GLES20.glEnableVertexAttribArray(aUV);
-        quadXY.position(0);
-        quadUV.position(0);
-        GLES20.glUniformMatrix4fv(uTurn, 1, false, turn, 0);
         int peakEnabled = peakMode();
-        GLES20.glUniform1i(uPeak, peakEnabled);
-        GLES20.glUniform1i(uMirror, mirrored ? 1 : 0);
-
-        GLES20.glUniform1f(uGain, mFrameGain);
         // P643d: the tone preview's grid of this draw (null: off or not ready - the frame as it is)
         final com.scamera.app.processing.oldstyle.OldstyleLive.Grid liveTone = readyTone();
-        oldstyleUniforms(uOsOn, uOsAdjust, liveTone != null);
-        oldstyleTone(uOtTone, liveTone);
-        mLensFilter.apply();
+        if (plainDraw(plainProgram, peakEnabled, liveTone != null, sOldstyle != null, mLensFilter.plain())) {
+            // P705: nothing but the frame is drawn - main_plain_fs.glsl, the same bytes (tools/checks/vf_plain_gl.py) without the
+            // filter, LUT, style and peaking code's taps, derivatives and registers
+            GLES20.glUseProgram(plainProgram);
+            bindIspTexture();
+            GLES20.glEnableVertexAttribArray(aXYPlain);
+            GLES20.glEnableVertexAttribArray(aUVPlain);
+            quadXY.position(0);
+            quadUV.position(0);
+            GLES20.glUniformMatrix4fv(uTurnPlain, 1, false, turn, 0);
+            GLES20.glUniform1i(uMirrorPlain, mirrored ? 1 : 0);
+            GLES20.glUniform1f(uGainPlain, mFrameGain);
+            GLES20.glVertexAttribPointer(aXYPlain, 2, GLES20.GL_FLOAT, false, 8, quadXY);
+            GLES20.glVertexAttribPointer(aUVPlain, 2, GLES20.GL_FLOAT, false, 8, quadUV);
+            drawQuad();
+            GLES20.glUseProgram(ispProgram);
+        } else {
+            // Every pass owns its GL state: RAW and histogram passes use other programs/attributes.
+            GLES20.glUseProgram(ispProgram);
+            bindIspTexture();
+            GLES20.glEnableVertexAttribArray(aXY);
+            GLES20.glEnableVertexAttribArray(aUV);
+            quadXY.position(0);
+            quadUV.position(0);
+            GLES20.glUniformMatrix4fv(uTurn, 1, false, turn, 0);
+            GLES20.glUniform1i(uPeak, peakEnabled);
+            GLES20.glUniform1i(uMirror, mirrored ? 1 : 0);
 
-        pointQuad();
-        drawQuad();
+            GLES20.glUniform1f(uGain, mFrameGain);
+            oldstyleUniforms(uOsOn, uOsAdjust, liveTone != null);
+            oldstyleTone(uOtTone, liveTone);
+            mLensFilter.apply();
+
+            pointQuad();
+            drawQuad();
+        }
 
         // Measure after drawing, so a failure here cannot leave the viewfinder
         // blank, and re-bind this program afterwards since the meter uses its
@@ -471,6 +497,16 @@ public class MainRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFr
 
     private int ispProgram;
     private int uTurn;
+    /** P705: main_plain_fs.glsl (0: not linked - main_fs draws every frame, as before) and its locations. */
+    private int plainProgram, aXYPlain, aUVPlain, uTurnPlain, uMirrorPlain, uGainPlain;
+
+    /**
+     * P705: whether the ISP frame is drawn with the plain program: it is linked, and main_fs would draw the frame only - no focus
+     * peaking, no ScamMaster tone grid, no Oldstyle style, nothing of the lens filter or its LUT (LiveLensFilter.plain).
+     */
+    static boolean plainDraw(int plainProgram, int peaking, boolean tone, boolean style, boolean filterPlain) {
+        return plainProgram != 0 && peaking == 0 && !tone && !style && filterPlain;
+    }
 
     private int aXY;
     private int aUV;
@@ -496,6 +532,7 @@ public class MainRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFr
         ispPending = false;
         mRawRenderer.onContextCreated();
         mWhyTone.onContextCreated();
+        mToneTimer.onContextCreated(); // P711
         mWhyLogged = 0;
         mFusedLogged = 0;
         mRawProgramsReady = false;
@@ -562,6 +599,19 @@ public class MainRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFr
             pinSamplers(hProgram2d, LiveLensFilter.to2d(fragmentSrc)); // P631b
             mRawLensFilter.locate(hProgram2d);
             mRawLensFilter.locatePrep(linkProgram(VS_2D, LiveLensFilter.to2d(ScameraApp.getAssetLoader().getString("shaders/preview/lensfilter_prep.glsl"))));
+        }
+        // P705: the plain program of the frame alone (one fetch and the gain): a small compile, from the kept binary after the first
+        plainProgram = com.scamera.app.settings.PreferenceKeys.scamDevSwitch("vf_plain", true)
+                ? linkProgram(vertexSrc, ScameraApp.getAssetLoader().getString("shaders/preview/main_plain_fs.glsl")) : 0;
+        if (plainProgram != 0) {
+            GLES20.glUseProgram(plainProgram);
+            aXYPlain = GLES20.glGetAttribLocation(plainProgram, "vPosition");
+            aUVPlain = GLES20.glGetAttribLocation(plainProgram, "vTexCoord");
+            uTurnPlain = GLES20.glGetUniformLocation(plainProgram, "uTexRotateMatrix");
+            uMirrorPlain = GLES20.glGetUniformLocation(plainProgram, "mirror");
+            uGainPlain = GLES20.glGetUniformLocation(plainProgram, "uGain");
+            GLES20.glUniform1i(GLES20.glGetUniformLocation(plainProgram, FRAME_SAMPLER), 0);
+            if (aXYPlain < 0 || aUVPlain < 0) plainProgram = 0; // never a quad without its attributes: main_fs then
         }
         GLES20.glUseProgram(ispProg);
         pointQuad();
@@ -661,7 +711,8 @@ public class MainRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFr
         if (mToneFullPixels > 0 && adaptiveTone() && mToneLoad.seed(com.scamera.app.processing.opengl.GpuProfile.nsPerPixel(
                 com.scamera.app.processing.opengl.GpuProfile.VIEWFINDER_TONE) * mToneFullPixels / 1e6, mToneFullPixels))
             Log.i("VF_RAW", mToneLoad.last());
-        final boolean reduced = mToneLoad.reduced() && adaptiveTone();
+        // P711: the step's pixel cap (RawPreviewLoad.CAPS: the full size, ~1.1, 0.75 or 0.5 MP)
+        final int reduced = adaptiveTone() ? mToneLoad.cap() : Integer.MAX_VALUE;
         if (v == null) {
             mToneFullPixels = (long) Math.max(1, mViewport[2]) * Math.max(1, mViewport[3]);
             return RawPreviewBudget.size(mViewport[2], mViewport[3], busy, reduced);
@@ -679,6 +730,8 @@ public class MainRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFr
 
     /** P683: the RAW viewfinder's tone size follows the GPU's pace (RawPreviewLoad); the full size before a slow window. */
     private final RawPreviewLoad mToneLoad = new RawPreviewLoad();
+    /** P711: the tone's GPU time on the phone (timer queries, never waited for) for RawPreviewLoad's windows. */
+    private final ToneGpuTimer mToneTimer = new ToneGpuTimer();
     /** P683: the tone's size before RawPreviewBudget (the last toneSizeNow). */
     private long mToneFullPixels;
 

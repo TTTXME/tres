@@ -431,70 +431,6 @@ public final class ScamRgb extends Node {
         return (float) (m / bestSum);
     }
 
-    /** P482: the bin of every half value as {@link #histogram} files it (-1 none, -2 NaN: the GPU walk then gives up). */
-    static int[] binTable() {
-        final int[] t = new int[65536];
-        for (int bits = 0; bits < 65536; bits++) {
-            final float v = HalfFloat.TABLE[bits];
-            if (Float.isNaN(v)) { t[bits] = -2; continue; }
-            if (v < HIST_T0) { t[bits] = -1; continue; }
-            final int b = (int) Math.floor((v - HIST_T0) / HIST_BIN);
-            t[bits] = b >= 0 && b < HIST_BINS ? b : -1;
-        }
-        return t;
-    }
-
-    private static int[] binTable;
-
-    /**
-     * P482 (speed, owner 2026-11-03): {@link #channelClip} on the uploaded half RGB (hlrecovery/clipstats_cs), exactly: the same
-     * samples, the CPU's own bins (binTable), the per-bin sums as integers of 2^-11 (every half in [0.8, 1.1) is one, the CPU's
-     * double sums of them are exact too). Only without the Bento ultrashort levels (their v / k is not on the half grid), up to
-     * 16 MP (a bin's integer sum stays below 2^32); null on NaN samples or a GL failure: the CPU walk.
-     */
-    ChannelClip channelClipGpu(GLTexture input, Point size, boolean bento, float k, float usClipped, boolean flags) {
-        if (bento && k > 1f || (long) size.x * size.y > 16_000_000L) return null;
-        final long samples = ((long) size.x * size.y + 16L) / 17L;
-        if (binTable == null) binTable = binTable();
-        while (android.opengl.GLES31.glGetError() != android.opengl.GLES31.GL_NO_ERROR) {
-            // drain: only the pass below decides
-        }
-        try (com.scamera.app.processing.opengl.GLBuffer lut = new com.scamera.app.processing.opengl.GLBuffer(65536,
-                new GLFormat(GLFormat.DataType.UNSIGNED_32));
-             com.scamera.app.processing.opengl.GLBuffer out = new com.scamera.app.processing.opengl.GLBuffer(904,
-                new GLFormat(GLFormat.DataType.UNSIGNED_32))) {
-            lut.clientCopy.asIntBuffer().put(binTable);
-            lut.Bind();lut.Buffering();
-            shaderProg.setLayout(256, 1, 1);
-            shaderProg.useAssetProgram("hlrecovery/clipstats_cs", true);
-            shaderProg.setTexture("InputBuffer", input);
-            shaderProg.setBufferCompute("binLut", lut);
-            shaderProg.setBufferCompute("clipStats", out);
-            shaderProg.setVar("widthU", size.x);
-            shaderProg.setVar("samplesU", (int) samples);
-            shaderProg.computeManual((int) ((samples + 255) / 256), 1, 1);
-            shaderProg.closed = true;
-            final int[] v = out.readBufferIntegers(false);
-            if (android.opengl.GLES31.glGetError() != android.opengl.GLES31.GL_NO_ERROR || v == null || v.length < 904 || v[903] != 0) return null;
-            final ChannelClip cc = new ChannelClip();
-            final int[][] hLo = new int[3][HIST_BINS], hHi = new int[3][HIST_BINS];
-            final double[][] sLo = new double[3][HIST_BINS], sHi = new double[3][HIST_BINS];
-            for (int c = 0; c < 3; c++) {
-                cc.max[c] = Float.intBitsToFloat(v[900 + c]);
-                for (int b = 0; b < HIST_BINS; b++) {
-                    hLo[c][b] = v[c * HIST_BINS + b];
-                    sLo[c][b] = (v[450 + c * HIST_BINS + b] & 0xffffffffL) / 2048.0;
-                }
-            }
-            final ChannelClip out2 = clipFrom(cc, hLo, sLo, hHi, sHi, samples, bento, k, usClipped, flags);
-            out2.log += " (gpu)";
-            return out2;
-        } catch (RuntimeException e) {
-            com.scamera.app.util.Log.w("SCAM_PIPELINE", "highlight statistics on the GPU: " + e + ", CPU walk");
-            return null;
-        }
-    }
-
     private static void histogram(int[] h, double[] sum, float t) {
         // P364: a sample below the first bin (most of them) leaves at once: for every t < 0.8 the bin below is negative (t - 0.8 is
         // negative and never rounds to 0), so nothing is counted, as before; a NaN still takes the old path (bin 0)
@@ -1094,15 +1030,10 @@ public final class ScamRgb extends Node {
             if(uploadOk[0])com.scamera.app.util.Allocator.free(big); // else the caller keeps it (a failed upload)
             return d;
         });
-        // P482 (speed): the hybrid's clip statistics on the GPU from the uploaded half RGB (channelClipGpu, exact) instead of this
-        // helper's walk, which the GL thread waited for; scam_dev.txt "hl_stats_gpu 0", the old GL model, Bento levels or > 16 MP:
-        // the helper as before (and whenever the GPU walk gives up)
-        final boolean statsGpu=hybrid&&half&&!(bento&&bentoK>1f)&&(long)size.x*size.y<=16_000_000L
-                &&!com.scamera.app.processing.opengl.PostGlMode.legacy()&&PreferenceKeys.scamDevSwitch("hl_stats_gpu",false);
         final java.util.concurrent.FutureTask<InputStats> side=new java.util.concurrent.FutureTask<>(()->{
             InputStats s=new InputStats();
             final long t0=System.currentTimeMillis();
-            if(hybrid){if(!statsGpu)s.cc=channelClip(big,bento,bentoK,bentoUs,withFlags,ParallelWork.threads(),half);} else s.clip=clipLevels(big);
+            if(hybrid)s.cc=channelClip(big,bento,bentoK,bentoUs,withFlags,ParallelWork.threads(),half); else s.clip=clipLevels(big);
             if(hybrid&&flagsIn!=null){
                 final OpposedWorkList work=sparseOpposed
                         ?OpposedWorkList.create(size.x,size.y,flagsIn.capacity(),flagParts()):null;
@@ -1122,7 +1053,6 @@ public final class ScamRgb extends Node {
         final long uploadStart=System.nanoTime();
         GLTexture input=null;
         boolean rgbaBands=false,gpuRepack=false;
-        ChannelClip gpuCc=null; // P482: the GPU walk's levels (statsGpu)
         try{
             if(half){
                 // P145: the 3 -> 4 halves repack as a compute pass (HalfRgbUpload); the CPU repack on drivers that would not keep
@@ -1132,11 +1062,6 @@ public final class ScamRgb extends Node {
                 if(input==null)input=uploadHalfRgba(size,big);
                 rgbaBands=input!=null;
                 if(input==null)throw new IllegalStateException("no staging memory for the half-float RGB upload");
-                // P482: on the uploaded halves, before the helper may release the buffer (a GPU walk that gives up reads it here)
-                if(statsGpu){
-                    gpuCc=channelClipGpu(input,size,bento,bentoK,bentoUs,withFlags);
-                    if(gpuCc==null)gpuCc=channelClip(big,bento,bentoK,bentoUs,withFlags,ParallelWork.threads(),half);
-                }
             } else {
             if(rgbaUploadWanted(glGetString(GL_RENDERER))){input=uploadRgba(size,big);rgbaBands=input!=null;}
             if(input==null)input=new GLTexture(size,new GLFormat(GLFormat.DataType.FLOAT_32,3),big,GL_NEAREST,GL_CLAMP_TO_EDGE);
@@ -1181,7 +1106,7 @@ public final class ScamRgb extends Node {
         }
         final long sideDone=System.nanoTime();
         if(hybrid){
-            cc=statsGpu?gpuCc:stats.cc;
+            cc=stats.cc;
             // P277: a lab fragment takes the whole frame's clip levels (when the merges agree on Bento), a lab shot records them
             final LabFrame fz=p.frozen;
             if(fz!=null&&fz.ccLo!=null&&fz.ccBento==bento){
@@ -1252,9 +1177,7 @@ public final class ScamRgb extends Node {
             if(earlyFlags!=null){earlyFlags.close();earlyFlags=null;} // P479: the recovery is off after all
             com.scamera.app.processing.opengl.PostGlMode.lap("scamrgb gainmap+flags");
             p.main1=new GLTexture(size,new GLFormat(GLFormat.DataType.FLOAT_16,GLDrawParams.WORK_CHANNELS),null,GL_LINEAR,GL_CLAMP_TO_EDGE);
-            // P179: no main3 (nothing swaps it in any more: swap3 has no caller; 1.6 GB at 200 MP), and above 100 MP main2 is made
-            // on its first use, after the input texture is gone, instead of next to it
-            p.main3=null;
+            // P179: above 100 MP main2 is made on its first use, after the input texture is gone, instead of next to it
             final boolean early=earlyRelease(size);
             if(((long)size.x*size.y>100_000_000L||early)&&!largeTwoX){
                 final Point mainSize=new Point(size);
@@ -1540,7 +1463,6 @@ public final class ScamRgb extends Node {
             if(largeTwoX){
                 if(p.main1!=null){p.main1.close();p.main1=null;}
                 if(p.main2!=null){p.main2.close();p.main2=null;}
-                if(p.main3!=null){p.main3.close();p.main3=null;}
                 if(p.GainMap!=null){p.GainMap.close();p.GainMap=null;}
             }
             throw failure;

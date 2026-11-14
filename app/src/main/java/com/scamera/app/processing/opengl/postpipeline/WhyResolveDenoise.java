@@ -88,15 +88,10 @@ public final class WhyResolveDenoise {
         final List<GLTexture> owned = new ArrayList<>();
         DenoiseStats.PendingSnr snr = null;
         try {
-            // P479 (speed): the SNR's statistics issued now, their read-back and CPU part after this node's passes are issued
-            // (only WhyLumaSharpen and WhyCombine use the SNR): no GPU drain here, the CPU part runs alongside the passes
-            // OFF by default (owner, 2026-11-03): on the Snapdragon 8 Elite (Adreno 830) photos came out with only the last resolve
-            // strip (the first two thirds black); the read-back with the wait as before
-            snr = DenoiseStats.finishSnrBegin(glProg, pipeline, input,
-                    !com.scamera.app.processing.opengl.PostGlMode.legacy() && PreferenceKeys.scamDevSwitch("snr_async", false));
+            // P479: the SNR's statistics measured now, their CPU part after this node's passes are issued (only WhyLumaSharpen and
+            // WhyCombine use the SNR); P648: with «Подстройка под свет» finished before the passes (the flat smoothing reads it)
+            snr = DenoiseStats.finishSnrBegin(glProg, pipeline, input);
             com.scamera.app.processing.opengl.PostGlMode.lap("resolve finishSnr");
-            // P648: the switch on - the SNR finished before the passes (the flat smoothing reads it and the measured noise; with
-            // snr_async the read-back's wait moves here); off - after the passes as before
             float shotSnr = Float.NaN;
             if (adapt) {
                 shotSnr = DenoiseStats.finishSnrEnd(snr, log);
@@ -183,7 +178,6 @@ public final class WhyResolveDenoise {
         } finally {
             for (GLTexture t : owned) if (t != null) t.close();
             owned.clear();
-            if (snr != null) DenoiseStats.dropPending(snr); // a failure between the two halves: its pixel-pack buffer
         }
     }
 

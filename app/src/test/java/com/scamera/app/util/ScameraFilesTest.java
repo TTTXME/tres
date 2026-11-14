@@ -43,7 +43,7 @@ public class ScameraFilesTest {
         assertFalse(ScameraFolder.covers("primary:Download/SCAMERA/XML", ScameraFolder.ROOT.documentId()));
         // every name of the root: scam_dev.txt and the adb markers without an extension
         assertTrue(ScameraFolder.ROOT.accepts("scam_dev.txt"));
-        assertTrue(ScameraFolder.ROOT.accepts("dump-forward"));
+        assertTrue(ScameraFolder.ROOT.accepts("dump-denoise"));
         assertEquals("Download/SCAMERA", ScameraFiles.RELATIVE);
         assertEquals("Download/SCAMERA/scam_dev.txt", ScamDevFile.SHOWN);
     }

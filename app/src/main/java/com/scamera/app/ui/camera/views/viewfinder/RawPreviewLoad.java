@@ -15,9 +15,21 @@ import java.util.Locale;
  * to {@link #MAX_RECOVER_WINDOWS}: one slow window every 5 min at worst). Windows while a shot is processed are not counted (the
  * busy budget applies then; the post pipeline shares the GPU). Every switch is logged (VF_RAW). Fast GPUs never get here: their
  * frames are all drawn in a few ms. scam_dev vf_adaptive_tone 0: off (the full size as before).
+ *
+ * <p>P711 (owner, 2026-11-14: «добавь оптимизацию live viewfinder, он должен хорошо работать даже на Snapdragon 865»): the tone's
+ * GPU time is measured (ToneGpuTimer: GL_EXT_disjoint_timer_query around the tone's passes, read a few frames later, never
+ * waited for) and goes into the window ({@link #gpu}): a window is slow too when the tone's mean GPU time is above
+ * {@link #GPU_SLOW_MS} (half a 30 fps frame: the GL thread's own time hides a GPU that is the bottleneck until frames are lost), a
+ * try of the size above needs the GPU time scaled to it under {@link #GPU_GOOD_MS}; and the reduction has steps ({@link #CAPS}:
+ * ~1.1, 0.75 and 0.5 MP) - still slow at one step, {@link #SLOW_WINDOWS} windows go one step further, the steps back up as from
+ * the first one (good windows, a try, its back-off). An Adreno 650 at ~5.7 ns a tone pixel (P314's 2.8 ns on an Adreno 750, half
+ * the ALU) settles where the tone is ~6 - 9 ms of GPU: 1.1 MP at a 1080 x 1440 viewport. The first-run calibration's seed starts
+ * at the first step whose estimate is under {@link #SEED_GPU_MS}.
  */
 final class RawPreviewLoad {
     static final int REDUCED_PIXELS = 1_100_000;
+    /** P711: the tone's pixel cap of each step (0: none, the full size). */
+    static final int[] CAPS = {Integer.MAX_VALUE, REDUCED_PIXELS, 750_000, 500_000};
     static final float SLOW_DRAW_MS = 11f;
     static final float FRESH_SHARE = 0.8f;
     static final int SLOW_WINDOWS = 2;
@@ -26,6 +38,10 @@ final class RawPreviewLoad {
     static final int RECOVER_WINDOWS = 3, MAX_RECOVER_WINDOWS = 150;
     /** A try of the full size this many windows long: one slow window in it reduces again. */
     static final int TRIAL_WINDOWS = 3;
+    /** P711: a window whose tone took more GPU time a frame than this is slow (half a 30 fps frame). */
+    static final float GPU_SLOW_MS = 16f;
+    /** P711: the step above is tried only when the GPU time scaled to its pixels stays under this. */
+    static final float GPU_GOOD_MS = 12f;
 
     /**
      * P683: the first-run GPU calibration's estimate (GpuProfile: the viewfinder tone's ns per pixel x the full size's pixels)
@@ -34,29 +50,56 @@ final class RawPreviewLoad {
      */
     static final float SEED_GPU_MS = 16f;
 
-    private boolean reduced, seeded;
+    private int level;
+    private boolean seeded;
     private int slow, good, recoverWindows = RECOVER_WINDOWS, trial;
+    private double gpuMs = Double.NaN;
     private String last = "";
 
     boolean reduced() {
-        return reduced;
+        return level > 0;
+    }
+
+    /** P711: the step (0 the full size .. CAPS.length - 1). */
+    int level() {
+        return level;
+    }
+
+    /** P711: the tone's pixel cap now (Integer.MAX_VALUE at the full size). */
+    int cap() {
+        return CAPS[level];
+    }
+
+    /**
+     * P711: the tone's mean GPU time a toned frame in the window that ends next (ms; NaN: not measured - no timer query on this
+     * GPU, or no result yet). Read by the next {@link #window} only.
+     */
+    void gpu(double ms) {
+        gpuMs = ms;
+    }
+
+    private static String mp(long pixels) {
+        return String.format(Locale.ROOT, "%.1f", pixels / 1e6);
     }
 
     /**
      * P683: the starting size from the first-run GPU calibration, once (before any window): {@code gpuMs} the estimated GPU time of
      * the full-size tone (NaN: no profile). True when it starts reduced (then {@link #last} says why); the windows correct it as for
-     * a reduction of their own (the full size tried after {@link #RECOVER_WINDOWS} good windows).
+     * a reduction of their own (the full size tried after {@link #RECOVER_WINDOWS} good windows). P711: at the first step whose
+     * estimate (scaled by its pixels) is under SEED_GPU_MS.
      */
     boolean seed(double gpuMs, long fullPixels) {
         if (seeded) return false;
         seeded = true;
-        if (reduced || !(gpuMs > SEED_GPU_MS) || fullPixels <= REDUCED_PIXELS) return false;
-        reduced = true;
+        if (level > 0 || !(gpuMs > SEED_GPU_MS) || fullPixels <= REDUCED_PIXELS) return false;
+        int to = 1;
+        while (to < CAPS.length - 1 && CAPS[to] < fullPixels && gpuMs * CAPS[to] / (double) fullPixels > SEED_GPU_MS) to++;
+        level = to;
         slow = good = trial = 0;
         recoverWindows = RECOVER_WINDOWS;
-        last = String.format(Locale.ROOT, "RAW viewfinder tone starts at ~%.1f MP (not %.1f MP): the first-run GPU calibration puts the"
-                + " full-size tone at ~%.1f ms of GPU a frame (above %.0f); full size tried after %d good windows", REDUCED_PIXELS / 1e6,
-                fullPixels / 1e6, gpuMs, SEED_GPU_MS, recoverWindows);
+        last = String.format(Locale.ROOT, "RAW viewfinder tone starts at ~%s MP (not %s MP): the first-run GPU calibration puts the"
+                + " full-size tone at ~%.1f ms of GPU a frame (above %.0f); full size tried after %d good windows", mp(CAPS[level]),
+                mp(fullPixels), gpuMs, SEED_GPU_MS, recoverWindows);
         return true;
     }
 
@@ -68,42 +111,62 @@ final class RawPreviewLoad {
     /**
      * One 2 s window: {@code drawMs} the mean draw of its new frames (NaN: none drawn), {@code fresh} / {@code arrived} new frames
      * drawn / arrived per second (drawn + dropped), the tone's pixels in the window and the full (unreduced) size's, whether a shot
-     * was processed during it. True when the size switches (then {@link #last} says why).
+     * was processed during it. True when the size switches (then {@link #last} says why). P711: with the GPU time {@link #gpu} gave.
      */
     boolean window(double drawMs, double fresh, double arrived, long tonePixels, long fullPixels, boolean processing) {
         seeded = true; // P683: a measured window comes first: no calibration's start any more
+        final double gpu = gpuMs;
+        gpuMs = Double.NaN;
         if (processing || Double.isNaN(drawMs) || !(arrived > 0) || tonePixels <= 0 || fullPixels <= 0) return false;
         final double share = Math.min(1.0, fresh / arrived);
-        if (!reduced) {
-            if (fullPixels <= REDUCED_PIXELS) {
-                slow = trial = 0;
-                return false;
-            }
-            final boolean isSlow = drawMs > SLOW_DRAW_MS || share < FRESH_SHARE;
-            slow = isSlow ? slow + 1 : 0;
-            final boolean inTrial = trial > 0;
-            if (inTrial) trial--;
-            if (slow < (inTrial ? 1 : SLOW_WINDOWS)) return false;
-            reduced = true;
+        if (level == 0 && fullPixels <= REDUCED_PIXELS) {
+            slow = trial = 0;
+            return false;
+        }
+        final boolean isSlow = drawMs > SLOW_DRAW_MS || share < FRESH_SHARE || gpu > GPU_SLOW_MS;
+        final boolean inTrial = trial > 0;
+        if (inTrial) trial--;
+        if (isSlow) {
+            good = 0;
+            slow++;
+            // P711: one step down - a step that would not make the tone smaller is no step
+            final boolean room = level + 1 < CAPS.length && CAPS[level + 1] < Math.min(tonePixels, fullPixels);
+            if (!room || slow < (inTrial ? 1 : SLOW_WINDOWS)) return false;
+            level++;
             if (inTrial) recoverWindows = Math.min(MAX_RECOVER_WINDOWS, recoverWindows * 2);
             else recoverWindows = RECOVER_WINDOWS;
             slow = good = trial = 0;
-            last = String.format(Locale.ROOT, "RAW viewfinder tone reduced to ~%.1f MP (from %.1f MP): %s, draw %.1f ms (slow above %.0f),"
-                            + " %.1f of %.1f frames/s drawn; full size tried again after %d good windows", REDUCED_PIXELS / 1e6,
-                    fullPixels / 1e6, inTrial ? "the full size's try was slow" : SLOW_WINDOWS + " windows slow", drawMs, SLOW_DRAW_MS,
-                    fresh, arrived, recoverWindows);
+            final String why = (inTrial ? "the full size's try was slow" : SLOW_WINDOWS + " windows slow") + ", draw "
+                    + String.format(Locale.ROOT, "%.1f ms (slow above %.0f)", drawMs, SLOW_DRAW_MS)
+                    + (Double.isNaN(gpu) ? "" : String.format(Locale.ROOT, ", GPU %.1f ms (slow above %.0f)", gpu, GPU_SLOW_MS))
+                    + String.format(Locale.ROOT, ", %.1f of %.1f frames/s drawn", fresh, arrived);
+            last = level == 1
+                    ? String.format(Locale.ROOT, "RAW viewfinder tone reduced to ~%s MP (from %s MP): %s; full size tried again after %d good"
+                    + " windows", mp(CAPS[1]), mp(fullPixels), why, recoverWindows)
+                    : String.format(Locale.ROOT, "RAW viewfinder tone reduced further to ~%s MP (step %d, from %s MP): %s; the step above"
+                    + " tried again after %d good windows", mp(CAPS[level]), level, mp(tonePixels), why, recoverWindows);
             return true;
         }
-        final double atFull = drawMs * Math.max(1.0, fullPixels / (double) tonePixels);
-        final boolean isGood = share >= RECOVER_FRESH_SHARE && atFull <= SLOW_DRAW_MS;
+        slow = 0;
+        if (level == 0) return false;
+        // the step above: the full size from step 1, else the cap above (never above the full size)
+        final long above = level == 1 ? fullPixels : Math.min(fullPixels, CAPS[level - 1]);
+        final double scale = Math.max(1.0, above / (double) tonePixels);
+        final double atAbove = drawMs * scale;
+        final boolean isGood = share >= RECOVER_FRESH_SHARE && atAbove <= SLOW_DRAW_MS && !(gpu * scale > GPU_GOOD_MS);
         good = isGood ? good + 1 : 0;
         if (good < recoverWindows) return false;
-        reduced = false;
+        level--;
         slow = good = 0;
         trial = TRIAL_WINDOWS;
-        last = String.format(Locale.ROOT, "RAW viewfinder tone back to full size %.1f MP (a try of %d windows): %d good windows, draw"
-                + " %.1f ms at %.1f MP (~%.1f ms at full size), %.1f of %.1f frames/s drawn", fullPixels / 1e6, TRIAL_WINDOWS,
-                recoverWindows, drawMs, tonePixels / 1e6, atFull, fresh, arrived);
+        final String gpuText = Double.isNaN(gpu) ? "" : String.format(Locale.ROOT, ", GPU %.1f ms (~%.1f ms there)", gpu, gpu * scale);
+        last = level == 0
+                ? String.format(Locale.ROOT, "RAW viewfinder tone back to full size %s MP (a try of %d windows): %d good windows, draw"
+                + " %.1f ms at %s MP (~%.1f ms at full size)%s, %.1f of %.1f frames/s drawn", mp(fullPixels), TRIAL_WINDOWS,
+                recoverWindows, drawMs, mp(tonePixels), atAbove, gpuText, fresh, arrived)
+                : String.format(Locale.ROOT, "RAW viewfinder tone back up to ~%s MP (step %d, a try of %d windows): %d good windows, draw"
+                + " %.1f ms at %s MP (~%.1f ms there)%s, %.1f of %.1f frames/s drawn", mp(CAPS[level]), level, TRIAL_WINDOWS,
+                recoverWindows, drawMs, mp(tonePixels), atAbove, gpuText, fresh, arrived);
         return true;
     }
 }

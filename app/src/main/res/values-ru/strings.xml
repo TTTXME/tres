@@ -26,20 +26,13 @@
     <string name="golden_ratio">Золотое сеч.</string>
     <string name="diag_triangle">Диаг. треуг.</string>
     <string name="processing_processname">Обработка %1$s...</string>
-    <string name="mode_video">Видео</string>
-    <string name="mode_unlimited">Бесконечный</string>
-    <string name="mode_rawvideo">RAW Видео</string>
-    <string name="mode_motion">Фото</string>
-    <string name="mode_photo">Фото</string>
-    <string name="mode_night">Ночь</string>
     <string name="perm_rationale_media_settings">Полный доступ к фото и видео требуется для просмотра фото с других приложений в галерее. Пожалуйста выберите полный доступ.</string>
     <string name="perm_dcim_hint">Выберите папку DCIM и разрешите доступ к ней</string>
     <string name="perm_dcim_wrong_folder">Это не папка DCIM. Выберите DCIM</string>
     <string name="perm_rationale_dcim_title">Доступ к папке DCIM</string>
-    <string name="perm_dcim_failed">Без доступа к папке DCIM нельзя сохранить RAW видео и прочитать конфиги устройства. Нажмите «Повторить» и выберите папку DCIM.</string>
+    <string name="perm_dcim_failed">Без доступа к папке DCIM нельзя прочитать конфиги устройства. Нажмите «Повторить» и выберите папку DCIM.</string>
     <string name="perm_retry">Повторить</string>
     <string name="session_on_configure_failed">"Системная ошибка конфигурации, попробуйте другой формат превью "</string>
-    <string name="gallery_folders">Папки галереи</string>
     <string name="color_method">Источник цвета</string>
     <string name="focus_peaking">Подсветка резкости</string>
     <string name="focus_peaking_auto">Авто</string>
@@ -53,12 +46,10 @@
     <string name="sheet_all_settings">Все настройки</string>
     <!-- AE metering -->
     <string name="show_horizon_on_preview">Горизонт</string>
-    <string name="options">Параметры</string>
     <string name="perm_open_settings">Открыть настройки</string>
     <string name="perm_settings_title">Нужны разрешения</string>
     <string name="perm_settings_message">Камера не запустится без разрешений: %1$s.\n\nОткройте настройки приложения, выберите «Разрешения» и разрешите их.</string>
     <string name="perm_group_camera">Камера</string>
-    <string name="perm_group_microphone">Микрофон</string>
     <string name="perm_group_photos">Фото и видео</string>
     <string name="perm_group_files">Файлы и медиаконтент</string>
     <string name="perm_group_storage">Память</string>

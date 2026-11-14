@@ -42,6 +42,24 @@ public final class DngRaw {
         public boolean gainMap;
         public int bits;
         public int compression;
+        /**
+         * P696 (the gallery developer of a DNG without its develop record): the file's Software ("" for none), NoiseProfile (per
+         * plane S, O of the normalised signal; null for none), ISO, exposure time (s), f-number and focal length (mm; 0 when
+         * absent), whether it gives the as-shot white (AsShotNeutral or AsShotWhiteXY) and its white level and mean black level.
+         */
+        public String software = "";
+        public double[] noiseProfile;
+        public double iso, exposureTime, fNumber, focalLength;
+        public boolean asShotGiven;
+        public double whiteLevel, blackLevel;
+        /**
+         * P696: the lens-shading map of the DNG's OpcodeList2 GainMaps (tag 0xC741, the DNG writer's Camera2 map: one map a 2x2
+         * site) as Camera2 gives it - {@link #shadingW} x {@link #shadingH} points of 4 gains (R, the two greens, B) - for the
+         * post pipeline's colour shading (Parameters.shadingMap); null when the DNG has no such four maps or has OpcodeList1
+         * GainMaps too. P706: {@link #decodeForDevelop} leaves these maps to the pipeline; {@link #decode} applies them.
+         */
+        public float[] shadingMap;
+        public int shadingW, shadingH;
 
         /** The size of a decode with {@code bin}: {width, height}. */
         public int[] size(int bin) {
@@ -95,7 +113,10 @@ public final class DngRaw {
     private int bRows = 1, bCols = 1;
     private double[] deltaH, deltaV;
     private double white;
+    /** The GainMaps the decode applies: OpcodeList1's and - unless {@link #decodeForDevelop} leaves them to the pipeline - OpcodeList2's. */
     private final List<GainMap> gainMaps = new ArrayList<>();
+    /** P706: OpcodeList2's GainMaps (the lens shading). */
+    private List<GainMap> list2Maps = new ArrayList<>();
     // output
     private int outW, outH, bin, spp = 1, step;
     private ShortBuffer out;
@@ -127,6 +148,22 @@ public final class DngRaw {
      */
     public static Image decodeLinear(ByteBuffer buffer, int bin) throws IOException {
         DngRaw r = open(buffer);
+        r.linearOut = true;
+        return r.run(Math.max(1, bin));
+    }
+
+    /**
+     * P706: {@link #decodeLinear} for the gallery's developer: the post pipeline applies the shot's lens shading (the develop
+     * record's map, {@code fromRecord}; else {@link Info#shadingMap}, made from these maps), so the OpcodeList2 GainMaps are left
+     * out here - applied twice the corners came out twice as bright. A DNG developed from its tags whose maps are not a Camera2
+     * map (no Info.shadingMap) gets them here, the pipeline has none. OpcodeList1's maps are applied as by every decode.
+     */
+    public static Image decodeForDevelop(ByteBuffer buffer, int bin, boolean fromRecord) throws IOException {
+        DngRaw r = open(buffer);
+        if (fromRecord || r.info.shadingMap != null) {
+            r.gainMaps.removeAll(r.list2Maps);
+            r.info.gainMap = !r.gainMaps.isEmpty();
+        }
         r.linearOut = true;
         return r.run(Math.max(1, bin));
     }
@@ -206,8 +243,25 @@ public final class DngRaw {
         deltaH = f.blackDeltaH;
         deltaV = f.blackDeltaV;
         white = f.white > 0 ? f.white : (lin != null ? 65535 : (1 << info.bits) - 1);
-        if (f.opcodeList2 != null) parseOpcodes(f.opcodeList2);
+        // P706: OpcodeList1 (0xC740) and OpcodeList2 (0xC741) as the DNG specification numbers them (0xC740 was read as
+        // OpcodeList2 before, so the lens shading of our DNGs never reached this decode)
+        final List<GainMap> list1Maps = f.opcodeList1 != null ? parseGainMaps(f.opcodeList1) : new ArrayList<>();
+        list2Maps = f.opcodeList2 != null ? parseGainMaps(f.opcodeList2) : new ArrayList<>();
+        gainMaps.addAll(list1Maps);
+        gainMaps.addAll(list2Maps);
         info.gainMap = !gainMaps.isEmpty();
+        info.software = p.software != null ? p.software : "";
+        info.noiseProfile = p.noiseProfile;
+        info.iso = p.iso;
+        info.exposureTime = p.exposureTime;
+        info.fNumber = p.fNumber;
+        info.focalLength = p.focalLength;
+        info.asShotGiven = p.asShotNeutral != null && p.asShotNeutral.length >= 3 || p.asShotWhiteXY != null && p.asShotWhiteXY.length >= 2;
+        info.whiteLevel = white;
+        if (info.kind == KIND_BAYER && info.cell == 1 && list1Maps.isEmpty()) shadingOf(list2Maps);
+        double sum = 0;
+        for (double v : black) sum += v;
+        info.blackLevel = black.length > 0 ? sum / black.length : 0;
     }
 
     /** A 4x4 pattern of 2x2 single-colour cells that reduces to a Bayer. */
@@ -266,10 +320,6 @@ public final class DngRaw {
         }
     }
 
-    private void parseOpcodes(byte[] list) {
-        gainMaps.addAll(parseGainMaps(list));
-    }
-
     /**
      * OpcodeList2: big-endian {count; {id, version, flags, bytes, parameters}...}; GainMap (9) kept, the rest skipped. P370 (A10):
      * the gallery's DngPreview reads the same maps.
@@ -317,6 +367,37 @@ public final class DngRaw {
             // a damaged list: no shading correction
         }
         return gainMaps;
+    }
+
+    /**
+     * P696: {@code maps} as a Camera2 lens-shading map into {@link Info#shadingMap}: four single-plane maps of one grid, each on
+     * one site of the 2x2 pattern (pitch 2), their colours R, G, G, B by the CFA; anything else leaves none.
+     */
+    private void shadingOf(List<GainMap> maps) {
+        if (maps.size() != 4) return;
+        final GainMap first = maps.get(0);
+        final int pw = first.pointsH, ph = first.pointsV;
+        if (pw < 1 || ph < 1 || (long) pw * ph > 1 << 16) return;
+        final float[] out = new float[pw * ph * 4];
+        int sites = 0, greens = 0;
+        for (GainMap g : maps) {
+            if (g.pointsH != pw || g.pointsV != ph || g.rowPitch != 2 || g.colPitch != 2 || g.mapPlanes != 1 || g.gains == null) return;
+            final int site = ((g.top & 1) << 1) | (g.left & 1);
+            if ((sites & (1 << site)) != 0) return;
+            sites |= 1 << site;
+            final int colour = cfaAt(aaLeft + g.left, aaTop + g.top);
+            final int channel = colour == 0 ? 0 : colour == 2 ? 3 : 1 + greens++;
+            if (channel > 2 && colour == 1) return;
+            for (int i = 0; i < pw * ph; i++) {
+                final float v = g.gains[i];
+                if (!(v > 0f) || !Float.isFinite(v)) return;
+                out[i * 4 + channel] = v;
+            }
+        }
+        if (sites != 15 || greens != 2) return;
+        info.shadingMap = out;
+        info.shadingW = pw;
+        info.shadingH = ph;
     }
 
     // ---------------------------------------------------------------- decode

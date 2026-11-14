@@ -55,16 +55,46 @@ public class SettingsAuditFixTest {
         return screen;
     }
 
-    @Test public void storedRawViewfinderCannotEnableItOnEightGenThreeOrOlder() {
-        prefs.edit().putBoolean("pref_live_viewfinder_raw_key",true).commit();
-        for(String soc:new String[]{"SM8650","SM8550","MSM8998","unknown"}){
+    /**
+     * P705 (owner, 2026-11-14: «Включение настройки по желанию должно быть доступно везде»): the setting alone decides on every
+     * phone, and its row is never greyed out; once per install a stored «on» the old tier gate kept off is turned off below the tier
+     * (main settings, module profiles, baseline), so the update changes nobody's viewfinder; what is chosen afterwards stays.
+     */
+    @Test public void theRawViewfinderIsTheUsersChoiceOnEveryPhone() {
+        for(String soc:new String[]{"SM8650","SM8550","SM8250","MSM8998","unknown","SM8750"}){
             org.robolectric.shadows.ShadowBuild.setSystemOnChipModel(soc);
+            prefs.edit().putBoolean("pref_live_viewfinder_raw_key",true).commit();
+            assertTrue(soc,PreferenceKeys.isLiveViewfinderRawEnabled());
+            assertNull(soc,new SettingsAvailability(prefs.getAll()).reason("pref_live_viewfinder_raw_key"));
+            prefs.edit().putBoolean("pref_live_viewfinder_raw_key",false).commit();
             assertFalse(soc,PreferenceKeys.isLiveViewfinderRawEnabled());
         }
-        org.robolectric.shadows.ShadowBuild.setSystemOnChipModel("SM8750");
-        assertTrue(PreferenceKeys.isLiveViewfinderRawEnabled());
-        prefs.edit().putBoolean("pref_live_viewfinder_raw_key",false).commit();
-        assertFalse(PreferenceKeys.isLiveViewfinderRawEnabled());
+    }
+
+    @Test public void aStoredOnTheTierGateKeptOffIsTurnedOffOnceBelowTheTier() {
+        SharedPreferences[] stores=profiles();
+        for(SharedPreferences p:stores)p.edit().putBoolean("pref_live_viewfinder_raw_key",true).commit();
+        prefs.edit().putBoolean("pref_live_viewfinder_raw_key",true).remove(DeviceDefaults.RAW_VF_UNLOCK_MARKER).commit();
+        DeviceDefaults.unlockRawViewfinderOnce(context,prefs,false);
+        assertFalse(prefs.getBoolean("pref_live_viewfinder_raw_key",true));
+        for(SharedPreferences p:stores)assertFalse(p.getBoolean("pref_live_viewfinder_raw_key",true));
+        assertTrue(prefs.getBoolean(DeviceDefaults.RAW_VF_UNLOCK_MARKER,false));
+        // the user turns it on afterwards: it stays
+        prefs.edit().putBoolean("pref_live_viewfinder_raw_key",true).commit();
+        DeviceDefaults.unlockRawViewfinderOnce(context,prefs,false);
+        assertTrue(prefs.getBoolean("pref_live_viewfinder_raw_key",false));
+        // the tier above keeps its stored values
+        for(SharedPreferences p:stores)p.edit().putBoolean("pref_live_viewfinder_raw_key",true).commit();
+        prefs.edit().remove(DeviceDefaults.RAW_VF_UNLOCK_MARKER).commit();
+        DeviceDefaults.unlockRawViewfinderOnce(context,prefs,true);
+        assertTrue(prefs.getBoolean("pref_live_viewfinder_raw_key",false));
+        for(SharedPreferences p:stores)assertTrue(p.getBoolean("pref_live_viewfinder_raw_key",false));
+        // nothing stored: nothing written but the marker
+        for(SharedPreferences p:stores)p.edit().clear().commit();
+        prefs.edit().clear().commit();
+        profiles();
+        DeviceDefaults.unlockRawViewfinderOnce(context,prefs,false);
+        assertFalse(prefs.contains("pref_live_viewfinder_raw_key"));
     }
     /** Two module profiles and the baseline, as ModuleProfiles stores them. */
     private SharedPreferences[] profiles(){

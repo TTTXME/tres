@@ -334,6 +334,111 @@ void main(){
     }
 }
 )FM";
+// P712 (owner, 2026-11-14: «Ускорением обработки и работы занимайся углублённо»; X300 Ultra, 50 MP Quad in row bands: the output
+// pass 420 - 540 ms of each band's ~1.2 s GPU time): kFastOutput's Quad filters read the merge's normalised value at(p) (two
+// RGBA16F fetches and a division) ~29 times per pixel - antiMoire 9, deGrid ~20 (its lumaAt), quadDeLattice up to 29 - every
+// neighbour again for each of the 4 x 4 pixels around it. Here a group of 8 x 8 invocations (32 x 8 pixels) evaluates at() once per
+// texel of its tile and halo into shared memory - the luma within 8 px (deGrid's +-4 px at a sabre step up to 2), RGB within 4 px
+// (antiMoire / quadDeLattice +-2) - and the filters read the tile: ~4.5 at() per pixel. Every value is at(clamp(t, lo, hi)) as the
+// filters had it (the same texels, the same arithmetic), so the result is kFastOutput's bit for bit (the host check compares).
+// The same text otherwise (the hole fill and the flags read the textures as before). Taken where a filter runs (Quad / Tetra
+// streams: u_moire or u_quad_lift) and the sabre step is at most 2; tune fmOutTile 0: kFastOutput everywhere (A/B).
+inline std::string fastOutputTiledText(){
+    std::string s(kFastOutput);
+    auto once=[&](const std::string& a,const std::string& b,int count){
+        size_t at=0;int n=0;
+        while((at=s.find(a,at))!=std::string::npos){s.replace(at,a.size(),b);at+=b.size();++n;}
+        if(n!=count)throw std::runtime_error("FAST MERGE GPU: tiled output: "+std::to_string(n)+" of "+a);
+    };
+    once("layout(local_size_x=64,local_size_y=1) in;",
+         "layout(local_size_x=8,local_size_y=8) in;\n"
+         "#define TW 32\n#define TH 8\n#define HL 8\n#define HC 4\n#define LW (TW+2*HL)\n#define LH (TH+2*HL)\n#define CW (TW+2*HC)\n#define CH (TH+2*HC)\n"
+         "shared float s_l[LW*LH];\nshared float s_r[CW*CH];\nshared float s_g[CW*CH];\nshared float s_b[CW*CH];\n"
+         "ivec2 g_org; // the tile's first OUT pixel\n"
+         "float lumT(ivec2 t){ivec2 i=t-g_org+ivec2(HL);return s_l[i.y*LW+i.x];}\n"
+         "vec3 atT(ivec2 t){ivec2 i=t-g_org+ivec2(HC);int j=i.y*CW+i.x;return vec3(s_r[j],s_g[j],s_b[j]);}",1);
+    once("float lumaAt(ivec2 p, ivec2 lo, ivec2 hi) { return dot(at(clamp(p, lo, hi)), vec3(0.25, 0.5, 0.25)); }",
+         "float lumaAt(ivec2 p, ivec2 lo, ivec2 hi) { return lumT(p); }",1);
+    once("at(clamp(p + sc(dx, dy), lo, hi))","atT(p + sc(dx, dy))",2);
+    once("void main(){\n    int q=int(gl_GlobalInvocationID.x);\n    int yb=int(gl_GlobalInvocationID.y);\n",
+         "void main(){\n"
+         "    ivec2 lid=ivec2(gl_LocalInvocationID.xy);\n"
+         "    g_org=ivec2(int(gl_WorkGroupID.x)*TW,u_row0+int(gl_WorkGroupID.y)*TH);\n"
+         "    {\n"
+         "        ivec2 lo=ivec2(0,u_acc_row0),hi=ivec2(u_size.x-1,u_acc_row0+textureSize(u_accum_color_r,0).y-1);\n"
+         "        for(int i=lid.y*8+lid.x;i<LW*LH;i+=64){\n"
+         "            int ty=i/LW,tx=i-ty*LW;\n"
+         "            vec3 c=at(clamp(g_org-ivec2(HL)+ivec2(tx,ty),lo,hi));\n"
+         "            s_l[i]=dot(c,vec3(0.25,0.5,0.25));\n"
+         "            ivec2 ci=ivec2(tx,ty)-ivec2(HL-HC);\n"
+         "            if(ci.x>=0&&ci.y>=0&&ci.x<CW&&ci.y<CH){int j=ci.y*CW+ci.x;s_r[j]=c.r;s_g[j]=c.g;s_b[j]=c.b;}\n"
+         "        }\n"
+         "    }\n"
+         "    barrier();\n"
+         "    int q=int(gl_WorkGroupID.x)*(TW/4)+lid.x;\n"
+         "    int yb=int(gl_WorkGroupID.y)*TH+lid.y;\n",1);
+    return s;
+}
+// P712 (X300 Ultra, 50 MP Quad bands: the guide 175 - 210 ms of each band's GPU time, ~40 ms a frame; the Quad / Tetra guide sh035):
+// sh035 reads the 5 x 5 cells around each HALF texel and turns each into its value - the mean of the square roots of its four gained
+// sites (Tetra: of its 2 x 2 cell block's mean) - 25 fetches and 100 square roots a texel (Tetra 100 fetches), every cell's value
+// made again for each of the 25 texels around it. Here a pass makes each cell's value once (R32F at HALF: the same expression on the
+// same texel, so the same float) and sh035 reads the 25 values (kFastGuideQuad's text with the loop's body replaced: the guide is
+// bit for bit the same). Rows [u_row0, u_row0 + u_rows): a row strip's unpacked rows. tune fmGuideCells 0: sh035 as before (A/B).
+static const char* kFastQuadCells=R"FM(#version 310 es
+precision highp int; precision highp float;
+layout(local_size_x=16,local_size_y=16) in;
+uniform sampler2D bayer_texture;
+uniform vec4 gains;
+uniform vec4 black_levels_times_gains;
+uniform int u_cfa_sensor_type;
+uniform int u_cfa_pattern;
+uniform ivec2 u_size;
+uniform int u_row0;
+uniform int u_rows;
+layout(binding=1,r32f) writeonly uniform highp image2D u_cells;
+int get_guide_cfa_channel(ivec2 q) {
+  ivec2 c = (u_cfa_sensor_type == 2) ? (q >> 1) : q;
+  int cx = (c.x % 2 + 2) % 2;
+  int cy = (c.y % 2 + 2) % 2;
+  int phase = (cy << 1) | cx;
+  return phase ^ clamp(u_cfa_pattern, 0, 3);
+}
+void main() {
+  ivec2 q = ivec2(gl_GlobalInvocationID.xy) + ivec2(0, u_row0);
+  if (q.x >= u_size.x || q.y >= u_size.y || q.y >= u_row0 + u_rows) return;
+  ivec2 max_q = u_size - ivec2(1);
+  int ch = get_guide_cfa_channel(q);
+  vec4 vf;
+  if (u_cfa_sensor_type == 2) {
+    ivec2 base = q & ~1;
+    vec4 v0 = texelFetch(bayer_texture, base, 0);
+    vec4 v1 = texelFetch(bayer_texture, clamp(base + ivec2(1, 0), ivec2(0), max_q), 0);
+    vec4 v2 = texelFetch(bayer_texture, clamp(base + ivec2(0, 1), ivec2(0), max_q), 0);
+    vec4 v3 = texelFetch(bayer_texture, clamp(base + ivec2(1, 1), ivec2(0), max_q), 0);
+    vec4 v_avg = (v0 + v1 + v2 + v3) * 0.25;
+    vf = sqrt(max(vec4(0.0), v_avg * gains[ch] + black_levels_times_gains[ch]));
+  } else {
+    vec4 v = texelFetch(bayer_texture, q, 0);
+    vf = sqrt(max(vec4(0.0), v * gains[ch] + black_levels_times_gains[ch]));
+  }
+  imageStore(u_cells, q, vec4((vf.x + vf.y + vf.z + vf.w) * 0.25));
+}
+)FM";
+// sh035's text (as the route builds it: array-free, index-free) reading the cells' values (kFastQuadCells) in place of making them
+inline std::string fastGuideQuadCellsText(const std::string& guide){
+    std::string s(guide);
+    const std::string from="        int ch = get_guide_cfa_channel(q);\n        vec4 vf;\n";
+    const std::string to="        q_vals[qy * 5 + qx] = (vf.x + vf.y + vf.z + vf.w) * 0.25;\n";
+    const size_t a=s.find(from),b=a==std::string::npos?a:s.find(to,a);
+    if(a==std::string::npos||b==std::string::npos||s.find(from,a+1)!=std::string::npos)throw std::runtime_error("FAST MERGE GPU: guide cells: the loop not found");
+    s.replace(a,b+to.size()-a,"        q_vals[qy * 5 + qx] = texelFetch(u_quad_cells, q, 0).r;\n");
+    const std::string u="uniform sampler2D noise_estimates_texture;\n";
+    const size_t at=s.find(u);
+    if(at==std::string::npos||s.find(u,at+1)!=std::string::npos)throw std::runtime_error("FAST MERGE GPU: guide cells: the sampler not found");
+    s.insert(at+u.size(),"uniform highp sampler2D u_quad_cells; // P712\n");
+    return s;
+}
 // P480: the base highlight mask (R16F at HALF) packed for the app's dezipper pass (its trailer): two halves per word, row by row
 // (HALF width even: the route takes widths of 4 px multiples). The texels' own halves: the same values the merge sampled.
 static const char* kFastHlMaskOut=R"FM(#version 310 es
@@ -514,6 +619,8 @@ public:
                 pCoarseShift,pHomoPick, // P497: the KLT seed of a frame after the press (coarse translation search), the better homography
                 pHlMaskOut, // P480: built on first use (hlMaskOutProgram), not at init: a burst without the highlight path never builds it
                 pFlowPick,pFlowBg,pCyclopsRescue, // P601: built with the rest when they can be (flowPickProgram / flowPickReady)
+                pOutputTiled, // P712: kFastOutput with its Quad filters on a shared-memory tile (outputTiledReady)
+                pQuadCells,pGuideQuadCells, // P712: the Quad / Tetra guide's cell values made once (guideCellsReady)
                 kProgs };
     GLuint prog[kProgs]{};
     std::vector<GLuint> textures,fbos,buffers;
@@ -565,6 +672,8 @@ public:
             // P601: the flow pick's programs with the rest (the default fastFlowPick 2 uses them on every shot); one that does not
             // build leaves the pick off for the merge (flowPickReady), not the route
             try{flowPickProgram(true);}catch(const std::exception& e){notes.push_back(std::string("FAST MERGE GPU: flow pick programs unavailable (")+e.what()+")");}
+            outputTiledReady(); // P712 (a GPU whose compiler refuses it: kFastOutput, noted)
+            guideCellsReady(); // P712 (refused: sh035 as before, noted)
             if(compiled>0)trimCache();
             check("init");
         }catch(...){cleanup();throw;}
@@ -609,6 +718,29 @@ public:
         return true;
     }
     void hlMaskOutProgram(){if(!prog[pHlMaskOut])prog[pHlMaskOut]=cs(fastmerge::kFastHlMaskOut);} // P480
+    // P712: the Quad / Tetra guide reading its cells' values (kFastQuadCells), built once at init; false (and a note) if refused
+    bool guideCellsTried=false;
+    bool guideCellsReady(){
+        if(prog[pQuadCells]&&prog[pGuideQuadCells])return true;
+        if(guideCellsTried)return false;
+        guideCellsTried=true;
+        try{
+            using namespace fastmerge;
+            static const std::string text=fastGuideQuadCellsText(fastIndexFree(arrayFree?fastArrayFree(kFastGuideQuad):kFastGuideQuad));
+            prog[pQuadCells]=cs(kFastQuadCells);
+            prog[pGuideQuadCells]=link({{GL_VERTEX_SHADER,kFastVs},{GL_FRAGMENT_SHADER,text.c_str()}});
+            return true;
+        }catch(const std::exception& e){notes.push_back(std::string("FAST MERGE GPU: guide cells off (")+e.what()+")");prog[pQuadCells]=prog[pGuideQuadCells]=0;return false;}
+    }
+    // P712: the tiled output program, built once (at init, so the prewarm caches it); false (and a note) when it does not build
+    bool outputTiledTried=false;
+    bool outputTiledReady(){
+        if(prog[pOutputTiled])return true;
+        if(outputTiledTried)return false;
+        outputTiledTried=true;
+        try{static const std::string text=fastmerge::fastOutputTiledText();prog[pOutputTiled]=cs(text.c_str());return true;}
+        catch(const std::exception& e){notes.push_back(std::string("FAST MERGE GPU: tiled output off (")+e.what()+")");return false;}
+    }
     void flowPickProgram(bool rescue){ // P601 (throws when one does not build)
         if(!prog[pFlowPick])prog[pFlowPick]=fs(fastmerge::kFastFlowPick);
         if(!prog[pFlowBg])prog[pFlowBg]=fs(fastmerge::kFastFlowBg);
@@ -618,7 +750,54 @@ public:
         try{flowPickProgram(rescue);return true;}
         catch(const std::exception& e){notes.push_back(std::string("FAST MERGE GPU: flow pick off (")+e.what()+")");return false;}
     }
-    void acquire(){if(!eglMakeCurrent(display,surface,surface,context))throw std::runtime_error("FAST MERGE GPU: context not current");}
+    void acquire(){if(!eglMakeCurrent(display,surface,surface,context))throw std::runtime_error("FAST MERGE GPU: context not current (EGL error "+std::to_string(eglGetError())+")");}
+    // P712: a context kept from the row band before (fastGpuKeep) made like a new one for the next merge: every uniform of every
+    // program back to 0 (GLSL ES has no uniform initialisers: a new program's values; samplers and images left - their layout
+    // bindings / tex() set them), the state a merge changes back to its defaults, the per-merge counters cleared
+    void resetForMerge(){
+        std::vector<GLuint> ps;
+        for(GLuint p:prog)if(p)ps.push_back(p);
+        for(GLuint v:rejFilterVariant)if(v)ps.push_back(v);
+        for(GLuint v:rejectVariant)if(v)ps.push_back(v);
+        std::sort(ps.begin(),ps.end());ps.erase(std::unique(ps.begin(),ps.end()),ps.end());
+        std::vector<GLfloat> zf(64,0.f);std::vector<GLint> zi(64,0);std::vector<GLuint> zu(64,0u);
+        for(GLuint p:ps){
+            GLint n=0,maxLen=0;glGetProgramiv(p,GL_ACTIVE_UNIFORMS,&n);glGetProgramiv(p,GL_ACTIVE_UNIFORM_MAX_LENGTH,&maxLen);
+            std::vector<char> name(size_t(std::max(maxLen,1))+1);
+            for(GLint i=0;i<n;++i){
+                GLint size=0;GLenum type=0;GLsizei len=0;
+                glGetActiveUniform(p,GLuint(i),GLsizei(name.size()),&len,&size,&type,name.data());
+                const GLint loc=glGetUniformLocation(p,name.data());
+                if(loc<0||size<1)continue;
+                const size_t need=size_t(size)*16;
+                if(zf.size()<need){zf.assign(need,0.f);zi.assign(need,0);zu.assign(need,0u);}
+                switch(type){
+                    case GL_FLOAT:glProgramUniform1fv(p,loc,size,zf.data());break;
+                    case GL_FLOAT_VEC2:glProgramUniform2fv(p,loc,size,zf.data());break;
+                    case GL_FLOAT_VEC3:glProgramUniform3fv(p,loc,size,zf.data());break;
+                    case GL_FLOAT_VEC4:glProgramUniform4fv(p,loc,size,zf.data());break;
+                    case GL_INT:case GL_BOOL:glProgramUniform1iv(p,loc,size,zi.data());break;
+                    case GL_INT_VEC2:case GL_BOOL_VEC2:glProgramUniform2iv(p,loc,size,zi.data());break;
+                    case GL_INT_VEC3:case GL_BOOL_VEC3:glProgramUniform3iv(p,loc,size,zi.data());break;
+                    case GL_INT_VEC4:case GL_BOOL_VEC4:glProgramUniform4iv(p,loc,size,zi.data());break;
+                    case GL_UNSIGNED_INT:glProgramUniform1uiv(p,loc,size,zu.data());break;
+                    case GL_UNSIGNED_INT_VEC2:glProgramUniform2uiv(p,loc,size,zu.data());break;
+                    case GL_UNSIGNED_INT_VEC3:glProgramUniform3uiv(p,loc,size,zu.data());break;
+                    case GL_UNSIGNED_INT_VEC4:glProgramUniform4uiv(p,loc,size,zu.data());break;
+                    case GL_FLOAT_MAT2:glProgramUniformMatrix2fv(p,loc,size,GL_FALSE,zf.data());break;
+                    case GL_FLOAT_MAT3:glProgramUniformMatrix3fv(p,loc,size,GL_FALSE,zf.data());break;
+                    case GL_FLOAT_MAT4:glProgramUniformMatrix4fv(p,loc,size,GL_FALSE,zf.data());break;
+                    default:break; // samplers, images
+                }
+            }
+        }
+        glDisable(GL_BLEND);glDisable(GL_SCISSOR_TEST);glBlendEquation(GL_FUNC_ADD);glBlendFunc(GL_ONE,GL_ZERO);
+        glPixelStorei(GL_UNPACK_ALIGNMENT,4);glPixelStorei(GL_PACK_ALIGNMENT,4);
+        glActiveTexture(GL_TEXTURE0);glBindFramebuffer(GL_FRAMEBUFFER,0);glUseProgram(0);
+        glGetError();
+        mapMs=useMs=unmapMs=0;objBytes=0;notes.clear();
+        check("reset");
+    }
     // GPU objects of one merge (the programs stay)
     void freeObjects(){
         if(!fbos.empty())glDeleteFramebuffers(GLsizei(fbos.size()),fbos.data());
@@ -708,8 +887,13 @@ public:
         ahb.ok=ahb.allocate&&ahb.release&&ahb.lock&&ahb.unlock&&ahb.clientBuffer&&ahb.storageExternal;
         return ahb.ok;
     }
+    // P712 (tune fmAhb, an A/B for the phone): bit 1 = the readback buffers in hardware buffers, bit 2 = the upload ring (3, as
+    // before). The owner's logs put 336 - 540 ms of every 12.5 MP band into the output pass (a few fetches a pixel, 7 bytes written
+    // into the readback buffers) and 10 - 14 ms a 12 MP frame into the unpack (24 MB read from the ring): whether the GPU's side of
+    // the cached hardware buffers costs that is measured there (profile 1: the out / unpack stages; the readback's map / use)
+    int ahbUse=3;
     GLuint readBuffer(size_t bytes){
-        if(ahbReady()){
+        if((ahbUse&1)&&ahbReady()){
             AHardwareBuffer_Desc d{};d.width=uint32_t(bytes);d.height=1;d.layers=1;d.format=AHARDWAREBUFFER_FORMAT_BLOB;
             d.usage=AHARDWAREBUFFER_USAGE_CPU_READ_OFTEN|AHARDWAREBUFFER_USAGE_GPU_DATA_BUFFER;
             AHardwareBuffer* h=nullptr;
@@ -732,7 +916,7 @@ public:
     // the Xiaomi 12X's Adreno 650 (uploads 1612 ms, the copies themselves 260). SCAM_FM_NO_AHB_UPLOAD: the GL buffers (A/B).
     bool uploadAhbFailed=false;
     GLuint writeBuffer(size_t bytes){
-        if(!uploadAhbFailed&&!std::getenv("SCAM_FM_NO_AHB_UPLOAD")&&ahbReady()){
+        if((ahbUse&2)&&!uploadAhbFailed&&!std::getenv("SCAM_FM_NO_AHB_UPLOAD")&&ahbReady()){
             AHardwareBuffer_Desc d{};d.width=uint32_t(bytes);d.height=1;d.layers=1;d.format=AHARDWAREBUFFER_FORMAT_BLOB;
             d.usage=AHARDWAREBUFFER_USAGE_CPU_WRITE_OFTEN|AHARDWAREBUFFER_USAGE_GPU_DATA_BUFFER;
             AHardwareBuffer* h=nullptr;
@@ -1023,5 +1207,22 @@ inline std::unique_ptr<FastMergeGpu> fastGpuPrewarmTake(std::string& why){
 // joined at the process exit
 struct FastMergeTeardown { std::thread t; ~FastMergeTeardown(){if(t.joinable())t.join();} };
 inline FastMergeTeardown& fastMergeTeardown(){static FastMergeTeardown t;return t;}
+// P712 (X300 Ultra, 50 MP Quad in 6 row bands: each band after the first made its context again, 24 - 47 ms with its 50 programs
+// from the cache; a 200 MP Tetra merge has more bands): while hybridFastMergeRowBands runs (on), a band's context - its objects
+// freed as before (P685), released from the thread - waits here for the next band, which takes it made new (resetForMerge). A
+// merge that throws tears its context down as before. Off (FastGpuKeepScope's end, or tune fmKeepContext 0): torn down on the
+// teardown thread. Like the prewarm's holder, never destroyed from this static's destructor (P668).
+struct FastGpuKeep { std::unique_ptr<FastMergeGpu> g;bool on=false; ~FastGpuKeep(){(void)g.release();} };
+inline FastGpuKeep& fastGpuKeep(){static FastGpuKeep k;return k;}
+inline void fastGpuTeardown(std::unique_ptr<FastMergeGpu> g){
+    if(!g)return;
+    try{FastMergeTeardown& td=fastMergeTeardown();if(td.t.joinable())td.t.join();
+        td.t=std::thread([p=std::move(g)]() mutable {try{p->acquire();}catch(...){}p.reset();});
+    }catch(...){g.reset();}
+}
+struct FastGpuKeepScope {
+    explicit FastGpuKeepScope(bool on){fastGpuKeep().on=on;}
+    ~FastGpuKeepScope(){FastGpuKeep& k=fastGpuKeep();k.on=false;fastGpuTeardown(std::move(k.g));}
+};
 
 } // namespace scam

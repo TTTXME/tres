@@ -25,6 +25,8 @@ import javax.microedition.khronos.egl.EGLDisplay;
  */
 public class GLPreview extends GLSurfaceView {
     static final float DEFAULT_GPU_PRIORITY = 1f;
+    /** P705: the window's red, green, blue, alpha, depth and stencil sizes (GLSurfaceView's default without its depth buffer). */
+    static final int[] WINDOW_CONFIG = {8, 8, 8, 0, 0, 0};
     private static final int EGL_CONTEXT_CLIENT_VERSION = 0x3098, PRIORITY = 0x3100, HIGH = 0x3101;
     private static final int PLACEHOLDER_FILL = Color.rgb(24, 24, 24), PLACEHOLDER_LINE = Color.rgb(58, 58, 58);
     MainRenderer mRenderer;
@@ -64,6 +66,10 @@ public class GLPreview extends GLSurfaceView {
         // exists in ES 2.0 (glTexImage2D rejected the format, the viewfinder came out black or in garbage colours while the
         // shader compiled fine). ES 3.0 runs the ES 2.0 preview shaders as they are.
         setEGLContextClientVersion(3);
+        // P705: GLSurfaceView's default config is RGB 888 with a 16-bit depth buffer: the viewfinder draws full-screen quads with
+        // no depth test, so the window's depth buffer (4-8 MB of GPU memory at the viewfinder's size, and its load / store on the
+        // tilers) served nothing. The same colour channels (MainRenderer.window8 still finds 8 / 8 / 8), no depth, no stencil.
+        setEGLConfigChooser(WINDOW_CONFIG[0], WINDOW_CONFIG[1], WINDOW_CONFIG[2], WINDOW_CONFIG[3], WINDOW_CONFIG[4], WINDOW_CONFIG[5]);
         // The shot's GPU contexts now run at medium priority. Keep the short viewfinder draws ahead of them;
         // unsupported or refused priority hints retain the ordinary ES 3 context (vf_gpu_priority 0 for comparison).
         setEGLContextFactory(new EGLContextFactory() {

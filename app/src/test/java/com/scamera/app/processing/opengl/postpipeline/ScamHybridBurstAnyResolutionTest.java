@@ -323,6 +323,37 @@ public class ScamHybridBurstAnyResolutionTest {
         assertTrue(ScamHybridBurst.notice(whole, null, "cpu-single").contains("1"));
     }
 
+    /**
+     * P699 (X300 Ultra ultra-wide 50 MP, 8192x6144: the row bands left 4 donors and 2 short frames out for the memory, the notice
+     * said «2 of another exposure»): the memory's cut is told as the memory.
+     */
+    @Test public void theRowBandsMemoryCutIsToldAsTheMemory() throws Exception {
+        final int w = 8192, h = 6144;
+        outputMode = "sensor";
+        memory(8L << 30);
+        ByteBuffer raw = ByteBuffer.allocate(w * h * 2);
+        List<ImageFrame> input = new ArrayList<>();
+        for (int i = 0; i < 8; i++) input.add(frame(w, h, raw));
+        Parameters series = parameters(w, h);
+        series.fullResSeries = 8; series.fullResRequested = 8;
+        ScamHybridBurst whole = burst(input, series);
+        final String log = "HYBRID FAST MERGE ROW BANDS: left out for the memory: 4 donor(s) (1,2,3,4), 2 short frame(s) (the smallest bands"
+                + " with them did not fit 1584 MB)\nHYBRID FAST MERGE: Sabre per-frame merge, 2 frames (base 0 + 0 normal donors + 1 long; 0 of 0"
+                + " short frames; left out: 0 weak short, 2 other; 0 long as normal), 8192x1280, SNR=6.94\nHYBRID SERIES: merged 2 of 8 sent (N frames 1 of 5)";
+        assertArrayEquals(new int[]{4, 2}, ScamHybridBurst.rowBandsLeft(log));
+        assertArrayEquals(new int[]{0, 2}, ScamHybridBurst.rowBandsLeft(
+                "HYBRID FAST MERGE ROW BANDS: left out for the memory: 2 short frame(s) (the smallest bands with them did not fit 1584 MB)"));
+        assertArrayEquals(new int[]{3, 0}, ScamHybridBurst.rowBandsLeft(
+                "HYBRID FAST MERGE ROW BANDS: left out for the memory: 3 donor(s) (2,3,4) (the smallest bands with them did not fit 900 MB)"));
+        assertArrayEquals(new int[]{0, 0}, ScamHybridBurst.rowBandsLeft(null));
+        assertArrayEquals(new int[]{0, 0}, ScamHybridBurst.rowBandsLeft("HYBRID SERIES: merged 8 of 8 sent (N frames 5 of 5)"));
+        final String notice = ScamHybridBurst.notice(whole, log, "gpu");
+        assertNotNull(notice);
+        assertTrue(notice, notice.contains("памяти") || notice.contains("memory"));
+        assertTrue(notice, notice.contains("4") && notice.contains("2"));
+        assertFalse("not the exposure: " + notice, notice.contains("экспозиц") || notice.contains("exposure"));
+    }
+
     /** P190: a 200 MP series (Tetra, 401 MB a frame: checked on the rules) - up to 4 frames as before P190, beyond that whole. */
     @Test public void a200MpSeriesBeyondFourIsToldToTheWorker() {
         final int w = 16320, h = 12288;

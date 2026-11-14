@@ -9,8 +9,6 @@ import android.view.HapticFeedbackConstants;
 import android.view.MotionEvent;
 import android.view.View;
 import android.widget.ImageButton;
-import android.widget.ProgressBar;
-import android.widget.TextView;
 
 import androidx.constraintlayout.widget.ConstraintLayout;
 
@@ -36,8 +34,8 @@ import com.scamera.app.util.Utilities;
  * {@link CameraFragment#onViewCreated}.
  * <p>
  * P25 chrome: the top bar shows the card badges and the settings gear; the shutter row is gallery card | ring shutter |
- * front / back switch. Photo is the only mode on screen: a stored Night or retired mode is stored as Photo (migrateMode), video
- * and unlimited keep their own layout ({@link #layoutFor}).
+ * front / back switch. The photo mode is the only camera mode (CameraMode): a number an older build stored for a retired mode is
+ * stored as the photo mode's (migrateMode).
  */
 public class CameraUIViewImpl implements CameraUIView {
     static final int SHUTTER_WHITE = 0xFFFFFFFF;
@@ -46,26 +44,21 @@ public class CameraUIViewImpl implements CameraUIView {
     private static final float DIMMED = 0.5f;
 
     private final CameraFragment screen;
-    private final ProgressBar captureRing;
     private final ImageButton shutter;
     private final ProcessingRing processingRing;
-    private final TextView recordingInfo;
     /** The ring shutter in the camera accent (pressed, self-timer, busy). */
     private final Drawable shutterRing;
     private CameraTopRowBinding topRow;
     private CameraShutterRowBinding shutterRow;
     private CameraUIEventsListener clicks;
-    private CameraModeState layout;
 
     CameraUIViewImpl(CameraFragment screen) {
         this.screen = screen;
         final CameraScreenBinding views = screen.cameraViews;
         topRow = views.topRow;
         shutterRow = views.bottomBar.shutterRow;
-        captureRing = views.vfLayer.seriesRing;
         processingRing = shutterRow.processingRing;
         shutter = shutterRow.shutterKey;
-        recordingInfo = views.getRoot().findViewById(R.id.video_recording_info);
         final Context context = views.getRoot().getContext();
         shutterRing = shutter(context, ShadeStyle.accent(context));
         // P111: the touch marks the moment of a «Движение» shot (the shot itself still fires on release)
@@ -85,27 +78,13 @@ public class CameraUIViewImpl implements CameraUIView {
             TopBar.openSizeSheet(screen);
             return true;
         });
-        applyStoredMode();
+        photoViews();
         rebindTopBar();
     }
 
-    /** Photo is the only mode on screen (owner's answer 4): a stored Night (or retired) mode is stored as Photo. */
+    /** The photo mode is the only camera mode (owner's answer 4, P702): any other stored number is stored as the photo mode's. */
     private static void migrateMode() {
-        final int photo = CameraMode.MOTION.ordinal();
-        if (PreferenceKeys.getCameraModeOrdinal() != photo) PreferenceKeys.setCameraModeOrdinal(photo);
-    }
-
-    private void applyStoredMode() {
-        final CameraMode mode = CameraMode.valueOf(PreferenceKeys.getCameraModeOrdinal());
-        if (layout == null) layout = layoutFor(mode);
-        layout.reConfigureModeViews(mode);
-    }
-
-    /** The views of a mode: video, the unlimited / RAW video series, or photo (everything else). */
-    private CameraModeState layoutFor(CameraMode mode) {
-        if (mode == CameraMode.VIDEO) return this::videoViews;
-        if (mode == CameraMode.UNLIMITED || mode == CameraMode.RAWVIDEO) return this::unlimitedViews;
-        return this::photoViews;
+        if (PreferenceKeys.getStoredCameraMode() != CameraMode.STORED) PreferenceKeys.setStoredCameraMode(CameraMode.STORED);
     }
 
     /** SIMPLE_UI: the concept's glyphs in the text colour (the front / back switch), the empty gallery card's icon muted. */
@@ -191,22 +170,20 @@ public class CameraUIViewImpl implements CameraUIView {
         });
     }
 
-    /** On a screen up to 16:9 the camera block hangs from the top bar in the photo modes, from the top in video. */
-    private void anchorCameraBlock(CameraMode mode) {
+    /** On a screen up to 16:9 the camera block hangs from the top bar. */
+    private void anchorCameraBlock() {
         if (screen.screenAspect > 16f / 9f) return;
         final View block = screen.cameraViews.cameraRoot.findViewById(R.id.camera_stage);
         final ConstraintLayout.LayoutParams anchor = (ConstraintLayout.LayoutParams) block.getLayoutParams();
-        final boolean fromTop = mode == CameraMode.VIDEO || mode == CameraMode.RAWVIDEO;
-        anchor.topToTop = fromTop ? R.id.camera_root : -1;
-        anchor.topToBottom = fromTop ? -1 : R.id.top_row;
+        anchor.topToTop = -1;
+        anchor.topToBottom = R.id.top_row;
     }
 
     @Override
     public void refresh(boolean processing) {
         screen.cameraViews.invalidateAll();
-        applyStoredMode();
+        photoViews();
         rebindTopBar();
-        captureRingReset();
         if (processing) return;
         shutterReady(true);
         processingRunning(false);
@@ -229,34 +206,6 @@ public class CameraUIViewImpl implements CameraUIView {
             if (progress.large) processingRing.setLarge();
             else processingRing.setMeasured(progress.merge);
         });
-    }
-
-    @Override
-    public void captureRingStep(int frames) {
-        captureRing.post(() -> captureRing.incrementProgressBy(frames));
-    }
-
-    @Override
-    public void captureRingReset() {
-        captureRing.post(() -> {
-            captureRing.setProgress(0);
-            captureRing.setAlpha(0f);
-        });
-    }
-
-    @Override
-    public void captureRingAlpha(float alpha) {
-        captureRing.post(() -> captureRing.setAlpha(alpha));
-    }
-
-    @Override
-    public void captureRingMax(int frames) {
-        captureRing.post(() -> captureRing.setMax(frames));
-    }
-
-    @Override
-    public void captureRingAt(int frames) {
-        captureRing.post(() -> captureRing.setProgress(frames));
     }
 
     @Override
@@ -298,27 +247,14 @@ public class CameraUIViewImpl implements CameraUIView {
     }
 
     @Override
-    public void recordingLine(boolean visible) {
-        final TextView line = recordingInfo;
-        if (line != null) line.post(() -> line.setVisibility(visible ? View.VISIBLE : View.GONE));
-    }
-
-    @Override
     public void release() {
         topRow = null;
         shutterRow = null;
     }
 
-    /** The frame timer and the capture ring over the viewfinder shown or not. */
-    private void seriesViews(boolean shown) {
-        final int visibility = shown ? View.VISIBLE : View.GONE;
-        screen.cameraViews.vfLayer.selfTimerCount.setVisibility(visibility);
-        screen.cameraViews.vfLayer.seriesRing.setVisibility(visibility);
-    }
-
     /**
      * The 16:9 frame: on a screen up to 16:9 the anchor stays 3:4, on a taller one it takes the mean of 4:3 and 16:9; the
-     * bottom bar goes translucent over the video gradient.
+     * bottom bar goes translucent over the wide backdrop.
      */
     private void wideFrame() {
         final CameraScreenBinding views = screen.cameraViews;
@@ -336,31 +272,15 @@ public class CameraUIViewImpl implements CameraUIView {
         views.getRoot().setBackground(Utilities.resolveDrawable(screen.requireActivity(), R.attr.cameraFragmentBackground));
     }
 
-    private void videoViews(CameraMode mode) {
-        shutter.setBackgroundResource(R.drawable.unlimitedbutton);
-        seriesViews(true);
-        recordingLine(false);
-        wideFrame();
-        anchorCameraBlock(mode);
-    }
-
-    private void unlimitedViews(CameraMode mode) {
-        shutter.setBackgroundResource(R.drawable.unlimitedbutton);
-        final boolean rawVideo = mode == CameraMode.RAWVIDEO;
-        seriesViews(!rawVideo);
-        if (!rawVideo) recordingLine(false);
-        if (rawVideo || ScameraApp.getSettings().wide169) wideFrame();
-        else plainFrame();
-        anchorCameraBlock(mode);
-    }
-
-    /** Photo (the only mode on screen): SIMPLE_UI §1, one progress indicator (the thumbnail's ring). */
-    private void photoViews(CameraMode mode) {
-        seriesViews(false);
-        recordingLine(false);
+    /**
+     * The photo mode's views: SIMPLE_UI §1, one progress indicator (the thumbnail's ring) - the frame timer over the viewfinder
+     * stays hidden (the retired series modes showed it).
+     */
+    private void photoViews() {
+        screen.cameraViews.vfLayer.selfTimerCount.setVisibility(View.GONE);
         shutter.setBackground(shutterRing);
         if (ScameraApp.getSettings().wide169) wideFrame();
         else plainFrame();
-        anchorCameraBlock(mode);
+        anchorCameraBlock();
     }
 }

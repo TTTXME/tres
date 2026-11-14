@@ -28,6 +28,15 @@ public final class WhyCombine extends Node {
 
     @Override public void bindShader() {}
 
+    /**
+     * P713 (speed, owner 2026-11-14: «Ускорением обработки ... занимайся углублённо ... на глаз разницы быть не должно»; the mask's
+     * three passes were 17 - 27 ms of the GPU at 12 MP and 142 - 206 ms at 50 MP, X300 Ultra / X200 Ultra, a gaussian of 1.2 % of the
+     * width on whyLow): scam_dev.txt "hlmask_coarse" (on) - the mask on a grid ~sigma / 6 times coarser (CoarseMask); 0: as before.
+     */
+    static boolean coarseMaskOn() {
+        return !com.scamera.app.processing.opengl.PostGlMode.legacy() && PreferenceKeys.scamDevSwitch("hlmask_coarse", true);
+    }
+
     /** P479b: why/hlmask's gaussian weights (FAST), 160 floats (40 vec4), or null when off or the radius does not fit. */
     static float[] hlWeights(float sigmaU) {
         if (com.scamera.app.processing.opengl.PostGlMode.legacy() || !PreferenceKeys.scamDevSwitch("hlmask_fast", true)) return null;
@@ -233,6 +242,7 @@ public final class WhyCombine extends Node {
         final com.scamera.app.processing.color.FilmLut lut = lutStrength > 0f && !lutName.isEmpty()
                 ? com.scamera.app.processing.color.FilmChain.lut(com.scamera.app.app.ScameraApp.getAppContext(), lutName) : null;
         int lutTexture = 0;
+        CoarseMask.Plan hlPlan = null;   // P713: the landing's mask on a coarse grid (null: whyLow's grid)
         GLTexture hlA = null, hlB = null, sunBloom = null, oppShare = null, skyWith = null, skyWithout = null, faceTex = null;
         GLTexture fusedLc = null; // P596: the fused luma with its local contrast (WhyTone.localContrast)
         com.scamera.app.processing.opengl.GLBuffer rimTiles = null;
@@ -270,28 +280,39 @@ public final class WhyCombine extends Node {
                 // the blurred share of the ceiling on the whyLow grid (why/hlmask.glsl): max channel / ceiling, then a gaussian of
                 // 1.2 % of the width along x and y
                 final Point hlSize = st.low.size;
-                hlA = new GLTexture(hlSize, new GLFormat(GLFormat.DataType.FLOAT_16, 1), null, GL_LINEAR, GL_CLAMP_TO_EDGE);
-                hlB = new GLTexture(hlSize, new GLFormat(GLFormat.DataType.FLOAT_16, 1), null, GL_LINEAR, GL_CLAMP_TO_EDGE);
                 // P277: of the whole frame's width on a lab fragment
                 final float sigma = Math.max(1f, 0.012f * (pipeline.frozen != null && pipeline.frozen.lowWidth > 0 ? pipeline.frozen.lowWidth : hlSize.x));
+                // P713: the share and its blur on a grid hlPlan.block times coarser with a margin (why/hlmask DECIMATE 1), the
+                // landing's uv mapped into it (why/combine HL_COARSE); null: on whyLow's grid as before
+                hlPlan = CoarseMask.plan(hlSize.x, hlSize.y, sigma, coarseMaskOn());
+                final Point blurSize = hlPlan != null ? new Point(hlPlan.width, hlPlan.height) : hlSize;
+                hlA = new GLTexture(blurSize, new GLFormat(GLFormat.DataType.FLOAT_16, 1), null, GL_LINEAR, GL_CLAMP_TO_EDGE);
+                hlB = new GLTexture(blurSize, new GLFormat(GLFormat.DataType.FLOAT_16, 1), null, GL_LINEAR, GL_CLAMP_TO_EDGE);
+                if (hlPlan != null) shaderProg.setDefine("DECIMATE", 1);
                 shaderProg.useAssetProgram("why/hlmask", false);
                 shaderProg.setTexture("InputBuffer", st.low);
                 // P216: the share of the REAL ceiling (Bento data above the capped clip): a window at 4-8 x white is not blown
                 shaderProg.setVar("invClipU", 1f / Math.max(Math.max(Math.max(r.clip, r.hr), measCeil), 1e-6f));   // P623 round 3
                 shaderProg.setVar("dirU", 0, 0);
+                if (hlPlan != null) {
+                    shaderProg.setVar("blockU", hlPlan.block);
+                    shaderProg.setVar("scaleU", hlPlan.scaleX, hlPlan.scaleY);
+                    shaderProg.setVar("marginU", hlPlan.margin, hlPlan.margin);
+                }
                 shaderProg.drawBlocks(hlB);
                 // P479b (speed): the blur's weights once here (float exp, the shader's formula) and paired taps; scam_dev.txt
                 // "hlmask_fast 0", the old GL model or a radius over 159 taps: the shader's own exp per tap as before
-                final float[] hw = hlWeights(sigma);
+                final float blurSigma = hlPlan != null ? hlPlan.sigma : sigma;
+                final float[] hw = hlWeights(blurSigma);
                 for (int pass = 0; pass < 2; pass++) {
                     if (hw != null) shaderProg.setDefine("FAST", 1);
                     shaderProg.useAssetProgram("why/hlmask", false);
                     shaderProg.setTexture("InputBuffer", pass == 0 ? hlB : hlA);
                     shaderProg.setVar("dirU", pass == 0 ? 1 : 0, pass == 0 ? 0 : 1);
-                    shaderProg.setVar("sigmaU", sigma);
+                    shaderProg.setVar("sigmaU", blurSigma);
                     if (hw != null) {
                         shaderProg.setVarVec4s("weightsU", hw);
-                        shaderProg.setVar("radiusU", (int) Math.ceil(3.0 * Math.max(sigma, 0.5f)));
+                        shaderProg.setVar("radiusU", (int) Math.ceil(3.0 * Math.max(blurSigma, 0.5f)));
                     }
                     shaderProg.drawBlocks(pass == 0 ? hlA : hlB);
                 }
@@ -343,6 +364,7 @@ public final class WhyCombine extends Node {
                         sharp ? r.ae / Math.max(st.sharpMul, 1e-6f) : 1f);
             }
             if (hlB != null) shaderProg.setDefine("HL_LANDING", 1);
+            if (hlB != null && hlPlan != null) shaderProg.setDefine("HL_COARSE", 1);   // P713
             // P378: the low-chroma glow round a light «Inpaint opposed» rebuilt (ScamRgb.opposedShare: none without a filled block)
             // lands on white, with the landing only and on the image the map covers
             oppShare = pipeline.opposedShare;
@@ -508,6 +530,7 @@ public final class WhyCombine extends Node {
             shaderProg.setVar("detailRefU", st.detailRef != null ? 1 : 0);
             shaderProg.setTexture("WhyLumaS", sharp ? st.lumaS : st.low);
             if (hlB != null) shaderProg.setTexture("WhyHl", hlB);
+            if (hlB != null && hlPlan != null) shaderProg.setVar("hlGridU", hlPlan.grid);   // P713
             if (st.sky != null) {
                 // P378: L2 / L3 keep the backlit sky's level (owner: «наш тонмапинг не должен затемнять небо в контровых сценах»);
                 // C1, M1 and L4 act on every sky
@@ -625,7 +648,10 @@ public final class WhyCombine extends Node {
             }
             if (sceneY != null) SceneLumaCache.bind(shaderProg, sceneY);
             com.scamera.app.processing.opengl.PostGlMode.lap("why combine prep");
-            shaderProg.drawBlocks(passOut);
+            // P713: drawn band by band beside the final output's tiles when the pipeline armed it (a streamed JPEG; GLDeferredDraw) -
+            // not with the sky's Ultra HDR ratio (its draws below change this program's uniforms) nor above 100 MP (P187's window)
+            if (skyWith == null && !st.inputReleased) shaderProg.drawBlocksDeferrable(passOut);
+            else shaderProg.drawBlocks(passOut);
             if (sceneY != null) Log.i("SCAM_PIPELINE", "WHY scene luma cache=" + sceneY.size.x + "x" + sceneY.size.y
                     + " bytes=" + ((long) sceneY.size.x * sceneY.size.y * 4));
             if (rimTiles != null) Log.i("SCAM_PIPELINE", "WHY rim support tiles=" + rimTiles.elementCount);
@@ -644,7 +670,11 @@ public final class WhyCombine extends Node {
             shaderProg.closed = true;
         } finally {
             if (sceneY != null) sceneY.close();
-            if (rimTiles != null) rimTiles.close();
+            // P713: the deferred draw (GLDeferredDraw) still reads the rim tiles and the LUT: released after its last band
+            if (rimTiles != null) {
+                final com.scamera.app.processing.opengl.GLBuffer tiles = rimTiles;
+                com.scamera.app.processing.opengl.GLDeferredDraw.later(tiles::close);
+            }
             if (rimBindings != null) {
                 android.opengl.GLES31.glBindBufferBase(android.opengl.GLES31.GL_SHADER_STORAGE_BUFFER, 0, rimBindings[1]);
                 android.opengl.GLES31.glBindBuffer(android.opengl.GLES31.GL_SHADER_STORAGE_BUFFER, rimBindings[0]);
@@ -653,7 +683,10 @@ public final class WhyCombine extends Node {
             if (skyWithout != null) skyWithout.close();
             st.closeTextures();
             if (fallback != null) fallback.close();
-            if (lutTexture != 0) android.opengl.GLES30.glDeleteTextures(1, new int[]{lutTexture}, 0);
+            if (lutTexture != 0) {
+                final int lutId = lutTexture;
+                com.scamera.app.processing.opengl.GLDeferredDraw.later(() -> android.opengl.GLES30.glDeleteTextures(1, new int[]{lutId}, 0));
+            }
             if (hlA != null) hlA.close();
             if (hlB != null) hlB.close();
             if (fusedLc != null) fusedLc.close();

@@ -738,7 +738,7 @@ public final class LutTray {
 
     /** P509: a card's thumbnail side (dp) and corner (dp); the card's own corner. */
     // P583 (the concept's five thumbnails across the tray): 53px pictures with 14px corners on 18px cards
-    static final int THUMB_DP = 53, THUMB_CORNER_DP = 14, CARD_CORNER_DP = 18;
+    public static final int THUMB_DP = 53, THUMB_CORNER_DP = 14, CARD_CORNER_DP = 18;
 
     /**
      * P509 (owner, 2026-11-05: small pictures that say what a LUT, a film or a filter is - not live previews): a card with a still

@@ -5,6 +5,7 @@ import android.content.SharedPreferences;
 
 import com.scamera.app.processing.color.FilmLut;
 import com.scamera.app.processing.color.FilmSim;
+import com.scamera.app.processing.opengl.postpipeline.WhyV2Ae;
 
 import org.junit.Before;
 import org.junit.Test;
@@ -13,9 +14,14 @@ import org.robolectric.RobolectricTestRunner;
 import org.robolectric.RuntimeEnvironment;
 import org.robolectric.annotation.Config;
 
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
-/** SIMPLE_UI §4 «Стиль снимка»: Обычный / Чёрно-белый / Плёнка over the black-and-white filter and the film LUT. */
+/**
+ * SIMPLE_UI §4 «Стиль снимка», P718: the tone presets Насыщенный / Обычный / Нейтральный (owner, 2026-11-14), stored on their own,
+ * «Why тон» V2 with every preset; black and white and film are rows of their own, untouched by the style.
+ */
 @RunWith(RobolectricTestRunner.class)
 @Config(sdk = 35, application = Application.class)
 public class PhotoStyleTest {
@@ -27,66 +33,79 @@ public class PhotoStyleTest {
         prefs.edit().clear().commit();
     }
 
+    /** The cards' order (owner: «Порядок плиток сделай Насыщенный/Обычный/Нейтральный»), Normal the default, the shade cycles it. */
     @Test
-    public void styleFollowsTheTwoSettings() {
+    public void threePresetsInTheOwnersOrder() {
+        assertArrayEquals(new int[]{PhotoStyle.VIVID, PhotoStyle.NORMAL, PhotoStyle.NEUTRAL}, PhotoStyle.order());
         assertEquals(PhotoStyle.NORMAL, PhotoStyle.current(prefs));
-        prefs.edit().putString(FilmLut.KEY, "scam:cine500").commit();
-        assertEquals(PhotoStyle.FILM, PhotoStyle.current(prefs));
-        prefs.edit().putString(PhotoStyle.MONO_KEY, "yellow").commit();
-        assertEquals("black and white wins: it is the last step of the colour", PhotoStyle.MONO, PhotoStyle.current(prefs));
+        assertEquals(PhotoStyle.NEUTRAL, PhotoStyle.next(PhotoStyle.NORMAL));
+        assertEquals(PhotoStyle.VIVID, PhotoStyle.next(PhotoStyle.NEUTRAL));
+        assertEquals(PhotoStyle.NORMAL, PhotoStyle.next(PhotoStyle.VIVID));
+        for (int s : PhotoStyle.order()) assertEquals(s, PhotoStyle.of(PhotoStyle.id(s)));
+        assertEquals("an unknown value is Normal", PhotoStyle.NORMAL, PhotoStyle.of("film"));
     }
 
+    /** Every preset puts «Why тон» on V2 and touches nothing else. */
     @Test
-    public void choosingAStyleRemembersTheOthersChoice() {
-        prefs.edit().putString(FilmLut.KEY, "scam:cine500").commit();
-        PhotoStyle.apply(prefs, PhotoStyle.MONO);
-        assertEquals("neutral", prefs.getString(PhotoStyle.MONO_KEY, ""));
-        assertEquals("", prefs.getString(FilmLut.KEY, "x"));
-        prefs.edit().putString(PhotoStyle.MONO_KEY, "red").commit();
-        PhotoStyle.apply(prefs, PhotoStyle.FILM);
-        assertEquals("the LUT comes back", "scam:cine500", prefs.getString(FilmLut.KEY, ""));
-        assertEquals("off", prefs.getString(PhotoStyle.MONO_KEY, ""));
-        PhotoStyle.apply(prefs, PhotoStyle.MONO);
-        assertEquals("the filter comes back", "red", prefs.getString(PhotoStyle.MONO_KEY, ""));
-        PhotoStyle.apply(prefs, PhotoStyle.NORMAL);
-        assertEquals(PhotoStyle.NORMAL, PhotoStyle.current(prefs));
-        prefs.edit().clear().commit();
-        PhotoStyle.apply(prefs, PhotoStyle.FILM);
-        assertEquals("a first film: the warm look", "scam:warm400", prefs.getString(FilmLut.KEY, ""));
-        assertEquals(PhotoStyle.MONO, PhotoStyle.next(PhotoStyle.NORMAL));
-        assertEquals(PhotoStyle.NORMAL, PhotoStyle.next(PhotoStyle.FILM));
+    public void choosingAPresetTakesTheToneToV2() {
+        for (int s : PhotoStyle.order()) {
+            prefs.edit().putString(PhotoStyle.TONE_VERSION, "v1").commit();
+            PhotoStyle.apply(prefs, s);
+            assertEquals(s, PhotoStyle.current(prefs));
+            assertEquals("v2", prefs.getString(PhotoStyle.TONE_VERSION, ""));
+            assertEquals(2, prefs.getAll().size());
+        }
     }
 
-    /** P369 (film-audit settings-2): a film stock is «Плёнка» - its print replaces the filter -, and the other styles take it off. */
+    /**
+     * Migration: a user of the old Ч/б or Плёнка style (derived from the filter, the LUT and the stock) reads Обычный, and their
+     * black-and-white filter, film LUT and film stock stay as they are - whatever preset is chosen afterwards.
+     */
     @Test
-    public void aFilmStockIsTheFilmStyle() {
+    public void blackAndWhiteAndFilmStayUntouched() {
         final String portra = FilmSim.STOCKS[0].id;
-        prefs.edit().putString(FilmSim.STOCK_KEY, portra).putString(PhotoStyle.MONO_KEY, "red").commit();
-        assertEquals("the stock's print replaces the filter", PhotoStyle.FILM, PhotoStyle.current(prefs));
-        prefs.edit().putString(FilmSim.STRENGTH_KEY, "0").commit();
-        assertEquals("a stock at 0 % is no film", PhotoStyle.MONO, PhotoStyle.current(prefs));
-        prefs.edit().remove(FilmSim.STRENGTH_KEY).putString(PhotoStyle.MONO_KEY, "off").putString(FilmLut.KEY, "scam:cine500").commit();
-        PhotoStyle.apply(prefs, PhotoStyle.NORMAL);
-        assertEquals("«Обычный» takes the stock off", "", prefs.getString(FilmSim.STOCK_KEY, "x"));
+        prefs.edit().putString("pref_scam_hybrid_colour_mono", "red").putString(FilmLut.KEY, "scam:cine500")
+                .putString(FilmSim.STOCK_KEY, portra).putString("ui_style_last_mono", "yellow").commit();
         assertEquals(PhotoStyle.NORMAL, PhotoStyle.current(prefs));
-        PhotoStyle.apply(prefs, PhotoStyle.MONO);
-        assertEquals(PhotoStyle.MONO, PhotoStyle.current(prefs));
-        assertEquals("", prefs.getString(FilmSim.STOCK_KEY, "x"));
-        PhotoStyle.apply(prefs, PhotoStyle.FILM);
-        assertEquals("«Плёнка» brings the stock back", portra, prefs.getString(FilmSim.STOCK_KEY, ""));
-        assertEquals("with the LUT it had", "scam:cine500", prefs.getString(FilmLut.KEY, ""));
-        assertEquals("off", prefs.getString(PhotoStyle.MONO_KEY, ""));
-        // a stock chosen without a LUT comes back without one (no Warm 400 stacked on the film)
-        prefs.edit().putString(FilmLut.KEY, "").commit();
-        PhotoStyle.apply(prefs, PhotoStyle.NORMAL);
-        PhotoStyle.apply(prefs, PhotoStyle.FILM);
-        assertEquals(portra, prefs.getString(FilmSim.STOCK_KEY, ""));
-        assertEquals("", prefs.getString(FilmLut.KEY, "x"));
-        // the last film a LUT alone: «Плёнка» brings the LUT, not an older stock
-        prefs.edit().putString(FilmSim.STOCK_KEY, "").putString(FilmLut.KEY, "scam:cine500").commit();
-        PhotoStyle.apply(prefs, PhotoStyle.NORMAL);
-        PhotoStyle.apply(prefs, PhotoStyle.FILM);
-        assertEquals("", prefs.getString(FilmSim.STOCK_KEY, "x"));
-        assertEquals("scam:cine500", prefs.getString(FilmLut.KEY, ""));
+        for (int s : new int[]{PhotoStyle.VIVID, PhotoStyle.NEUTRAL, PhotoStyle.NORMAL}) {
+            PhotoStyle.apply(prefs, s);
+            assertEquals("red", prefs.getString("pref_scam_hybrid_colour_mono", ""));
+            assertEquals("scam:cine500", prefs.getString(FilmLut.KEY, ""));
+            assertEquals(portra, prefs.getString(FilmSim.STOCK_KEY, ""));
+        }
+    }
+
+    /** The presets are factors on the user's own rows: Normal leaves them, Vivid lifts the HDR terms by 30 %, Neutral calms them. */
+    @Test
+    public void presetsScaleTheUsersToneRows() {
+        final WhyV2Ae.Params user = new WhyV2Ae.Params();
+        user.shadowStr = 1.5f;
+        user.hlBoost = 1.2f;
+        user.macroContrast = 1.2f;
+        user.vibStrength = 0.1f;
+        final WhyV2Ae.Params n = copy(user), v = copy(user), q = copy(user);
+        WhyV2Ae.applyStyle(n, PhotoStyle.NORMAL);
+        WhyV2Ae.applyStyle(v, PhotoStyle.VIVID);
+        WhyV2Ae.applyStyle(q, PhotoStyle.NEUTRAL);
+        assertEquals(1.5f, n.shadowStr, 0f);
+        assertEquals(1.2f, n.macroContrast, 0f);
+        assertEquals(1.5f * 1.7f, v.shadowStr, 1e-6f);
+        assertEquals(1.2f * 1.6f, v.hlBoost, 1e-6f);
+        assertEquals(user.highlightStr * 1.6f, v.highlightStr, 1e-6f);
+        assertTrue("more contrast", v.macroContrast > 1.2f);
+        assertTrue("richer muted colours", v.vibStrength > 0.1f && v.vibStrength - 0.1f > v.vibSaturated - user.vibSaturated);
+        assertEquals(1.5f * 0.85f, q.shadowStr, 1e-6f);
+        assertEquals("Neutral keeps the highlight compression (less of it clips)", 1.2f, q.hlBoost, 0f);
+        assertEquals(1f + 0.2f * 0.3f, q.macroContrast, 1e-6f);
+        assertTrue(q.vibStrength < 0.1f && q.vibSky < user.vibSky && q.contrastBoost < user.contrastBoost);
+    }
+
+    private static WhyV2Ae.Params copy(WhyV2Ae.Params p) {
+        final WhyV2Ae.Params c = new WhyV2Ae.Params();
+        c.shadowStr = p.shadowStr;
+        c.hlBoost = p.hlBoost;
+        c.macroContrast = p.macroContrast;
+        c.vibStrength = p.vibStrength;
+        return c;
     }
 }

@@ -167,6 +167,17 @@ public class GLContext implements AutoCloseable {
     }
 
     /**
+     * Current on the calling thread again with a fresh context's defaults (the bindings, units and pixel-store state
+     * {@link #resetState} sets): the next pass of the same shot (the gain map) runs on this context as on a new one. False (no
+     * reset) when the context is gone or EGL refuses it.
+     */
+    public boolean makeCurrentReset() {
+        if (display == null || context == null || !EGL14.eglMakeCurrent(display, surface, surface, context)) return false;
+        resetState();
+        return true;
+    }
+
+    /**
      * Makes this context current on the calling thread again (W1.3: the deferred teardown after the JPEG encode must delete
      * the textures of this context even if another one was made current in between).
      */

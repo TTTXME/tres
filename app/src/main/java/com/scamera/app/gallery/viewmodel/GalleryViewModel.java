@@ -436,6 +436,29 @@ public class GalleryViewModel extends AndroidViewModel {
         return a.rowId() >= 0 && b instanceof ImageFile && a.rowId() == b.rowId();
     }
 
+    /** P706: the photo the grid scrolls to when it next shows its list (the viewer's photo on the way back), null for none. */
+    @androidx.annotation.Nullable private com.scamera.app.gallery.files.MediaFile reveal;
+
+    public void revealInGrid(@androidx.annotation.Nullable com.scamera.app.gallery.files.MediaFile file) {
+        reveal = file;
+    }
+
+    /** The photo to scroll to, once: null when there is none. */
+    @androidx.annotation.Nullable
+    public com.scamera.app.gallery.files.MediaFile takeReveal() {
+        com.scamera.app.gallery.files.MediaFile f = reveal;
+        reveal = null;
+        return f;
+    }
+
+    /** P706: the index of {@code file} in {@code items} (the same file: path or row), -1 when it is not there. */
+    public static int indexOf(@androidx.annotation.Nullable List<GalleryItem> items, @androidx.annotation.Nullable com.scamera.app.gallery.files.MediaFile file) {
+        if (items == null || file == null) return -1;
+        for (int i = 0; i < items.size(); i++)
+            if (items.get(i) != null && (items.get(i).mediaFile() == file || sameFile(file, items.get(i).mediaFile()))) return i;
+        return -1;
+    }
+
     public MutableLiveData<List<GalleryItem>> getSelectedDisplayFolders() {
         return selectedDisplayFolders;
     }

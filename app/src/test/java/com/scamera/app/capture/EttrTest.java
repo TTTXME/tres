@@ -192,14 +192,14 @@ public class EttrTest {
     @Test
     public void heldUnderTheMotionCeiling() {
         assertEquals("off", Ettr.hold(false, true, true, true, true, true));
-        assertEquals("the motion mode (short shutters)", Ettr.hold(true, false, false, true, false, false));
+        assertEquals("the Sport mode (short shutters)", Ettr.hold(true, false, false, true, false, false));
         assertEquals("hand-set shutter", Ettr.hold(true, false, false, false, true, false));
         assertEquals("own native AE", Ettr.hold(true, true, false, true, true, false));
         assertEquals("vivo SDK", Ettr.hold(true, false, true, true, false, false));
         assertEquals("forced stabilisation", Ettr.hold(true, false, false, false, false, true));
         assertEquals(null, Ettr.hold(true, false, false, false, false, false));
         assertEquals("man", Ettr.holdCode("hand-set shutter"));
-        assertEquals("mm", Ettr.holdCode("the motion mode (short shutters)"));
+        assertEquals("mm", Ettr.holdCode("the Sport mode (short shutters)"));
         assertEquals("off", Ettr.holdCode("off"));
     }
 

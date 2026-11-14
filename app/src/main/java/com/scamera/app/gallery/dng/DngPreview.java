@@ -45,7 +45,14 @@ public final class DngPreview {
         // P351 (the editor's RAW decode, DngRaw): the raw IFD's area, crop, black deltas and stage-2 opcodes
         int[] activeArea;
         double[] cropOrigin, cropSize, blackDeltaH, blackDeltaV;
-        byte[] opcodeList2;
+        /**
+         * P706: the DNG specification's OpcodeList1 (0xC740: on the raw values as stored) and OpcodeList2 (0xC741: on the
+         * linearised, black-subtracted values - where our DNG writer and Camera2's put the lens-shading GainMaps). The tags were
+         * read the other way round before P706 (0xC740 as OpcodeList2): the maps of our DNGs never reached the gallery's picture.
+         */
+        byte[] opcodeList1, opcodeList2;
+        /** P706 (the details sheet, DngFacts): OpcodeList3 (0xC74E, on the developed RGB). */
+        byte[] opcodeList3;
     }
 
     private final ByteBuffer b;
@@ -57,6 +64,17 @@ public final class DngPreview {
     double[] colorMatrix2, forwardMatrix2, cameraCalibration1, cameraCalibration2, analogBalance, asShotWhiteXY;
     int illuminant1, illuminant2;
     boolean dng;
+    /**
+     * P696 (the gallery developer of a DNG without its develop record): Software (0x131), NoiseProfile (0xC761) and the exposure
+     * (ISO 0x8827, ExposureTime 0x829A, FNumber 0x829D, FocalLength 0x920A) of IFD 0 or of the Exif IFD (0x8769; P618 writes
+     * them there); the first value found is kept, 0 / null when absent.
+     */
+    String software;
+    /** P706 (the details sheet, DngFacts): DNGVersion (0xC612) and UniqueCameraModel (0xC614); null when absent. */
+    int[] dngVersion;
+    String uniqueCameraModel;
+    double[] noiseProfile;
+    double iso, exposureTime, fNumber, focalLength;
 
     private DngPreview(ByteBuffer buffer) throws IOException {
         b = buffer.duplicate();
@@ -196,7 +214,8 @@ public final class DngPreview {
                 case 0x202: f.jpegLength = (long) num(type, vo, 0); break;
                 case 0x828D: { int[] d = ints(type, vo, count); if (d.length >= 2) { f.cfaRows = d[0]; f.cfaCols = d[1]; } break; }
                 case 0x828E: { f.cfa = new byte[(int) count]; for (int k = 0; k < count; ++k) f.cfa[k] = b.get(vo + k); break; }
-                case 0xC612: dng = true; break;
+                case 0xC612: dng = true; if (dngVersion == null) dngVersion = ints(type, vo, count); break;
+                case 0xC614: if (uniqueCameraModel == null && type == 2) uniqueCameraModel = ascii(vo, count); break;
                 case 0xC618: f.linearization = ints(type, vo, count); break;
                 case 0xC619: { int[] d = ints(type, vo, count); if (d.length >= 2) { f.blackRows = d[0]; f.blackCols = d[1]; } break; }
                 case 0xC61A: f.black = doubles(type, vo, count); break;
@@ -218,13 +237,88 @@ public final class DngPreview {
                 case 0xC620: f.cropSize = doubles(type, vo, count); break;
                 case 0xC61B: f.blackDeltaH = doubles(type, vo, count); break;
                 case 0xC61C: f.blackDeltaV = doubles(type, vo, count); break;
-                case 0xC740: { f.opcodeList2 = new byte[(int) count]; ByteBuffer d = b.duplicate(); d.position(vo); d.get(f.opcodeList2); break; }
-                default: break;
+                case 0xC740: f.opcodeList1 = blob(vo, count); break;
+                case 0xC741: f.opcodeList2 = blob(vo, count); break;
+                case 0xC74E: f.opcodeList3 = blob(vo, count); break;
+                case 0x131: if (software == null && type == 2) software = ascii(vo, count); break;
+                case 0xC761: if (noiseProfile == null && count >= 2) noiseProfile = doubles(type, vo, count); break;
+                case 0x8769: if (top && depth == 0) exif = (long) num(type, vo, 0); break;
+                default: exposureTag(tag, type, vo, count); break;
             }
         }
         ifds.add(f);
         if (depth < 3) for (long s : subs) if (s > 0 && s < b.limit()) readIfd(s, depth + 1, false);
+        if (exif > 0 && exif < b.limit()) {
+            final long at = exif;
+            exif = 0;
+            readExif(at);
+        }
         return b.getInt((int) (off + 2 + 12L * n)) & 0xFFFFFFFFL;
+    }
+
+    /** P696: the Exif IFD's offset met in IFD 0 (read after it), 0 for none. */
+    private long exif;
+
+    /** P696: the exposure tags of the Exif IFD at {@code off} (nothing else of it is read). */
+    private void readExif(long off) {
+        if (off + 2 > b.limit()) return;
+        int n = b.getShort((int) off) & 0xFFFF;
+        if (n == 0 || off + 2 + 12L * n > b.limit()) return;
+        for (int i = 0; i < n; ++i) {
+            int e = (int) (off + 2 + 12L * i);
+            int tag = b.getShort(e) & 0xFFFF, type = b.getShort(e + 2) & 0xFFFF;
+            long count = b.getInt(e + 4) & 0xFFFFFFFFL;
+            int size = typeSize(type);
+            if (size == 0 || count == 0 || count > 1 << 16) continue;
+            long bytes = size * count;
+            int vo = bytes <= 4 ? e + 8 : b.getInt(e + 8);
+            if (vo < 0 || vo + bytes > b.limit()) continue;
+            exposureTag(tag, type, vo, count);
+        }
+    }
+
+    /** P696: ISO, exposure time, f-number and focal length (the first positive value of each). */
+    private void exposureTag(int tag, int type, int vo, long count) {
+        if (count < 1) return;
+        switch (tag) {
+            case 0x8827: if (!(iso > 0)) iso = num(type, vo, 0); break;
+            case 0x829A: if (!(exposureTime > 0)) exposureTime = num(type, vo, 0); break;
+            case 0x829D: if (!(fNumber > 0)) fNumber = num(type, vo, 0); break;
+            case 0x920A: if (!(focalLength > 0)) focalLength = num(type, vo, 0); break;
+            default: break;
+        }
+    }
+
+    /** An ASCII value (up to its first NUL). */
+    private String ascii(int vo, long count) {
+        final StringBuilder out = new StringBuilder();
+        for (int i = 0; i < count; ++i) {
+            final int c = b.get(vo + i) & 0xFF;
+            if (c == 0) break;
+            out.append((char) c);
+        }
+        return out.toString().trim();
+    }
+
+    /** P706: {@code count} bytes at {@code vo}; null when they run past the file (an underflow failed the whole parse). */
+    private byte[] blob(int vo, long count) {
+        if (vo < 0 || count < 0 || vo + count > b.limit()) return null;
+        final byte[] out = new byte[(int) count];
+        final ByteBuffer d = b.duplicate();
+        d.position(vo);
+        d.get(out);
+        return out;
+    }
+
+    /**
+     * P706: the GainMaps the picture of {@code f} applies: OpcodeList1's (an approximation as before: after the black, not on the
+     * stored values) and, with {@code list2}, OpcodeList2's - the lens shading of our and Camera2's DNGs.
+     */
+    static List<DngRaw.GainMap> gainMapsOf(Ifd f, boolean list2) {
+        final List<DngRaw.GainMap> maps = new ArrayList<>();
+        if (f.opcodeList1 != null) maps.addAll(DngRaw.parseGainMaps(f.opcodeList1));
+        if (list2 && f.opcodeList2 != null) maps.addAll(DngRaw.parseGainMaps(f.opcodeList2));
+        return maps;
     }
 
     private static int typeSize(int type) {
@@ -397,8 +491,9 @@ public final class DngPreview {
         if (bits < 8 || bits > 16) throw new IOException("DNG: raw of " + bits + " bits");
         W = f.width; H = f.height;
         // P370 (A10): our DNGs carry the lens shading as OpcodeList2 GainMaps and embed no preview: without them every thumbnail's
-        // corners came out about 1.25 EV dark and tinted (corner gain 2.386 in the owner's log)
-        final List<DngRaw.GainMap> maps = f.opcodeList2 != null ? DngRaw.parseGainMaps(f.opcodeList2) : new ArrayList<>();
+        // corners came out about 1.25 EV dark and tinted (corner gain 2.386 in the owner's log). P706: OpcodeList2 is 0xC741 (read
+        // from 0xC740 before, so our maps were never applied); OpcodeList1's maps (0xC740) stay applied as before, after the black
+        final List<DngRaw.GainMap> maps = gainMapsOf(f, true);
         shading = null;
         if (!maps.isEmpty()) {
             shading = new Shade[maps.size()];

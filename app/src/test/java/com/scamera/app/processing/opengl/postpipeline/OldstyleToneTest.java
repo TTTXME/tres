@@ -84,6 +84,42 @@ public class OldstyleToneTest {
         assertTrue(src.contains("GLES30.glReadPixels(0, y, size.x, rows, GLES30.GL_RGBA_INTEGER, GLES30.GL_INT, strip);"));
     }
 
+    /**
+     * P716 «постеризация в тенях»: V1's frame drawn at its gain (at most 4 x the smaller one, never below 1), V2's at its own
+     * scale; the rounding dithered only where the module still lifts it by 2 or more; the photo's post array carries the frame's
+     * gain and the linear bright exposure, the plan's 15 entries unchanged before them; the shader gets both.
+     */
+    @Test public void shadowPrecision() throws Exception {
+        assertEquals(1f, OldstyleTone.preGain(true, 8f, 32f), 0f);
+        assertEquals(3.4f, OldstyleTone.preGain(false, 0.92f, 3.4f), 0f);
+        assertEquals(16f, OldstyleTone.preGain(false, 4.4f, 16f), 0f);
+        assertEquals(4f, OldstyleTone.preGain(false, 1f, 6f), 0f);      // a ratio past 4: 4 x the short gain
+        assertEquals(2.5f, OldstyleTone.preGain(false, 2.5f, 2.5f), 0f); // SDR: the one gain
+        assertEquals(1f, OldstyleTone.preGain(false, 0.47f, 0.47f), 0f);
+        assertEquals(1f, OldstyleTone.preGain(false, 0f, 3f), 0f);
+        // 32767 at the frame's gain over the smaller gain stays past V1's ceiling (8190)
+        for (float[] g : new float[][]{{0.92f, 3.4f}, {1f, 6f}, {4.4f, 16f}, {0.3f, 0.9f}, {16f, 16f}})
+            assertTrue(32767f * Math.min(g[0], g[1]) / OldstyleTone.preGain(false, g[0], g[1]) >= 8190f);
+        assertFalse(OldstyleTone.dither(0.92f, 3.4f, OldstyleTone.preGain(false, 0.92f, 3.4f)));
+        assertFalse(OldstyleTone.dither(2.5f, 2.5f, OldstyleTone.preGain(false, 2.5f, 2.5f)));
+        assertTrue(OldstyleTone.dither(8f, 32f, OldstyleTone.preGain(true, 8f, 32f)));
+        assertFalse(OldstyleTone.dither(1f, 1f, OldstyleTone.preGain(true, 1f, 1f)));
+        final float[] base = new com.scamera.app.processing.oldstyle.OldstyleAe.Params().post();
+        assertEquals(15, base.length);
+        final float[] post = OldstyleTone.post(base, 3.4f);
+        assertEquals(17, post.length);
+        assertArrayEquals(base, java.util.Arrays.copyOf(post, 15), 0f);
+        assertEquals(3.4f, post[15], 0f);
+        assertEquals(1f, post[16], 0f);
+        final String src = new String(Files.readAllBytes(Paths.get(
+                "src/main/java/com/scamera/app/processing/opengl/postpipeline/OldstyleTone.java")), StandardCharsets.UTF_8);
+        assertTrue(src.contains("shaderProg.setVar(\"uScale\", plan.inputScale * OldstyleNative.WHITE * pre);"));
+        assertTrue(src.contains("shaderProg.setVar(\"uDither\", dither ? 1f : 0f);"));
+        assertTrue(src.contains("plan.gainShort / pre, plan.gainLong / pre, plan.hdr, postview, params.saturation, post(params.post(), pre)"));
+        final String jni = new String(Files.readAllBytes(Paths.get("src/main/cpp/oldstyle-tone-jni.cpp")), StandardCharsets.UTF_8);
+        assertTrue(jni.contains("p.linear_bright = v[16] > .5f;"));
+    }
+
     /** P636: 16-bit samples only for the pair GL_RGBA_INTEGER / GL_SHORT (0x8D99 / 0x1402) and with the switch on. */
     @Test public void sixteenBitReadOnlyWhereTheDriverNamesIt() {
         assertTrue(OldstyleTone.read16(0x8D99, 0x1402, true));

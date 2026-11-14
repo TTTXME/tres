@@ -39,8 +39,21 @@ public class SettingsSearchFragment extends Fragment {
     public static final class Entry implements Serializable {
         private static final long serialVersionUID = 1L;
         public final String key, page, title, path, summary;
+        /**
+         * P708: {@code advanced} - a setting the Simple or Custom mode hides (its hit offers it first); {@code setting} - one the
+         * Custom mode's set can hold (SimpleMode.setting), {@code simple} - one of the Simple set (its level).
+         */
+        public final boolean advanced, setting, simple;
         Entry(String key, String page, String title, String path, String summary) {
-            this.key=key; this.page=page; this.title=title; this.path=path; this.summary=summary;
+            this(key, page, title, path, summary, false, false, false);
+        }
+        Entry(String key, String page, String title, String path, String summary, boolean advanced, boolean setting, boolean simple) {
+            this.key=key; this.page=page; this.title=title; this.path=path; this.summary=summary; this.advanced=advanced;
+            this.setting=setting; this.simple=simple;
+        }
+        /** The same hit, {@code advanced} as given. */
+        Entry(Entry e, boolean advanced) {
+            this(e.key, e.page, e.title, e.path, e.summary, advanced, e.setting, e.simple);
         }
         public boolean matches(String query) { return matches(query, null); }
         /** As {@link #matches(String)}, also looking in {@code other}: the words of this setting in the other UI language. */
@@ -112,30 +125,39 @@ public class SettingsSearchFragment extends Fragment {
         return value==null ? "" : value;
     }
     public static ArrayList<Entry> index(PreferenceGroup root) {
+        return index(root, java.util.Collections.emptySet());
+    }
+    /**
+     * P708: {@code simple} - the rows the Simple mode hides (and nothing else does): found too, marked {@link Entry#advanced}
+     * with every row under them.
+     */
+    public static ArrayList<Entry> index(PreferenceGroup root, java.util.Set<String> simple) {
         ArrayList<Entry> entries=new ArrayList<>();
-        collect(root, root.getKey(), "", entries);
+        collect(root, root.getKey(), "", entries, simple, false);
         return entries;
     }
-    private static void collect(PreferenceGroup group, String page, String path, ArrayList<Entry> entries) {
+    private static void collect(PreferenceGroup group, String page, String path, ArrayList<Entry> entries,
+                                java.util.Set<String> simple, boolean advanced) {
         for(int i=0;i<group.getPreferenceCount();i++) {
             Preference p=group.getPreference(i);
             // P384: every module's sensor rows stay findable (only the chosen module's category is shown; a hit chooses its module);
             // P413: the lens page too (a module card's page, hidden as a row; a hit opens a module's lens page)
-            if(!p.isVisible() && !com.scamera.app.settings.SensorConfigPreferenceGenerator.isModuleCategory(p)
+            String key=p.getKey();
+            boolean hidden=key!=null && simple.contains(key), below=advanced || hidden;   // P708
+            if(!p.isVisible() && !hidden && !com.scamera.app.settings.SensorConfigPreferenceGenerator.isModuleCategory(p)
                     && !ModuleRows.LENS.equals(p.getKey())) continue;
             String title=p.getTitle()==null ? "" : p.getTitle().toString();
-            String key=p.getKey();
             if(key!=null && !title.isEmpty()) {
                 CharSequence summary=p.getSummary();
                 // P584: the hit's icon tile, as the concept shows it (the row's own icon; none: no tile)
                 android.graphics.drawable.Drawable icon=p.getIcon();
                 if(icon!=null && icon.getConstantState()!=null && !SettingsStyle.defaulted(p)) ICONS.put(key, icon.getConstantState());
                 entries.add(new Entry(key, p instanceof PreferenceScreen ? key : page, title, path,
-                        summary==null ? "" : summary.toString()));
+                        summary==null ? "" : summary.toString(), below, SimpleMode.setting(p), SimpleMode.simpleLevel(p)));
             }
             if(p instanceof PreferenceGroup) collect((PreferenceGroup)p,
                     p instanceof PreferenceScreen ? key : page,
-                    path.isEmpty() ? title : path+" › "+title, entries);
+                    path.isEmpty() ? title : path+" › "+title, entries, simple, below);
         }
     }
     // The index is handed over in memory, not in the arguments: its ~0.7 MB went into the saved state at every stop and the binder
@@ -290,7 +312,10 @@ public class SettingsSearchFragment extends Fragment {
             row.setLayoutParams(lp);row.setTag(R.id.settings_bound_preference,hit);return new Holder(row,title,path,tile,icon);
         }
         @Override public void onBindViewHolder(@NonNull Holder h,int position){
-            Entry e=results.get(position);h.title.setText(e.title);h.path.setText(pages(e));
+            Entry e=results.get(position);h.title.setText(e.title);
+            // P708: a setting the Simple or Custom mode hides says so (its tap offers it)
+            h.path.setText(e.advanced && SimpleMode.on(androidx.preference.PreferenceManager.getDefaultSharedPreferences(requireContext()))
+                    ? pages(e)+" · "+Lang.t(getContext(),"скрыта","hidden") : pages(e));
             android.graphics.drawable.Drawable.ConstantState icon=ICONS.get(e.key);
             h.tile.setVisibility(icon==null ? View.GONE : View.VISIBLE);
             if(icon!=null){

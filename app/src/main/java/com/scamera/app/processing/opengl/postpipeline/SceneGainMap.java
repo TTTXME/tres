@@ -174,9 +174,7 @@ final class SceneGainMap {
         GLTexture lightTex = null, shading = null, skyRatio = null;
         try {
             lightTex = uploadLight();
-            final GLImage sdrImage = new GLImage(sdr);
-            final GLTexture sdrTex = new GLTexture(sdrImage);
-            sdrImage.close(); // the direct copy of the bitmap (~200 MB at 50 MP) only served the upload
+            final GLTexture sdrTex = uploadSdr(sdr);
             shading = shadingMap(shot.parameters);
             skyRatio = skyRatioTexture(shot.skyRatio, shot.skyRatioSize);
             final GLTexture plane = new GLTexture(shot.pictureSize, RGBA16F);
@@ -214,6 +212,42 @@ final class SceneGainMap {
             closeQuietly(shading);
             closeQuietly(skyRatio);
             abandon(); // the light is used once
+        }
+    }
+
+    /**
+     * The SDR picture as an RGBA8 texture. An ARGB_8888 bitmap goes up from its own pixels (GLUtils.texSubImage2D: the bytes
+     * Bitmap.copyPixelsToBuffer gives, as the gallery editor uploads its photos) - no direct copy of the picture next to it
+     * (48 MB at 12 MP, 200 MB at 50 MP); another config (the 10-bit RGBA_1010102, hardware) or a refused upload: through
+     * GLImage's 8-bit copy as before. The same texels either way.
+     */
+    static GLTexture uploadSdr(Bitmap sdr) {
+        if (sdr.getConfig() == Bitmap.Config.ARGB_8888) {
+            GLTexture tex = null;
+            try {
+                //noinspection StatementWithEmptyBody: only the upload below decides
+                while (GLES30.glGetError() != GLES30.GL_NO_ERROR) { }
+                tex = new GLTexture(new Point(sdr.getWidth(), sdr.getHeight()), new GLFormat(GLFormat.DataType.SIMPLE_8, 4), null,
+                        GL_LINEAR, GL_CLAMP_TO_EDGE, 0);
+                final int[] previous = new int[1];
+                GLES30.glGetIntegerv(GLES30.GL_TEXTURE_BINDING_2D, previous, 0);
+                GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, tex.id);
+                android.opengl.GLUtils.texSubImage2D(GLES30.GL_TEXTURE_2D, 0, 0, 0, sdr);
+                final int error = GLES30.glGetError();
+                GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, previous[0]);
+                GLES30.glPixelStorei(GLES30.GL_UNPACK_ALIGNMENT, 4);
+                if (error == GLES30.GL_NO_ERROR) return tex;
+                Log.w(TAG, "UltraHDR SDR upload from the bitmap refused (0x" + Integer.toHexString(error) + "), through a copy");
+            } catch (RuntimeException e) {
+                Log.w(TAG, "UltraHDR SDR upload from the bitmap failed (" + e + "), through a copy");
+            }
+            if (tex != null) tex.close();
+        }
+        final GLImage sdrImage = new GLImage(sdr);
+        try {
+            return new GLTexture(sdrImage);
+        } finally {
+            sdrImage.close(); // the direct copy of the bitmap only served the upload
         }
     }
 

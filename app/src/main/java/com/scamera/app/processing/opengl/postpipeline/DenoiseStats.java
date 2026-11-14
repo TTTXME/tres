@@ -239,96 +239,6 @@ final class DenoiseStats {
         }
     }
 
-    /**
-     * P479: {@link #finishNoiseCs}'s pass with its read-back into a pixel-pack buffer (GL_STREAM_READ; nothing waits here), for
-     * {@link #finishNoiseCsRead}. False (no buffer left) when a GL call fails: the caller takes the synchronous paths.
-     */
-    private static boolean finishNoiseCsBegin(PendingSnr st, List<GLTexture> owned) {
-        final GLTexture rgb = st.clean;
-        final int bw = Math.max(1, rgb.size.x / 16), bh = Math.max(1, rgb.size.y / 16);
-        for (int i = 0; i < 8 && android.opengl.GLES30.glGetError() != android.opengl.GLES30.GL_NO_ERROR; i++) {
-            // drain: only the pass below decides
-        }
-        GLTexture atlas = null;
-        final int[] pbo = new int[1], oldRead = new int[1], framebuffer = new int[1];
-        boolean ok = false;
-        try {
-            atlas = tex(owned, new Point(bw, bh), GLFormat.DataType.UNSIGNED_32, 4, GL_NEAREST);
-            st.glProg.setLayout(16, 16, 1);
-            st.glProg.useAssetProgram("scamdn/stats_cs", true);
-            st.glProg.setTexture("InputBuffer", rgb);
-            st.glProg.setVar("modelU", st.sY, st.rY);
-            st.glProg.setTextureCompute("outStats", atlas, true);
-            st.glProg.computeManualAsync(bw, bh, 1);
-            android.opengl.GLES30.glGetIntegerv(android.opengl.GLES30.GL_READ_FRAMEBUFFER_BINDING, oldRead, 0);
-            android.opengl.GLES30.glGenBuffers(1, pbo, 0);
-            android.opengl.GLES30.glBindBuffer(android.opengl.GLES30.GL_PIXEL_PACK_BUFFER, pbo[0]);
-            android.opengl.GLES30.glBufferData(android.opengl.GLES30.GL_PIXEL_PACK_BUFFER, bw * bh * 16, null, android.opengl.GLES30.GL_STREAM_READ);
-            android.opengl.GLES30.glGenFramebuffers(1, framebuffer, 0);
-            android.opengl.GLES30.glBindFramebuffer(android.opengl.GLES30.GL_READ_FRAMEBUFFER, framebuffer[0]);
-            android.opengl.GLES30.glFramebufferTexture2D(android.opengl.GLES30.GL_READ_FRAMEBUFFER, android.opengl.GLES30.GL_COLOR_ATTACHMENT0,
-                    android.opengl.GLES30.GL_TEXTURE_2D, atlas.id, 0);
-            android.opengl.GLES30.glReadPixels(0, 0, bw, bh, android.opengl.GLES30.GL_RGBA_INTEGER, android.opengl.GLES30.GL_UNSIGNED_INT, 0);
-            final int error = android.opengl.GLES30.glGetError();
-            if (error != android.opengl.GLES30.GL_NO_ERROR) {
-                Log.w("SCAM_PIPELINE", "finish noise compute pass (async): GL error 0x" + Integer.toHexString(error) + ", read at once");
-                return false;
-            }
-            st.pbo = pbo[0];
-            st.bw = bw;
-            st.bh = bh;
-            ok = true;
-            return true;
-        } catch (RuntimeException e) {
-            Log.w("SCAM_PIPELINE", "finish noise compute pass (async): " + e + ", read at once");
-            return false;
-        } finally {
-            android.opengl.GLES30.glBindBuffer(android.opengl.GLES30.GL_PIXEL_PACK_BUFFER, 0);
-            android.opengl.GLES30.glBindFramebuffer(android.opengl.GLES30.GL_READ_FRAMEBUFFER, oldRead[0]);
-            if (framebuffer[0] != 0) android.opengl.GLES30.glDeleteFramebuffers(1, framebuffer, 0);
-            if (!ok && pbo[0] != 0) android.opengl.GLES30.glDeleteBuffers(1, pbo, 0);
-            release(owned, atlas); // the queued copy keeps its storage until done
-        }
-    }
-
-    /** P479: a pending read-back's buffer deleted (finishSnrEnd not reached); nothing when it was. */
-    static void dropPending(PendingSnr st) {
-        if (st.pbo == 0) return;
-        final int[] pbo = {st.pbo};
-        st.pbo = 0;
-        android.opengl.GLES30.glDeleteBuffers(1, pbo, 0);
-    }
-
-    /** P479: the texels {@link #finishNoiseCsBegin} read back (the map waits for that copy); null on a GL failure. Deletes the buffer. */
-    private static int[] finishNoiseCsRead(PendingSnr st) {
-        final int[] pbo = {st.pbo};
-        st.pbo = 0;
-        final int bytes = st.bw * st.bh * 16;
-        try {
-            android.opengl.GLES30.glBindBuffer(android.opengl.GLES30.GL_PIXEL_PACK_BUFFER, pbo[0]);
-            final java.nio.Buffer view = android.opengl.GLES30.glMapBufferRange(android.opengl.GLES30.GL_PIXEL_PACK_BUFFER, 0, bytes,
-                    android.opengl.GLES30.GL_MAP_READ_BIT);
-            if (!(view instanceof ByteBuffer) || view.capacity() < bytes) {
-                if (view != null) android.opengl.GLES30.glUnmapBuffer(android.opengl.GLES30.GL_PIXEL_PACK_BUFFER);
-                Log.w("SCAM_PIPELINE", "finish noise read-back: the pixel-pack buffer did not map, the two passes");
-                return null;
-            }
-            final int[] out = new int[st.bw * st.bh * 4];
-            ((ByteBuffer) view).order(ByteOrder.nativeOrder()).asIntBuffer().get(out);
-            if (!android.opengl.GLES30.glUnmapBuffer(android.opengl.GLES30.GL_PIXEL_PACK_BUFFER)) {
-                Log.w("SCAM_PIPELINE", "finish noise read-back: the pixel-pack buffer was lost while mapped, the two passes");
-                return null;
-            }
-            return out;
-        } catch (RuntimeException e) {
-            Log.w("SCAM_PIPELINE", "finish noise read-back: " + e + ", the two passes");
-            return null;
-        } finally {
-            android.opengl.GLES30.glBindBuffer(android.opengl.GLES30.GL_PIXEL_PACK_BUFFER, 0);
-            android.opengl.GLES30.glDeleteBuffers(1, pbo, 0);
-        }
-    }
-
     private static int[] readInts(GLTexture t) {
         int w = t.size.x, h = t.size.y;
         int[] oldRead = new int[1], framebuffer = new int[1];
@@ -416,11 +326,9 @@ final class DenoiseStats {
     }
 
     /**
-     * P479 (speed): {@link #finishSnr} in two halves. {@link #finishSnrBegin} issues level 0's statistics and, on the compute path
-     * with {@code async}, reads them into a pixel-pack buffer without waiting; {@link #finishSnrEnd} maps it (it waits for that
-     * copy only) and does the CPU part. WhyResolveDenoise issues its passes in between (they do not use the SNR, WhyLumaSharpen
-     * and WhyCombine do), so the GPU is not drained here and the CPU part runs while those passes do: the same texels, the same
-     * arithmetic, the same SNR.
+     * {@link #finishSnr} in two halves: {@link #finishSnrBegin} measures level 0's statistics (GPU and read-back),
+     * {@link #finishSnrEnd} does the CPU part. WhyResolveDenoise issues its passes in between when nothing before them needs the
+     * SNR (WhyLumaSharpen and WhyCombine do): the same texels, the same arithmetic, the same SNR.
      */
     static final class PendingSnr {
         Parameters par;
@@ -432,15 +340,13 @@ final class DenoiseStats {
         final float[][] raw0 = new float[1][];
         int s;
         Point size0;
-        /** The compute pass's statistics still in this pixel-pack buffer (0: none), its atlas bw x bh. */
-        int pbo, bw, bh;
     }
 
     static float finishSnr(GLProg glProg, PostPipeline pipeline, GLTexture clean, StringBuilder log) {
-        return finishSnrEnd(finishSnrBegin(glProg, pipeline, clean, false), log);
+        return finishSnrEnd(finishSnrBegin(glProg, pipeline, clean), log);
     }
 
-    static PendingSnr finishSnrBegin(GLProg glProg, PostPipeline pipeline, GLTexture clean, boolean async) {
+    static PendingSnr finishSnrBegin(GLProg glProg, PostPipeline pipeline, GLTexture clean) {
         final PendingSnr st = new PendingSnr();
         final Parameters par = pipeline.shotParams;
         st.par = par;
@@ -490,10 +396,8 @@ final class DenoiseStats {
             st.sY = sY; st.rY = rY; st.sG = sG; st.rG = rG; st.rGhi = rGhi; st.kneeY = kneeY; st.dcgPass = dcgPass;
             final boolean legacy = com.scamera.app.processing.opengl.PostGlMode.legacy();
             // P473 (speed): level 0's statistics in one compute pass from the RGB (the YUV level and the fragment statistics took
-            // ~50 ms of GPU on the OPPO PHY110); scam_dev.txt "snr_cs 0", a 2x grid, DCG zones or a failure: the two passes.
-            // P479: with async the compute pass's read-back goes into a pixel-pack buffer, finished by finishSnrEnd
+            // ~50 ms of GPU on the OPPO PHY110); scam_dev.txt "snr_cs 0", a 2x grid, DCG zones or a failure: the two passes
             final boolean cs = s == 1 && dcgPass == null && !legacy && PreferenceKeys.scamDevSwitch("snr_cs", true);
-            if (cs && async && finishNoiseCsBegin(st, owned)) return st;
             st.g0 = cs ? finishNoiseCs(glProg, owned, clean, sY, rY, st.raw0) : null;
             if (st.g0 == null) twoPassLevel0(st, owned);
             return st;
@@ -529,21 +433,6 @@ final class DenoiseStats {
     static float finishSnrEnd(PendingSnr st, StringBuilder log) {
         final Parameters par = st.par;
         final PostPipeline pipeline = st.pipeline;
-        if (st.pbo != 0) {
-            final int[] texels = finishNoiseCsRead(st);
-            if (texels != null) {
-                final float[] raw = statsOf(texels, st.bw, 0, 0, st.bw, st.bh);
-                st.raw0[0] = raw;
-                st.g0 = NoiseMath.reduce(raw, st.bw * st.bh, 0.8f);
-            } else {
-                final List<GLTexture> owned = new ArrayList<>();
-                try {
-                    twoPassLevel0(st, owned);
-                } finally {
-                    for (GLTexture t : owned) if (t != null) t.close();
-                }
-            }
-        }
         final float[] g0 = st.g0;
         final float[][] raw0 = st.raw0;
         final float rG = st.rG;

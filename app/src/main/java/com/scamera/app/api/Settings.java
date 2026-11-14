@@ -15,8 +15,8 @@ public class Settings {
     public int frameCount;
     /** Always false: both routes merge the full-resolution RAW (software binning was a legacy option). */
     public boolean binning;
-    /** The capture mode (CameraMode.valueOf: the retired modes read as MOTION). */
-    public CameraMode mode;
+    /** The camera mode: the photo mode, the only one (CameraMode.fromStored: every stored number reads as PHOTO). */
+    public CameraMode mode = CameraMode.PHOTO;
     /** The forced CFA order (-1: the camera's), the RAW stream choice, the remosaic switch and the preview frame rate. */
     public int forcedCfa, rawFormat, previewFps;
     public boolean remosaicOn;
@@ -37,7 +37,7 @@ public class Settings {
         frameCount = 4;
         binning = Allocator.binning = false;
         cameraId = PreferenceKeys.getCameraID();
-        mode = CameraMode.valueOf(PreferenceKeys.getCameraModeOrdinal());
+        mode = CameraMode.fromStored(PreferenceKeys.getStoredCameraMode());
         forcedCfa = PreferenceKeys.getCFAValue();
         rawFormat = PreferenceKeys.isSaveRaw();
         previewFps = PreferenceKeys.getFpsMode();

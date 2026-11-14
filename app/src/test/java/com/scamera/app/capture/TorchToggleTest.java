@@ -28,7 +28,7 @@ public class TorchToggleTest {
         assertTrue(body.contains("torchNeedsSession()") && body.contains("restartSessionForTorch(0)"));
         int restart = s.indexOf("private void restartSessionForTorch(int attempt)");
         assertTrue("never under a shot", s.indexOf("shotInFlight()", restart) > restart);
-        assertTrue(s.indexOf("startSession(false)", restart) > restart);
+        assertTrue(s.indexOf("startSession()", restart) > restart);
     }
 
     @Test public void theShotKeepsTheTorchOn() throws Exception {

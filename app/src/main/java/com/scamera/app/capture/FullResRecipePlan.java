@@ -164,6 +164,18 @@ public final class FullResRecipePlan {
         return binned != null ? binned : any;
     }
 
+    /**
+     * P709: the format of the viewfinder's binned RAW stream beside a capture RAW of {@code captureFormat}, of the RAW formats the
+     * camera lists ({@code raw16}: RAW_SENSOR, {@code raw10}: RAW10): the capture's own format where it is listed - the X9 Ultra
+     * full-size recipe runs two RAW10 streams, and the OPPO Find X9 Ultra's HAL died ~1.5 s after a session of a RAW_SENSOR
+     * viewfinder beside the RAW10 photo stream was configured, before its first frame (owner's log of 2026-11-14, every camera) -
+     * else RAW_SENSOR where listed (every RAW_SENSOR profile as before), else RAW10; 0: neither is listed.
+     */
+    public static int viewfinderRawFormat(int captureFormat, boolean raw16, boolean raw10) {
+        if (captureFormat == RAW10 && raw10) return RAW10;
+        return raw16 ? RAW_SENSOR : raw10 ? RAW10 : 0;
+    }
+
     /** P653: a lost buffer on {@code stream} fails a still - the capture RAW's alone (the companion's is dropped by the HAL). */
     public static boolean lostBufferFailsStill(Stream stream) {
         return stream == Stream.RAW_CAPTURE;

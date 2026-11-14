@@ -40,4 +40,16 @@ public class CustomOrientationEventListenerTest {
         // from 340 on the upright quarter is always the answer (the listener reports it once: the Surface rotation is unchanged)
         assertEquals(UPRIGHT, quarterFor(350, UPRIGHT));
     }
+
+    @Test
+    public void theAutoRotateSettingIsAskedOnlyWhenAReadingChangesSomething() {
+        // upright and reported upright (Surface.ROTATION_0): a reading at 350 enters the same quarter - nothing to ask
+        assertEquals(false, CustomOrientationEventListener.changes(UPRIGHT, UPRIGHT, 0, 0));
+        // between the bands after an unknown report: nothing either
+        assertEquals(false, CustomOrientationEventListener.changes(0, UPRIGHT, -1, -1));
+        // another quarter, or a report that moves (into or out of the bands)
+        assertEquals(true, CustomOrientationEventListener.changes(LEFT_UP, UPRIGHT, 0, 1));
+        assertEquals(true, CustomOrientationEventListener.changes(0, UPRIGHT, 0, -1));
+        assertEquals(true, CustomOrientationEventListener.changes(UPRIGHT, UPRIGHT, -1, 0));
+    }
 }

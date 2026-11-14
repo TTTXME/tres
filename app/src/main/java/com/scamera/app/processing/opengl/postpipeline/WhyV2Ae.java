@@ -64,6 +64,72 @@ public final class WhyV2Ae {
         public float bracketDenoise = 0f, hrAmount = 0f;
     }
 
+    /**
+     * P718 «Стиль» (settings/PhotoStyle): the tone presets Normal / Vivid / Neutral as factors on the user's own V2 parameters,
+     * applied at processing time (WhyV2Stats) and by the live viewfinder's tone (LiveWhyTone) - the rows keep their values.
+     */
+    public static final int STYLE_NORMAL = 0, STYLE_VIVID = 1, STYLE_NEUTRAL = 2;
+
+    /**
+     * One preset's terms: {@code shadow} x shadow_str (the shadow lift: effS, the bright layer's exposure 2^(1.8 effS)),
+     * {@code highlight} x hl_boost and x highlight_str (the highlight compression: effH, the dark layers' 2^(-2.5 effH) and
+     * 2^(-1.2 effH), and its cap), {@code macro} x the macro contrast's excess over 1 (the OKLab contrast round L 0.40),
+     * {@code boost} x the flat-scene contrast boost, {@code vibrance} / {@code vibSaturated} added to the vibrance of muted / of
+     * saturated colours (x 1 + v on the OKLab chroma), {@code vibTerms} x the sky / green / light-tone vibrance terms.
+     */
+    public static final class Style {
+        public final float shadow, highlight, macro, boost, vibrance, vibSaturated, vibTerms;
+
+        Style(float shadow, float highlight, float macro, float boost, float vibrance, float vibSaturated, float vibTerms) {
+            this.shadow = shadow;
+            this.highlight = highlight;
+            this.macro = macro;
+            this.boost = boost;
+            this.vibrance = vibrance;
+            this.vibSaturated = vibSaturated;
+            this.vibTerms = vibTerms;
+        }
+    }
+
+    /**
+     * The presets (index: STYLE_*). Owner: «Vivid на 30% более hdr-ный … Neutral на 30% более нейтральный и спокойный», then
+     * («на других разницы не видно практически») a difference visible at a glance. Host renders of the owner's full-frame bursts
+     * through the shipped V2 chain (three daylight OPPO scenes, the pool scene of the halo tests; research/handoff/PLAN.md P718):
+     * Vivid lifts the shadow term x 1.7 and the highlight compression x 1.6 (shadows +3-5 L*, the highlights kept), the macro
+     * contrast's excess x 1.5 (1.1 -> 1.15; x 2 clipped +1.2 % of the pool's white clothes, 1.35 washed the lights out), the
+     * vibrance of muted colours +0.30 and none on saturated ones (+0.10 pushed the pool's blue chairs out of the gamut); no
+     * clarity (it crushed the shadows and clipped the lights at once).
+     * Neutral: the shadow lift x 0.85, the highlight compression kept (less of it clips), the macro contrast x 0.3 and the
+     * flat-scene boost x 1/3 of theirs, the vibrance -0.12 with its sky / green / light-tone terms x 0.55 (owner: the colour
+     * 11-18 % calmer than Normal's; measured 12-17 % on the four scenes).
+     */
+    static final Style[] STYLES = {
+            new Style(1f, 1f, 1f, 1f, 0f, 0f, 1f),
+            new Style(1.7f, 1.6f, 1.5f, 1f, 0.30f, 0f, 1f),
+            new Style(0.85f, 1f, 0.3f, 1f / 3f, -0.12f, -0.12f, 0.55f),
+    };
+
+    /** The preset of {@code style} (an unknown one: Normal). */
+    public static Style style(int style) {
+        return STYLES[style >= 0 && style < STYLES.length ? style : STYLE_NORMAL];
+    }
+
+    /** {@code p} under the preset {@code style} (Normal leaves it as it is). */
+    public static void applyStyle(Params p, int style) {
+        if (style == STYLE_NORMAL) return;
+        final Style s = style(style);
+        p.shadowStr *= s.shadow;
+        p.hlBoost *= s.highlight;
+        p.highlightStr *= s.highlight;
+        p.macroContrast = 1f + (p.macroContrast - 1f) * s.macro;
+        p.contrastBoost *= s.boost;
+        p.vibStrength += s.vibrance;
+        p.vibSaturated += s.vibSaturated;
+        p.vibSky *= s.vibTerms;
+        p.vibGreen *= s.vibTerms;
+        p.vibHl *= s.vibTerms;
+    }
+
     /** The reference's histograms of one shot (histogram_cs: counts, every strided sample once). */
     public static final class Hist {
         public final int[] luma = new int[BINS], hl = new int[BINS];

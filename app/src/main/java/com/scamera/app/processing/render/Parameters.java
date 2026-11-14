@@ -59,6 +59,11 @@ public class Parameters {
      */
     public float dcgIsoScale = 1f;
     /**
+     * P701: a YUV merge shot (processing/yuv/YuvBurst; 0 for every other shot): the WHY AE target's factor that meters the scene before
+     * the YUV route's shadow toe (its geometric mean after / before), and the shot keeps the day target (WhyTone.yuvExposure).
+     */
+    public float yuvAeScale;
+    /**
      * P320: the DCG shot's noise the merge measured on its own frames (worker «HYBRID NOISE CHECK DCG»), normalised units:
      * {slope, high-gain offset, low-gain offset, knee}; var = slope x + (x < knee ? hcg : lcg). Null: not measured.
      */
@@ -2092,6 +2097,7 @@ public class Parameters {
         c.dcgShot = dcgShot;
         c.loficLog2 = loficLog2;
         c.dcgIsoScale = dcgIsoScale;
+        c.yuvAeScale = yuvAeScale;
         c.dcgNoise = dcgNoise == null ? null : dcgNoise.clone();
         c.rawCrop = rawCrop;
         c.rawCropFull = rawCropFull == null ? null : new Point(rawCropFull);

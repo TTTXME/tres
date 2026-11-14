@@ -85,8 +85,7 @@ public class DefaultSaver extends SaverImplementation {
             ownedManualWb = null;
             scamProcessor.ownedMosaicWb = ownedMosaicWb;
             ownedMosaicWb = null;
-            scamProcessor.configure(ScameraApp.getSettings().alignMethod,
-                    ScameraApp.getSettings().rawFormat, ScameraApp.getSettings().mode);
+            scamProcessor.configure(ScameraApp.getSettings().alignMethod, ScameraApp.getSettings().rawFormat);
             final long shotTime = ownedShotTimeMs > 0 ? ownedShotTimeMs : System.currentTimeMillis();
             ownedShotTimeMs = 0;
             scamProcessor.start(ownedDngFile, ownedImageFile,
@@ -104,8 +103,7 @@ public class DefaultSaver extends SaverImplementation {
         final String name = ImagePath.newBaseName(shotTime); // one name for both (P119)
         final Path dngFile = ImagePath.dngFile(name);
         final Path imageFile = ImagePath.imageFile(name);
-        scamProcessor.configure(ScameraApp.getSettings().alignMethod, ScameraApp.getSettings().rawFormat,
-                ScameraApp.getSettings().mode);
+        scamProcessor.configure(ScameraApp.getSettings().alignMethod, ScameraApp.getSettings().rawFormat);
         // this shot's frames out of the shared buffer (the next shot's stay); the capture may add again from here
         final ArrayList<ImageFrame> buffered = FRAME_QUEUE;
         final ArrayList<ImageFrame> shot = new ArrayList<>(buffered.subList(0, frameCount));

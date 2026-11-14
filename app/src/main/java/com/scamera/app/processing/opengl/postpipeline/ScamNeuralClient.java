@@ -464,7 +464,6 @@ public final class ScamNeuralClient {
                         // P679: a LOFIC shot's result is scaled in place after the merge: never the read-only hardware buffer
                         &&!(scamBurst instanceof ScamHybridBurst&&((ScamHybridBurst)scamBurst).loficLog2()>0);
             }
-            if(adopted==null)writeDumpForward(context,dir);
             final long assetsDone=android.os.SystemClock.elapsedRealtime();
             File input=new File(dir,"input.f32"),output=new File(dir,"output.f32");
             // SCAM: burst and result through shared memory (memfd) instead of ~0.6 GB
@@ -915,23 +914,11 @@ public final class ScamNeuralClient {
     }
 
     /**
-     * Developer switch (adb: touch /sdcard/Download/SCAMERA/dump-forward): dump the network's input/output tiles. P191: the
-     * marker and the dumps are in Download/SCAMERA, not Android/data (owner, 2026-10-17: «переноси всё туда чтобы в data ничего
-     * не хранилось»)
-     */
-    private static void writeDumpForward(Context context,File dir) throws IOException {
-        if(com.scamera.app.util.ScameraFiles.exists(context,"dump-forward")){
-            File dumps=com.scamera.app.util.ScameraFiles.dir();
-            try(java.io.FileWriter marker=new java.io.FileWriter(new File(dir,"dump-forward"))){marker.write(dumps.getAbsolutePath());}
-        }
-    }
-
-    /**
      * P371 (speed, worker_prespawn): the files the worker reads before its go byte and the environment it starts with, as one
      * text: a worker spawned at the shutter is taken only when they are what the job would give it now.
      */
     private static String preGoKey(Context context,boolean creOff){
-        return creSourceMarker()+"|"+creOff+"|"+com.scamera.app.util.ScameraFiles.exists(context,"dump-forward")
+        return creSourceMarker()+"|"+creOff
                 +"|"+com.scamera.app.util.WorkerEnv.gpuNormalPriority()+"|"+com.scamera.app.util.WorkerEnv.workerNice();
     }
 
@@ -1183,7 +1170,6 @@ public final class ScamNeuralClient {
                 final boolean creOff=ScamHybridBurst.avoidedSteps.contains(ScamHybridBurst.STEP_CRE);
                 if(creOff&&!new File(dir,"cre-off").createNewFile())throw new IOException("CRE marker");
                 writeGlCache(context,dir);
-                writeDumpForward(context,dir);
                 // P602: the keys the worker reads before its go, as this session's job will send them (the job's whole tuning
                 // replaces the file before the go)
                 final String preTuning=expectedPreGoTuning();

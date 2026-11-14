@@ -107,14 +107,18 @@ public class ShadeCatalogTest {
             assertFalse(gone, ShadeCatalog.isCurated(gone));
         for (String key : ShadeCatalog.DEFAULT_TILES) assertTrue(key, catalog.isKnown(key));
         assertEquals("SIMPLE_UI §2: the concept's 18 default tiles (with Стиль and Селфи) + P494 «UHDR» beside «HDR»", 19, ShadeCatalog.DEFAULT_TILES.size());
-        // «Стиль» cycles Обычный -> Ч/б -> Плёнка over the mono filter and the LUT; «Селфи» reads «Зеркало» / «Как есть»
+        // «Стиль» (P718): Насыщенный / Обычный / Нейтральный in the cards' order, Обычный by default; the tile cycles them
         ShadeCatalog.Entry style = catalog.entry(ShadeCatalog.STYLE);
-        assertEquals(context.getResources().getTextArray(R.array.shade_l_style)[0].toString(), catalog.valueText(style, true));
+        final CharSequence[] styles = context.getResources().getTextArray(R.array.shade_l_style);
+        assertEquals(styles[1].toString(), catalog.valueText(style, true));
         catalog.cycleStyle();
-        assertEquals(PhotoStyle.MONO, PhotoStyle.current(prefs));
+        assertEquals(PhotoStyle.NEUTRAL, PhotoStyle.current(prefs));
+        assertEquals(styles[2].toString(), catalog.valueText(style, true));
         catalog.cycleStyle();
-        assertEquals(PhotoStyle.FILM, PhotoStyle.current(prefs));
-        assertEquals(context.getResources().getTextArray(R.array.shade_l_style)[2].toString(), catalog.valueText(style, true));
+        assertEquals(PhotoStyle.VIVID, PhotoStyle.current(prefs));
+        assertEquals(styles[0].toString(), catalog.valueText(style, true));
+        catalog.cycleStyle();
+        assertEquals(PhotoStyle.NORMAL, PhotoStyle.current(prefs));
         ShadeCatalog.Entry mirror = catalog.entry(ShadeCatalog.MIRROR);
         assertEquals(ShadeCatalog.TOGGLE, mirror.kind);
         assertEquals(context.getResources().getTextArray(R.array.shade_l_mirror)[0].toString(), catalog.valueText(mirror, true));

@@ -189,6 +189,48 @@ public final class DeviceDefaults {
         return "Google".equalsIgnoreCase(Build.MANUFACTURER) && "panther".equalsIgnoreCase(Build.DEVICE);
     }
 
+    /** P705: the marker of {@link #unlockRawViewfinderOnce} (main preferences). */
+    static final String RAW_VF_UNLOCK_MARKER = "raw_viewfinder_unlocked";
+
+    /**
+     * P705 (owner, 2026-11-14: the RAW viewfinder may be turned on on every phone): until now a phone below the
+     * {@link #rawViewfinderSoc} tier ignored a stored «on» (the row was greyed out: a value of an older build, or v6's default on the
+     * 8 Gen 3 / Dimensity 9300 before the owner's exclusion of 2026-11-01). Once per install, before the setting is read alone, such
+     * a stored «on» becomes «off» there - in the main settings, every module profile and the baseline - so nobody's viewfinder
+     * changes with the update; what the user chooses afterwards stays. The tier above keeps its values as they are.
+     */
+    public static void unlockRawViewfinderOnce(Context context, SharedPreferences main) {
+        unlockRawViewfinderOnce(context, main, rawViewfinderSoc());
+    }
+
+    static void unlockRawViewfinderOnce(Context context, SharedPreferences main, boolean tier) {
+        if (main.getBoolean(RAW_VF_UNLOCK_MARKER, false)) return;
+        try {
+            int turnedOff = 0;
+            if (!tier) {
+                final String key = "pref_live_viewfinder_raw_key";
+                final java.util.List<SharedPreferences> stores = new java.util.ArrayList<>();
+                stores.add(main);
+                final SharedPreferences meta = context.getSharedPreferences("module_profiles_meta", Context.MODE_PRIVATE);
+                for (Map.Entry<String, ?> e : meta.getAll().entrySet())
+                    if (e.getKey().startsWith("exists_") && Boolean.TRUE.equals(e.getValue()))
+                        stores.add(context.getSharedPreferences("module_profile_v2_" + e.getKey().substring(7), Context.MODE_PRIVATE));
+                if (meta.getBoolean("baseline", false))
+                    stores.add(context.getSharedPreferences("module_profile_v2_common", Context.MODE_PRIVATE));
+                for (SharedPreferences p : stores) {
+                    if (!PreferenceNumber.bool(p.getAll().get(key), false)) continue;
+                    p.edit().putBoolean(key, false).apply();
+                    turnedOff++;
+                }
+            }
+            main.edit().putBoolean(RAW_VF_UNLOCK_MARKER, true).apply();
+            if (turnedOff > 0) Log.i(TAG, "RAW viewfinder unlocked on every phone: a stored «on» the tier gate kept off is off now ("
+                    + turnedOff + " stores)");
+        } catch (RuntimeException failure) {
+            Log.e(TAG, "RAW viewfinder unlock not applied: " + failure);
+        }
+    }
+
     public static void applyOnce(Context context, SharedPreferences main) {
         final int stored = main.getInt(MARKER, 0);
         if (stored >= VERSION) return;

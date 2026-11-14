@@ -81,13 +81,9 @@ public class GLTexture implements AutoCloseable {
     public GLTexture(GLImage image, int level) {
         this(image, GL_LINEAR, GL_CLAMP_TO_EDGE, level);
     }
-    /** The image's pixels (its own GLFormat object takes the sampling); never a pooled name. */
+    /** The image's pixels (its own GLFormat object takes the sampling). */
     public GLTexture(GLImage image, int filter, int wrap, int level) {
-        this(image.dims, image.layout, rewound(image.pixelData), filter, wrap, level, false);
-    }
-    /** {@code format} is this texture's own from now on (its filter and wrap are set here). */
-    public GLTexture(Point size, GLFormat format, Buffer pixels, int filter, int wrap, int level) {
-        this(size, format, pixels, filter, wrap, level, true);
+        this(image.dims, image.layout, rewound(image.pixelData), filter, wrap, level);
     }
 
     private static Buffer rewound(ByteBuffer pixels) {
@@ -95,26 +91,23 @@ public class GLTexture implements AutoCloseable {
         return pixels;
     }
 
-    private GLTexture(Point size, GLFormat format, Buffer pixels, int filter, int wrap, int level, boolean poolable) {
+    /** {@code format} is this texture's own from now on (its filter and wrap are set here). */
+    public GLTexture(Point size, GLFormat format, Buffer pixels, int filter, int wrap, int level) {
         this.format = format;
         format.filter = filter;
         format.wrap = wrap;
         this.size = size;
         internalFormat = format.getGLFormatInternal();
-        // P477: a texture without data may take a closed one's name and storage of its size and format ("tex_pool")
-        final int pooled = poolable && pixels == null ? GLTexturePool.take(size.x, size.y, internalFormat) : 0;
-        id = pooled != 0 ? pooled : newName();
+        id = newName();
         // Shot speed (W1.0): no log line per texture; the count per run is in the "runAll programs" line (takeCreated)
         created++;
         slot = SLOTS.take(id);
-        GLTexturePool.allocated(id, bytes(), describe(), pooled != 0);
+        GLTexturePool.allocated(id, bytes(), describe());
         final int previous = beginEdit();
         try {
             final long t0 = GLGpuTimer.measuring() ? System.nanoTime() : 0L; // P479: post_sync only (profiling)
-            if (pooled == 0) {
-                glTexStorage2D(GL_TEXTURE_2D, 1, internalFormat, size.x, size.y);
-                checkEglError("glTexStorage2D");
-            }
+            glTexStorage2D(GL_TEXTURE_2D, 1, internalFormat, size.x, size.y);
+            checkEglError("glTexStorage2D");
             if (t0 != 0L) GLGpuTimer.alloc(System.nanoTime() - t0, bytes());
             if (pixels != null) {
                 final String was = GLGpuTimer.mark("upload");
@@ -258,9 +251,8 @@ public class GLTexture implements AutoCloseable {
         return n;
     }
 
-    /** Deletes every texture still open, the pool's kept names and the framebuffers of the open textures. */
+    /** Deletes every texture still open and the framebuffers of the open textures. */
     public static void closeAll() {
-        GLTexturePool.end(); // P477: the pool's kept names go too
         final int[] open = SLOTS.takeAll();
         if (open.length > 0) glDeleteTextures(open.length, open, 0);
         // W1.1: a texture attached to a framebuffer kept its storage until the EGL context went; the old model
@@ -277,11 +269,16 @@ public class GLTexture implements AutoCloseable {
 
     @Override
     public void close() {
+        // P713: a texture the post's deferred last draw still reads (or draws) is closed after its last band (GLDeferredDraw)
+        if (GLDeferredDraw.holdClose(this)) return;
+        closeNow();
+    }
+
+    /** Deletes the texture now (and its framebuffer). */
+    void closeNow() {
         final long t0 = GLGpuTimer.measuring() ? System.nanoTime() : 0L; // P479: post_sync only (profiling)
-        // P477: kept for the next texture of its size and format (GLTexturePool, during a post run), else deleted
-        final boolean kept = GLTexturePool.give(id, size.x, size.y, internalFormat, bytes());
-        if (!kept) glDeleteTextures(1, new int[]{id}, 0);
-        GLTexturePool.closed(id, bytes(), kept);
+        glDeleteTextures(1, new int[]{id}, 0);
+        GLTexturePool.closed(id, bytes());
         // its own slot, not the one its name would index (another texture's once a raw glGenTextures took a name: P369)
         SLOTS.release(slot, id);
         slot = 0;

@@ -170,9 +170,6 @@ public final class FilmSim {
 
     private static float[] f(float... v) { return v; }
 
-    private static final float[] NEG_PEAK = {645, 548, 445}, NEG_WIDTH = {26, 30, 28};
-    private static final float[] NEG_DYE = {685, 550, 448}, NEG_DYE_W = {48, 34, 30};
-    private static final float[] REV_DYE = {660, 548, 448}, REV_DYE_W = {44, 36, 30};
     private static final float[] WEAK_AH = {.08f, .02f, 0f}, STRONG_AH = {.015f, .005f, 0f}, BW_AH = {.05f, .05f, .05f};
 
     public static final Stock[] STOCKS = {

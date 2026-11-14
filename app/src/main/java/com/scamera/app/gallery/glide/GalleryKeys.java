@@ -61,6 +61,13 @@ public final class GalleryKeys {
     }
 
     static String key(String prefix, @Nullable String name, long modified, long length) {
-        return prefix + name + "|" + modified + "|" + length;
+        final String k = prefix + name + "|" + modified + "|" + length;
+        return name != null && name.toLowerCase(java.util.Locale.ROOT).endsWith(".dng") ? k + DNG_RENDER : k;
     }
+
+    /**
+     * P706: the version of the gallery's DNG render in its keys: the lens-shading GainMaps of our DNGs (OpcodeList2, 0xC741) reach
+     * the picture from P706 on - the thumbnails cached before, with dark corners, are made again once.
+     */
+    static final String DNG_RENDER = "|lsc";
 }

@@ -116,10 +116,10 @@ public class XiaomiDualGainTest {
         assertEquals("row {current_mode 3}", dsg.get(3).toString());
 
         final List<XiaomiDualGain.Variant> lofic = XiaomiDualGain.ladder(XiaomiDualGain.Kind.LOFIC, 5, 5, true);
-        // P641d: the pair rung first (LoficPairTest), then the single-frame ones as before
-        assertEquals("lofic-pair lofic+hdr lofic+hdr+row lofic+type+row row night+row", ids(lofic));
-        assertEquals("lofic+hdr {enableLofic 1, EnableHDRDCGMode 1}", lofic.get(1).toString());
-        assertEquals("lofic+type+row {enableLofic 1, EnableHDRDCGMode 5, current_mode 5}", lofic.get(3).toString());
+        // P641d / P700: the single-frame LOFIC rungs first, then the pair (LoficPairTest), then the row alone and the session mode
+        assertEquals("lofic+hdr lofic+hdr+row lofic+type+row lofic-pair row night+row", ids(lofic));
+        assertEquals("lofic+hdr {enableLofic 1, EnableHDRDCGMode 1}", lofic.get(0).toString());
+        assertEquals("lofic+type+row {enableLofic 1, EnableHDRDCGMode 5, current_mode 5}", lofic.get(2).toString());
         assertEquals("night+row {enableLofic 1, current_mode 5} session mode 0x9203", lofic.get(5).toString());
         assertEquals("a list without the type: no variant of a made-up value", "hdr hdr+row row",
                 ids(XiaomiDualGain.ladder(XiaomiDualGain.Kind.DCG, 4, 0, false)));
@@ -160,6 +160,42 @@ public class XiaomiDualGainTest {
         assertEquals("scam_dev: one variant, whatever is remembered", "type+row", XiaomiDualGain.next(ladder, m, 2).id);
         assertNull(XiaomiDualGain.next(ladder, m, 9));
         assertNull(XiaomiDualGain.next(Collections.<XiaomiDualGain.Variant>emptyList(), new XiaomiDualGain.Memory(), -1));
+    }
+
+    /**
+     * P700: the log of 2026-11-14 11:18:25 - the rung «lofic-pair» lost every request in a plain session. The ladder starts with the
+     * single-frame LOFIC rung now; a firmware that remembers the pair as failed (PreviewStall.refused) never asks it again, and the
+     * screen names the rung that failed.
+     */
+    @Test public void thePairRungIsNotFirstAndARefusedOneIsNotAskedAgain() {
+        final List<XiaomiDualGain.Variant> lofic = XiaomiDualGain.ladder(XiaomiDualGain.Kind.LOFIC, 5, 5, true);
+        final XiaomiDualGain.Memory m = new XiaomiDualGain.Memory();
+        final XiaomiDualGain.Variant first = XiaomiDualGain.next(lofic, m, -1);
+        assertEquals("lofic+hdr", first.id);
+        assertFalse("no overflow stream on the first rung", first.pair);
+        // the firmware of the log: the pair refused, the single-frame rungs failed by depth
+        m.failed.put("lofic-pair", "refused every request: 8 failed in a row, no result since the session started");
+        m.failed.put("lofic+hdr", "10-bit frames in 90 results");
+        m.failed.put("lofic+hdr+row", "10-bit frames in 90 results");
+        m.failed.put("lofic+type+row", "10-bit frames in 90 results");
+        assertEquals("the pair is skipped", "row", XiaomiDualGain.next(lofic, m, -1).id);
+        assertEquals("DCG+LOFIC 4/6", XiaomiDualGain.label(XiaomiDualGain.Kind.LOFIC, lofic.indexOf(lofic.get(3)), lofic.size()));
+        assertEquals("lofic-pair", lofic.get(3).id);
+        assertNull("no session, no label", XiaomiDualGain.sessionLabel());
+    }
+
+    /**
+     * P700 (owner: «Для работы LOFIC нужна поддержка двух потоков одновременно»): «DCG+LOFIC» is the two-RAW recipe (XiaomiLofic);
+     * under it this ladder runs DCG, never its single-frame LOFIC rungs; scam_dev xiaomi17_lofic 0 keeps them.
+     */
+    @Test public void theLoficRungsStayOutOfTheRecipesPath() {
+        assertEquals(XiaomiDualGain.Kind.DCG, XiaomiDualGain.ladderKind(XiaomiDualGain.Kind.LOFIC, true));
+        assertEquals(XiaomiDualGain.Kind.LOFIC, XiaomiDualGain.ladderKind(XiaomiDualGain.Kind.LOFIC, false));
+        assertEquals(XiaomiDualGain.Kind.DSG, XiaomiDualGain.ladderKind(XiaomiDualGain.Kind.DSG, true));
+        assertEquals(XiaomiDualGain.Kind.DCG, XiaomiDualGain.ladderKind(XiaomiDualGain.Kind.DCG, true));
+        assertNull(XiaomiDualGain.ladderKind(null, true));
+        for (XiaomiDualGain.Variant v : XiaomiDualGain.ladder(XiaomiDualGain.ladderKind(XiaomiDualGain.Kind.LOFIC, true), 4, 4, true))
+            assertFalse("no overflow stream on the DCG ladder", v.pair);
     }
 
     /** The report's DCG session: dynamic black 1024 / 1025 under the declared 64; a plain session 64.06. */

@@ -161,8 +161,10 @@ public final class VivoNativeFullRes {
                 final int row = live ? rowFor(rows, failures(cameraId, big), forced(role(phone, cameraId, large))) : rows[0];
                 final boolean still = stillOnly(size[0], size[1]) && (!live || stillOnlySwitch());
                 // P684: the X300 Ultra's 200 MP still-only size on its last variant (StillOnly200.Variant.HAL, the stock camera's
-                // whole recipe) is the HAL's remosaicked Bayer (block 1); every other variant the sensor's own Tetra
-                final int block = live && still && phone == Phone.X300_ULTRA && StillOnly200.halBayer(cameraId, size[0], size[1]) ? 1 : size[2];
+                // whole recipe) is the HAL's remosaicked Bayer (block 1); every other variant the sensor's own Tetra. P699 (owner:
+                // «Для X300 Ultra просто оставляем 200мп с ремозаиком»): every variant of the X300 Ultra is the HAL's Bayer
+                final int block = live && still && phone == Phone.X300_ULTRA && (StillOnly200.remosaicOnly(phone)
+                        || StillOnly200.halBayer(cameraId, size[0], size[1])) ? 1 : size[2];
                 return row < 0 ? null : new VivoSdkFullRes.Profile(size[0], size[1], row, block, still);
             }
             default:

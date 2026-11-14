@@ -40,10 +40,19 @@ import java.util.concurrent.ConcurrentHashMap;
  * The setups, in the order a session tries them ({@link Setup}):
  * <ul>
  * <li>4:3 · 30 fps (0xF010, [30, 30], the sensor's DXGLofic row 5, 4096 x 3072): the release reaches it only with its root
- * module - without it the HAL picks a cropped row. This phone's HAL takes current_mode as a row pick on the session and the
- * requests (P631's 50 MP row 11, the 50 MP recipe's row 0), so the candidate asks for row 5 that way. Since a sent current_mode
- * comes back as an echo, only the frames prove it: both streams 3072 rows, one RAW14 and one RAW10, ExposureCount 2. A failure is
- * remembered for this firmware.</li>
+ * module - without it the HAL picks a cropped row. P700 (owner, 2026-11-14: «Сделай 4:3 по возможности без рут прав, попробуй по
+ * аналогии с компаньоном для фулреза») tries it as a list of variants, each proven by the frames - the results' mode 5 (or 38),
+ * both streams 3072 rows (one RAW14, one RAW10) and ExposureCount 2 - and each failure remembered for this firmware:
+ * <ol>
+ * <li>{@code 4:3}: the release's recipe exactly (the root module's way; a firmware that offers the row by itself takes it);</li>
+ * <li>{@code 4:3+row}: current_mode 5 on the session and every request - this HAL takes current_mode as a row pick (P631's 50 MP
+ * row 11, the 50 MP recipe's row 0); the sent mode comes back as an echo, the rows prove it;</li>
+ * <li>{@code 4:3+row+yuv}: as 2 with the 50 MP recipe's 640x480 YUV companion on every request after the six outputs (the
+ * companion that made the HAL route the full readout to a third-party session without root, P635 / P653);</li>
+ * <li>{@code 4:3+row+yuv+usecase}: as 3 with the 50 MP recipe's capture RAW fields on RAW A / B (vendor stream use case 0x80103,
+ * usage 0x100003).</li>
+ * </ol>
+ * A variant proven once runs first on this firmware; with none left the screen says 4:3 needs root here.</li>
  * <li>16:10 · 60 fps (0x8004, [60, 60], the HAL's own row 27, 4096 x 2560): the release's root-free setup; proven by the mode
  * the results report (27, nothing is sent) and the frames' rows.</li>
  * </ul>
@@ -54,7 +63,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * com.qti.stats_control.ExposureCount 2 carry a usable Short read.
  * <p>
  * scam_dev: {@code xiaomi17_lofic} -1 follows the switch, 1 forces the route on the main camera, 0 turns it off (the switch's
- * «DCG+LOFIC» then runs P641's ladder); {@code xiaomi17_lofic_setup} 0 = 4:3 first, 1 = 16:10 only; {@code lofic_pairs} the pairs
+ * «DCG+LOFIC» then runs P641's ladder); {@code xiaomi17_lofic_setup} 0 = the 4:3 variants first, 1 = 16:10 only; {@code lofic_pairs} the pairs
  * a shot takes; {@code lofic_blend} the merge of a pair (0 noise-weighted, 1 the release's fixed ramp) - processing.LoficMerge.
  */
 public final class XiaomiLofic {
@@ -87,9 +96,20 @@ public final class XiaomiLofic {
 
     // ---------------------------------------------------------------- the setups
 
+    /** P700: the 50 MP recipe's capture RAW fields (FullResRecipePresets, Xiaomi 17 Ultra camera 2): use case and usage. */
+    public static final long FULLRES_RAW_USE_CASE = 0x80103L, FULLRES_RAW_USAGE = 0x100003L;
+    /** P700: the 50 MP recipe's YUV companion. */
+    public static final int COMPANION_W = 640, COMPANION_H = 480;
+
     public enum Setup {
-        FOUR_THREE("4:3", "4:3 · 30 fps", 0xF010, 30, 1440, 1080, 2880, 2160, 4096, 3072, 3072, new int[]{5}, 5),
-        SIXTEEN_TEN("16:10", "16:10 · 60 fps", 0x8004, 60, 1920, 1080, 3840, 2160, 3840, 2160, 2560, new int[]{27}, -1);
+        FOUR_THREE("4:3", "4:3 · 30 fps", 0xF010, 30, 1440, 1080, 2880, 2160, 4096, 3072, 3072, new int[]{5, 38}, -1, false, 0, 0),
+        FOUR_THREE_ROW("4:3+row", "4:3 · 30 fps (row 5 asked)", 0xF010, 30, 1440, 1080, 2880, 2160, 4096, 3072, 3072,
+                new int[]{5, 38}, 5, false, 0, 0),
+        FOUR_THREE_COMPANION("4:3+row+yuv", "4:3 · 30 fps (row 5 asked, YUV companion)", 0xF010, 30, 1440, 1080, 2880, 2160, 4096,
+                3072, 3072, new int[]{5, 38}, 5, true, 0, 0),
+        FOUR_THREE_CAPTURE("4:3+row+yuv+usecase", "4:3 · 30 fps (row 5 asked, YUV companion, capture RAW use case)", 0xF010, 30,
+                1440, 1080, 2880, 2160, 4096, 3072, 3072, new int[]{5, 38}, 5, true, FULLRES_RAW_USE_CASE, FULLRES_RAW_USAGE),
+        SIXTEEN_TEN("16:10", "16:10 · 60 fps", 0x8004, 60, 1920, 1080, 3840, 2160, 3840, 2160, 2560, new int[]{27}, -1, false, 0, 0);
 
         public final String id, label;
         /** The vendor session (operation) mode passed to SessionConfiguration. */
@@ -103,9 +123,13 @@ public final class XiaomiLofic {
         public final int[] modes;
         /** The row asked for by current_mode on the session and the requests (-1: none, the HAL's own choice). */
         public final int askRow;
+        /** P700: the 640x480 YUV companion on every request, after the six outputs. */
+        public final boolean companion;
+        /** P700: RAW A / B's vendor stream use case and reader usage (0: the defaults). */
+        public final long rawUseCase, rawUsage;
 
         Setup(String id, String label, int sessionType, int fps, int pw, int ph, int vw, int vh, int jw, int jh, int rows, int[] modes,
-              int askRow) {
+              int askRow, boolean companion, long rawUseCase, long rawUsage) {
             this.id = id;
             this.label = label;
             this.sessionType = sessionType;
@@ -119,6 +143,14 @@ public final class XiaomiLofic {
             this.rows = rows;
             this.modes = modes;
             this.askRow = askRow;
+            this.companion = companion;
+            this.rawUseCase = rawUseCase;
+            this.rawUsage = rawUsage;
+        }
+
+        /** A 4:3 variant (the full 3072 rows). */
+        public boolean fourThree() {
+            return rows == RAW_H;
         }
 
         public boolean modeOf(@Nullable Integer reported) {
@@ -142,14 +174,21 @@ public final class XiaomiLofic {
         public final long usage;
         /** Targeted by the repeating request. */
         public final boolean repeating;
+        /** P700: the stream use case of its OutputConfiguration (0: the default). */
+        public final long useCase;
 
         Output(String role, int format, int width, int height, long usage, boolean repeating) {
+            this(role, format, width, height, usage, repeating, 0);
+        }
+
+        Output(String role, int format, int width, int height, long usage, boolean repeating, long useCase) {
             this.role = role;
             this.format = format;
             this.width = width;
             this.height = height;
             this.usage = usage;
             this.repeating = repeating;
+            this.useCase = useCase;
         }
 
         @Override public String toString() {
@@ -158,23 +197,25 @@ public final class XiaomiLofic {
     }
 
     public static final String DUMMY = "dummy RAW", VIEWFINDER = "viewfinder", VIDEO = "video", JPEG = "JPEG", RAW_A = "RAW A",
-            RAW_B = "RAW B";
-    static final int RAW_SENSOR = 0x20, PRIVATE = 0x22, JPEG_FORMAT = 0x100;
+            RAW_B = "RAW B", COMPANION = "YUV companion";
+    static final int RAW_SENSOR = 0x20, PRIVATE = 0x22, JPEG_FORMAT = 0x100, YUV_420_888 = 0x23;
     /** HardwareBuffer.USAGE_VIDEO_ENCODE. */
     static final long USAGE_VIDEO_ENCODE = 1L << 16;
 
     /**
      * The six outputs in the recipe's order: without the configured-only JPEG no RAW arrives, without the dummy RAW no frame does,
-     * and another order or size makes the HAL pick another row.
+     * and another order or size makes the HAL pick another row. P700: a companion variant adds the YUV companion as a seventh
+     * output (the six keep their places); the capture variant gives RAW A / B the 50 MP recipe's use case and usage.
      */
     public static List<Output> outputs(Setup s) {
-        final List<Output> out = new ArrayList<>(6);
+        final List<Output> out = new ArrayList<>(7);
         out.add(new Output(DUMMY, RAW_SENSOR, RAW_W, RAW_H, 0, false));
         out.add(new Output(VIEWFINDER, PRIVATE, s.previewW, s.previewH, 0, true));
         out.add(new Output(VIDEO, PRIVATE, s.videoW, s.videoH, USAGE_VIDEO_ENCODE, true));
         out.add(new Output(JPEG, JPEG_FORMAT, s.jpegW, s.jpegH, 0, false));
-        out.add(new Output(RAW_A, RAW_SENSOR, RAW_W, RAW_H, 0, true));
-        out.add(new Output(RAW_B, RAW_SENSOR, RAW_W, RAW_H, 0, true));
+        out.add(new Output(RAW_A, RAW_SENSOR, RAW_W, RAW_H, s.rawUsage, true, s.rawUseCase));
+        out.add(new Output(RAW_B, RAW_SENSOR, RAW_W, RAW_H, s.rawUsage, true, s.rawUseCase));
+        if (s.companion) out.add(new Output(COMPANION, YUV_420_888, COMPANION_W, COMPANION_H, 0, true));
         return Collections.unmodifiableList(out);
     }
 
@@ -396,7 +437,8 @@ public final class XiaomiLofic {
          * The verdict: FAILED at once when a pair shows other rows than the setup's (a cropped row), or when the reported modes
          * are another row's (16:10, where nothing is sent: the HAL's own report; 4:3 sends its row and the echo proves nothing);
          * FAILED at the end of the window without a pair, or (4:3) without a single ExposureCount 2; PROVEN on a pair of the
-         * setup's rows with the setup's mode (16:10) or with ExposureCount 2 (4:3); PENDING otherwise.
+         * setup's rows with the setup's mode (16:10) or with ExposureCount 2 (4:3; P700: and the mode 5 / 38 where no row is sent);
+         * PENDING otherwise.
          */
         Verdict verdict() {
             if (decided) return verdict;
@@ -409,7 +451,7 @@ public final class XiaomiLofic {
             }
             // a HAL that reports no mode at all leaves the rows as the proof (after a few results)
             final boolean modeProof = setup.askRow >= 0 || modeOk > 0 || withMode == 0 && results >= 10;
-            final boolean countProof = setup.askRow < 0 || countTwo > 0;
+            final boolean countProof = !setup.fourThree() || countTwo > 0;
             if (pairs > 0 && modeProof && countProof) return decide(Verdict.PROVEN, "");
             if (results >= window) {
                 if (pairs == 0) return decide(Verdict.FAILED, "no Long + Short pair in " + results + " results");
@@ -450,14 +492,51 @@ public final class XiaomiLofic {
     }
 
     /**
-     * The setups a session tries, in order: 4:3 unless it failed on this firmware (or in this run) or {@code sixteenOnly}; then
-     * 16:10 unless it failed in this run.
+     * The setups a session tries, in order: the 4:3 variant {@code proven} on this firmware first, then the 4:3 variants in their
+     * order - each unless it failed on this firmware (or in this run) or {@code sixteenOnly}; then 16:10 unless it failed in this
+     * run ({@code failed}: the failed setups).
      */
-    static List<Setup> ladder(boolean fourThreeFailed, boolean sixteenFailed, boolean sixteenOnly) {
+    static List<Setup> ladder(Set<Setup> failed, @Nullable Setup proven, boolean sixteenOnly) {
         final List<Setup> out = new ArrayList<>();
-        if (!fourThreeFailed && !sixteenOnly) out.add(Setup.FOUR_THREE);
-        if (!sixteenFailed) out.add(Setup.SIXTEEN_TEN);
+        if (!sixteenOnly) {
+            if (proven != null && proven.fourThree() && !failed.contains(proven)) out.add(proven);
+            for (Setup s : Setup.values()) if (s.fourThree() && s != proven && !failed.contains(s)) out.add(s);
+        }
+        if (!failed.contains(Setup.SIXTEEN_TEN)) out.add(Setup.SIXTEEN_TEN);
         return out;
+    }
+
+    /** Every 4:3 variant failed ({@code failed}): this firmware gives 4:3 only with root. */
+    static boolean fourThreeGone(Set<Setup> failed) {
+        for (Setup s : Setup.values()) if (s.fourThree() && !failed.contains(s)) return false;
+        return true;
+    }
+
+    private static Set<Setup> failedSetups() {
+        final Set<Setup> out = java.util.EnumSet.noneOf(Setup.class);
+        for (Setup s : Setup.values()) if (failed(s)) out.add(s);
+        return out;
+    }
+
+    /** P700: the 4:3 variant proven on this firmware ("fingerprint|id"), null without one. */
+    @Nullable
+    static Setup storedProven(@Nullable String stored, @Nullable String fingerprint) {
+        final String id = storedFailure(stored, fingerprint);
+        if (id == null) return null;
+        for (Setup s : Setup.values()) if (s.fourThree() && s.id.equals(id)) return s;
+        return null;
+    }
+
+    @Nullable
+    private static Setup proven4x3() {
+        final SharedPreferences p = prefs();
+        return storedProven(p == null ? null : p.getString("proven", null), Build.FINGERPRINT);
+    }
+
+    private static void markProven(Setup s) {
+        if (!s.fourThree()) return;
+        final SharedPreferences p = prefs();
+        if (p != null) p.edit().putString("proven", Build.FINGERPRINT + "|" + s.id).apply();
     }
 
     @Nullable
@@ -468,16 +547,19 @@ public final class XiaomiLofic {
 
     private static boolean failed(Setup s) {
         if (RUN_FAILED.contains(s.id)) return true;
-        if (s != Setup.FOUR_THREE) return false;
+        if (!s.fourThree()) return false;
         final SharedPreferences p = prefs();
         return storedFailure(p == null ? null : p.getString("setup_" + s.id, null), Build.FINGERPRINT) != null;
     }
 
     private static void markFailed(Setup s, String why) {
         RUN_FAILED.add(s.id);
-        if (s != Setup.FOUR_THREE) return;
+        if (!s.fourThree()) return;
         final SharedPreferences p = prefs();
-        if (p != null) p.edit().putString("setup_" + s.id, Build.FINGERPRINT + "|" + why.replace('|', '/')).apply();
+        if (p == null) return;
+        final SharedPreferences.Editor e = p.edit().putString("setup_" + s.id, Build.FINGERPRINT + "|" + why.replace('|', '/'));
+        if (s == proven4x3()) e.remove("proven"); // P700: a proven variant that failed since runs no more first
+        e.apply();
     }
 
     /** The lens settings chose the mode again: every setup may run once more. */
@@ -487,15 +569,26 @@ public final class XiaomiLofic {
         if (p != null) p.edit().clear().apply();
     }
 
-    /** What the lens row shows for DCG+LOFIC: the setups that failed, or the order they run in. */
+    /** What the lens row shows for DCG+LOFIC: a proven 4:3 variant, the setups that failed, or the order they run in. */
     public static String state() {
-        final boolean four = failed(Setup.FOUR_THREE), sixteen = failed(Setup.SIXTEEN_TEN);
-        if (four && sixteen) return Lang.t("DCG+LOFIC: 4:3 и 16:10 не прошли проверку — обычный режим",
-                "DCG+LOFIC: 4:3 and 16:10 failed their checks - the normal mode");
-        if (four) return Lang.t("DCG+LOFIC: 4:3 не прошёл проверку на этой прошивке, работает 16:10 · 60 к/с",
-                "DCG+LOFIC: 4:3 failed its check on this firmware, 16:10 · 60 fps runs");
-        return Lang.t("DCG+LOFIC: сначала 4:3 · 30 к/с, иначе 16:10 · 60 к/с", "DCG+LOFIC: 4:3 · 30 fps first, else 16:10 · 60 fps");
+        final Set<Setup> failed = failedSetups();
+        return state(failed, proven4x3());
     }
+
+    static String state(Set<Setup> failed, @Nullable Setup proven) {
+        final boolean four = fourThreeGone(failed), sixteen = failed.contains(Setup.SIXTEEN_TEN);
+        if (proven != null && !failed.contains(proven)) return Lang.t("DCG+LOFIC: 4:3 · 30 к/с подтверждён на этой прошивке (вариант "
+                + proven.id + ")", "DCG+LOFIC: 4:3 · 30 fps proven on this firmware (variant " + proven.id + ")");
+        if (four && sixteen) return Lang.t("DCG+LOFIC: 4:3 и 16:10 не прошли проверку — работает DCG",
+                "DCG+LOFIC: 4:3 and 16:10 failed their checks - DCG runs");
+        if (four) return Lang.t("DCG+LOFIC: 4:3 на этой прошивке без root не включился, работает 16:10 · 60 к/с",
+                "DCG+LOFIC: 4:3 did not start without root on this firmware, 16:10 · 60 fps runs");
+        return Lang.t("DCG+LOFIC: сначала варианты 4:3 · 30 к/с без root, иначе 16:10 · 60 к/с",
+                "DCG+LOFIC: the root-free 4:3 · 30 fps variants first, else 16:10 · 60 fps");
+    }
+
+    /** P700: the «4:3 needs root» note was shown in this run. */
+    private static volatile boolean sNotedRoot;
 
     // ---------------------------------------------------------------- the switch
 
@@ -553,7 +646,8 @@ public final class XiaomiLofic {
         sSetup = null;
         if (!wanted) return null;
         final boolean sixteenOnly = Math.round(PreferenceKeys.scamDevNumber("xiaomi17_lofic_setup", 0)) == 1;
-        final List<Setup> left = ladder(failed(Setup.FOUR_THREE), failed(Setup.SIXTEEN_TEN), sixteenOnly);
+        final Set<Setup> failed = failedSetups();
+        final List<Setup> left = ladder(failed, proven4x3(), sixteenOnly);
         if (left.isEmpty()) {
             Log.w(TAG, "XIAOMI LOFIC: no setup left (" + describeFailures() + "): the normal session (P679)");
             if (note != null && note.length > 0) note[0] = Lang.t("DCG+LOFIC: камера не дала пару кадров LOFIC — обычный режим. "
@@ -562,13 +656,19 @@ public final class XiaomiLofic {
             return null;
         }
         final Setup s = left.get(0);
+        if (s == Setup.SIXTEEN_TEN && !sixteenOnly && fourThreeGone(failed) && !sNotedRoot && note != null && note.length > 0) {
+            sNotedRoot = true;
+            note[0] = Lang.t("DCG+LOFIC: 4:3 на этой прошивке без root не включился — снимает 16:10 · 60 к/с",
+                    "DCG+LOFIC: 4:3 did not start without root on this firmware - 16:10 · 60 fps runs");
+        }
         sSetup = s;
         sProof = new Proof(s, Math.round(PreferenceKeys.scamDevNumber("xiaomi17_lofic_window", WINDOW)));
         com.scamera.app.processing.RawPayloadCheck.setKeepDepth(true);
         Log.i(TAG, "XIAOMI LOFIC camera " + CAMERA_ID + ": setup " + s.label + " (session type 0x" + Integer.toHexString(s.sessionType)
                 + ", AE [" + s.fps + ", " + s.fps + "], expected mode " + java.util.Arrays.toString(s.modes)
                 + (s.askRow >= 0 ? ", row " + s.askRow + " asked by current_mode (root-free candidate)" : ", the HAL's own row")
-                + ", " + s.rows + " rows) - outputs " + outputs(s) + "; tried before: " + describeFailures() + " (P679)");
+                + ", " + s.rows + " rows) - outputs " + outputs(s) + "; tried before: " + describeFailures() + "; the order: " + left
+                + " (P679, P700)");
         return s;
     }
 
@@ -590,8 +690,10 @@ public final class XiaomiLofic {
         final Setup s = sSetup;
         if (s == null) return;
         markFailed(s, why);
-        Log.w(TAG, "XIAOMI LOFIC setup " + s.label + " FAILED: " + why + " -> " + (s == Setup.FOUR_THREE
-                ? "the 16:10 · 60 fps setup next (4:3 is not tried again on this firmware)" : "the normal session") + " (P679)");
+        final List<Setup> next = ladder(failedSetups(), proven4x3(), false);
+        Log.w(TAG, "XIAOMI LOFIC setup " + s.label + " FAILED: " + why + " -> " + (next.isEmpty() ? "DCG (no LOFIC setup left)"
+                : "the " + next.get(0).label + " setup next") + (s.fourThree() ? " (this 4:3 variant is not tried again on this firmware)" : "")
+                + " (P679, P700)");
         sessionEnd();
     }
 
@@ -643,7 +745,10 @@ public final class XiaomiLofic {
     private static Verdict settle(Proof p) {
         if (p.decided) return Verdict.PENDING;
         final Verdict v = p.verdict();
-        if (v == Verdict.PROVEN) Log.i(TAG, "XIAOMI LOFIC PROVEN: " + p.describe() + " (P679)");
+        if (v == Verdict.PROVEN) {
+            markProven(p.setup); // P700: a 4:3 variant runs first on this firmware from now on
+            Log.i(TAG, "XIAOMI LOFIC PROVEN: " + p.describe() + " (P679)");
+        }
         else if (v == Verdict.FAILED) Log.w(TAG, "XIAOMI LOFIC check failed: " + p.failure + "; " + p.describe() + " (P679)");
         return v;
     }

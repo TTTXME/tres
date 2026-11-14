@@ -1,6 +1,7 @@
 // P636 «Oldstyle»: the tone of one frame (oldstyle-tone-core.h: the app's path into the owner's tone-port module) on one thread
-// (the path of P630e, the reference) against the banded path on N threads: the bytes compared, the times printed. Nine cases:
-// six with P630h's rows at their defaults, three with them away (the curve's shape, the transfer's share, a strong matrix).
+// (the path of P630e, the reference) against the banded path on N threads: the bytes compared, the times printed. Eleven cases:
+// six with P630h's rows at their defaults, three with them away (the curve's shape, the transfer's share, a strong matrix), two
+// of P716 (V1 HDR's bright exposure from the linear frame, a frame gain).
 //   bench_oldstyle_tone [width height threads repeats [case-substring]]     (4096 3072 4 2: a 12 MP frame)
 //   bench_oldstyle_tone --exhaustive      the banded pass's branch-free pixel functions == the supplement's, all 2^24 triples
 // Build (as tools/check_tone_port.py does, which runs it on small frames as an equality check):
@@ -66,10 +67,14 @@ int main(int argc, char** argv) {
     // P630h's rows away from their defaults: the curve's shape, half the low-frequency transfer
     oldstyle::Post rows = full; rows.curve_mid = 0.6f; rows.curve_contrast = -0.7f; rows.lf_strength = 0.5f;
     oldstyle::Post rows2 = dz; rows2.curve_mid = -1.f; rows2.curve_contrast = 1.f;
+    // P716: V1 HDR's bright exposure from the linear frame, the frame carrying a gain of its own (the photo's post array)
+    oldstyle::Post lin = dz; lin.linear_bright = true; lin.frame_gain = 2.f;
+    oldstyle::Post lin2 = full; lin2.linear_bright = true; lin2.frame_gain = 1.5f;
     const Case cases[] = {{"V1 HDR dehaze lowfreq (the phone log's shot)", 1, true, false, dz}, {"V1 HDR all stages", 1, true, false, full}, {"V1 SDR all stages", 1, false, false, full},
                           {"V2 HDR all stages", 2, true, false, full}, {"V2 HDR postview", 2, true, true, none}, {"V2 SDR dehaze", 2, false, false, dz},
                           {"V1 HDR rows: curve, half lowfreq", 1, true, false, rows}, {"V1 HDR rows: strong matrix", 1, true, false, rows, true},
-                          {"V2 HDR rows: curve", 2, true, false, rows2}};
+                          {"V2 HDR rows: curve", 2, true, false, rows2}, {"V1 HDR P716: linear bright, frame gain", 1, true, false, lin},
+                          {"V1 HDR P716: linear bright, all stages", 1, true, false, lin2}};
     int bad = 0;
     for (const auto& c : cases) {
         if (*only && !strstr(c.name, only)) continue;

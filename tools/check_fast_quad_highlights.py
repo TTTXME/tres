@@ -43,7 +43,7 @@ def src(text, name):
 VS, RECOVER, VALIDATE, OUTPUT = src(SH, 'kFastVs'), src(SH, 'kFastShortRecover'), src(SH, 'kFastHlValidate'), src(GPU, 'kFastOutput')
 check('const int hlBlock=quad?(sensorType==2?2:1):0;' in MERGE, 'the Quad (1) / Tetra (2) run length from the stream\'s colour block')
 check(MERGE.count('g.u1i(A::pShortRecover,"u_block",hlBlock);') == 1 and MERGE.count('g.u1i(A::pHlValidate,"u_block",hlBlock);') == 1
-      and MERGE.count('g.u1i(A::pOutput,"u_block",hlBlock);') == 2, 'u_block set for the short recovery, the validation and both output passes')
+      and MERGE.count('g.u1i(PO,"u_block",hlBlock);') == 2, 'u_block set for the short recovery, the validation and both output passes')
 check('g.u1i(A::pShortRecover,"u_row0",qa);g.u1i(A::pShortRecover,"u_row1",qb);' in MERGE, 'a row strip\'s recovery reads only its unpacked rows')
 
 WB = np.array([2.844, 1.0, 1.473], np.float32)      # the owner's white balance (neutral 0.3516 / 0.6787)

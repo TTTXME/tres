@@ -66,10 +66,6 @@ public final class HeifContainerWriter {
         tiles.add(sample);
     }
 
-    public int tileCount() {
-        return tiles.size();
-    }
-
     /**
      * EXIF of the image: the data block of a JPEG APP1 segment ("Exif\0\0" + TIFF header, as ExifBlock.exifDataBlock gives
      * it and HeifWriter.addExifData takes it) or a bare TIFF block. Null: no Exif item.

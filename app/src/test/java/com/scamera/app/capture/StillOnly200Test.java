@@ -65,14 +65,20 @@ public class StillOnly200Test {
         assertFalse(StillOnly200.applies(null, false));
     }
 
-    @Test public void theX300UltraTriesTheNativeMosaicFirstAndTheHalRemosaicLast() {
+    /**
+     * P699 (owner, 2026-11-14: «Для X300 Ultra просто оставляем 200мп с ремозаиком, раз без ремозаика использовать невозможно»): the
+     * X300 Ultra takes the HAL's remosaic - NATIVE (its stills seen arriving whole as the HAL's Bayer), then the stock camera's whole
+     * recipe; no press is spent on NATIVE_RAW / NATIVE_KEY (scam_dev still holds them).
+     */
+    @Test public void theX300UltraTakesTheHalsRemosaicOnly() {
         final StillOnly200.Variant[] x300 = StillOnly200.order(X300, true);
-        assertEquals(4, x300.length);
+        assertEquals(2, x300.length);
         assertEquals(NATIVE, x300[0]);
-        assertEquals(NATIVE_RAW, x300[1]);
-        assertEquals(NATIVE_KEY, x300[2]);
-        assertEquals("the HAL's remosaic only as the last one", HAL, x300[3]);
-        for (int i = 0; i < 3; i++) assertFalse(x300[i] + " is native", x300[i].halRemosaic);
+        assertEquals("the stock camera's whole recipe on a hard failure", HAL, x300[1]);
+        assertTrue(StillOnly200.remosaicOnly(X300));
+        assertFalse(StillOnly200.remosaicOnly(X100));
+        assertEquals(NATIVE_RAW, StillOnly200.choose(p, X300, true, "3", 16320, 12256, FP, 2f).variant);
+        assertEquals(NATIVE_KEY, StillOnly200.choose(p, X300, true, "3", 16320, 12256, FP, 3f).variant);
         assertTrue(HAL.halRemosaic && HAL.recipe);
         assertTrue(NATIVE.recipe && NATIVE.onlyDng && !NATIVE.modeKey);
         assertTrue(NATIVE_RAW.recipe && !NATIVE_RAW.onlyDng);
@@ -86,7 +92,7 @@ public class StillOnly200Test {
         final StillOnly200.Choice first = choose(X300, "3", MAIN_200, FP);
         assertEquals(NATIVE, first.variant);
         assertEquals(0, first.step);
-        assertTrue(first.toString(), first.toString().contains("step 1 of 4") && first.toString().contains("NATIVE > NATIVE_RAW > NATIVE_KEY > HAL"));
+        assertTrue(first.toString(), first.toString().contains("step 1 of 2") && first.toString().contains("NATIVE > HAL"));
         assertEquals(BASE, choose(X100, "4", TELE_200, FP).variant);
     }
 
@@ -94,15 +100,11 @@ public class StillOnly200Test {
         StillOnly200.Outcome o = fail("3", MAIN_200, LOST);
         assertTrue(o.noted);
         assertFalse(o.exhausted);
-        assertEquals(NATIVE_RAW, o.next);
-        assertTrue(o.log, o.log.contains("NATIVE failed (" + LOST + ")") && o.log.contains("the next press tries NATIVE_RAW"));
-        StillOnly200.Choice c = choose(X300, "3", MAIN_200, FP);
-        assertEquals(NATIVE_RAW, c.variant);
-        assertTrue(c.source, c.source.contains(LOST));
-        o = fail("3", MAIN_200, "Native FULLRES mosaic does not match its sensor profile (block 1, the profile's 4)");
-        assertEquals("the HAL's remosaic on a native variant moves on", NATIVE_KEY, o.next);
-        o = fail("3", MAIN_200, "camera error 4");
         assertEquals(HAL, o.next);
+        assertTrue(o.log, o.log.contains("NATIVE failed (" + LOST + ")") && o.log.contains("the next press tries HAL"));
+        StillOnly200.Choice c = choose(X300, "3", MAIN_200, FP);
+        assertEquals(HAL, c.variant);
+        assertTrue(c.source, c.source.contains(LOST));
         o = fail("3", MAIN_200, "full-size still not in the full-size mode: seamlessMode 0, expected 768");
         assertTrue(o.noted);
         assertTrue("every variant failed: the caller notes the 200 MP row", o.exhausted);
@@ -111,24 +113,23 @@ public class StillOnly200Test {
     }
 
     @Test public void theVariantThatCompletedASeriesIsKeptAndGetsOneMorePressAfterAFailure() {
-        fail("5", TELE_200, LOST);
         StillOnly200.Choice c = choose(X300, "5", TELE_200, FP);
-        assertEquals(NATIVE_RAW, c.variant);
+        assertEquals(NATIVE, c.variant);
         final String kept = StillOnly200.succeeded(p, "5", TELE_200, FP, c);
         assertNotNull(kept);
-        assertTrue(kept, kept.contains("NATIVE_RAW") && kept.contains("kept"));
+        assertTrue(kept, kept.contains("NATIVE") && kept.contains("kept"));
         assertNull("said once", StillOnly200.succeeded(p, "5", TELE_200, FP, c));
         c = choose(X300, "5", TELE_200, FP);
-        assertEquals(NATIVE_RAW, c.variant);
+        assertEquals(NATIVE, c.variant);
         assertTrue(c.source, c.source.contains("completed a series before"));
         StillOnly200.Outcome o = StillOnly200.failed(p, "5", TELE_200, FP, c, LOST);
         assertTrue(o.noted && o.again);
-        assertEquals(NATIVE_RAW, o.next);
+        assertEquals(NATIVE, o.next);
         c = choose(X300, "5", TELE_200, FP);
-        assertEquals("once more", NATIVE_RAW, c.variant);
+        assertEquals("once more", NATIVE, c.variant);
         o = StillOnly200.failed(p, "5", TELE_200, FP, c, LOST);
         assertFalse(o.again);
-        assertEquals("then the next one", NATIVE_KEY, o.next);
+        assertEquals("then the next one", HAL, o.next);
     }
 
     @Test public void failuresWithoutAVerdictOnTheVariantNoteNothing() {
@@ -168,7 +169,7 @@ public class StillOnly200Test {
 
     @Test public void theMemoryIsPerCameraSizeAndFirmwareUnderTheCamerasTrialKeys() {
         fail("3", MAIN_200, LOST);
-        assertEquals(NATIVE_RAW, choose(X300, "3", MAIN_200, FP).variant);
+        assertEquals(HAL, choose(X300, "3", MAIN_200, FP).variant);
         assertEquals("the tele its own", NATIVE, choose(X300, "5", TELE_200, FP).variant);
         assertEquals("a firmware update tries again", NATIVE, choose(X300, "3", MAIN_200, FP2).variant);
         assertTrue(StillOnly200.key("3", MAIN_200).startsWith(VivoNativeFullRes.base("3") + "_"));

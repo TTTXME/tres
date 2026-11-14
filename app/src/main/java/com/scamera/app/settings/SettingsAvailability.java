@@ -36,14 +36,12 @@ public final class SettingsAvailability {
     private boolean dcg;
     /** P646: the current module's lens merges YUV frames (capture.YuvMergeRoute: its «Склейка YUV» switch in the lens settings). */
     private boolean yuvMerge;
-    private boolean rawViewfinder = true;
     /**
      * P676: «Why тон» V1 renders its colour by V2's rule (WhyTone.v2Colour; scam_dev.txt "hybrid_why_v2_colour 0": its own); a fact
      * of the scam_dev file DeviceAvailability reads (this class alone: not told, the rows as before).
      */
     private boolean v1V2Colour;
     public SettingsAvailability(Map<String, ?> values) { this.values = values; }
-    public SettingsAvailability rawViewfinder(boolean supported) { rawViewfinder = supported; return this; }
     /** The device fact behind «HEIC 10 бит»: the reason it is unavailable here (Android version, no Main10 / P010 encoder) or null. */
     public SettingsAvailability heic10Unavailable(String reason) { heic10Unavailable = reason; return this; }
     /** The device fact behind «HDR в HEIC / AVIF»: the reason it cannot act here (Android version) or null. */
@@ -174,10 +172,10 @@ public final class SettingsAvailability {
      * comes before or after the tone and serves both.
      */
     static final java.util.Set<String> V1_ONLY = new java.util.HashSet<>(java.util.Arrays.asList(
-            WHY + "sharp_gain", WHY + "metering", WHY + "night_dim", WHY + "agx_look", COLOUR + "hue_lock", WHY + "curve_boost",
+            WHY + "metering", WHY + "night_dim", WHY + "agx_look", COLOUR + "hue_lock", WHY + "curve_boost",
             WHY + "fusion_layout", WHY + "weight_hl", WHY + "weight_dark2", WHY + "weight_mid", WHY + "weight_bright",
             WHY + "weight_center", WHY + "ef_coarse", WHY + "clarity", WHY + "sharp_domain", WHY + "ccm_sat", COLOUR + "gamut",
-            COLOUR + "mono", COLOUR + "skin_hue", WHY + "skin_hue_center", COLOUR + "skin_even",
+            COLOUR + "skin_hue", WHY + "skin_hue_center", COLOUR + "skin_even",
             WHY + "portrait_ae", WHY + "portrait_awb", WHY + "portrait_curve_on", WHY + "portrait_curve_points",
             WHY + "hl_soft", WHY + "hl_white", WHY + "delta_chroma", WHY + "flat_protect",
             // the groups and pages whose rows are all V1's
@@ -358,9 +356,6 @@ public final class SettingsAvailability {
     }
 
     public String reason(String key) {
-        if (key.equals("pref_live_viewfinder_raw_key") && !rawViewfinder)
-            return Lang.t("Отключён для процессоров уровня Snapdragon 8 Gen 3 и ниже. Используется обычное превью камеры.",
-                    "Disabled on Snapdragon 8 Gen 3 tier and slower processors. Uses the standard camera preview.");
         // P614: a row of the other «Why тон» version first (whatever else holds, it does not act on this one)
         final String version = toneVersionReason(key);
         if (version != null) return version;

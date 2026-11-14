@@ -35,8 +35,10 @@ ASAN_OPTIONS=detect_leaks=0 /tmp/check-stream-out
 # P685: the fast route's memory estimate (against the merge's own count), its plan, and its row bands against the whole frame's merge
 g++ -pthread -std=c++17 -O1 tools/check_fast_row_bands.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-fast-row-bands
 LIBGL_ALWAYS_SOFTWARE=1 EGL_PLATFORM=surfaceless /tmp/check-fast-row-bands
-g++ -std=c++17 -O1 -fsanitize=address,undefined tools/check_scam_probe.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-scam-probe
-ASAN_OPTIONS=detect_leaks=0 /tmp/check-scam-probe /tmp/scam-probe-fixture
+# P712: the fast route's faster GPU programs (tiled output, the guide's cells, the lattice's shared-memory sums) and one context
+# through the row bands give the previous programs' photo bit for bit (Bayer, Quad, Tetra; ultrashort frame, moving subject)
+g++ -pthread -std=c++17 -O1 tools/check_fast_speed.cpp -ldl -lEGL -lGLESv2 -o /tmp/check-fast-speed
+LIBGL_ALWAYS_SOFTWARE=1 EGL_PLATFORM=surfaceless /tmp/check-fast-speed
 # P214a: NativeEngine lookups leave no JNI global reference (fake JNIEnv against the NDK's jni.h).
 mkdir -p /tmp/native-engine-host && cp "$ANDROID_HOME/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include/jni.h" /tmp/native-engine-host/
 g++ -pthread -std=c++17 -O1 -fsanitize=address,undefined -I/tmp/native-engine-host tools/check_native_engine_refs.cpp -ldl -o /tmp/check-native-engine-refs

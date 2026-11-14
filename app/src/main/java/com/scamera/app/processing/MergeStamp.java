@@ -22,7 +22,7 @@ import java.util.regex.Pattern;
  * description: what was not asked for and why), the frames the burst handed to the merge, and the worker's report.
  * <p>
  * Codes. Not asked for: off (switched off), nc 0.04% (the ring frame clipped too little for ES), floor (the sensor cannot go
- * short enough), dcg (a DCG shot takes no L), r9.0 / r1.1 (L's ratio above the limit / below 1.2), ring (Motion mode or a mode
+ * short enough), dcg (a DCG shot takes no L), r9.0 / r1.1 (L's ratio above the limit / below 1.2), ring (the «Спорт» mode or a mode
  * without a series: ring frames only). Asked for: lost (none came), hal (they came back at the N exposure). In the merge, ES:
  * nclip (too little clipping), hole (a large inpainting hole), usclip (the ES frame itself clipped), mv12% (motion in the mask),
  * nshort (not the shortest), tune (off in the tuning), align (not aligned); L: sh28% (the sharpest share of the base below the

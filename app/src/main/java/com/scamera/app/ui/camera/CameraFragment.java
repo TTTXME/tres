@@ -64,7 +64,6 @@ import androidx.lifecycle.ViewModelProvider;
 import com.scamera.app.R;
 import com.scamera.app.api.CameraEvents;
 import com.scamera.app.api.CameraManager2;
-import com.scamera.app.api.CameraMode;
 import com.scamera.app.api.CameraReflectionApi;
 import com.scamera.app.app.ScameraApp;
 import com.scamera.app.app.base.BaseActivity;
@@ -931,12 +930,6 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
         if (cameraViews != null) cameraViews.settingsBar.onLensSwitch();
     }
 
-    /** The shade's rows and the screen's controls show the settings as they are now. */
-    public void updateSettingsBar() {
-        cameraViews.settingsBar.refresh();
-        uiView.refresh(CaptureController.isProcessing);
-    }
-
     @Override
     public void onSaveInstanceState(@NonNull Bundle state) {
         super.onSaveInstanceState(state);
@@ -983,9 +976,12 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
         cameraViews.settingsBar.refresh();
         swipeGestures.init();
         uiView.refresh(CaptureController.isProcessing); // once, after the swipe's set-up (it ran before and after it)
-        AsyncTask.execute(() -> {
+        // P705: on the sensors' registration thread, in order with the pause's unregister (SensorThread.register)
+        com.scamera.app.control.SensorThread.register(() -> {
             ScameraApp.getGyro().register();
             ScameraApp.getGravity().register();
+        });
+        AsyncTask.execute(() -> {
             // onPause may already have released the sounds if the app was backgrounded before this task ran: load() makes what is missing
             sounds().load();
             fragmentModel.updateGalleryThumb(null);
@@ -1235,8 +1231,12 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
             mSubjectFocus.release();
             mSubjectFocus = null;
         }
-        ScameraApp.getGravity().unregister();
-        ScameraApp.getGyro().unregister();
+        // P705: off the main thread (a sensor HAL call each), after any registration asked for before; the gravity's last reading
+        // stays for a shot still finishing
+        com.scamera.app.control.SensorThread.register(() -> {
+            ScameraApp.getGravity().unregister();
+            ScameraApp.getGyro().unregister();
+        });
         ScameraApp.getSettings().saveID();
         // P214g: the camera closes here, so the session after the settings is a new one
         if (sessionWatch) sessionWatchPaused = true;
@@ -1377,13 +1377,22 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
     /** The information line, the histogram and the debug table on the viewfinder overlay («Данные AF»). */
     private final ViewfinderHud hud = new ViewfinderHud();
 
+    /** P705: the controls' orientation the last HUD runnable carried (camera thread). */
+    private int lastScreenLogOrientation = Integer.MIN_VALUE;
+
     private void showLiveMetrics(CaptureResult result) {
         final long nowMs = android.os.SystemClock.uptimeMillis();
         final Integer af = result.get(CaptureResult.CONTROL_AF_STATE);
-        if (nowMs - lastScreenLogPostMs < 50 && java.util.Objects.equals(af, lastScreenLogAf)) return; // an AF change always goes
+        final int orientation = getCameraFragmentViewModel().getCameraFragmentModel().getOrientation();
+        final SurfaceViewOverViewfinder overlay = finderOverlay;
+        // P705: with «Данные AF» off the runnable only passes the AF state and the orientation on: not posted to the main thread
+        // (20 times a second before) while neither changed
+        if (!ViewfinderHud.postDue(nowMs - lastScreenLogPostMs, !java.util.Objects.equals(af, lastScreenLogAf),
+                PreferenceKeys.getAfDataValue(), orientation != lastScreenLogOrientation, overlay != null && overlay.drawn)) return;
         lastScreenLogPostMs = nowMs;
         lastScreenLogAf = af;
-        finderOverlay.post(() -> drawScreenLog(result));
+        lastScreenLogOrientation = orientation;
+        if (overlay != null) overlay.post(() -> drawScreenLog(result));
     }
 
     /** On the main thread: the horizon, the focus ring's state and what «Данные AF» shows (1 line, 2 line + histogram, 3 debug). */
@@ -1620,8 +1629,7 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
     public void launchSettings() {
         levelBeforeSettings = fragmentModel.getSheetLevel();
         watchSessionSettings();
-        // the settings open on the camera's mode
-        startActivity(new Intent(hostActivity, SettingsActivity.class).putExtra("camera_mode", PreferenceKeys.getCameraModeOrdinal()));
+        startActivity(new Intent(hostActivity, SettingsActivity.class));
         pushTransition();
     }
 
@@ -1630,9 +1638,8 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
      * and dims (res/anim/motion_push_*); their finish() plays it backwards. Window animations: the system's transition scale
      * applies, nothing runs in the app per frame.
      */
-    /** The settings screen opened with the camera mode it came from, the iOS push in. */
+    /** The settings screen opened, the iOS push in. */
     private void openSettingsScreen(Intent open) {
-        open.putExtra("camera_mode", PreferenceKeys.getCameraModeOrdinal());
         startActivity(open);
         pushTransition();
     }
@@ -1830,7 +1837,6 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
         @Override
         public void processingFailed(Object payload) {
             final CameraUIView screen = ui();
-            screen.captureRingReset();
             if (payload instanceof String) showError((String) payload); // P214f: a failed shot stays on the card until it is tapped
             screen.lockForBurst(false);
             processingFinished("processing ended with an error");
@@ -1840,7 +1846,7 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
 
         @Override
         public void burstSize(int frames) {
-            ui().captureRingMax(frames);
+            // P705: the capture ring it sized is gone (hidden since SIMPLE_UI: one ring, round the gallery card)
         }
 
         /** ZSL shot: the frames are already buffered, the press must feel instant (SCAM): no capture ring in the
@@ -1857,15 +1863,12 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
         public void stillStarted(Object event) {
             instantShot = "ScamZslCaptureStarted".equals(event) || "ZSLCaptureStarted!".equals(event);
             zslSeries = com.scamera.app.capture.CaptureController.ZSL_SERIES_STARTED.equals(event);
-            if (ScameraApp.getSettings().mode != CameraMode.RAWVIDEO) {
-                sounds().shutter(); // one shutter sound per shot, at the press (P16)
-                final View vf = finderView; // P495: the shot's blink over the viewfinder
-                if (vf != null && vf.getParent() instanceof View) vf.post(() -> com.scamera.app.ui.Motion.blink((View) vf.getParent()));
-                snapshotViewfinderThumb(instantShot); // P637: every shot's shutter frame (the gallery's placeholder)
-                if (!instantShot) {
-                    ui().captureRingAlpha(1.0f);
-                    ui().lockForBurst(true);
-                }
+            sounds().shutter(); // one shutter sound per shot, at the press (P16)
+            final View vf = finderView; // P495: the shot's blink over the viewfinder
+            if (vf != null && vf.getParent() instanceof View) vf.post(() -> com.scamera.app.ui.Motion.blink((View) vf.getParent()));
+            snapshotViewfinderThumb(instantShot); // P637: every shot's shutter frame (the gallery's placeholder)
+            if (!instantShot) {
+                ui().lockForBurst(true);
             }
             //finderView.post(() -> finderView.setAlpha(0.8f));
         }
@@ -1905,12 +1908,10 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
 
         @Override
         public void frameCaptured(Object event) {
-            if (instantShot || ScameraApp.getSettings().mode == CameraMode.RAWVIDEO) return; // one sound at the press
+            if (instantShot) return; // one sound at the press
             final TimerFrameCountViewModel.FrameCntTime frame = event instanceof TimerFrameCountViewModel.FrameCntTime
                     ? (TimerFrameCountViewModel.FrameCntTime) event : null;
-            // P234: a long ZSL series' ring shows the shot's frame number (its ring frames are in already)
-            if (zslSeries && frame != null) ui().captureRingAt(frame.frame());
-            else ui().captureRingStep(1);
+            // the time left of a long series under the shutter (burst_left)
             if (frame != null) timerModel.setFrameTimeCnt(frame);
         }
 
@@ -1925,11 +1926,9 @@ public class CameraFragment extends Fragment implements BaseActivity.BackPressed
             }
             timerModel.clearFrameTimeCnt();
             final CameraUIView screen = ui();
-            screen.captureRingReset();
             screen.lockForBurst(false);
             // Stock-like: the next shot is allowed once the burst is captured; earlier shots go on processing in the queue
             screen.shutterReady(true);
-            screen.recordingLine(false);
             final View viewfinder = finderView;
             viewfinder.post(() -> viewfinder.setAlpha(1f));
         }

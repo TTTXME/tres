@@ -189,6 +189,24 @@ public class PostPipeline extends GLBasePipeline {
         return referenceFilmEffects.contains(node) || referenceFilmSettings.strength >= 1f && referenceFilmTone.contains(node);
     }
 
+    /**
+     * P713: the WHY combine of a streamed JPEG drawn beside the final output's tiles (GLDeferredDraw) - the JPEG's first strips are
+     * encoded while the GPU draws the later bands. Not under the diagnostics (they read the node's output), post_sync, post_ab's
+     * old model, the 10-bit output; scam_dev jpeg_stream_combine 0: drawn at once as before.
+     */
+    @Override protected boolean deferLastDraw(Node node, Node last) {
+        if (!(node instanceof WhyCombine) || !(last instanceof RotateWatermark) || tenBitOutput) return false;
+        if (PostGlMode.legacy() || PostGlMode.syncNodes() || ScamDiagnostics.active()) return false;
+        final GLCoreBlockProcessing ctx = glIface != null ? glIface.blockCtx : null;
+        if (ctx == null || !(ctx.rgbaSink instanceof StreamedJpegSink)) return false;
+        return GLCoreBlockProcessing.streamedWanted(frameW(ctx), frameH(ctx), ctx.rgbaSink)
+                && PreferenceKeys.scamDevSwitch("jpeg_stream_combine", true);
+    }
+
+    private static int frameW(GLCoreBlockProcessing ctx) { return ctx.outputWidth(); }
+
+    private static int frameH(GLCoreBlockProcessing ctx) { return ctx.outputHeight(); }
+
     /** The reference film engine (native profiles) is on for this film. */
     private static boolean referenceEngine(@Nullable FilmSim.Settings film) {
         return film != null && PreferenceKeys.scamDevSwitch("film_reference", true) && ReferenceFilm.supported(film);
@@ -402,6 +420,14 @@ public class PostPipeline extends GLBasePipeline {
         }
 
         /**
+         * P713: the first row (of the kept part) {@link #draw} may read or change: the rows above it go to the encoder while the
+         * readback still runs, the rest after the drawing. 0 (unknown): every row waits for the drawing.
+         */
+        default int firstDrawnRow(int width, int height) {
+            return 0;
+        }
+
+        /**
          * P642: draws into the pixels about to be encoded (before {@link #wrap}, whose thumbnails then show it), the part
          * {@link #crop} kept. Returns how to take the drawing back - run when the stream fails afterwards, because the bitmap
          * route then reads the same pixels and draws on them itself; null: nothing drawn. Throws with the pixels as they
@@ -443,9 +469,7 @@ public class PostPipeline extends GLBasePipeline {
         if (!oldModel) ShotTimeline.mark("post_start");
         PostGlMode.setSyncNodes(!oldModel && PreferenceKeys.scamDevSwitch("post_sync", false));
         PostGlMode.setInvalidate(!oldModel && PreferenceKeys.scamDevSwitch("post_invalidate", true));
-        // P477 (memory): the run's texture inventory and reuse of closed textures of the same size and format (scam_dev.txt
-        // "tex_pool"; off and in the old model: every texture its own allocation)
-        GLTexturePool.begin(!oldModel && PreferenceKeys.scamDevSwitch("tex_pool", false));
+        GLTexturePool.begin(); // P477 (memory): the run's texture inventory
         beginPass(parameters, parameters.rawSize);
         // P369: ScamProcessor took the film before the teardown decision; the lab's sides take it here, under their overlay
         if (!filmTaken) takeFilm();
@@ -588,11 +612,15 @@ public class PostPipeline extends GLBasePipeline {
         if (sdr.getWidth() != picture.x || sdr.getHeight() != picture.y)
             throw new IllegalStateException("SDR/gain-map size mismatch: sdr=" + sdr.getWidth() + "x" + sdr.getHeight()
                     + " map=" + picture.x + "x" + picture.y);
-        final GLFormat rgba16f = new GLFormat(GLFormat.DataType.FLOAT_16, 4);
-        // a placeholder output on the Direct allocation path; the previous context stays alive until close() (destroying it
-        // before the textures were made again SEGV'd on waffle/Adreno)
-        useGainMapContext(new GLCoreBlockProcessing(picture, new GLImage(picture, rgba16f, false), rgba16f,
-                GLDrawParams.Allocate.Direct));
+        // Run's context (the one kept for the process) again: its programs are linked, no EGL context, pbuffer and tile target
+        // are made and torn down per Ultra HDR shot; Run deleted its textures, the state is a new context's (makeCurrentReset)
+        if (!reuseRunContext()) {
+            final GLFormat rgba16f = new GLFormat(GLFormat.DataType.FLOAT_16, 4);
+            // a placeholder output on the Direct allocation path; the previous context stays alive until close() (destroying it
+            // before the textures were made again SEGV'd on waffle/Adreno)
+            useGainMapContext(new GLCoreBlockProcessing(picture, new GLImage(picture, rgba16f, false), rgba16f,
+                    GLDrawParams.Allocate.Direct));
+        }
         glIface.shotParams = parameters;
         final Point light = gainMapPass.lightSize();
         if (light.x != frameSize.x || light.y != frameSize.y)
@@ -618,6 +646,31 @@ public class PostPipeline extends GLBasePipeline {
             throw e;
         }
         return gainMapPass.measure(shot, sdr, down, scale);
+    }
+
+    /**
+     * The gain-map pass on Run's own processing context: true when it is current again with a new context's state; false
+     * (scam_dev gainmap_run_context 0, no context, EGL refused it): a context of its own ({@link #useGainMapContext}).
+     */
+    boolean reuseRunContext() {
+        final GLCoreBlockProcessing runs = glIface != null ? glIface.blockCtx : null;
+        if (runs == null || !runContextWanted()) return false;
+        try {
+            if (runs.makeCurrentReset()) return true;
+        } catch (RuntimeException e) {
+            Log.w(TAG, "gain map: Run's context not usable (" + e + "), a context of its own");
+            return false;
+        }
+        Log.w(TAG, "gain map: Run's context not current, a context of its own");
+        return false;
+    }
+
+    private static boolean runContextWanted() {
+        try {
+            return PreferenceKeys.scamDevSwitch("gainmap_run_context", true);
+        } catch (RuntimeException | LinkageError e) {
+            return true; // no settings (a host test): the default
+        }
     }
 
     /** RunHDRGainMap's context takes over from runPass()'s, which is kept for {@link #close} ({@link #retiredProcessing}). */
@@ -775,8 +828,9 @@ public class PostPipeline extends GLBasePipeline {
         // sharpening between them; a film of the old route (not the reference film engine) and grids above 100 MP keep V1
         final Point grid = shotParams.rawSize;
         final boolean v2 = whyToneV2(look, film, reference, grid == null ? 0L : (long) grid.x * grid.y);
-        if (!v2 && (look != null ? look.toneV2 : PreferenceKeys.whyToneV2()))
-            Log.i(LOG_ROUTE, "WHY tone V2 chosen, V1 used (" + (film != null && !reference ? "film of the old route" : "above 100 MP") + ")");
+        if (!v2 && PreferenceKeys.whyToneV2())
+            Log.i(LOG_ROUTE, "WHY tone V2 chosen, V1 used (" + (film != null && !reference ? "film of the old route"
+                    : grid != null && (long) grid.x * grid.y > V2_MAX_PIXELS ? "above 100 MP" : "black and white") + ")");
         for (Node n : v2 ? toneV2() : toneV1()) {
             add(n);
             if (reference) referenceFilmTone.add(n);
@@ -841,7 +895,9 @@ public class PostPipeline extends GLBasePipeline {
 
     /** P614 «Why тон» V2: the reference tone's stats, highlights, fusion and tone, our sharpening after the stats. */
     private static Node[] toneV2() {
-        return new Node[]{new WhyV2Stats(), new WhyLumaSharpen(), new WhyV2Highlights(), new WhyV2Fusion(), new WhyV2Tone()};
+        final WhyLumaSharpen sharpen = new WhyLumaSharpen();
+        sharpen.v2 = true;
+        return new Node[]{new WhyV2Stats(), sharpen, new WhyV2Highlights(), new WhyV2Fusion(), new WhyV2Tone()};
     }
 
     /**
@@ -852,7 +908,7 @@ public class PostPipeline extends GLBasePipeline {
      */
     static boolean whyToneV2(@Nullable ShotLook look, @Nullable FilmSim.Settings film, boolean referenceFilm, long pixels) {
         if (pixels > V2_MAX_PIXELS || film != null && !referenceFilm) return false;
-        return look != null ? look.toneV2 : PreferenceKeys.whyToneV2();
+        return look != null ? look.toneV2 : PreferenceKeys.whyToneV2Effective();
     }
 
     /** The nodes after the tone: texture (on request only), the final size, the film's sharpness and grain, the rotation. */

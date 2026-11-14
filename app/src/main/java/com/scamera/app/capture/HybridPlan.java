@@ -372,6 +372,19 @@ public final class HybridPlan {
      */
     static HybridPlan manualLong(long shutterNs, int iso, float clipFraction, CameraCharacteristics characteristics,
                                  ExposureLimits limits, boolean dcg, boolean gainFloorAtN) {
+        // P710 (X300 Ultra main 50 MP, owner's log 2026-11-14 ~09:30: ISO 4552 with 125 ms asked, the full-size mode gave 1600 - every
+        // N came x0.351 of the plan, all were taken for ultrashort frames and the shot failed with «SDK RAW base metadata missing»):
+        // an ISO above what the mode delivers (ExposureLimits) is moved into the shutter, the N exposure kept
+        final int cap = limits == null ? Integer.MAX_VALUE : limits.isoCap();
+        String moved = "";
+        if (iso > cap && cap > 0) {
+            final long ceiling = characteristics == null ? Long.MAX_VALUE
+                    : Math.max(shutterNs, ExposureRanges.shutter(characteristics).getUpper());
+            final long[] n = isoOntoShutter(shutterNs, iso, cap, ceiling);
+            moved = String.format(Locale.ROOT, " | ISO %d above the %d the mode gives: N %.3fms*ISO%d", iso, cap, n[0] / 1e6, n[1]);
+            shutterNs = n[0];
+            iso = (int) n[1];
+        }
         List<Request> bento = new ArrayList<>(), longs = new ArrayList<>();
         String extrasText;
         try {
@@ -391,9 +404,53 @@ public final class HybridPlan {
         // Shasta: the plan's brightness ratio from a longer shutter at the same ISO (more light, the point of the frame), the
         // gain only for what the module's shutter ceiling cannot give; the declared 0.33 s of the X200 Ultra had made it ISO x2
         final long ceiling = characteristics == null ? shutterNs : Math.max(shutterNs, ExposureRanges.shutter(characteristics).getUpper());
-        final int isoMax = characteristics == null ? iso : Math.max(iso, ExposureRanges.iso(characteristics, null).getUpper());
+        final int isoMax = characteristics == null ? iso : Math.max(iso, Math.min(cap, ExposureRanges.iso(characteristics, null).getUpper()));
         for (Request r : longs) out.add(manualShasta(shutterNs, iso, r.ratio, ceiling, isoMax));
-        return new HybridPlan(out, shutterNs, iso, "hybrid manual long shutter: " + out + " | " + extrasText);
+        return new HybridPlan(out, shutterNs, iso, "hybrid manual long shutter: " + out + " | " + extrasText + moved);
+    }
+
+    /**
+     * P710: {shutter ns, ISO} of an exposure at {@code iso} over a mode that gives at most {@code isoCap}: the cap, the shutter
+     * longer by the ratio up to {@code ceilingNs} (never shorter than {@code shutterNs}); as asked when the ISO is within the cap.
+     */
+    static long[] isoOntoShutter(long shutterNs, int iso, int isoCap, long ceilingNs) {
+        if (isoCap <= 0 || iso <= isoCap || shutterNs <= 0) return new long[]{shutterNs, iso};
+        final long ns = Math.min(Math.max(shutterNs, ceilingNs), Math.round((double) shutterNs * iso / isoCap));
+        return new long[]{Math.max(shutterNs, ns), isoCap};
+    }
+
+    /**
+     * P710: this plan with its N at the exposure the series' N stills were delivered at, when every N still of {@code results}
+     * missed the plan (beyond the 0.4 EV of {@link #classify}) and they agree within it among themselves - the mode clamped them
+     * all alike (the X300 Ultra main's full-size mode: ISO 4552 asked, 1600 given). Its N stay N (they were taken for ultrashort
+     * frames and the shot had no base); the other frames keep their roles against that N. This plan otherwise.
+     */
+    public HybridPlan withDeliveredNormals(List<? extends CaptureResult> results) {
+        if (results == null) return this;
+        double lo = Double.POSITIVE_INFINITY, hi = 0;
+        long ns = 0;
+        int iso = 0, normals = 0;
+        for (CaptureResult result : results) {
+            final CaptureRequest request = result == null ? null : result.getRequest();
+            final Object tag = request == null ? null : request.getTag();
+            if (!(tag instanceof ImageFrame.ScamCaptureTag)) continue;
+            final int index = ((ImageFrame.ScamCaptureTag) tag).index;
+            if (index < 0 || index >= requests.size()) continue;
+            final Request r = requests.get(index);
+            if (r.role != ImageFrame.CaptureRole.NORMAL || r.autoExposure) continue;
+            final Long t = result.get(CaptureResult.SENSOR_EXPOSURE_TIME);
+            final Integer s = result.get(CaptureResult.SENSOR_SENSITIVITY);
+            if (t == null || s == null || t <= 0 || s <= 0) return this;
+            final double product = (double) t * s;
+            if (Math.abs(Math.log(product / ((double) r.shutterNs * r.iso)) / Math.log(2)) <= VERIFY_TOLERANCE_EV) return this;
+            lo = Math.min(lo, product);
+            hi = Math.max(hi, product);
+            if (normals++ == 0) { ns = t; iso = s; }
+        }
+        if (normals == 0 || Math.log(hi / lo) / Math.log(2) > VERIFY_TOLERANCE_EV) return this;
+        return new HybridPlan(new ArrayList<>(requests), ns, iso, String.format(Locale.ROOT,
+                "%s | N delivered at %.3fms*ISO%d (x%.3f of the plan's, all %d N alike)", description, ns / 1e6, iso,
+                (double) ns * iso / ((double) nShutterNs * nIso), normals));
     }
 
     /** P84b: a Shasta frame {@code ratio} times N: the shutter first (up to {@code ceilingNs}), then the gain (up to {@code isoMax}). */

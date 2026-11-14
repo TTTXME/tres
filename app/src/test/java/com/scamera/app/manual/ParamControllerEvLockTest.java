@@ -116,4 +116,17 @@ public class ParamControllerEvLockTest {
         controller.setupPreview();
         assertEquals(Integer.valueOf(3), ev());
     }
+
+    /**
+     * P710 (X300 Ultra 2026-11-14: a hand-set ISO 12800 came at 3200 in the 50 MP mode): the viewfinder asks the ISO the mode was
+     * seen to deliver, so a priority AE takes the rest from the shutter; nothing learned (MAX_VALUE) or within the cap: as set.
+     */
+    @Test
+    public void theViewfinderAsksNoMoreIsoThanTheModeDelivers() {
+        assertEquals(3200, ParamController.deliverableIso(12800, 3200, 72));
+        assertEquals(1600, ParamController.deliverableIso(4552, 1600, 50));
+        assertEquals(800, ParamController.deliverableIso(800, 1600, 50));
+        assertEquals(12800, ParamController.deliverableIso(12800, Integer.MAX_VALUE, 72));
+        assertEquals(72, ParamController.deliverableIso(12800, 40, 72));
+    }
 }

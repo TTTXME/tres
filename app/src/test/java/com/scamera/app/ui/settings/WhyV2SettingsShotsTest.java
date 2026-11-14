@@ -163,7 +163,8 @@ public class WhyV2SettingsShotsTest {
             shot(activity, lang + "_" + version + "_main_top");
             ((LinearLayoutManager) root.getListView().getLayoutManager()).scrollToPositionWithOffset(position(root, "root_colour"), 0);
             shot(activity, lang + "_" + version + "_main_image");
-            assertEquals(!v2, enabled(root.findPreference("pref_scam_hybrid_why_sharp_gain")));
+            // P718: «Резкость» acts with either version (V2 scales its sharpening by it)
+            assertTrue(enabled(root.findPreference("pref_scam_hybrid_why_sharp_gain")));
             assertTrue(enabled(root.findPreference("pref_scam_hybrid_why_ae_target")));
             for (String key : PAGES) {
                 SettingsActivity.SettingsFragment top = shown(activity);
@@ -220,10 +221,10 @@ public class WhyV2SettingsShotsTest {
             if (version.callChangeListener("v2")) version.setValue("v2");
             idleFor(100);
             shot(activity, lang + "_flip_to_v2");
-            assertFalse("greyed with V2 at once", enabled(sharp));
+            assertTrue("P718: still active with V2", enabled(sharp));
             if (version.callChangeListener("v1")) version.setValue("v1");
             idleFor(400);
-            assertTrue("awake again with V1", enabled(sharp));
+            assertTrue("active with V1", enabled(sharp));
         }
     }
 

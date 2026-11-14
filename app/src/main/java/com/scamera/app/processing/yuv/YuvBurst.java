@@ -68,6 +68,10 @@ public final class YuvBurst {
             Log.w(TAG, "YUV MERGE: the frames report tonemap mode " + tonemap + ", not our curve: the camera's curve (sRGB estimate), "
                     + (shorts + longs) + " bracket frames left out");
         float[] curve = null;
+        // P701: where the camera applies the points (YuvCurveModel): the bracket measures it, a series without one takes the prior
+        final String camera = p.cameraID;
+        final StringBuilder priorWhy = new StringBuilder();
+        final int prior = points ? YuvCurveModel.prior(camera, priorWhy) : YuvCurveModel.UNKNOWN;
         if (points) {
             final float[] pairs = YuvMergeRoute.curvePairs(c);
             curve = mergeCurve(pairs);
@@ -82,7 +86,8 @@ public final class YuvBurst {
             } catch (RuntimeException e) {
                 reported = null;
             }
-            Log.i(TAG, "YUV MERGE capture curve: " + curveReport(pairs, reported));
+            Log.i(TAG, "YUV MERGE capture curve: " + curveReport(pairs, reported) + "; the prior: the points apply "
+                    + YuvCurveModel.name(prior) + " (" + priorWhy + ")");
         }
         final float profile = "27".equals(PreferenceKeys.hybridString("yuv_profile", "31")) ? 0f : 1f;
         final int threads = Math.max(2, Math.min(8, Runtime.getRuntime().availableProcessors() - 1));
@@ -90,7 +95,8 @@ public final class YuvBurst {
                 PreferenceKeys.hybridValue("yuv_threshold", 1f), PreferenceKeys.hybridSwitch("yuv_chroma_check", true) ? 1 : 0, 1f,
                 1f, PreferenceKeys.hybridSwitch("yuv_own_noise", true) ? 1 : 0, PreferenceKeys.hybridSwitch("yuv_sharpest", true) ? 1 : 0,
                 PreferenceKeys.hybridSwitch("yuv_guided_chroma", true) ? 1 : 0, bracket ? 1 : 0, PreferenceKeys.hybridValue("yuv_deghost", 3f),
-                threads, transfer, YuvFrames.decodeMode(hlg, first.yuvRange)};
+                threads, transfer, YuvFrames.decodeMode(hlg, first.yuvRange), prior == YuvCurveModel.OVER_SRGB ? 1 : 0, chroma(),
+                toe()[0], toe()[1]};
         // the fallback noise: the camera's NOISE_PROFILE of the reference (its mean channel, normalised)
         final float[] noise = {Float.isFinite(first.noiseSlope) ? first.noiseSlope : 0f, Float.isFinite(first.noiseOffset) ? first.noiseOffset : 0f};
         final long rgbBytes = (long) w * h * 12;
@@ -104,7 +110,7 @@ public final class YuvBurst {
         } catch (OutOfMemoryError oom) {
             Log.w(TAG, "YUV MERGE: no frame-count map (" + oom + ")");
         }
-        final float[] stats = new float[10];
+        final float[] stats = new float[14];
         String report;
         try {
             report = YuvMergeNative.merge(frames, w, h, bits, ratios, roles, settings, curve, noise, rgb, counts, stats);
@@ -125,8 +131,11 @@ public final class YuvBurst {
         final long ms = (System.nanoTime() - t0) / 1_000_000;
         Log.i(TAG, String.format(Locale.ROOT, "YUV MERGE %dx%d %d-bit %s, %d frames (ES %d, L %d) in %d ms: %s", w, h, bits,
                 hlg ? "HLG10" : points ? "our curve" : "camera curve (estimate)", merged, shorts, longs, ms, report));
+        if (points && merged > 1) YuvCurveModel.store(camera, Math.round(stats[10])); // P701: the bracket's model, for the next series
         identityColour(p);
         clearRawMergeState(w, h);
+        // P701: the WHY meter sees the scene before the shadow toe (WhyTone.yuvExposure), and the shot is a YUV one
+        p.yuvAeScale = aeScale(stats[11], stats[12]);
         // the post pipeline's noise: the merged frame's linear model of one frame, the merge's frame count per pixel
         final double s = Math.max(0, stats[2]), o = Math.max(0, stats[3]);
         @SuppressWarnings("unchecked") final android.util.Pair<Double, Double>[] model = new android.util.Pair[4];
@@ -136,7 +145,9 @@ public final class YuvBurst {
         p.effectiveStackSamples = Math.max(1, stats[1]);
         p.multiFrameCount = merged - shorts - longs;
         final int median = Math.max(1, Math.round(stats[9]));
-        if (counts != null) {
+        if (counts != null && stats[13] > 0) {
+            counts.rewind(); // P701: the merge wrote the codes, each lifted shadow's noise in them (scam-yuv-merge.h shadowToe)
+        } else if (counts != null) {
             // code 64 = the median count (ScamHybridBurst.lastEffectiveFrames' layout)
             counts.rewind();
             for (int i = 0; i < w * h; i++) counts.put(i, (byte) Math.min(255, Math.round(64f * (counts.get(i) & 0xff) / median)));
@@ -147,10 +158,44 @@ public final class YuvBurst {
         com.scamera.app.processing.opengl.postpipeline.ScamHybridBurst.lastEffectiveMedian = median;
         com.scamera.app.processing.opengl.postpipeline.ScamHybridBurst.lastNormals = Math.max(1, merged - shorts - longs);
         Log.i(TAG, String.format(Locale.ROOT, "YUV MERGE result: base frame %d, mean frames %.2f (median %d), noise %s (%d bins), "
-                        + "linear noise S %.3g O %.3g, bracket %s (ES pixels %.3f, L pixels %.3f)", (int) stats[0], stats[1], median,
-                stats[7] > 0 ? "measured" : "camera profile", (int) stats[8], s, o, stats[4] > 0 ? "used" : "not used", stats[5], stats[6]));
+                        + "linear noise S %.3g O %.3g, bracket %s (ES pixels %.3f, L pixels %.3f), curve %s, chroma x%.2f", (int) stats[0],
+                stats[1], median, stats[7] > 0 ? "measured" : "camera profile", (int) stats[8], s, o, stats[4] > 0 ? "used" : "not used",
+                stats[5], stats[6], !points ? "not ours" : stats[10] > 0 ? "measured " + YuvCurveModel.name(Math.round(stats[10]))
+                        : "prior " + YuvCurveModel.name(prior), chroma()) + String.format(Locale.ROOT,
+                ", shadow toe %.2f cap %.2f: scene geo %.4f -> %.4f (WHY AE target x%.3f)", toe()[0], toe()[1], stats[11], stats[12], p.yuvAeScale));
         rgb.rewind();
         return rgb;
+    }
+
+    /** P701: the default of {@link #chroma}: the camera's chroma x0.8 (the WHY tone's vibrance gives the rest back, ~1.2 - 1.4x). */
+    static final float CHROMA = 0.8f;
+
+    /**
+     * P701: the merged RGB's chroma factor around its luminance (scam_dev.txt "yuv_chroma", 0.5 .. 1.5; 1: the camera's): a YUV
+     * frame carries the camera's whole colour rendering, the post's tone adds the vibrance it gives a RAW shot (scam-yuv-merge.h
+     * scaleChroma).
+     */
+    static float chroma() {
+        final float k = PreferenceKeys.scamDevNumber("yuv_chroma", CHROMA);
+        return Float.isFinite(k) ? Math.max(0.5f, Math.min(1.5f, k)) : CHROMA;
+    }
+
+    /** P701: the shadow toe's defaults (scam-yuv-merge.h shadowToe): gamma 0.6, at most x2 (one stop). */
+    static final float TOE = 0.6f, TOE_CAP = 2f;
+
+    /**
+     * P701: the shadow toe {gamma, cap} (scam_dev.txt "yuv_toe" 0.3 .. 1, 1 = none; "yuv_toe_cap" 1 .. 4): the camera's YUV rendering
+     * (the stock photo's) keeps more of the shadows than the WHY tone's curve.
+     */
+    static float[] toe() {
+        final float g = PreferenceKeys.scamDevNumber("yuv_toe", TOE), c = PreferenceKeys.scamDevNumber("yuv_toe_cap", TOE_CAP);
+        return new float[]{Float.isFinite(g) ? Math.max(0.3f, Math.min(1f, g)) : TOE, Float.isFinite(c) ? Math.max(1f, Math.min(4f, c)) : TOE_CAP};
+    }
+
+    /** P701: Parameters.yuvAeScale of the toe's geometric means (1 when they are not positive and finite), 0.5 .. 2. */
+    static float aeScale(float before, float after) {
+        if (!(before > 0f) || !(after > 0f) || !Float.isFinite(before) || !Float.isFinite(after)) return 1f;
+        return Math.max(0.5f, Math.min(2f, after / before));
     }
 
     /** The merge's curve (YuvMergeNative.merge): the points' linear inputs, then their encoded outputs, of interleaved pairs. */
@@ -173,11 +218,33 @@ public final class YuvBurst {
         final String mine = n + " points at evenly spaced inputs";
         if (reported == null || reported.length < 4) return mine + " (the result reports no curve)";
         if (reported.length != asked.length)
-            return mine + "; the result reports " + reported.length / 2 + " points (decoded through the points asked for)";
+            return mine + "; the result reports " + reported.length / 2 + " points (decoded through the points asked for; " + samples(asked, reported) + ")";
         float worst = 0f;
         for (int i = 0; i < asked.length; i++) worst = Math.max(worst, Math.abs(asked[i] - reported[i]));
         return worst < 1e-3f ? mine + ", the result reports them"
                 : String.format(Locale.ROOT, "%s; the result's points differ by up to %.4f (decoded through the points asked for)", mine, worst);
+    }
+
+    /** P701: the asked and the reported curve's outputs at a few inputs (what the camera says it applied, for the log). */
+    static String samples(float[] asked, float[] reported) {
+        final StringBuilder b = new StringBuilder("out at");
+        for (float x : new float[]{0.02f, 0.18f, 0.5f, 0.9f})
+            b.append(String.format(Locale.ROOT, " %.2f: %.3f/%.3f", x, at(asked, x), at(reported, x)));
+        return b.append(" asked/reported").toString();
+    }
+
+    /** The piecewise-linear curve of interleaved (in, out) pairs at {@code x} (inputs increasing). */
+    static float at(float[] pairs, float x) {
+        final int n = pairs.length / 2;
+        if (n == 0) return Float.NaN;
+        if (x <= pairs[0]) return pairs[1];
+        for (int i = 1; i < n; i++)
+            if (x <= pairs[2 * i]) {
+                final float span = pairs[2 * i] - pairs[2 * i - 2];
+                final float t = span > 0 ? (x - pairs[2 * i - 2]) / span : 0f;
+                return pairs[2 * i - 1] + t * (pairs[2 * i + 1] - pairs[2 * i - 1]);
+            }
+        return pairs[2 * n - 1];
     }
 
     /** Nothing of an earlier RAW merge applies to this shot (as ScamHybridBurst's CPU fallback clears it): no Bento, no flags. */

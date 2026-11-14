@@ -379,4 +379,34 @@ public class LiveWhyMeterTest {
         assertNotNull(got);
         org.junit.Assert.assertArrayEquals(want, got);
     }
+
+    /**
+     * P711: the AE's samples - each quad its own sample, its difference from its cell's mean shrunk to the mean within 2 sigmas of
+     * the frame's noise (a quad's luminance at the cell's level), kept whole beyond 4 (a light's rim), smoothly between.
+     */
+    @Test
+    public void theQuadsShrinkToTheirCellByTheNoise() {
+        float[] cells = {0.1f, 0.1f, 0.1f};
+        // sigma at 0.1: 1.06 sqrt((1e-4 x 0.1 + 1e-6) / 2) = 2.49e-3: 0.4, 3.0 and 8 sigmas, a light
+        float[] quads = {0.101f, 0.101f, 0.101f, 0.1075f, 0.1075f, 0.1075f, 2f, 2f, 2f, 0.08f, 0.08f, 0.08f};
+        float[] out = LiveWhyMeter.quadSamples(cells, quads, 1, 1, 1e-4, 1e-6, 1f, null);
+        assertEquals(12, out.length);
+        assertEquals("noise: the mean", 0.1f, out[0], 1e-6f);
+        assertTrue("between", out[3] > 0.1f + 1e-4f && out[3] < 0.1075f - 1e-4f);
+        assertEquals("a light: itself", 2f, out[6], 1e-6f);
+        assertEquals("an edge: itself", 0.08f, out[9], 1e-6f);
+        // the quads' places: quad (i, j) of cell (cx, cy) at (2 cx + i, 2 cy + j) of the 2 nx x 2 ny grid
+        float[] cells2 = {0.1f, 0.1f, 0.1f, 0.5f, 0.5f, 0.5f};
+        float[] quads2 = new float[24];
+        for (int c = 0; c < 2; c++) for (int q = 0; q < 4; q++) for (int ch = 0; ch < 3; ch++) quads2[c * 12 + q * 3 + ch] = c == 0 ? 0.1f : 4f + q;
+        out = LiveWhyMeter.quadSamples(cells2, quads2, 2, 1, 1e-4, 1e-6, 1f, null);
+        assertEquals(4f, out[(0 * 4 + 2) * 3], 1e-6f);
+        assertEquals(5f, out[(0 * 4 + 3) * 3], 1e-6f);
+        assertEquals(6f, out[(1 * 4 + 2) * 3], 1e-6f);
+        assertEquals(7f, out[(1 * 4 + 3) * 3], 1e-6f);
+        assertEquals(0.1f, out[(1 * 4 + 1) * 3], 1e-6f);
+        // no noise model: every quad as it is
+        out = LiveWhyMeter.quadSamples(cells, quads, 1, 1, 0, 0, 1f, null);
+        assertEquals(0.101f, out[0], 1e-6f);
+    }
 }

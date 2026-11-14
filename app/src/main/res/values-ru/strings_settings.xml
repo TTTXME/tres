@@ -832,7 +832,7 @@
     <string name="prefs_lens_filter_screen_summary">Мягкое свечение вокруг ярких мест, как от стеклянного фильтра перед объективом: Glimmerglass, Black Pro-Mist, Pro-Mist, CineBloom.</string>
     <string name="prefs_film_lut_changes_title">Что меняется</string>
     <string name="prefs_photo_style_title">Стиль снимка</string>
-    <string name="prefs_photo_style_summary">Обычный цвет, чёрно-белый снимок или плёнка: плёночные цвета, симуляция плёнки и фильтр на объектив.</string>
+    <string name="prefs_photo_style_summary">Насыщенный, обычный или нейтральный тон; чёрно-белый снимок, плёночные цвета, симуляция плёнки и фильтр на объектив.</string>
     <string name="prefs_photo_style_category">Стиль</string>
     <string name="prefs_photo_style_mono_category">Чёрно-белый</string>
     <string name="prefs_photo_style_film_category">Плёнка и фильтры</string>

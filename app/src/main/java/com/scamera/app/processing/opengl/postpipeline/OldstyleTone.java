@@ -28,9 +28,11 @@ import static android.opengl.GLES20.GL_NEAREST;
  *       (P630e, OldstyleAe.plan: the supplement's plan27 / plan31 and fusion_gains, metered on the merge - P643: the frames come at the
  *       photo mode's exposure, the tone only decides its gains; the style's exposure in both TETs).</li>
  *   <li>The module's frame: oldstyle/linear (the same colour chain, no clamp at 0; V1 before our CCM, V2 after it; V2 scaled so its
- *       light stays within white) as RGBA16I, read back in strips of {@link #STRIP} rows (GL_RGBA_INTEGER / GL_INT) into one planar int16 frame.</li>
+ *       light stays within white) as RGBA16I, read back in strips of {@link #STRIP} rows (GL_RGBA_INTEGER / GL_INT) into one planar int16 frame.
+ *       P716: V1's frame drawn at its gain ({@link #preGain}), a frame the module still lifts dithered ({@link #dither}).</li>
  *   <li>One call of the module on the whole frame (its pyramid and 3.1's shadow curve read the whole frame: no tiles): V1
- *       finish_raw27_rgb (+ the 2.7 HDR of its RGB8 with the two gains, the low-frequency colour on its bright exposure), V2
+ *       finish_raw27_rgb (+ the 2.7 HDR of its RGB8 with the two gains - P716: its bright exposure from the linear frame, not
+ *       the 8-bit retone of the short one - the low-frequency colour on its bright exposure), V2
  *       render_raw31_hdr / _sdr; then the supplement's dehaze / tint and output saturation on the RGB8 (P630e). CPU; P636: in
  *       bands of rows on the cores less one (OldstyleNative.threadsFor; scam_dev "oldstyle_threads 1": one thread as before),
  *       the same bytes (tools/check_tone_port.py).
@@ -69,6 +71,39 @@ public final class OldstyleTone extends Node {
      */
     static boolean read16(int implementationFormat, int implementationType, boolean allowed) {
         return allowed && implementationFormat == GLES30.GL_RGBA_INTEGER && implementationType == GLES30.GL_SHORT;
+    }
+
+    /**
+     * P716 (owner, 2026-11-14: «В мастер режиме у нас постеризация в тенях»): the gain the frame is drawn at (its int16 samples
+     * at uScale x this; the module then gets the gains over it). V1's frame is the module's 12-bit scale at the merge's exposure
+     * and the module multiplies it by its gains after it was rounded: at a long gain of 11 a step of the frame is 11 / 4 codes of
+     * the curve's toe. Drawn at the gain instead, the rounding is the module's own. At most 4 x the smaller gain: a sample
+     * saturated at 32767 still lands past V1's ceiling (8190, 2 x white) at every gain. V2: 1 (its scale is the light within
+     * white, which its operator needs).
+     */
+    static float preGain(boolean v2, float gainShort, float gainLong) {
+        if (v2 || !(gainShort > 0f) || !(gainLong > 0f)) return 1f;
+        return Math.max(1f, Math.min(Math.max(gainShort, gainLong), 4f * Math.min(gainShort, gainLong)));
+    }
+
+    /** P716: a gain past which a step of the frame's int16 rounding becomes a visible step: the frame is dithered (oldstyle/linear). */
+    static final float DITHER_LIFT = 2f;
+
+    /**
+     * P716: whether oldstyle/linear dithers the frame's rounding: the module lifts a step of it by its gains over {@code preGain}
+     * (V2 HDR: the light within white, a sun at 8 x white, leaves the shadows few levels that the long gain spreads into contours
+     * and per-channel colour steps).
+     */
+    static boolean dither(float gainShort, float gainLong, float preGain) {
+        return Math.max(gainShort, gainLong) / preGain >= DITHER_LIFT;
+    }
+
+    /** P716: the module's post array of the photo: the plan's, the frame's gain and V1 HDR's bright exposure from the linear frame. */
+    static float[] post(float[] base, float preGain) {
+        final float[] post = java.util.Arrays.copyOf(base, 17);
+        post[15] = preGain;
+        post[16] = 1f;
+        return post;
     }
 
     /** The native bytes of one tone call ({@code v2}, {@code hdr}) on {@code pixels}. */
@@ -202,12 +237,15 @@ public final class OldstyleTone extends Node {
             pipeline.linearDisplayGain = plan.gainLong;
             // 2. the module's frame, read back in strips into the planar int16 frame
             final float[] s2i = pipeline.shotParams.cameraToProPhoto, i2s = WhyTone.colourMatrix(pipeline);
+            final float pre = preGain(useV2, plan.gainShort, plan.gainLong);
+            final boolean dither = dither(plan.gainShort, plan.gainLong, pre);
             frame = new GLTexture(size, new GLFormat(GLFormat.DataType.SIGNED_16, 4), null, GL_NEAREST, GL_CLAMP_TO_EDGE);
             shaderProg.setDefine("PRE_CCM", useV2 ? 0 : 1);
             shaderProg.useAssetProgram("oldstyle/linear", false);
             shaderProg.setTexture("InputBuffer", input);
             WhyTone.setColour(shaderProg, pipeline, gainMap, 1f);
-            shaderProg.setVar("uScale", plan.inputScale * OldstyleNative.WHITE);
+            shaderProg.setVar("uScale", plan.inputScale * OldstyleNative.WHITE * pre);
+            shaderProg.setVar("uDither", dither ? 1f : 0f);
             shaderProg.drawBlocks(frame);
             shaderProg.closed = true;
             final long readStart = System.currentTimeMillis();
@@ -249,7 +287,7 @@ public final class OldstyleTone extends Node {
                     ? shadingGrid(pipeline.shotParams.shadingMap, pipeline.shotParams.shadingGrid.x, pipeline.shotParams.shadingGrid.y) : null;
             final float[] info = new float[8];
             OldstyleNative.render(useV2 ? OldstyleNative.V2 : OldstyleNative.V1, planar, size.x, size.y, useV2 ? null : OldstyleNative.ccmStrength(ccm(i2s, s2i), params.ccmStrength),
-                    plan.gainShort, plan.gainLong, plan.hdr, postview, params.saturation, params.post(), shading,
+                    plan.gainShort / pre, plan.gainLong / pre, plan.hdr, postview, params.saturation, post(params.post(), pre), shading,
                     shading == null ? 0 : pipeline.shotParams.shadingGrid.x, shading == null ? 0 : pipeline.shotParams.shadingGrid.y, info, out);
             final long toneMs = System.currentTimeMillis() - toneStart;
             com.scamera.app.util.Allocator.free(planar);
@@ -267,7 +305,8 @@ public final class OldstyleTone extends Node {
             shaderProg.drawBlocks(passOut);
             shaderProg.closed = true;
             Log.i("SCAM_PIPELINE", "Oldstyle " + (useV2 ? "V2 (tone-port 3.1)" : "V1 (tone-port 2.7)") + " " + plan.describe()
-                    + (useV2 && postview ? " postview" : "") + " grid=" + size.x + "x" + size.y + " samples=" + sw + "x" + sh
+                    + (useV2 && postview ? " postview" : "") + String.format(java.util.Locale.ROOT, " frame gain=%.3g%s", pre,
+                    dither ? " dithered" : "") + " grid=" + size.x + "x" + size.y + " samples=" + sw + "x" + sh
                     + " shorts=" + shorts + " frameTET=" + Math.round(frameTet)
                     // P636: where the node's time goes (samples = the two GPU passes and their read, with the GPU work queued
                     // before the node; frame = the module's frame drawn until its read starts)

@@ -127,5 +127,8 @@ public class ZslRingRamClassTest {
         assertFalse("a phone of the low class", CaptureController.keepParkedRing(3000, 4 * GB, false, true));
         assertFalse("too little beside it", CaptureController.keepParkedRing(3000, GB, false, false));
         assertFalse("memory unknown", CaptureController.keepParkedRing(3000, -1, false, false));
+        // P710: a FULLRES session never takes the plain ring: it goes after the first wait
+        assertFalse("a FULLRES session", CaptureController.keepParkedRing(3000, 4 * GB, false, false, true));
+        assertTrue(CaptureController.keepParkedRing(3000, 4 * GB, false, false, false));
     }
 }

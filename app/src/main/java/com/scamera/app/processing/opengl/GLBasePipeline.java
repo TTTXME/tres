@@ -43,8 +43,8 @@ public class GLBasePipeline implements AutoCloseable {
     public Parameters shotParams;
     public Point frameSize;
     public float noiseS, noiseO;
-    /** The ping-pong textures; main3..5 belong to particular pipelines. */
-    public GLTexture main1, main2, main3, main4, main5;
+    /** The ping-pong textures. */
+    public GLTexture main1, main2;
     /** Which main {@link #getMain} handed out last (1 or 2; 0: none yet). */
     public int texnum = 0;
     /**
@@ -200,15 +200,14 @@ public class GLBasePipeline implements AutoCloseable {
         // P616: the post's GPU queue kept a few blocks deep (the viewfinder's draws are not stuck behind it); P668: through the
         // final output's tiles as well (Xiaomi 12X, 31266: its 16 tiles went at once, «slow draw 182 / 243 ms ... after node Rotate»)
         GpuPace.begin();
+        GLProg.postRunning = true; // P713: the warm-up beside the merge stops (GLProg.warmUpBesideMerge)
         final Bitmap bitmap;
         try {
             runNodes();
             // P440 (step 0c): the final pass's draws and read-back start here (post_final .. post_readback)
             if (!PostGlMode.legacy()) ShotTimeline.markIfShot("post_final");
             GLGpuTimer.node("final output");
-            // P477: no node makes a texture any more: what the pool keeps goes now
-            GLTexturePool.node("final output");
-            GLTexturePool.end();
+            GLTexturePool.node("final output"); // P477: the inventory's node
             GLProg.compileNode("final output"); // P602
             try {
                 bitmap = glIface.blockCtx.drawBlocksToBitmap();
@@ -216,6 +215,8 @@ public class GLBasePipeline implements AutoCloseable {
                 GLProg.compileNode(null);
             }
         } finally {
+            GLDeferredDraw.discard(); // P713: a run that failed half way: what it held is released
+            GLProg.postRunning = false;
             GpuPace.end();
         }
         GLGpuTimer.report("post");
@@ -226,6 +227,12 @@ public class GLBasePipeline implements AutoCloseable {
 
     protected boolean skipNode(Node node) { return false; }
 
+    /**
+     * P713: whether {@code node}, the one before the final pass {@code last}, may leave its full-size draw to the final output
+     * (GLDeferredDraw: it draws through GLProg.drawBlocksDeferrable). False here: every node draws at once.
+     */
+    protected boolean deferLastDraw(Node node, Node last) { return false; }
+
     /** Runs every node; the last one stays bound for the read-back. */
     private void runNodes() {
         final long wallStart = System.currentTimeMillis();
@@ -234,7 +241,16 @@ public class GLBasePipeline implements AutoCloseable {
             checkEglError("glGetIntegerv");
             final boolean sync = PostGlMode.syncNodes();
             GLGpuTimer.begin(); // P479: post_sync only (profiling)
-            for (int i = 0; i < passList.size(); i++) runNode(passList.get(i), i == passList.size() - 1, sync);
+            for (int i = 0; i < passList.size(); i++) {
+                // P713: the last full-size pass of a streamed JPEG drawn beside the final output's tiles (GLDeferredDraw)
+                final boolean defer = i == passList.size() - 2 && deferLastDraw(passList.get(i), passList.get(i + 1));
+                if (defer) GLDeferredDraw.arm(true);
+                try {
+                    runNode(passList.get(i), i == passList.size() - 1, sync);
+                } finally {
+                    if (defer) GLDeferredDraw.arm(false);
+                }
+            }
             // the main the last node did not write goes now (the other one holds the result)
             final GLTexture spare = texnum == 1 ? main2 : main1;
             if (spare != null) spare.close();
@@ -307,7 +323,6 @@ public class GLBasePipeline implements AutoCloseable {
         GLDeferredRead.flush();
         final GLTexture result = texnum == 1 ? main1 : main2;
         if (result != null) result.close();
-        if (main3 != null) main3.close();
         lazyMain2 = null;
         lazyMain1 = null;
         glIface.prog.close();

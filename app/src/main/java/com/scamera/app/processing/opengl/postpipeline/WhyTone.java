@@ -933,6 +933,25 @@ public final class WhyTone {
         return Float.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : 0f;
     }
 
+    /**
+     * P701: the WHY AE of a YUV merge shot ({@code scale} = Parameters.yuvAeScale; 0 or not finite: not one, nothing changes). The
+     * frames are the camera's own rendering, exposed by its AE for it (the stock photo's brightness): the night rule's darker target
+     * (P442, night_ae_target) is not applied - the vivo X200 Pro front camera's indoor series read as 80 % night (effS 0.19, AE 0.5
+     * against the day target's 0.57), its mid-tones 5 - 10 L* under the stock photo's -, and the target is multiplied by the shadow toe's
+     * geometric-mean factor so the meter sees the scene before the toe (its mid-tones keep their exposure). scam_dev
+     * "yuv_ae_day 0": the night rule as for a RAW shot (the toe's factor kept). Returns the log line, null when not a YUV shot.
+     */
+    static String yuvExposure(WhyAe.Settings s, float scale) {
+        if (!(scale > 0f) || !Float.isFinite(scale)) return null;
+        final float k = Math.max(0.5f, Math.min(2f, scale));
+        final boolean day = PreferenceKeys.scamDevSwitch("yuv_ae_day", true);
+        final float before = s.aeTarget;
+        s.aeTarget *= k;
+        s.nightAeTarget = day ? s.aeTarget : s.nightAeTarget * k;
+        return String.format(java.util.Locale.ROOT, "WHY AE of a YUV merge shot (P701): target %.4f -> %.4f (the shadow toe's x%.3f), night target %.4f%s",
+                before, s.aeTarget, k, s.nightAeTarget, day ? " (the day target: the camera's AE exposed the frames)" : " (scam_dev yuv_ae_day 0)");
+    }
+
     /** P513: the portrait curve's default points (the owner's reference config init35burial_v3_3, 2026-11-05). */
     static final String PORTRAIT_POINTS = "0.0000:0.0000,0.0625:0.0147,0.1250:0.0349,0.1875:0.0642,0.2500:0.1108,0.3125:0.1870,0.3750:0.2822,0.4375:0.3900,0.5000:0.5100,0.5625:0.6362,0.6250:0.7587,0.6875:0.8677,0.7500:0.9524,0.8125:0.9996,0.8750:1.0000,0.9375:1.0000,1.0000:1.0000";
 
