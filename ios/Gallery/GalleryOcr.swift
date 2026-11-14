@@ -136,7 +136,7 @@ final class OcrIndex {
 
     nonisolated init() {}
 
-    private static var file: URL {
+    nonisolated private static var file: URL {
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir.appendingPathComponent("gallery_ocr.json")
