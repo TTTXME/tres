@@ -769,7 +769,13 @@ const GLubyte* glGetString(GLenum name) {
     case GL_RENDERER: return reinterpret_cast<const GLubyte*>("Apple GPU (SCAMERA Metal)");
     case GL_VERSION: return reinterpret_cast<const GLubyte*>("OpenGL ES 3.1 SCAMERA Metal");
     case GL_SHADING_LANGUAGE_VERSION: return reinterpret_cast<const GLubyte*>("OpenGL ES GLSL ES 3.10");
-    case GL_EXTENSIONS: return reinterpret_cast<const GLubyte*>("");
+    case GL_EXTENSIONS: {
+        // what the Metal backend serves: float / half-float colour attachments on every Apple GPU, filtered 32-bit float
+        // textures where the device filters them (the fast merge reads both)
+        static const std::string extensions = std::string("GL_EXT_color_buffer_float GL_EXT_color_buffer_half_float")
+            + (metalDevice().supports32BitFloatFiltering ? " GL_OES_texture_float_linear" : "");
+        return reinterpret_cast<const GLubyte*>(extensions.c_str());
+    }
     default: return nullptr;
     }
 }

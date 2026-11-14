@@ -63,7 +63,11 @@ jobs:
           EGL_PLATFORM: surfaceless
           LIBGL_ALWAYS_SOFTWARE: '1'
           GALLIUM_DRIVER: llvmpipe
-        run: python3 ios/tools/replay_bursts.py run "$RUNNER_TEMP/hybrid_replay" "$RUNNER_TEMP/bursts" "$RUNNER_TEMP/reference"
+        run: |
+          python3 ios/tools/replay_bursts.py run "$RUNNER_TEMP/hybrid_replay" "$RUNNER_TEMP/bursts" "$RUNNER_TEMP/reference"
+          # the app's default route: «Быстрый» (fastMerge 1), as the phone runs it
+          printf 'fastMerge 1\n' > "$RUNNER_TEMP/fast.txt"
+          python3 ios/tools/replay_bursts.py run "$RUNNER_TEMP/hybrid_replay" "$RUNNER_TEMP/bursts" "$RUNNER_TEMP/reference/fast" "$RUNNER_TEMP/fast.txt"
       - uses: actions/upload-artifact@v4
         with:
           name: merge-reference
@@ -71,6 +75,8 @@ jobs:
             ${{ runner.temp }}/reference/*.f32
             ${{ runner.temp }}/reference/*.log
             ${{ runner.temp }}/reference/post/*.f32
+            ${{ runner.temp }}/reference/fast/*.f32
+            ${{ runner.temp }}/reference/fast/*.log
           retention-days: 3
 
   merge-metal:
@@ -129,6 +135,8 @@ jobs:
         run: |
           python3 -m pip install -q --break-system-packages numpy==2.3.5 || python3 -m pip install -q numpy==2.3.5
           python3 ios/tools/replay_bursts.py run "$RUNNER_TEMP/hybrid_replay" "$RUNNER_TEMP/bursts" "$RUNNER_TEMP/metal"
+          printf 'fastMerge 1\n' > "$RUNNER_TEMP/fast.txt"
+          python3 ios/tools/replay_bursts.py run "$RUNNER_TEMP/hybrid_replay" "$RUNNER_TEMP/bursts" "$RUNNER_TEMP/metal/fast" "$RUNNER_TEMP/fast.txt"
       - uses: actions/download-artifact@v4
         with:
           name: merge-reference
@@ -139,6 +147,8 @@ jobs:
           python3 ios/tools/replay_bursts.py compare "$RUNNER_TEMP/reference" "$RUNNER_TEMP/metal" --max-psnr-drop 70 --max-off-share 0.0005 | tee "$RUNNER_TEMP/compare.txt"
           echo "post passes (Why V2 shaders through Engine/post/GLCore.hpp):" | tee -a "$RUNNER_TEMP/compare.txt"
           python3 ios/tools/replay_bursts.py compare "$RUNNER_TEMP/reference/post" "$RUNNER_TEMP/metal/post" --max-psnr-drop 70 | tee -a "$RUNNER_TEMP/compare.txt"
+          echo "«Быстрый» route (fastMerge 1, the app's default):" | tee -a "$RUNNER_TEMP/compare.txt"
+          python3 ios/tools/replay_bursts.py compare "$RUNNER_TEMP/reference/fast" "$RUNNER_TEMP/metal/fast" --max-psnr-drop 70 --max-off-share 0.0005 | tee -a "$RUNNER_TEMP/compare.txt"
           { echo '### Merge on Metal vs Mesa'; echo '```'; cat "$RUNNER_TEMP/compare.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         if: always()
@@ -146,6 +156,7 @@ jobs:
           name: merge-metal
           path: |
             ${{ runner.temp }}/metal/*.log
+            ${{ runner.temp }}/metal/fast/*.log
             ${{ runner.temp }}/compare.txt
           retention-days: 3
 
