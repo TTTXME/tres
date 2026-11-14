@@ -3,7 +3,7 @@ import SwiftUI
 import UIKit
 
 /// PhotoEditorFragment: the picture on black, the top bar (close, the name, undo, redo, «Ещё», «Сохранить копию»), the tools on
-/// the #1C1C1E sheet with 30pt top corners, the tab bar (Кадр, Стили, LUT, Свет, Цвет, Эффекты, Детали, Знак). A long press shows the
+/// the #1C1C1E sheet with 30pt top corners, the tab bar (Кадр, Проявка, Стили, LUT, Свет, Цвет, Эффекты, Детали, Знак). A long press shows the
 /// original («Оригинал»); the crop tab shows the whole turned photo with the crop frame. The picture is EditorView's frame,
 /// rendered by the Android pipeline (SCAMEditSession).
 @MainActor
@@ -151,10 +151,10 @@ struct PhotoEditorView: View {
     }
 
     private var tabBar: some View {
-        let icons = ["kb_ui_ic_crop_rest", "kb_ui_ic_styles_rest", "cs_ic_film", "kb_ui_ic_sun_rest", "kb_ui_ic_palette_rest",
+        let icons = ["kb_ui_ic_crop_rest", "kb_ui_ic_raw_rest", "kb_ui_ic_styles_rest", "cs_ic_film", "kb_ui_ic_sun_rest", "kb_ui_ic_palette_rest",
                      "kb_ui_ic_effects_rest", "kb_ui_ic_detail_rest", "ui_ic_tag"]
-        let names = [L("editor.tab.crop"), L("editor.tab.styles"), L("editor.tab.look"), L("editor.tab.light"), L("editor.tab.colour"),
-                     L("editor.tab.effects"), L("editor.tab.detail"), L("editor.tab.mark")]
+        let names = [L("editor.tab.crop"), L("editor.tab.develop"), L("editor.tab.styles"), L("editor.tab.look"), L("editor.tab.light"),
+                     L("editor.tab.colour"), L("editor.tab.effects"), L("editor.tab.detail"), L("editor.tab.mark")]
         return HStack(spacing: 4) {
             ForEach(EditorModel.Tab.allCases, id: \.rawValue) { t in
                 let on = t == model.tab
@@ -214,6 +214,7 @@ private struct EditorPanels: View {
         VStack(spacing: 0) {
             switch model.tab {
             case .crop: crop
+            case .develop: EditDevelopPanel(model: model)
             case .styles: styles
             case .look: look
             case .light: light

@@ -24,6 +24,10 @@ struct SettingsNode: Decodable, Identifiable {
     /// The page a row opens (an <intent android:data> link)
     let url: String?
     let id = UUID()
+    /// P665: a list's entries and values given in place (the developer's rows of the film, the LUT, the lens filter), else the
+    /// arrays named by entries / values
+    var inlineEntries: [String]? = nil
+    var inlineValues: [String]? = nil
 
     enum CodingKeys: String, CodingKey {
         case type, key, title, summary, dependency, icon, entries, values, segmented, min, max, step, float, children, url
@@ -43,10 +47,13 @@ struct SettingsNode: Decodable, Identifiable {
 
 final class SettingsCatalog {
     struct Table: Decodable { let strings: [String: String]; let arrays: [String: [String]] }
-    struct Document: Decodable { let tree: SettingsNode; let en: Table; let ru: Table }
+    /// P665: the gallery developer's tables (gen_settings_ui.py: DevelopCatalog.GROUPS, the rows fixed at the shot, the merge's keys)
+    struct DevelopTable: Decodable { let groups: [[String]]; let atShot: [String]; let burstFrames: [String]; let mergeTuning: [String] }
+    struct Document: Decodable { let tree: SettingsNode; let en: Table; let ru: Table; let develop: DevelopTable? }
 
     static let shared = SettingsCatalog()
     let tree: SettingsNode?
+    let develop: DevelopTable?
     private let table: Table?
 
     private init() {
@@ -54,9 +61,11 @@ final class SettingsCatalog {
               let data = try? Data(contentsOf: url), let doc = try? JSONDecoder().decode(Document.self, from: data) else {
             tree = nil
             table = nil
+            develop = nil
             return
         }
         tree = doc.tree
+        develop = doc.develop
         let russian = (Locale.preferredLanguages.first ?? "en").hasPrefix("ru")
         table = russian ? doc.ru : doc.en
     }
@@ -70,9 +79,18 @@ final class SettingsCatalog {
     func array(_ name: String?) -> [String] { name.flatMap { table?.arrays[$0] } ?? [] }
 }
 
+/// Where a settings row reads and writes its values: the camera's settings (SettingsStore), or the gallery developer's (P665: the
+/// shot's settings with the editor's changes over them).
+protocol SettingsValues: AnyObject {
+    var values: [String: Any] { get }
+    func bool(_ key: String, _ fallback: Bool) -> Bool
+    func string(_ key: String, _ fallback: String) -> String
+    func set(_ key: String, _ value: Any?)
+}
+
 /// The stored value of a key, Android's SharedPreferences under PostSettings.
 @Observable
-final class SettingsStore {
+final class SettingsStore: SettingsValues {
     static let shared = SettingsStore()
     private(set) var values: [String: Any] = UserDefaults.standard.dictionary(forKey: PostSettings.prefsKey) ?? [:]
 
@@ -223,13 +241,19 @@ struct SettingsScreen: View {
 
 struct SettingsRow: View {
     let node: SettingsNode
-    private var store: SettingsStore { SettingsStore.shared }
+    /// P665: the values the row shows and changes (nil: the camera's settings), a reason that greys it whatever the values (the
+    /// developer's: fixed at the shot, the merge's), lists as menus (outside a navigation stack)
+    var source: (any SettingsValues)? = nil
+    var fixedReason: String? = nil
+    var menuLists = false
+    private var store: any SettingsValues { source ?? (SettingsStore.shared as any SettingsValues) }
     private var catalog: SettingsCatalog { SettingsCatalog.shared }
 
     private var availability: SettingsAvailability { SettingsAvailability(store.values) }
 
     /// SettingsAvailability: why the row (a group's: groupReason) does not act now
     private var reason: String? {
+        if let fixedReason { return fixedReason }
         guard let key = node.key else { return nil }
         return node.type == "screen" || node.type == "category" ? availability.groupReason(key) : availability.reason(key)
     }
@@ -372,7 +396,7 @@ struct SettingsRow: View {
 
     @ViewBuilder private var listRow: some View {
         if let key = node.key {
-            let entries = catalog.array(node.entries), values = catalog.array(node.values)
+            let entries = node.inlineEntries ?? catalog.array(node.entries), values = node.inlineValues ?? catalog.array(node.values)
             let current = store.string(key, node.defaultValue?.text ?? values.first ?? "")
             if node.segmented == true {
                 VStack(alignment: .leading, spacing: 6) {
@@ -381,6 +405,16 @@ struct SettingsRow: View {
                         ForEach(Array(zip(entries, values)), id: \.1) { Text($0.0).tag($0.1) }
                     }
                     .pickerStyle(.segmented)
+                }
+            } else if menuLists {
+                HStack {
+                    label(detail: nil)
+                    Spacer()
+                    Picker("", selection: Binding(get: { current }, set: { store.set(key, $0) })) {
+                        ForEach(Array(zip(entries, values)), id: \.1) { Text($0.0).tag($0.1) }
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
                 }
             } else {
                 Picker(selection: Binding(get: { current }, set: { store.set(key, $0) })) {

@@ -559,3 +559,51 @@ change: `scam-crash.h` keeps only the stage marks on Apple.
   before, e193420 74.6 dB with mean 1e-6 and p99.9 3e-5 of the scale — a few isolated pixels where the two GPUs take the new
   moving-area branch differently (max 0.18). The gate is now PSNR ≥ 70 dB and at most 0.05 % of the values more than 1 % off
   (replay_bursts.py --max-off-share), so a real regression (a wide difference) still fails.
+
+## Gallery developer «Проявка» (P665, 2026-11-14)
+- Record (Android DevelopRecord, the same bytes: «SCDV», version, CRC-32, deflated sections JSON / CLIP / EFFR / HLMK, length,
+  «SCDVEND1» at the DNG's very end): Engine/post/DevelopRecord.hpp (the platform's raw deflate: Bridge/ScamDevelopCodec.h on the
+  iPhone, zlib on the host), Parameters.toJson (generated with fromJson by tools/gen_parameters.py: ScamLabParams.toJson's keys
+  and forms), JsonOut.hpp. ShotRun.hpp takes it right before the pipeline (DevelopCapture.take), SCAMPhoto.developRecord,
+  CameraModel appends it to the DNG file before the library gets it.
+- The iPhone's DNG is the camera's DNG of the series' first frame, not the merged mosaic Android writes (P165; Android gives that
+  reference-frame DNG no record). Its record describes that frame: the shot's Parameters on the DNG's whole grid (the lens shading
+  map before the «16:9» / window crops, the faces on the whole frame, the final size scaled to the grid, outputScale 1), one N
+  frame, no Bento, no effective-frame or clip map, the base highlight mask only when the base is the DNG's frame on its grid,
+  headroom 1, the zoom's crop after the pipeline, "dng":{"frame":"reference"}. A develop of it is the camera's pipeline on one
+  frame (more noise than the merged photo, highlights as that frame clipped them).
+- Develop: Engine/post/DevelopRun.hpp (DevelopRun.parameters / values / map / resampled / hlMask / crops; the record's worker
+  numbers over the report's; Ultra HDR off: the editor takes SDR), Editor/EditDevelop.hpp (superpixel preview of 2x2 cells of at
+  most 2048 px, Malvar-He-Cutler full develop, halves above 16 MP), DngRaw.decodeLinear (floats; the OpcodeList2 lens shading left
+  out when the record's Parameters carry the map - the pipeline applies it, as on the shot). Bridge/ScamDevelop.mm (SCAMDevelop:
+  preview / full with the changes' JSON, a GL context of its own per develop, processLock() shared with SCAMShot: ScamLab.LOCK).
+- Editor: «Проявка» tab after «Кадр» (Gallery/EditDevelopPanel.swift): «Проявка камерой», the groups as chips, the settings
+  screen's own rows (SettingsRow over a DevelopValues source; lists as menus), greyed with DevelopCatalog.inert, a changed row
+  marked with the shot's value; EditState «dv» block ({"on", "s"}: version 2 only with it, EditState.hpp reads it), undo / paste /
+  reset carry it; EditorModel develops the preview 0.45 s after a change rests (one undo step), swaps the shown session (the
+  developed picture: upright sRGB, orientation 1), the copy develops the whole DNG (SCAMDevelop.full) and exports it as a picture.
+- DevelopCatalog (App/Settings/DevelopCatalog.swift): the groups' parts, AT_SHOT / BURST_FRAMES and the merge's tuning keys
+  generated into android_settings.json "develop" by tools/gen_settings_ui.py; the film group is the iPhone film page's 15 keys
+  (FilmAdvanced's DIR / halation / development rows are not on the iPhone's page); visibility flags of preferences.xml are not in the
+  generated tree (SettingsAvailability.hidden only).
+- Check: tools/develop_check.cpp (CI build-ios-ipa merge-reference): the Android tests' cases - the record through a file (CRC,
+  version), Parameters field for field, a reduced grid, Sabre 2x final size, settings and changes, maps, crops, MHC, halves.
+- Not here / to check on the phone: Swift not compiled (no Mac); that Photos keeps the bytes after the DNG; the develop's speed and
+  memory on a 48 MP DNG (12 B a pixel below 16 MP, 6 B above, plus the pipeline); an Android-recorded DNG of a DCG shot does not
+  develop here (the DCG noise zones are not ported); the copy's description line (EditExporter.describe) is not written.
+
+## Re-sync with main P665-P679 (2026-11-14)
+- Ported (output): P666 the shadows' texture test of why_resolve (PostSnr.shadowBand / shadowTexture, flatShadowU, the log's
+  «shadow lo..hi»); P672 the fusion without the noise model by default (WhyTone.fusionNoiseModel), bracket_denoise by V2's rule
+  (no DCG exception, none on the iPhone anyway), NIGHT_DETAIL 1; P672b the detail as V2's (WhyTone.detailSplit, DETAIL_SPLIT,
+  detailSplitU, WhyCombine.splitGain); P673 the joint bilateral collapse (V1 off, V2 on at 0.1: lpyr / v2_ef_collapse JBU);
+  P676 V1's colour by V2's rule (V2_COLOUR; hl_white, delta_chroma, yellow_hue, hl_neutral, light_warm, light_chroma off with it;
+  signedHueU 0) and its settings reason; P677 V2's edge bands (WhyV2Fusion.bandPasses, off by default); P675 fastNightMotion and
+  P666 kernelSnrShadow in HybridTuning.text (the merge itself is the shared C++). Parameters: loficLog2 (generated).
+- Not ported, the same output: P671's speed paths (resolvedn/optics Oklab cache, why/combine GATHER_TAPS, scamrgb band tiles), P668
+  GPU pacing by measured time. Android-only: P679 Xiaomi 17 Ultra LOFIC (LoficMerge, XiaomiLofic), P667 YUV 10-bit default /
+  migration, P669 PedestalFloor (the iPhone has no RAW viewfinder), the X200 Pro / Find X7 Ultra fixes, the viewfinder's
+  LiveWhyTone.
+- Checks (Mesa, references by the new Android code, hybrid_replay from the new shared C++), post_node_check full, each 0 of
+  36-37.7M values: vivo_room, lenta, v2 (jbu=0.1/1), night (shadow 1.6..4.0), night_off, texture, os2, uhdr, p_v1 (v2Colour,
+  detail=1.0), v2tex, f_v2. shot_params_check / shot_run_check compile.

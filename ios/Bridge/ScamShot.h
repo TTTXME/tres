@@ -19,6 +19,9 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, readonly) float gainMapMin;
 @property (nonatomic, readonly) float gainMapMax;
 @property (nonatomic, readonly) float hdrCapacityMax;
+/// P665: the gallery developer's record of the shot (DevelopRecord.append's bytes: the record, its length and «SCDVEND1»), to be
+/// appended to the shot's DNG file as is; nil when it could not be made
+@property (nonatomic, readonly, nullable) NSData *developRecord;
 @end
 
 /// The Android photo route of an SHDR shot (Engine/post/ShotRun.hpp): the merge and the post pipeline on the GPU (ScamGL).

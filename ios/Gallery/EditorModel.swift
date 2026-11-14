@@ -130,17 +130,52 @@ enum PhotoDecode {
     }
 }
 
-/// The session on its queue (SCAMEditSession is not thread safe; GL work stays on one serial queue).
+/// The session on its queue (SCAMEditSession is not thread safe; GL work stays on one serial queue). P665: the photo as opened
+/// (`opened`) and its camera develop (`developed`); `session` is the one shown.
 final class EditEngine: @unchecked Sendable {
     let queue = DispatchQueue(label: "scam.editor", qos: .userInitiated)
     var session: SCAMEditSession?
+    var opened: SCAMEditSession?
+    var developed: SCAMEditSession?
+}
+
+/// P665: the camera's develop on its own queue (SCAMDevelop is not thread safe), and the changes' key the editor wants now (a
+/// develop that a newer request overtook before it started is skipped).
+final class DevelopEngine: @unchecked Sendable {
+    let queue = DispatchQueue(label: "scam.develop", qos: .userInitiated)
+    let developer: SCAMDevelop
+    private let lock = NSLock()
+    private var wantedKey: String?
+    init(_ developer: SCAMDevelop) { self.developer = developer }
+    var wanted: String? {
+        get { lock.lock(); defer { lock.unlock() }; return wantedKey }
+        set { lock.lock(); wantedKey = newValue; lock.unlock() }
+    }
+}
+
+/// P665: the values the «Проявка» tab's settings rows show and change (SettingsRow's source): the shot's settings with the
+/// editor's changes over them; a change goes to the editor (EditorModel.setDevelopValue).
+final class DevelopValues: SettingsValues {
+    let values: [String: Any]
+    private let onSet: @MainActor (String, Any?) -> Void
+    init(values: [String: Any], onSet: @escaping @MainActor (String, Any?) -> Void) {
+        self.values = values
+        self.onSet = onSet
+    }
+    func bool(_ key: String, _ fallback: Bool) -> Bool { PrefValue.bool(values[key], fallback) }
+    func string(_ key: String, _ fallback: String) -> String { values[key].map { PrefValue.text($0) } ?? fallback }
+    func set(_ key: String, _ value: Any?) {
+        let f = onSet
+        MainActor.assumeIsolated { f(key, value) }
+    }
 }
 
 /// PhotoEditorFragment + EditorViewModel: the photo, its state and history, the tab, the rendered frame, the histogram, the copy.
 @MainActor
 @Observable
 final class EditorModel {
-    enum Tab: Int, CaseIterable { case crop, styles, look, light, colour, effects, detail, mark }
+    /// P665: «Проявка» after «Кадр», as Android's TAB_ORDER
+    enum Tab: Int, CaseIterable { case crop, develop, styles, look, light, colour, effects, detail, mark }
 
     let asset: PHAsset
     let editRaw: Bool
@@ -213,6 +248,7 @@ final class EditorModel {
                 do {
                     if raw {
                         session = try SCAMEditSession(dng: data, shaders: shaders)
+                        engine.opened = session
                     } else if let i = pictureInfo, let p = PhotoDecode.decode(data, longSide: PhotoDecode.previewSide(i), p3: i.p3) {
                         session = try SCAMEditSession(preview: p.rgba, width: p.width, height: p.height, displayP3: p.p3,
                                                       orientation: i.orientation, fullWidth: i.width, fullHeight: i.height, shaders: shaders)
@@ -233,11 +269,14 @@ final class EditorModel {
         }
         watermarkRecord = result.2
         isRaw = session.isRaw
+        if raw { await openDevelop(data, shaders: shaders) }
         if session.quadHalf { note = L("editor.note.quad") }
         let w = Double(session.previewWidth), h = Double(session.previewHeight)
         orientedSize = CropMath.swapsSides(session.orientation) ? CGSize(width: h, height: w) : CGSize(width: w, height: h)
         let fw = Double(session.fullWidth), fh = Double(session.fullHeight)
         fullOriented = CropMath.swapsSides(session.orientation) ? CGSize(width: fh, height: fw) : CGSize(width: fw, height: fh)
+        openedGeometry = (orientedSize, fullOriented, session.isRaw)
+        openedRaw = session.isRaw
         watermarkOutMax = SCAMEditSession.outMax(forBudget: PhotoDecode.memoryBudget())
         history = EditHistory(state)
         requestRender()
@@ -246,7 +285,16 @@ final class EditorModel {
 
     func close() {
         let engine = self.engine
-        engine.queue.async { engine.session = nil }
+        developTask?.cancel()
+        if let d = develop {
+            d.wanted = nil
+            d.queue.async { d.developer.releaseCaches() }
+        }
+        engine.queue.async {
+            engine.session = nil
+            engine.opened = nil
+            engine.developed = nil
+        }
     }
 
     // ---------------------------------------------------------------- rendering
@@ -316,6 +364,7 @@ final class EditorModel {
     /// EditPanels.Host.changed: the state changed; commit: one undo step
     func changed(commit: Bool) {
         if !applyingStyle { styleBase = nil }
+        syncDevelop()
         requestRender()
         updateWatermark()
         if commit { history.commit(state) }
@@ -343,6 +392,7 @@ final class EditorModel {
     private func afterJump() {
         styleBase = nil
         styleIndex = -1
+        syncDevelop()
         requestRender()
         updateWatermark()
     }
@@ -618,14 +668,188 @@ final class EditorModel {
         watermarkRect = CGRect(x: r.minX / k, y: r.minY / k, width: CGFloat(pw) / k, height: CGFloat(ph) / k)
     }
 
+    // ---------------------------------------------------------------- P665 «Проявка»
+
+    /// The camera's develop of this photo (a DNG of ours with its develop record), nil: none offered.
+    private(set) var develop: DevelopEngine?
+    /// The shot's settings as the develop reads them (DevelopRun.shotValues), empty without a develop.
+    private(set) var developShot: [String: Any] = [:]
+    /// The tab's groups (DevelopCatalog, made once).
+    private(set) var developGroups: [DevelopCatalog.Group] = []
+    /// What the develop is doing now («Проявляю…», its failure), nil when idle.
+    private(set) var developStatus: String?
+    /// The developed picture is the one shown and edited (the state's develop on and a develop done).
+    private(set) var showingDeveloped = false
+    private(set) var openedRaw = false
+    private var developedKey: String?
+    private var developTask: Task<Void, Never>?
+    private var openedGeometry: (oriented: CGSize, full: CGSize, raw: Bool)?
+    private var developedGeometry: (oriented: CGSize, full: CGSize, raw: Bool)?
+
+    /// EditDevelop.open: the DNG's develop record, if it has one
+    private func openDevelop(_ data: Data, shaders: String) async {
+        let d: SCAMDevelop? = await withCheckedContinuation { cont in
+            DispatchQueue.global(qos: .userInitiated).async { cont.resume(returning: SCAMDevelop(dng: data, shaders: shaders)) }
+        }
+        guard let d else { return }
+        SessionLog.i("Editor", d.summary + " (" + name + ")")
+        develop = DevelopEngine(d)
+        developShot = d.shotValues
+        developGroups = DevelopCatalog.groups(shot: developShot)
+    }
+
+    func loadDevelopGroups() {
+        if developGroups.isEmpty { developGroups = DevelopCatalog.groups(shot: developShot) }
+    }
+
+    /// EditDevelopPanel.unavailable: why the develop is not offered for this photo, nil when it is
+    var developUnavailable: String? {
+        if develop != nil { return nil }
+        return openedRaw ? L("editor.develop.no_record") : L("editor.develop.finished")
+    }
+
+    /// EditDevelopPanel.statusText
+    var developStatusText: String {
+        if let developStatus { return developStatus }
+        return state.develop ? L("editor.develop.done") : L("editor.develop.switch_hint")
+    }
+
+    /// The values the tab's rows show: the shot's settings with the changes over them.
+    var developValues: [String: Any] {
+        var v = developShot
+        for (k, c) in state.devChanges { v[k] = c.json }
+        return v
+    }
+
+    func setDevelop(_ on: Bool) {
+        state.develop = on
+        changed(commit: true)
+    }
+
+    /// EditDevelopPanel.set: the row's value kept as a change unless it is the shot's; the develop runs once the value rests
+    /// (one undo step a gesture).
+    func setDevelopValue(_ row: DevelopCatalog.Row, _ value: Any?) {
+        let asShot = developShot[row.key] ?? row.def
+        if let value {
+            let same: Bool
+            switch row.kind {
+            case .toggle: same = DevelopCatalog.on(value) == DevelopCatalog.on(asShot)
+            default:
+                let a = PrefValue.text(value), b = PrefValue.text(asShot)
+                let x = PrefValue.number(value, .nan), y = PrefValue.number(asShot, .nan)
+                same = a == b || (row.kind == .slider && x == y)
+            }
+            if same { state.devChanges[row.key] = nil }
+            else { state.devChanges[row.key] = row.kind == .toggle ? .on(DevelopCatalog.on(value)) : .text(PrefValue.text(value)) }
+        } else {
+            state.devChanges[row.key] = nil
+        }
+        styleBase = nil
+        requestRender()
+        updateWatermark()
+        developTask?.cancel()
+        developTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 450_000_000)
+            guard let self, !Task.isCancelled else { return }
+            self.history.commit(self.state)
+            self.syncDevelop()
+        }
+    }
+
+    /// PhotoEditorFragment.syncDevelop: the picture the editor works on - the developed one while the develop is on (the last
+    /// developed: a new develop replaces it when it is done), else the photo as opened - and the develop asked for the state's
+    /// settings.
+    private func syncDevelop() {
+        guard let d = develop else { return }
+        if state.develop { requestDevelop(d) }
+        let show = state.develop && developedGeometry != nil
+        if show != showingDeveloped { swapSource(show) }
+    }
+
+    private func swapSource(_ show: Bool) {
+        showingDeveloped = show
+        if let g = show ? developedGeometry : openedGeometry {
+            orientedSize = g.oriented
+            fullOriented = g.full
+            isRaw = g.raw
+        }
+        let engine = self.engine
+        engine.queue.async { engine.session = show ? engine.developed : engine.opened }
+        requestRender()
+        updateWatermark()
+    }
+
+    /// EditorViewModel.requestDevelop: the preview developed with the state's camera settings unless the picture shown or the
+    /// develop asked for is already that one.
+    private func requestDevelop(_ d: DevelopEngine) {
+        let key = state.devChangesJson
+        if key == developedKey && developedGeometry != nil { return }
+        if key == d.wanted { return }
+        d.wanted = key
+        developStatus = L("editor.develop.busy")
+        let engine = self.engine
+        let shaders = Bundle.main.bundleURL.appendingPathComponent("shaders").path
+        d.queue.async {
+            guard d.wanted == key else { return } // overtaken
+            do {
+                let picture = try d.developer.preview(changes: key)
+                let k = d.developer.scale
+                let fw = Int((Double(picture.width) * k).rounded()), fh = Int((Double(picture.height) * k).rounded())
+                guard d.wanted == key else { return }
+                engine.queue.async {
+                    do {
+                        let session = try SCAMEditSession(preview: picture.rgba, width: picture.width, height: picture.height, displayP3: false,
+                                                          orientation: 1, fullWidth: fw, fullHeight: fh, shaders: shaders)
+                        Task { @MainActor in self.developDone(key, session, picture.width, picture.height, fw, fh) }
+                    } catch {
+                        Task { @MainActor in self.developFailed(key, error) }
+                    }
+                }
+            } catch {
+                Task { @MainActor in self.developFailed(key, error) }
+            }
+        }
+    }
+
+    private func developDone(_ key: String, _ session: SCAMEditSession, _ w: Int, _ h: Int, _ fw: Int, _ fh: Int) {
+        guard let d = develop, d.wanted == key else { return }
+        developedKey = key
+        developStatus = nil
+        developedGeometry = (CGSize(width: w, height: h), CGSize(width: fw, height: fh), false)
+        let show = state.develop
+        let engine = self.engine
+        engine.queue.async {
+            engine.developed = session
+            if show { engine.session = session }
+        }
+        if show {
+            showingDeveloped = false
+            swapSource(true)
+        }
+    }
+
+    private func developFailed(_ key: String, _ error: Error) {
+        guard let d = develop, d.wanted == key else { return }
+        d.wanted = nil // the same settings may be tried again
+        developStatus = L("editor.develop.failed") + " " + error.localizedDescription
+        SessionLog.e("Editor", "develop: " + error.localizedDescription)
+    }
+
     // ---------------------------------------------------------------- the copy
 
     /// «Сохранить копию»: EditExporter.export at full resolution, then a new JPEG in the library.
     func save() async {
         guard !exporting, engine.session != nil else { return }
+        // P665: the copy of a developed DNG is the whole DNG developed with the state's camera settings (EditDevelop.full)
+        let developing = develop != nil && state.develop
+        if developing && !showingDeveloped {
+            savedMessage = L("editor.develop.wait")
+            return
+        }
         exporting = true
         exportProgress = 0
         let json = state.json, data = original, info = self.info, raw = isRaw, name = name
+        let develop = developing ? self.develop : nil, changes = state.devChangesJson
         // P633: the «Знак» tab's watermark drawn on the finished copy with this photo's facts, its record kept
         let wmSpec = state.watermark, wmInfo = watermarkInfo
         let cropFraction = max(1e-6, Double((state.cropR - state.cropL) * (state.cropB - state.cropT)))
@@ -638,7 +862,17 @@ final class EditorModel {
                 do {
                     guard let s = engine.session else { throw NSError(domain: "SCAMEdit", code: 1) }
                     let copy: SCAMEditImage
-                    if raw {
+                    if let develop {
+                        var picture: SCAMDevelopPicture?
+                        var failure: Error?
+                        develop.queue.sync {
+                            do { picture = try develop.developer.full(changes: changes) } catch { failure = error }
+                        }
+                        if let failure { throw failure }
+                        guard let full = picture else { throw NSError(domain: "SCAMEdit", code: 5) }
+                        copy = try s.exportState(json, picture: full.rgba, width: full.width, height: full.height, outMax: outMax,
+                                                 progress: progress)
+                    } else if raw {
                         copy = try s.exportState(json, dng: data, budget: budget, outMax: outMax, progress: progress)
                     } else {
                         guard let i = info else { throw NSError(domain: "SCAMEdit", code: 2) }

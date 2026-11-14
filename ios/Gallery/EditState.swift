@@ -88,6 +88,19 @@ enum EditParam: Int, CaseIterable {
     static let lookParams: [EditParam] = [.lutAmount, .filmAmount, .filmGrain, .filmExposure, .filmContrast, .filmDir, .filmPrintEv]
 }
 
+/// P665: a camera setting's value in the develop block, as the camera stores it (a switch, or the text of a list / slider).
+enum DevValue: Equatable {
+    case on(Bool)
+    case text(String)
+
+    var json: Any {
+        switch self {
+        case .on(let b): return b
+        case .text(let t): return t
+        }
+    }
+}
+
 /// EditState (gallery/editor/EditState.java): every setting of one edit; the JSON is Android's ({"v":1,...}, defaults left out),
 /// the one the renderer (SCAMEditSession) reads.
 struct EditState: Equatable {
@@ -108,6 +121,11 @@ struct EditState: Equatable {
     /// tone: the «before» view shows the photo as it is; paste takes the watermark, not the removal.
     var wmRemove = false
     var wm = ""
+    /// P665 «Проявка»: develop - our DNG developed by the camera's own pipeline (offered only for a DNG carrying the camera's
+    /// develop record); devChanges - the camera settings changed over the shot's (preference key -> value as the camera stores it;
+    /// a key absent = the shot's value). Tone settings: undo, reset, styles and paste treat them as the sliders.
+    var develop = false
+    var devChanges: [String: DevValue] = [:]
 
     /// EditState.watermark: the watermark to draw on the copy, nil for none.
     var watermark: WatermarkSpec? { WatermarkSpec.fromJson(wm) }
@@ -123,8 +141,9 @@ struct EditState: Equatable {
     var isDefaultGeometry: Bool {
         quarterTurns == 0 && !flipH && straighten == 0 && cropL == 0 && cropT == 0 && cropR == 1 && cropB == 1
     }
+    var isDefaultDevelop: Bool { !develop && devChanges.isEmpty }
     var isDefaultTone: Bool {
-        EditParam.allCases.allSatisfy { values[$0.rawValue] == $0.def } && !anyCurve && lut.isEmpty && film.isEmpty
+        EditParam.allCases.allSatisfy { values[$0.rawValue] == $0.def } && !anyCurve && lut.isEmpty && film.isEmpty && isDefaultDevelop
     }
     var isDefault: Bool { isDefaultTone && isDefaultGeometry && !wmRemove && wm.isEmpty }
 
@@ -141,13 +160,31 @@ struct EditState: Equatable {
         values = o.values
         curves = o.curves
         lut = o.lut; film = o.film; filmPrint = o.filmPrint; filmFormat = o.filmFormat
+        develop = o.develop
+        devChanges = o.devChanges
         wm = o.wm
+    }
+
+    /// P665 EditState.devKey: a camera setting's key as the develop block keeps it (letters, digits, «_», «.», «#», at most 128)
+    static func devKey(_ key: String) -> Bool {
+        guard !key.isEmpty, key.count <= 128 else { return false }
+        return key.unicodeScalars.allSatisfy { c in
+            (c >= "a" && c <= "z") || (c >= "A" && c <= "Z") || (c >= "0" && c <= "9") || c == "_" || c == "." || c == "#"
+        }
+    }
+
+    /// P665: the changes as the develop takes them ({key: true / false / "text"})
+    var devChangesJson: String {
+        var o: [String: Any] = [:]
+        for (k, v) in devChanges { o[k] = v.json }
+        guard let d = try? JSONSerialization.data(withJSONObject: o, options: [.sortedKeys]) else { return "{}" }
+        return String(data: d, encoding: .utf8) ?? "{}"
     }
 
     // ---------------------------------------------------------------- JSON
 
     var json: String {
-        var o: [String: Any] = ["v": 1]
+        var o: [String: Any] = ["v": isDefaultDevelop ? 1 : 2]
         var p: [String: Any] = [:]
         for q in EditParam.allCases where values[q.rawValue] != q.def { p[q.key] = Double(values[q.rawValue]) }
         if !p.isEmpty { o["p"] = p }
@@ -159,6 +196,17 @@ struct EditState: Equatable {
             if !filmPrint.isEmpty { l["p"] = filmPrint }
             if filmFormat != "135" { l["m"] = filmFormat }
             o["lk"] = l
+        }
+        if !isDefaultDevelop {
+            // P665: {"on": develop, "s": {key: value}}, defaults left out
+            var d: [String: Any] = [:]
+            if develop { d["on"] = true }
+            if !devChanges.isEmpty {
+                var ch: [String: Any] = [:]
+                for (k, v) in devChanges { ch[k] = v.json }
+                d["s"] = ch
+            }
+            o["dv"] = d
         }
         if wmRemove || !wm.isEmpty {
             var w: [String: Any] = [:]
@@ -181,7 +229,10 @@ struct EditState: Equatable {
 
     static func fromJson(_ text: String?) -> EditState? {
         guard let text, let data = text.data(using: .utf8),
-              let o = try? JSONSerialization.jsonObject(with: data) as? [String: Any], (o["v"] as? NSNumber)?.intValue == 1 else { return nil }
+              let o = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        // P665: version 2 is written only with the develop block; without it the text is not a state of ours
+        let version = (o["v"] as? NSNumber)?.intValue ?? 0
+        guard version == 1 || (version == 2 && o["dv"] is [String: Any]) else { return nil }
         var s = EditState()
         if let p = o["p"] as? [String: Any] {
             for (k, v) in p { if let q = EditParam.byKey(k), let n = v as? NSNumber { s[q] = n.floatValue } }
@@ -198,6 +249,18 @@ struct EditState: Equatable {
             s.filmPrint = l["p"] as? String ?? ""
             let m = l["m"] as? String ?? ""
             s.filmFormat = m.isEmpty ? "135" : m
+        }
+        if let dv = o["dv"] as? [String: Any] {
+            s.develop = (dv["on"] as? NSNumber)?.boolValue ?? false
+            if let ch = dv["s"] as? [String: Any] {
+                for (key, value) in ch where devKey(key) {
+                    if let t = value as? String {
+                        if t.count <= 4096 { s.devChanges[key] = .text(t) }
+                    } else if let n = value as? NSNumber, CFGetTypeID(n) == CFBooleanGetTypeID() {
+                        s.devChanges[key] = .on(n.boolValue)
+                    }
+                }
+            }
         }
         if let w = o["wm"] as? [String: Any] {
             s.wmRemove = (w["rm"] as? NSNumber)?.boolValue ?? false

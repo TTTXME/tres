@@ -669,6 +669,8 @@ public:
         std::vector<uint16_t> data;
         float autoLiftStops = 0;
         float scale = 1.f / FIXED_ONE;
+        /// P665 decodeLinear's samples instead of data: the same cells as floats, 1.0 = the white level, not clamped above
+        std::vector<float> linear;
     };
 
     static Info probe(const uint8_t* data, size_t size) {
@@ -682,6 +684,17 @@ public:
         DngFile p(data, size);
         DngRaw r(p, pick(p));
         r.setup();
+        return r.run(std::max(1, bin));
+    }
+
+    /// P665 DngRaw.decodeLinear: decode into floats (Image.linear; data empty), the DNG's whole precision, nothing clamped above
+    /// white. gainMaps false leaves the OpcodeList2 lens shading out (the develop's pipeline applies the shot's own map).
+    static Image decodeLinear(const uint8_t* data, size_t size, int bin, bool gainMaps = true) {
+        DngFile p(data, size);
+        DngRaw r(p, pick(p));
+        r.setup();
+        r.linearOut_ = true;
+        if (!gainMaps) r.gainMaps_.clear();
         return r.run(std::max(1, bin));
     }
 
@@ -743,6 +756,9 @@ private:
     int outW_ = 0, outH_ = 0, bin_ = 1, spp_ = 1, step_ = 2;
     std::vector<uint16_t> out_;
     float inv_ = 0;
+    bool linearOut_ = false;
+    std::vector<float> fout_;
+    float finv_ = 0;
 
     DngRaw(const DngFile& p, const DngIfd& f) : p_(p), f_(f) {}
 
@@ -905,8 +921,13 @@ private:
         const int channels = info_.kind == KIND_RGB ? 3 : 1;
         const long long n = (long long)outW_ * outH_ * channels;
         if (n > 2147483647LL / 2) throw std::runtime_error("DNG: raw too large to decode");
-        out_.assign(size_t(n), 0);
         const int perOut = info_.kind == KIND_RGB ? bin * bin : info_.cell * info_.cell * bin * bin;
+        if (linearOut_) {
+            fout_.assign(size_t(n), 0.f);
+            finv_ = 1.f / float(perOut);
+        } else {
+            out_.assign(size_t(n), 0);
+        }
         inv_ = FIXED_ONE / float(perOut);
         if (f_.compression == 1) uncompressed();
         else lossless();
@@ -918,7 +939,8 @@ private:
         img.phase = info_.kind == KIND_BAYER ? phase() : 0;
         if (info_.kind == KIND_BAYER && img.phase < 0) throw std::runtime_error("DNG: CFA phase is not a Bayer");
         img.data = std::move(out_);
-        img.autoLiftStops = autoLift(img);
+        img.linear = std::move(fout_);
+        img.autoLiftStops = linearOut_ ? 0.f : autoLift(img);
         return img;
     }
 
@@ -952,6 +974,10 @@ private:
         }
         if (s <= 0) return;
         const size_t i = size_t((oy * outW_ + ox) * (info_.kind == KIND_RGB ? 3 : 1) + (info_.kind == KIND_RGB ? ch : 0));
+        if (linearOut_) {
+            fout_[i] += float(s) * finv_;
+            return;
+        }
         const int acc = int(out_[i]) + int(jroundL(s * double(inv_)));
         out_[i] = uint16_t(std::min(65535, acc));
     }

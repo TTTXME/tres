@@ -3,7 +3,9 @@
 - ios/Resources/android_settings.json: the tree of res/xml/preferences.xml (screens, categories, switches, lists, sliders,
   text fields and the custom rows by name) with every title, summary and list entry in English and Russian
   (res/values*, res/values-ru*) and the defaults resolved;
-- ios/Resources/Icons.xcassets: the vector drawables the tree (and tools/ios_icons.txt) names, as SVG images.
+- ios/Resources/Icons.xcassets: the vector drawables the tree (and tools/ios_icons.txt) names, as SVG images;
+- "develop" in the json (P665): the gallery developer's groups (DevelopCatalog.GROUPS: the parts of the tree each takes), the rows
+  fixed at the shot (ScamLabFragment.AT_SHOT, BURST_FRAMES) and the merge's tuning keys (PreferenceKeys.TUNING_KEYS).
 --check: fail when the generated files are out of date."""
 import json
 import pathlib
@@ -16,6 +18,7 @@ RES = ROOT / 'app/src/main/res'
 OUT_JSON = ROOT / 'ios/Resources/android_settings.json'
 OUT_ICONS = ROOT / 'ios/Resources/Icons.xcassets'
 EXTRA_ICONS = ROOT / 'ios/tools/ios_icons.txt'
+JAVA = ROOT / 'app/src/main/java/com/scamera/app'
 A = '{http://schemas.android.com/apk/res/android}'
 APP = '{http://schemas.android.com/apk/res-auto}'
 CUSTOM = 'com.scamera.app.ui.settings.custompreferences.'
@@ -227,6 +230,54 @@ def svg(name):
     return '\n'.join(out) + '\n'
 
 
+def java_constants(path):
+    """`NAME = "value"` string constants of a Java file"""
+    return dict(re.findall(r'\b([A-Z][A-Z0-9_]*)\s*=\s*"([^"]*)"', path.read_text()))
+
+
+def java_block(text, start):
+    """the text between `start` and the matching closing bracket of the first `(` or `{` after it"""
+    i = text.index(start) + len(start)
+    while text[i] not in '({':
+        i += 1
+    depth, j = 0, i
+    while True:
+        if text[j] in '({':
+            depth += 1
+        elif text[j] in ')}':
+            depth -= 1
+            if depth == 0:
+                return text[i + 1:j]
+        j += 1
+
+
+def develop():
+    """DevelopCatalog's groups, ScamLabFragment's AT_SHOT / BURST_FRAMES and PreferenceKeys.TUNING_KEYS (the merge's keys)"""
+    catalog = (JAVA / 'ui/settings/DevelopCatalog.java').read_text()
+    names = java_constants(JAVA / 'ui/settings/DevelopCatalog.java')
+    named = {'FilmLut': java_constants(JAVA / 'processing/color/FilmLut.java'),
+             'LensFilters': java_constants(JAVA / 'processing/color/LensFilters.java')}
+    groups = []
+    for g in re.findall(r'\{([^{}]*)\}', java_block(catalog, 'static final String[][] GROUPS =')):
+        row = []
+        for token in [t.strip() for t in g.split(',') if t.strip()]:
+            if token.startswith('"'):
+                row.append(token.strip('"'))
+            elif '.' in token:
+                cls, const = token.split('.')
+                row.append(named[cls][const])
+            else:
+                row.append(names[token])
+        groups.append(row)
+    lab = (JAVA / 'ui/settings/ScamLabFragment.java').read_text()
+    at_shot = re.findall(r'"(\w+)"', java_block(lab, 'AT_SHOT = new java.util.HashSet<>'))
+    burst = re.findall(r'"(\w+)"', java_block(lab, 'BURST_FRAMES = new java.util.HashSet<>'))
+    keys = (JAVA / 'settings/PreferenceKeys.java').read_text()
+    tuning = re.findall(r'\{"\w+",\s*"(\w+)"\}', java_block(keys, 'private static final String[][] TUNING_KEYS ='))
+    return {'groups': groups, 'atShot': sorted(at_shot), 'burstFrames': sorted(burst),
+            'mergeTuning': sorted('pref_scam_hybrid_' + k for k in set(tuning))}
+
+
 def render():
     tree = node(ET.parse(RES / 'xml/preferences.xml').getroot())
     if EXTRA_ICONS.exists():
@@ -239,7 +290,7 @@ def render():
                 'arrays': {k: arrays.get(k, fallback_a[k]) if len(arrays.get(k, [])) == len(fallback_a[k]) else fallback_a[k]
                            for k in sorted(used_arrays)}}
     doc = {'generated': 'ios/tools/gen_settings_ui.py from app/src/main/res: do not edit', 'tree': tree,
-           'en': table(EN_S, EN_A, EN_S, EN_A), 'ru': table(RU_S, RU_A, EN_S, EN_A)}
+           'en': table(EN_S, EN_A, EN_S, EN_A), 'ru': table(RU_S, RU_A, EN_S, EN_A), 'develop': develop()}
     files = {OUT_JSON: json.dumps(doc, ensure_ascii=False, indent=1, sort_keys=True) + '\n'}
     files[OUT_ICONS / 'Contents.json'] = json.dumps({'info': {'author': 'xcode', 'version': 1}}, indent=2) + '\n'
     for name in sorted(used_icons):

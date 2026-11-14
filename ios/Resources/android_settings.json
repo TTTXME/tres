@@ -1,4 +1,175 @@
 {
+ "develop": {
+  "atShot": [
+   "pref_color_method_key",
+   "pref_crop_upscale",
+   "pref_mosaic_wb_corrections",
+   "pref_noise_model_profile_key",
+   "pref_scam_hybrid_bento_factor",
+   "pref_scam_hybrid_bento_trigger",
+   "pref_scam_hybrid_mm_flicker",
+   "pref_scam_hybrid_mm_shutter",
+   "pref_scam_hybrid_mm_zsl_frames",
+   "pref_scam_hybrid_mosaic_remosaic",
+   "pref_scam_hybrid_noise_photon",
+   "pref_scam_hybrid_noise_readout",
+   "pref_scam_hybrid_output",
+   "pref_scam_hybrid_shasta_ev",
+   "pref_scam_hybrid_shasta_frames"
+  ],
+  "burstFrames": [
+   "pref_scam_hybrid_bento",
+   "pref_scam_hybrid_bento_frames",
+   "pref_scam_hybrid_mm_bento",
+   "pref_scam_hybrid_mm_shasta",
+   "pref_scam_hybrid_shasta",
+   "pref_scam_hybrid_shasta_max_ratio",
+   "pref_scam_hybrid_shasta_mode"
+  ],
+  "groups": [
+   [
+    "tone",
+    "pref_scam_hybrid_tone_version",
+    "tone_settings_screen"
+   ],
+   [
+    "lights",
+    "scam_hybrid_artifacts_screen",
+    "pref_scam_hybrid_fringe_method",
+    "fringe_net_screen"
+   ],
+   [
+    "sharp",
+    "pref_scam_hybrid_why_sharp_gain",
+    "scam_hybrid_why_sharp_screen",
+    "scam_hybrid_why_rl_screen"
+   ],
+   [
+    "noise",
+    "pref_scam_hybrid_why_dn_factor",
+    "scam_hybrid_nr_merge_category",
+    "scam_hybrid_resolve_optics_category",
+    "scam_hybrid_ms_general_category",
+    "scam_hybrid_ms_luma_category",
+    "scam_hybrid_ms_chroma_category"
+   ],
+   [
+    "colour",
+    "pref_scam_hybrid_colour_warmth",
+    "pref_scam_hybrid_colour_mono",
+    "photo_processing_screen",
+    "lens_colour_category"
+   ],
+   [
+    "film"
+   ],
+   [
+    "lut",
+    "pref_film_lut",
+    "pref_film_lut_strength",
+    "pref_lens_filter",
+    "pref_lens_filter_strength"
+   ],
+   [
+    "portrait",
+    "portrait_screen"
+   ],
+   [
+    "oldstyle",
+    "oldstyle_tone_screen"
+   ],
+   [
+    "merge",
+    "scam_hybrid_merge_frames_category",
+    "scam_hybrid_merge_align_category",
+    "scam_hybrid_merge_reject_category",
+    "scam_hybrid_merge_kernel_category",
+    "scam_hybrid_merge_quad_category",
+    "scam_hybrid_merge_final_category",
+    "scam_hybrid_hdr_screen"
+   ]
+  ],
+  "mergeTuning": [
+   "pref_scam_hybrid_bento",
+   "pref_scam_hybrid_bento_chroma_sigma",
+   "pref_scam_hybrid_bento_frames",
+   "pref_scam_hybrid_bento_invalid",
+   "pref_scam_hybrid_bento_motion_max",
+   "pref_scam_hybrid_bento_ramp",
+   "pref_scam_hybrid_bento_ramp_hi",
+   "pref_scam_hybrid_bento_ramp_lo",
+   "pref_scam_hybrid_bento_ramp_reach",
+   "pref_scam_hybrid_bento_sigma",
+   "pref_scam_hybrid_bento_validate",
+   "pref_scam_hybrid_bento_weight",
+   "pref_scam_hybrid_boost_threshold",
+   "pref_scam_hybrid_boost_value",
+   "pref_scam_hybrid_cdm",
+   "pref_scam_hybrid_chroma_diff",
+   "pref_scam_hybrid_dilate",
+   "pref_scam_hybrid_dilate_floor",
+   "pref_scam_hybrid_filter_variance",
+   "pref_scam_hybrid_fwe",
+   "pref_scam_hybrid_gain_measured",
+   "pref_scam_hybrid_hot_base_sigma",
+   "pref_scam_hybrid_hot_cap",
+   "pref_scam_hybrid_hot_cross",
+   "pref_scam_hybrid_hot_frames",
+   "pref_scam_hybrid_hot_max_key",
+   "pref_scam_hybrid_hot_max_level",
+   "pref_scam_hybrid_hot_sigma",
+   "pref_scam_hybrid_kernel",
+   "pref_scam_hybrid_kernel_bokeh",
+   "pref_scam_hybrid_kernel_texture",
+   "pref_scam_hybrid_kernel_transition",
+   "pref_scam_hybrid_la_engine",
+   "pref_scam_hybrid_la_scam",
+   "pref_scam_hybrid_la_stream",
+   "pref_scam_hybrid_la_threads",
+   "pref_scam_hybrid_local_align",
+   "pref_scam_hybrid_lut_sigma",
+   "pref_scam_hybrid_mochi",
+   "pref_scam_hybrid_mosaic_block",
+   "pref_scam_hybrid_mosaic_chroma_fill",
+   "pref_scam_hybrid_mosaic_edge_scale",
+   "pref_scam_hybrid_mosaic_fill_support",
+   "pref_scam_hybrid_mosaic_frames",
+   "pref_scam_hybrid_mosaic_kernel_g",
+   "pref_scam_hybrid_mosaic_kernel_rb",
+   "pref_scam_hybrid_mosaic_kernel_scale",
+   "pref_scam_hybrid_mosaic_native_clamp",
+   "pref_scam_hybrid_mosaic_native_edge_scale",
+   "pref_scam_hybrid_mosaic_native_flat_scale",
+   "pref_scam_hybrid_mosaic_native_night_edge_scale",
+   "pref_scam_hybrid_mosaic_native_night_kernel_scale",
+   "pref_scam_hybrid_mosaic_path",
+   "pref_scam_hybrid_mosaic_share",
+   "pref_scam_hybrid_mosaic_tetra",
+   "pref_scam_hybrid_mosaic_tetra_kernel_scale",
+   "pref_scam_hybrid_mosaic_tetra_night_edge_scale",
+   "pref_scam_hybrid_mosaic_tetra_night_flat_scale",
+   "pref_scam_hybrid_mosaic_tetra_night_kernel_scale",
+   "pref_scam_hybrid_mosaic_window",
+   "pref_scam_hybrid_motion_threshold",
+   "pref_scam_hybrid_noise_measured",
+   "pref_scam_hybrid_profile",
+   "pref_scam_hybrid_s61_day_gd_noise",
+   "pref_scam_hybrid_s61_day_tensor_noise",
+   "pref_scam_hybrid_s61_gd_noise",
+   "pref_scam_hybrid_s61_max_key",
+   "pref_scam_hybrid_s61_min_motion",
+   "pref_scam_hybrid_s61_mode",
+   "pref_scam_hybrid_s61_tensor_noise",
+   "pref_scam_hybrid_sabre61",
+   "pref_scam_hybrid_shasta_max_ratio",
+   "pref_scam_hybrid_shasta_motion_max",
+   "pref_scam_hybrid_shasta_sharpness",
+   "pref_scam_hybrid_snr_scale",
+   "pref_scam_hybrid_tensor_noise",
+   "pref_scam_hybrid_weight_cap",
+   "pref_scam_hybrid_widen_below"
+  ]
+ },
  "en": {
   "arrays": {
    "af_mode_entries": [
@@ -1771,7 +1942,7 @@
    "prefs_scam_hybrid_why_weights_category_title": "Exposure layer weights",
    "prefs_scam_hybrid_widen_below_summary": "Where motion left little more than the base frame, it is softened so that moving objects have no noise round them. Higher: cleaner but softer. Lower: sharper. The native Quad and Tetra merge has its own rule, and Sport mode always uses 0.",
    "prefs_scam_hybrid_widen_below_title": "Kernel widening on motion (hole fill)",
-   "prefs_scam_hybrid_yuv_10bit_summary": "Where the camera gives a 10-bit YUV stream at the photo size beside the normal viewfinder, the series is taken in 10 bits (HLG) and merged in 10 bits: smoother gradients and more highlight room. If the camera refuses the session, 8 bits are used and remembered for this camera.",
+   "prefs_scam_hybrid_yuv_10bit_summary": "Where the camera gives a 10-bit YUV stream at the photo size beside the normal viewfinder, the series is taken in 10 bits (HLG) and merged in 10 bits: smoother gradients and more highlight room. If the camera refuses the session, 8 bits are used and remembered for this camera. Off by default: the camera renders the whole HLG session (the viewfinder too) and chooses where its white sits; on the vivo X200 Pro front camera the photo and the viewfinder came out washed-out white.",
    "prefs_scam_hybrid_yuv_10bit_title": "YUV: 10 bit (P010, HLG)",
    "prefs_scam_hybrid_yuv_bracket_summary": "Where the scene needs them, short frames (for the highlights) and a long one (for the shadows) are added to the series and merged in linear light. A pixel takes such a frame only where it agrees with the base (no ghosts) and the base is not clipped. Only with frames after the shutter.",
    "prefs_scam_hybrid_yuv_bracket_title": "YUV: exposure brackets",
@@ -3693,7 +3864,7 @@
    "prefs_scam_hybrid_why_weights_category_title": "Веса слоёв экспозиции",
    "prefs_scam_hybrid_widen_below_summary": "Там, где из-за движения остался почти один основной кадр, он смягчается, чтобы вокруг движущихся предметов не было шума. Больше — чище, но мягче. Меньше — резче. В нативной склейке Quad и Tetra действует своё правило, в режиме «Спорт» значение всегда 0.",
    "prefs_scam_hybrid_widen_below_title": "Расширение ядра при движении (Hole Fill)",
-   "prefs_scam_hybrid_yuv_10bit_summary": "Если камера даёт 10-битный поток YUV в размере фото рядом с обычным видоискателем, серия снимается в 10 битах (HLG) и склеивается в 10 битах: плавнее переходы и больше запаса в светах. Если камера отказывает в сессии — 8 бит, это запоминается для камеры.",
+   "prefs_scam_hybrid_yuv_10bit_summary": "Если камера даёт 10-битный поток YUV в размере фото рядом с обычным видоискателем, серия снимается в 10 битах (HLG) и склеивается в 10 битах: плавнее переходы и больше запаса в светах. Если камера отказывает в сессии — 8 бит, это запоминается для камеры. По умолчанию выключено: камера строит в HLG всю сессию (и видоискатель) и сама выбирает, где в нём белый; на фронтальной камере vivo X200 Pro фото и видоискатель выходили белёсыми.",
    "prefs_scam_hybrid_yuv_10bit_title": "YUV: 10 бит (P010, HLG)",
    "prefs_scam_hybrid_yuv_bracket_summary": "Где сцене это нужно, к серии добавляются короткие кадры (для светов) и длинный (для теней) и склеиваются в линейном свете. Пиксель берёт такой кадр только там, где он совпадает с опорным (без двоения) и опорный не выбит. Только с кадрами после спуска.",
    "prefs_scam_hybrid_yuv_bracket_title": "YUV: брекетинг экспозиции",
@@ -4428,7 +4599,7 @@
         "type": "slider"
        },
        {
-        "default": true,
+        "default": false,
         "icon": "cs_ic_merge",
         "key": "pref_scam_hybrid_yuv_10bit",
         "summary": {

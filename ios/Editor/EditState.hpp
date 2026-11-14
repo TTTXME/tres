@@ -179,7 +179,9 @@ struct EditState {
         if (json.empty()) return false;
         try {
             const JValue o = parseJson(json);
-            if (o.kind != JValue::OBJ || o.optInt("v", 0) != 1) return false;
+            // P665: version 2 is written only with the develop block ("dv": the camera's develop, the editor's source, not drawn here)
+            const int v = o.optInt("v", 0);
+            if (o.kind != JValue::OBJ || (v != 1 && (v != 2 || !o.obj("dv")))) return false;
             EditState s;
             if (const JValue* p = o.obj("p")) {
                 for (const auto& kv : p->o) {

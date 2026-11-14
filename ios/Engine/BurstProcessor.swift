@@ -10,6 +10,8 @@ enum BurstProcessor {
         let heic: Data          // the photo in «Формат фото» (JPEG or HEIC)
         let uti: String
         let log: [String]
+        /// P665: the gallery developer's record to append to the shot's DNG (SCAMPhoto.developRecord), nil without one
+        var developRecord: Data? = nil
     }
 
     /// The last burst is kept as an NCH file (Documents/Bursts, Files app) to replay it against the Android merge.
@@ -107,6 +109,6 @@ enum BurstProcessor {
         // P633: the record at the very end of the file (WatermarkStore), as PhotoOutput appends it to Android's files
         if let watermarkRecord { heic = PhotoWatermark.appendRecord(watermarkRecord, to: heic, log: { log.append($0) }) }
         log.append("burst processed in \(ms(since: started)) ms, HEIC \(heic.count) bytes, \(memoryFootprint())")
-        return Result(heic: heic, uti: format.type.identifier, log: log)
+        return Result(heic: heic, uti: format.type.identifier, log: log, developRecord: photo.developRecord)
     }
 }

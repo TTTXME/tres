@@ -262,7 +262,7 @@ final class CameraModel {
             described.frames = burst.frames.count
             described.merged = true
             let base = described
-            let result: (heic: Data?, uti: String, log: [String], error: String?) = await Task.detached(priority: .userInitiated) {
+            let result: (heic: Data?, uti: String, log: [String], error: String?, develop: Data?) = await Task.detached(priority: .userInitiated) {
                 var shot = base
                 shot.filmRecipe = ViewfinderNative.filmRecipe()
                 let camera = burst.processed.flatMap { CGImageSourceCreateWithData($0 as CFData, nil) }
@@ -275,16 +275,22 @@ final class CameraModel {
                 }
                 do {
                     let r = try BurstProcessor.process(burst, metadata: metadata, zoom: burst.zoom)
-                    return (r.heic, r.uti, r.log, nil)
+                    return (r.heic, r.uti, r.log, nil, r.developRecord)
                 } catch {
-                    return (nil, UTType.heic.identifier, burst.report, error.localizedDescription)
+                    return (nil, UTType.heic.identifier, burst.report, error.localizedDescription, nil)
                 }
             }.value
             result.log.forEach { SessionLog.i("SHDR", $0) }
             var rawFile: URL?
             if !burst.dng.isEmpty {
                 let url = FileManager.default.temporaryDirectory.appendingPathComponent("SCAM_\(UUID().uuidString).dng")
-                if (try? burst.dng.write(to: url)) != nil { rawFile = url }
+                // P665: the gallery developer's record at the DNG's very end (DevelopRecord.append), after the DNG's own bytes
+                var dng = burst.dng
+                if let record = result.develop {
+                    dng.append(record)
+                    SessionLog.i("SHDR", "develop record appended to the DNG: \(record.count) bytes")
+                }
+                if (try? dng.write(to: url)) != nil { rawFile = url }
             }
             if let error = result.error {
                 SessionLog.e("SHDR", "processing failed: \(error)")

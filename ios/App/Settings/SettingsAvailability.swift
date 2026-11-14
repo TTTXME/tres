@@ -60,6 +60,8 @@ struct SettingsAvailability {
     private let mosaicStreams = false
     private let fullRes50 = false, fullRes200 = false
     private let bentoBlend = true
+    /// P676: «Why тон» V1 renders its colour by V2's rule (no scam_dev file on the iPhone to switch it off)
+    private let v1V2Colour = true
     private let dcg = false
     private let yuvMerge = false
     private let rawViewfinder = false
@@ -272,6 +274,10 @@ struct SettingsAvailability {
             return L("set.na.raw_viewfinder")
         }
         if let r = toneVersionReason(key) { return r }
+        if !toneV2 && v1V2Colour && any(key, Self.WHY + "hl_white", Self.WHY + "delta_chroma") {
+            return Lang.t("Тон V1 берёт цвет по правилу тона V2, где этого нет (scam_dev hybrid_why_v2_colour 0 — свой цвет V1, как раньше).",
+                          "Tone V1 takes its colour by tone V2's rule, which has none of this (scam_dev hybrid_why_v2_colour 0: V1's own colour, as before).")
+        }
         if let r = oldstyleRowReason(key) { return r }
         if let r = yuvReason(key) { return r }
         if let r = routeReason(key) { return r }
