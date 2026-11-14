@@ -29,6 +29,8 @@ public class WhyCombineUniformParityTest {
             "sunGridU", "fullInputU", "WhyHl", "SunBloom", "oppGridU", "OppShare",
             // P394: reads the full-size merge (fullInputU), which the viewfinder's frame is not
             "edgeHoldU", "edgeHoldLightU",
+            // P672b: splits the sharpened luma against the full-size merge (fullInputU); the viewfinder draws no detail (detailGainU 0)
+            "detailSplitU",
             // P623: the fast merge's short frames (the measured light above white), which a viewfinder frame has not
             "hlMeasU", "hlMeasShoulderU", "hlMeasCeilU", "hlMeasDetailU", "hlMeasSceneU", "hlMeasGlareU"));
 

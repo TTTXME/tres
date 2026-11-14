@@ -4,6 +4,9 @@ precision highp float; precision highp sampler2D;
 // around the centre, x the layer weights, normalised (o_W). The reference writes both at once (two colour attachments); here
 // MODE 0 writes o_G and MODE 1 o_W, the same expressions. SCALE 2 (an image above WhyV2Fusion.FULL_LIMIT): level 0 at half the
 // grid, the clean RGB as its 2x2 mean.
+// P677 MODE 2 (owner, 2026-11-13: «Да, перенеси в V2» - V1's P391 edge-aware bands in V2): the bands' guide and per-pixel fusion of
+// level 0, (G, Fpp) = (log2(I + u_band_floor), the lumas blended by their own weights) with I the metered light x AE (the
+// exposure 1 meter of MODE 0), as why/lpyr MODE 7 for V1 (RG16F; why/v2_pyr_down reduces it).
 #define MODE 0
 #define SCALE 1
 uniform sampler2D u_tex_clean_rgb;
@@ -17,6 +20,9 @@ uniform float u_blend_smoothness;
 uniform int u_gamma_curve_type;
 uniform float u_gamma_inv;
 uniform float u_aces_toe;
+#if MODE == 2
+uniform float u_band_floor;          // the guide's light floor (x AE), WhyTone.BAND_FLOOR
+#endif
 out vec4 Output;
 
 float apply_display_gamma_scalar(float x, int curve_type, float gamma_inv) {
@@ -70,6 +76,12 @@ void main() {
 
 #if MODE == 0
     Output = lumas;
+#elif MODE == 2
+    vec4 diff2 = lumas - vec4(u_weight_center);
+    vec4 w2 = exp(-0.5 * (diff2 * diff2) / vec4(max(u_blend_smoothness * u_blend_smoothness, 0.001))) * u_layer_weights + 0.000001;
+    w2 /= (w2.x + w2.y + w2.z + w2.w);
+    float light = max(rgb.r * 0.2126 + rgb.g * 0.7152 + rgb.b * 0.0722, max(max(rgb.r, rgb.g), rgb.b) * 0.5);
+    Output = vec4(log2(light + u_band_floor), dot(w2, lumas), 0.0, 1.0);
 #else
     vec4 diff_luma = lumas - vec4(u_weight_center);
     vec4 vars = vec4(max(u_blend_smoothness * u_blend_smoothness, 0.001));

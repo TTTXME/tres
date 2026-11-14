@@ -172,7 +172,11 @@ public final class Dcg14Mode {
 
     /** P230: the vendor operation mode the DCG session runs (Xiaomi 15 Ultra: 0x9203), 0 when it needs none or is inactive. */
     public static int operationMode(@Nullable CameraCharacteristics c) {
-        if (XiaomiDualGain.device()) return XiaomiDualGain.operationMode(); // P641: 0 but for the main camera's last variant
+        // P679: the LOFIC setup's session type (0xF010 / 0x8004); P641: 0 but for the main camera's last variant
+        if (XiaomiDualGain.device()) {
+            final XiaomiLofic.Setup lofic = XiaomiLofic.setup();
+            return lofic != null ? lofic.sessionType : XiaomiDualGain.operationMode();
+        }
         return XiaomiDcg.device() && active(c) ? XiaomiDcg.operationMode() : 0;
     }
 
@@ -182,13 +186,16 @@ public final class Dcg14Mode {
      */
     public static String applyRequest(CaptureRequest.Builder builder, @Nullable CameraCharacteristics c) {
         if (builder == null || !requestKeys(c)) return "";
+        final XiaomiLofic.Setup lofic = XiaomiLofic.setup(); // P679: the LOFIC setup's keys and its exact AE range
+        if (lofic != null) return XiaomiLofic.apply(builder, lofic, false);
         if (XiaomiDualGain.device()) return XiaomiDualGain.apply(builder); // P641
         return XiaomiDcg.device() ? XiaomiDcg.applyRequest(builder, c) : VivoQcomModes.applyDcgRequest(builder);
     }
 
     /** P230: the active DCG route sets keys on every request (Xiaomi 15 Ultra; the X200 Ultra's guarded Telegram route). */
     public static boolean requestKeys(@Nullable CameraCharacteristics c) {
-        if (XiaomiDualGain.device()) return XiaomiDualGain.sessionActive(); // P641: a session whose variant was chosen
+        // P641: a session whose variant was chosen; P679: a LOFIC session
+        if (XiaomiDualGain.device()) return XiaomiDualGain.sessionActive() || XiaomiLofic.sessionActive();
         return active(c) && (XiaomiDcg.device() || VivoQcomModes.telegramDcg());
     }
 

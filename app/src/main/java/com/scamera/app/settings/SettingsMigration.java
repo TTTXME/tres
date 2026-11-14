@@ -1054,6 +1054,19 @@ public final class SettingsMigration {
             e.putInt(FRINGE_LIGHT_REV, 1);
             markOnly = true;
         }
+        // P667: «YUV: 10 бит» defaults to off (the X200 Pro front camera's HLG10 session gave a washed-out white photo and
+        // viewfinder, YuvMergeRoute.TEN_BIT_DEFAULT): a stored former XML default (true, written by setDefaultValues) moves once
+        // to off; switched on again after the move it stays. Own marker.
+        if (!values.containsKey(YUV_TEN_BIT_REV)) {
+            final String key = ScamHybridKeys.PREFIX + "yuv_10bit";
+            final Object v = values.get(key);
+            if (v != null && PreferenceNumber.bool(v, false)) {
+                ModuleProfiles.put(e, key, v instanceof String ? "false" : (Object) Boolean.FALSE);
+                changed = true;
+            }
+            e.putInt(YUV_TEN_BIT_REV, 1);
+            markOnly = true;
+        }
         // P629 (owner, 2026-11-11: «Группу шумоподавление и склейка перемести под выбор склейки»): the pages «Шумоподавление» and
         // «Склейка» are one group «Шумоподавление и склейка» (scam_hybrid_dnmerge_screen) - no setting changed its key; a stored
         // order of the two pages' groups (settings_layout, «Расположение») becomes the group's line once, the denoise groups first
@@ -1191,6 +1204,9 @@ public final class SettingsMigration {
 
     /** P516: marker of the owner's stable config (2026-11-05): «Сочность в светах» 0.25 again after P513's 0. */
     static final String CONFIG_STABLE_REV = "pref_scam_hybrid_config_stable_rev";
+
+    /** P667: marker of the one-time move of a stored «YUV: 10 бит» (the former default on) to off. */
+    static final String YUV_TEN_BIT_REV = "pref_scam_hybrid_yuv_10bit_rev";
 
     /** P615: marker of the one-time move of the fringe net's light floor 0.12 to 0.05. */
     static final String FRINGE_LIGHT_REV = "pref_scam_hybrid_fringe_light_rev";

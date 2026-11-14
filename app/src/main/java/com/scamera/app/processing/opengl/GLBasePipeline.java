@@ -197,19 +197,26 @@ public class GLBasePipeline implements AutoCloseable {
      * kind: the buffer is only allocated by a full read-back).
      */
     public Bitmap runAllToBitmap() {
-        runNodes();
-        // P440 (step 0c): the final pass's draws and read-back start here (post_final .. post_readback)
-        if (!PostGlMode.legacy()) ShotTimeline.markIfShot("post_final");
-        GLGpuTimer.node("final output");
-        // P477: no node makes a texture any more: what the pool keeps goes now
-        GLTexturePool.node("final output");
-        GLTexturePool.end();
-        GLProg.compileNode("final output"); // P602
+        // P616: the post's GPU queue kept a few blocks deep (the viewfinder's draws are not stuck behind it); P668: through the
+        // final output's tiles as well (Xiaomi 12X, 31266: its 16 tiles went at once, «slow draw 182 / 243 ms ... after node Rotate»)
+        GpuPace.begin();
         final Bitmap bitmap;
         try {
-            bitmap = glIface.blockCtx.drawBlocksToBitmap();
+            runNodes();
+            // P440 (step 0c): the final pass's draws and read-back start here (post_final .. post_readback)
+            if (!PostGlMode.legacy()) ShotTimeline.markIfShot("post_final");
+            GLGpuTimer.node("final output");
+            // P477: no node makes a texture any more: what the pool keeps goes now
+            GLTexturePool.node("final output");
+            GLTexturePool.end();
+            GLProg.compileNode("final output"); // P602
+            try {
+                bitmap = glIface.blockCtx.drawBlocksToBitmap();
+            } finally {
+                GLProg.compileNode(null);
+            }
         } finally {
-            GLProg.compileNode(null);
+            GpuPace.end();
         }
         GLGpuTimer.report("post");
         GLTexturePool.report("post");
@@ -222,7 +229,6 @@ public class GLBasePipeline implements AutoCloseable {
     /** Runs every node; the last one stays bound for the read-back. */
     private void runNodes() {
         final long wallStart = System.currentTimeMillis();
-        GpuPace.begin(); // P616: the post's GPU queue kept a few blocks deep (the viewfinder's draws are not stuck behind it)
         try {
             GLES20.glGetIntegerv(GLES20.GL_FRAMEBUFFER_BINDING, savedFramebuffer, 0);
             checkEglError("glGetIntegerv");
@@ -236,7 +242,6 @@ public class GLBasePipeline implements AutoCloseable {
             nodesWallMs = System.currentTimeMillis() - wallStart;
             GLProg.compileNode(null);
             runningNode = "";
-            GpuPace.end();
         }
     }
 

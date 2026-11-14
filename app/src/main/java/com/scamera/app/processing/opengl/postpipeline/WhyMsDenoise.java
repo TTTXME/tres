@@ -13,6 +13,7 @@ import java.util.List;
 
 import static android.opengl.GLES20.GL_CLAMP_TO_EDGE;
 import static android.opengl.GLES20.GL_LINEAR;
+import static android.opengl.GLES20.GL_NEAREST;
 
 /** Post-CCM optics cleanup and the reference's Oklab Laplacian pyramid.
  * Filtering shaders retain the extracted arithmetic; only the camera/render RGB adapter is local.
@@ -92,6 +93,8 @@ public final class WhyMsDenoise extends Node {
     private Point whole;
     private int origin, end;
     private boolean tiled;
+    /** P671: this run's optics read the Oklab cache (for the log line). */
+    private boolean okCacheUsed;
 
     @Override
     public void runPass() {
@@ -111,6 +114,7 @@ public final class WhyMsDenoise extends Node {
         final boolean pyramid = enabled() && (th[0][0] > 0f || th[1][0] > 0f || th[2][0] > 0f
                 || th[0][1] > 0f || th[1][1] > 0f || th[2][1] > 0f) && input.size.x >= 32 && input.size.y >= 32;
         whole = input.size;
+        okCacheUsed = false;
         final int requested = Math.max(0, Math.round(PreferenceKeys.hybridValue("resolve_strip_rows", 0f)));
         final int rows = stripRows(whole.x, whole.y, requested);
         tiled = rows < whole.y;
@@ -152,15 +156,22 @@ public final class WhyMsDenoise extends Node {
                     shaderProg.drawBlocks(prepared);
 
                     GLTexture filtered = tex(owned, 0, 4);
-                    if (fuseLab) shaderProg.setDefine("OUT_LAB", 1);
-                    program("optics", filtered);
-                    bind("u_tex_rgb", prepared);
                     final boolean speckle = PreferenceKeys.hybridSwitch("resolve_speckle_enable", false);
-                    shaderProg.setVar("u_quad_speckle_strength", speckle
-                            ? Math.max(0f, Math.min(1f, PreferenceKeys.hybridValue("resolve_speckle_strength", 1f))) : 0f);
-                    shaderProg.setVar("u_quad_speckle_threshold", Math.max(0.01f,
-                            Math.min(0.5f, PreferenceKeys.hybridValue("resolve_speckle_threshold", 0.15f))));
-                    shaderProg.drawBlocks(filtered);
+                    final float speckleStrength = speckle
+                            ? Math.max(0f, Math.min(1f, PreferenceKeys.hybridValue("resolve_speckle_strength", 1f))) : 0f;
+                    final float speckleThreshold = Math.max(0.01f,
+                            Math.min(0.5f, PreferenceKeys.hybridValue("resolve_speckle_threshold", 0.15f)));
+                    // P671: the corner filter's Oklab neighbours from a per-strip cache (the same numbers; not tiled)
+                    final boolean cached = !tiled && oklabCache() && opticsCached(prepared, filtered, fuseLab, speckleStrength, speckleThreshold);
+                    okCacheUsed |= cached;
+                    if (!cached) {
+                        if (fuseLab) shaderProg.setDefine("OUT_LAB", 1);
+                        program("optics", filtered);
+                        bind("u_tex_rgb", prepared);
+                        shaderProg.setVar("u_quad_speckle_strength", speckleStrength);
+                        shaderProg.setVar("u_quad_speckle_threshold", speckleThreshold);
+                        shaderProg.drawBlocks(filtered);
+                    }
                     release(owned, prepared);
 
                     if (pyramid) {
@@ -271,11 +282,86 @@ public final class WhyMsDenoise extends Node {
             }
             passOut = out;
             Log.i("SCAM_PIPELINE", "resolve post: pyramid=" + pyramid + " model=" + model + " shadow=" + shadow
+                    + " opticsOklab=" + (okCacheUsed ? "cached" : "inline")
                     + " rows=" + rows + " ms=" + (System.nanoTime() - started) / 1_000_000);
         } finally {
             if (codes != null) codes.close();
             grids.clear();
             shaderProg.closed = true;
+        }
+    }
+
+    /** P671: the optics strips' rows (the cache holds two more above and below: 4 x 260 x 16 B a column, 17 MB at 4096 wide). */
+    static final int OPTICS_STRIP = 256;
+
+    /**
+     * P671: scam_dev ms_oklab_cache (default on; off or the old GL model: as before) - resolvedn/optics' corner filter reads its
+     * neighbours' Oklab from a cache written per strip (OKLAB_CACHE 1: rgb_to_oklab of every pixel of the strip and two rows on
+     * each side into RGBA32F, exact floats; OKLAB_CACHE 2: the filter on the strip's rows): each pixel converted once instead of
+     * up to 25 times, the same numbers (tools/check_ms_oklab_cache.py: bit for bit).
+     */
+    static boolean oklabCache() {
+        return !com.scamera.app.processing.opengl.PostGlMode.legacy() && PreferenceKeys.scamDevSwitch("ms_oklab_cache", true);
+    }
+
+    /** P671: optics over {@code filtered} in strips with the Oklab cache; false (nothing drawn, no error left) when it cannot. */
+    private boolean opticsCached(GLTexture prepared, GLTexture filtered, boolean fuseLab, float speckleStrength, float speckleThreshold) {
+        final int w = whole.x, h = whole.y;
+        GLTexture cache = null;
+        try {
+            while (android.opengl.GLES30.glGetError() != android.opengl.GLES30.GL_NO_ERROR) {
+                // drain: only the passes below decide
+            }
+            cache = new GLTexture(new Point(w, Math.min(h, OPTICS_STRIP + 4)), new GLFormat(GLFormat.DataType.FLOAT_32, 4), null,
+                    GL_NEAREST, GL_CLAMP_TO_EDGE);
+            final int[] colour0 = {android.opengl.GLES30.GL_COLOR_ATTACHMENT0};
+            final boolean invalidate = com.scamera.app.processing.opengl.PostGlMode.invalidate();
+            for (int y = 0; y < h; y += OPTICS_STRIP) {
+                final int rows = Math.min(OPTICS_STRIP, h - y);
+                final int first = Math.max(0, y - 2), stop = Math.min(h, y + rows + 2);
+                shaderProg.setDefine("OKLAB_CACHE", 1);
+                program("optics", filtered);
+                bind("u_tex_rgb", prepared);
+                shaderProg.setVar("cacheOriginU", first);
+                cache.renderInto();
+                if (invalidate) android.opengl.GLES30.glInvalidateFramebuffer(android.opengl.GLES30.GL_FRAMEBUFFER, 1, colour0, 0);
+                pacedRows("resolvedn/optics(cache)", 0, stop - first, w);
+                if (fuseLab) shaderProg.setDefine("OUT_LAB", 1);
+                shaderProg.setDefine("OKLAB_CACHE", 2);
+                program("optics", filtered);
+                bind("u_tex_rgb", prepared);
+                shaderProg.setTexture("OkCache", cache);
+                shaderProg.setVar("cacheOriginU", first);
+                shaderProg.setVar("u_quad_speckle_strength", speckleStrength);
+                shaderProg.setVar("u_quad_speckle_threshold", speckleThreshold);
+                filtered.renderInto();
+                if (invalidate && y == 0) android.opengl.GLES30.glInvalidateFramebuffer(android.opengl.GLES30.GL_FRAMEBUFFER, 1, colour0, 0);
+                pacedRows("resolvedn/optics(cached)", y, rows, w);
+            }
+            final int error = android.opengl.GLES30.glGetError();
+            if (error != android.opengl.GLES30.GL_NO_ERROR) throw new IllegalStateException("GL error 0x" + Integer.toHexString(error));
+            return true;
+        } catch (RuntimeException failure) {
+            Log.w("SCAM_PIPELINE", "resolve optics Oklab cache: " + failure + ", the plain pass");
+            shaderProg.setDefine("OKLAB_CACHE", 0); // a failed compile leaves its defines pending: the plain pass's own
+            return false;
+        } finally {
+            if (cache != null) cache.close(); // (released when the GPU is done with it)
+        }
+    }
+
+    /**
+     * Rows [y, y + rows) of the bound target drawn in bands, each flushed and paced as GLProg.drawBlocks does (P616 / P668: a slow
+     * GPU gets bands of ~10 ms of its measured time of {@code pass}).
+     */
+    private void pacedRows(String pass, int y, int rows, int w) {
+        for (int r = 0; r < rows; ) {
+            final int n = Math.min(rows - r, com.scamera.app.processing.opengl.GpuPace.bandRows(pass, w, rows - r));
+            android.opengl.GLES30.glViewport(0, y + r, w, n);
+            shaderProg.draw();
+            android.opengl.GLES30.glFlush();
+            com.scamera.app.processing.opengl.GpuPace.submitted(pass, (long) w * n);
+            r += n;
         }
     }
 

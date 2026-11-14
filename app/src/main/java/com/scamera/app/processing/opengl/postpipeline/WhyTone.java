@@ -292,11 +292,91 @@ public final class WhyTone {
     }
 
     /**
+     * P673 (owner, 2026-11-13: the reference's k_fs_ef_pyr_collapse with joint bilateral upsampling - «вместо аппаратного
+     * билинейного texture() ... сэмплируются 4 coarse-текселя с весом exp(-(g_coarse - g_fine)^2 / 2 sigma_r^2)», «реализуй всё-таки
+     * это и сравни»): sigma_r of that range weight in the collapse of V1's pyramid (why/lpyr JBU, MODE 4 / 5: expand's 2 x 2 nodes)
+     * in the guide's unit ({@link #jbuGuide}: display luma, EV with a log guide); 0: off, the plain expand bit for bit (no define).
+     */
+    static float jbuSigma() {
+        return Math.max(0f, value("fusion_jbu_sigma", 0f));
+    }
+
+    /**
+     * P673: {@link #jbuSigma()} of the V2 tone (WhyV2Fusion, why/v2_ef_collapse JBU: texture()'s 4 bilinear texels); 0: off.
+     * P673c (owner, 2026-11-13, the pool burst's sky glow along the beam: «Включай для V2»): on by default at 0.1 - on the final JPEG
+     * the glow next to dark objects (+7.7 codes, +15.8 at shadows / highlights 5) goes to about +1; V1 has no such glow and stays off.
+     */
+    static float jbuSigmaV2() {
+        return Math.max(0f, value("v2_jbu_sigma", 0.1f));
+    }
+
+    /**
+     * P673: the guide g of the collapse's range weight: 1 the lumas of the four exposures (the shader's own g_fine / g_coarse, their
+     * squared distance), 2 the collapsing image (the coarser fused luma against the pixel's fused luma of the plain expand); 3 / 4
+     * the same in log2 (floor {@link #JBU_LOG_FLOOR}, sigma_r in EV).
+     */
+    static int jbuGuide() {
+        return Math.max(1, Math.min(4, Math.round(value("fusion_jbu_guide", 1f))));
+    }
+
+    /** P673: {@link #jbuGuide()} of the V2 tone. */
+    static int jbuGuideV2() {
+        return Math.max(1, Math.min(4, Math.round(value("v2_jbu_guide", 1f))));
+    }
+
+    /**
+     * P677 (owner, 2026-11-13: «Да, перенеси в V2»): V1's P391 edge-aware bands on V2's pyramid (why/v2_ef_bands, why/v2_ef_collapse
+     * / v2_ef_coarsest BANDS 1) - {lo, hi (EV of a step), the guide's light floor, the strength, the reach, the fall}, as {@link
+     * #bands()} with V2's own strength and ramp; null: off, V2's passes before P677 bit for bit. Off by default: on the owner's
+     * bursts (final JPEG) the sky pocket between the pool's awning and its beam goes from +9 to +1 code (+19 to +1.3 at shadows /
+     * highlights 5), but V2's local contrast in busy scenes falls 4 - 16 % with V1's ramp and light surfaces beside dark objects
+     * darken more than with the JBU alone (sun -23 against -15 codes, park -12 against -6) - research/handoff/PLAN.md P677.
+     */
+    static float[] edgeBandsV2() {
+        final float strength = Math.max(0f, Math.min(1f, value("v2_edge_bands", 0f)));
+        if (!(strength > 0f)) return null;
+        final float lo = Math.max(0f, value("v2_edge_bands_lo", value("fusion_bands_lo", 1.2f)));
+        return new float[]{lo, Math.max(value("v2_edge_bands_hi", value("fusion_bands_hi", 1.8f)), lo + 0.01f), BAND_FLOOR, strength,
+                Math.max(0, Math.min(4, Math.round(value("fusion_bands_reach", 3f)))), Math.max(0f, value("fusion_bands_fall", 0.25f))};
+    }
+
+    /** P673: the display luma floor of a log2 guide (3 / 4). */
+    static final float JBU_LOG_FLOOR = 0.01f;
+
+    /** P673: the shaders' JBU define of a guide setting (1 the lumas, 2 the fused luma). */
+    static int jbuDefine(int guide) {
+        return guide == 2 || guide == 4 ? 2 : 1;
+    }
+
+    /** P673: the shaders' log floor of a guide setting (0: the guide as it is). */
+    static float jbuLog(int guide) {
+        return guide >= 3 ? JBU_LOG_FLOOR : 0f;
+    }
+
+    /**
      * P391 (item 3): the cap of the deep shadows' fused-luma noise the bright layer's floor may lift them to (import why_fusion
      * deepNoiseU.x; 0: the floor as before).
      */
     static float deepNoise() {
         return Math.max(0f, value("deep_noise", DEEP_NOISE));
+    }
+
+    /** P672: WhyFusion.noiseModel - scam_dev.txt "hybrid_why_fusion_noise_model" (0 by default: no noise terms, as V2's fusion). */
+    static boolean fusionNoiseModel() {
+        return value("fusion_noise_model", 0f) >= 0.5f;
+    }
+
+    /**
+     * P672b (owner, 2026-11-13: «сделай так чтобы V1 не отличался от V2»): how why/combine carries the full-size detail (detailSplitU) -
+     * 2 (the default): as «Why тон» V2's tonemap_final - the sharpening's own delta onto the lightness as it is (V2's clamp, no tone
+     * scale, no gain) and the merge's own detail by the curve's slope at the toned level (V2 runs the pixel through the tone); 1: the
+     * sharpening's delta alone; 0: the whole sharpened delta under the compression as before. scam_dev.txt "hybrid_why_detail_split".
+     * Only with the sharpened luma, no film (the film keeps the merge's own detail as before) and the full-size input at hand.
+     */
+    static int detailSplit(boolean sharp, boolean film, boolean inputReleased) {
+        if (!sharp || film || inputReleased) return 0;
+        final float v = value("detail_split", 2f);
+        return v >= 1.5f ? 2 : v >= 0.5f ? 1 : 0;
     }
 
     /** P391: the default of {@link #deepNoise}: the fused luma's noise at most 0.008 (two 8-bit steps of the curve) in a lifted shadow. */
@@ -474,6 +554,31 @@ public final class WhyTone {
     }
 
     /**
+     * P676 (owner, 2026-11-13: «Да, сделай жёлтый в V1 как в V2. Причём не только в этой сцене, а везде»; the pool burst's yellow slide
+     * hue 73.5 / chroma 63 in V1 against V2's 79.2 / 68): why/combine V2_COLOUR - V1's colour after the tone by «Why тон» V2's rule
+     * (tonemap_final: the hue lock on blues only, the per-channel clip before and after the detail, the pixel's own colour clamped at
+     * 0 as its clean input, the colour of a lightness as its tone renders it), V1's luminance (its AE, fusion, curve, local contrast,
+     * detail) as it is (host: |dL*| 0.01 - 0.11 mean on six bursts). Host replay at equal lightness against V2: mean hue error 1.9 ->
+     * 0.3 deg, chroma -1.1 -> +0.8 %; the pool's yellow slide -6.4 -> -0.6 deg. With it V1's colour stages that V2 has no
+     * counterpart of are off: P395 YELLOW_HUE, P398 HL_NEUTRAL, P506 LIGHT_WARM, P393 LIGHT_CHROMA, the path to white of saturated
+     * light («Путь к белому», hl_white) and the darkening detail's chroma (delta_chroma). scam_dev.txt "hybrid_why_v2_colour 0" = V1's
+     * own colour as before P676 (every one of those back at its own key). The photo and the viewfinder alike.
+     */
+    public static boolean v2Colour() {
+        return value("v2_colour", 1f) >= 0.5f;
+    }
+
+    /** P676: why/combine hlWhiteU - the path to white (hl_white), 0 with {@link #v2Colour}. */
+    static float hlWhite() {
+        return v2Colour() ? 0f : Math.max(0f, Math.min(1f, value("hl_white", 0.15f)));
+    }
+
+    /** P676: why/combine deltaChromaU - the darkening detail's chroma scale (delta_chroma), 0 with {@link #v2Colour}. */
+    static float deltaChroma() {
+        return v2Colour() ? 0f : Math.max(0f, Math.min(1f, value("delta_chroma", 1f)));
+    }
+
+    /**
      * P395 (owner, 2026-10-29: the yellow «Лента» facade and sunlit birches orange-ochre beside WhyCam's yellow): why/combine
      * yellowHueU - the saturated orange-yellow scene hues (OKLab 74 .. 88 deg, fading out at 64 / 100; C / L from 0.10) turned up to
      * 8 deg towards yellow, the photo and the RAW viewfinder alike. scam_dev hybrid_why_yellow_hue 0..1 (0 = off, as before).
@@ -482,6 +587,7 @@ public final class WhyTone {
      * blue clipped. On by default on vivo only.
      */
     static float yellowHue() {
+        if (v2Colour()) return 0f;   // P676: V1-only (no V2 counterpart)
         return Math.max(0f, Math.min(1f, value("yellow_hue", "vivo".equalsIgnoreCase(android.os.Build.MANUFACTURER) ? 1f : 0f)));
     }
 
@@ -491,6 +597,7 @@ public final class WhyTone {
      * viewfinder alike. scam_dev hybrid_why_hl_neutral 0..1 (0 = off, as before).
      */
     static float hlNeutral() {
+        if (v2Colour()) return 0f;   // P676: V1-only (no V2 counterpart)
         return Math.max(0f, Math.min(1f, value("hl_neutral", 1f)));
     }
 
@@ -501,7 +608,8 @@ public final class WhyTone {
      * 0..1 (0 = off, the shader as before), hybrid_why_light_warm_chroma.
      */
     static float[] lightWarm() {
-        return new float[]{Math.max(0f, Math.min(1f, value("light_warm", 1f))), 0.6f, 0.9f,
+        // P676: V1-only (V2_COLOUR's hue lock leaves the warm light tones the curve's hue anyway)
+        return new float[]{v2Colour() ? 0f : Math.max(0f, Math.min(1f, value("light_warm", 1f))), 0.6f, 0.9f,
                 Math.max(0f, Math.min(1f, value("light_warm_chroma", 0.5f)))};
     }
 
@@ -717,6 +825,7 @@ public final class WhyTone {
      * shoulder's chroma and the hue lock as before (scam_dev hybrid_why_light_chroma 0).
      */
     static float lightChroma() {
+        if (v2Colour()) return 0f;   // P676: V1-only (no V2 counterpart)
         return Math.max(0f, Math.min(1f, value("light_chroma", 1f)));
     }
 

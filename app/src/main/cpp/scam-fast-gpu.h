@@ -570,6 +570,26 @@ public:
         if(gather==rejFilterGather)return;
         prog[pRejFilter]=rejFilterProgram(gather);rejFilterGather=gather;locs.clear(); // (uniform locations are per program)
     }
+    // P675 fastNightMotion: the rejection with the night motion test (kFastRejection with NIGHT_MOTION defined, built on first
+    // use); without it the program of the init, unchanged
+    GLuint rejectVariant[2]{};bool rejectNight=false;
+    bool selectReject(bool night){
+        if(night==rejectNight)return true;
+        GLuint& q=rejectVariant[night?1:0];
+        if(!q){
+            if(!night)q=prog[pReject];
+            else{
+                std::string src(fastmerge::kFastRejection);
+                const std::string v="#version 310 es\n";
+                if(src.compare(0,v.size(),v)!=0)return false;
+                src.insert(v.size(),"#define NIGHT_MOTION 1\n");
+                try{q=fs(src.c_str());}catch(const std::exception& e){notes.push_back(std::string("FAST MERGE GPU: night motion test off (")+e.what()+")");return false;}
+            }
+        }
+        if(!rejectVariant[0])rejectVariant[0]=prog[pReject];
+        prog[pReject]=q;rejectNight=night;locs.clear(); // (uniform locations are per program)
+        return true;
+    }
     void hlMaskOutProgram(){if(!prog[pHlMaskOut])prog[pHlMaskOut]=cs(fastmerge::kFastHlMaskOut);} // P480
     void flowPickProgram(bool rescue){ // P601 (throws when one does not build)
         if(!prog[pFlowPick])prog[pFlowPick]=fs(fastmerge::kFastFlowPick);
@@ -799,6 +819,7 @@ private:
             freeObjects();
             for(GLuint p:prog)if(p)glDeleteProgram(p);
             for(GLuint v:rejFilterVariant)if(v&&v!=prog[pRejFilter])glDeleteProgram(v); // P484
+            for(GLuint v:rejectVariant)if(v&&v!=prog[pReject])glDeleteProgram(v); // P675
             eglMakeCurrent(display,EGL_NO_SURFACE,EGL_NO_SURFACE,EGL_NO_CONTEXT);
         }
         if(surface!=EGL_NO_SURFACE)eglDestroySurface(display,surface);
@@ -936,8 +957,13 @@ private:
     GLuint fs(const char* src){return link({{GL_VERTEX_SHADER,fastmerge::kFastVs},{GL_FRAGMENT_SHADER,fastmerge::fastIndexFree(arrayFree?fastmerge::fastArrayFree(src):src)}});}
 };
 
-// The context with its programs made on the worker's EGL warm-up thread while it waits for the burst (as laGpuPrewarm)
-struct FastGpuPrewarm { std::mutex m;std::condition_variable cv;bool started=false,done=false,abandoned=false;std::unique_ptr<FastMergeGpu> gpu;std::string error; };
+// The context with its programs made on the worker's EGL warm-up thread while it waits for the burst (as laGpuPrewarm).
+// P668: a context never taken (a kept-ready worker whose shot never came: «STOP: SCAM burst was not delivered by the app») is left
+// to the process exit, never torn down from this static's destructor. The holder is made on the main thread (fastGpuPrewarmBegin)
+// before the warm-up thread loads the driver, so its destructor ran after the driver's own exit handlers: eglMakeCurrent there
+// crashed (Xiaomi 12X, Adreno 650, build 31266: SIGSEGV in libGLESv2_adreno under __cxa_finalize at every such exit; P219's case).
+struct FastGpuPrewarm { std::mutex m;std::condition_variable cv;bool started=false,done=false,abandoned=false;std::unique_ptr<FastMergeGpu> gpu;std::string error;
+    ~FastGpuPrewarm(){(void)gpu.release();} };
 inline FastGpuPrewarm& fastGpuPrewarm(){static FastGpuPrewarm p;return p;}
 // Marked on the starting thread before the warm-up thread runs (the merge may ask for the context before that thread is scheduled);
 // fastGpuPrewarmCancel when the thread could not be started

@@ -67,7 +67,15 @@ import com.scamera.app.util.Lang;
 public class PhotoEditorFragment extends Fragment implements EditPanels.Host {
     private static final String KEY_STATE = "edit_state", KEY_TAB = "edit_tab";
     static final int TAB_CROP = 0, TAB_STYLES = 1, TAB_LOOK = 2, TAB_LIGHT = 3, TAB_COLOUR = 4, TAB_EFFECTS = 5, TAB_DETAIL = 6,
-            TAB_WATERMARK = 7;
+            TAB_WATERMARK = 7, TAB_DEVELOP = 8;
+    /** P665: the tabs in the bar's order (the ids stay: a saved tab keeps meaning the same one); «Проявка» after «Кадр». */
+    static final int[] TAB_ORDER = {TAB_CROP, TAB_DEVELOP, TAB_STYLES, TAB_LOOK, TAB_LIGHT, TAB_COLOUR, TAB_EFFECTS, TAB_DETAIL, TAB_WATERMARK};
+
+    /** P665: a tab's place in the bar. */
+    static int position(int tab) {
+        for (int i = 0; i < TAB_ORDER.length; i++) if (TAB_ORDER[i] == tab) return i;
+        return tab;
+    }
     private static final String PREFS = "scam_editor", PREF_CLIPBOARD = "clipboard";
     /** Copied settings («Копировать настройки»), kept for the app's lifetime and in prefs. */
     @Nullable private static EditState clipboard;
@@ -134,6 +142,14 @@ public class PhotoEditorFragment extends Fragment implements EditPanels.Host {
         if (saved == null && a.containsKey(ExternalEdit.ARG_ZOOM))
             gl.startZoom(a.getFloat(ExternalEdit.ARG_ZOOM, 1f), a.getFloat(ExternalEdit.ARG_ZOOM_CX, 0.5f), a.getFloat(ExternalEdit.ARG_ZOOM_CY, 0.5f));
         vm.source.observe(getViewLifecycleOwner(), this::onSource);
+        // P665: a developed picture or the develop's status: the picture swaps, the «Проявка» tab says what happens
+        vm.developed.observe(getViewLifecycleOwner(), d -> {
+            render();
+            if (tab == TAB_DEVELOP) panels.refresh();
+        });
+        vm.developStatus.observe(getViewLifecycleOwner(), t -> {
+            if (tab == TAB_DEVELOP) panels.refresh();
+        });
         vm.error.observe(getViewLifecycleOwner(), e -> {
             if (e == null) return;
             // the system toast: leaving may close the activity (an edit for another app) and take a toast in its window along
@@ -410,15 +426,16 @@ public class PhotoEditorFragment extends Fragment implements EditPanels.Host {
     private void buildTabs(Context c) {
         tabBar.removeAllViews();
         int[] icons = {R.drawable.ui_ic_crop, R.drawable.ui_ic_styles, R.drawable.ui_ic_film, R.drawable.ui_ic_sun, R.drawable.ui_ic_palette,
-                R.drawable.ui_ic_effects, R.drawable.ui_ic_detail, R.drawable.ui_ic_tag};
+                R.drawable.ui_ic_effects, R.drawable.ui_ic_detail, R.drawable.ui_ic_tag, R.drawable.ui_ic_raw};
         String[] names = {Lang.t("Кадр", "Crop"), Lang.t("Стили", "Styles"), "LUT", Lang.t("Свет", "Light"), Lang.t("Цвет", "Colour"),
-                Lang.t("Эффекты", "Effects"), Lang.t("Детали", "Detail"), Lang.t("Знак", "Mark")};
+                Lang.t("Эффекты", "Effects"), Lang.t("Детали", "Detail"), Lang.t("Знак", "Mark"), Lang.t("Проявка", "Develop")};
         tabButtons = new LinearLayout[icons.length];
         tabIcons = new ImageView[icons.length];
         tabNames = new TextView[icons.length];
         tabPills = new android.graphics.drawable.GradientDrawable[icons.length];
         final int accent = GalleryUi.accent(c);
-        for (int i = 0; i < icons.length; i++) {
+        for (int n = 0; n < TAB_ORDER.length; n++) {
+            final int i = TAB_ORDER[n];
             final int k = i;
             boolean on = i == tab;
             int colour = on ? accent : GalleryUi.MUTED;
@@ -457,7 +474,7 @@ public class PhotoEditorFragment extends Fragment implements EditPanels.Host {
         final int from = tab;
         tab = t;
         animateTabs(from, t);
-        showPanel(Integer.compare(t, from));
+        showPanel(Integer.compare(position(t), position(from)));
         updateOverlay();
         render();
     }
@@ -557,11 +574,44 @@ public class PhotoEditorFragment extends Fragment implements EditPanels.Host {
 
     private void render() {
         if (gl == null) return;
+        syncDevelop();
         gl.setState(vm.state, tab == TAB_CROP, before);
         requestLook();
         updateWatermark();
         EditMotion.show(histogram, tab != TAB_CROP, 0f);
         updateZoomPill();
+    }
+
+    /**
+     * P665: the picture the editor works on - the developed one while «Проявка камерой» is on (the last developed: a new develop
+     * replaces it when it is done), else the photo as opened - and the develop asked for the state's settings.
+     */
+    private void syncDevelop() {
+        EditSource raw = vm.source.getValue();
+        if (raw == null || gl == null) return;
+        if (vm.develop != null && vm.state.develop) vm.requestDevelop(vm.state);
+        EditSource want = shown();
+        if (want != gl.source()) gl.setSource(want);
+    }
+
+    /** P665: the source the picture, the crop and the copy work on now. */
+    @Nullable
+    private EditSource shown() {
+        EditSource raw = vm.source.getValue();
+        EditSource dev = vm.developed.getValue();
+        return vm.develop != null && vm.state.develop && dev != null ? dev : raw;
+    }
+
+    @Nullable
+    @Override
+    public EditDevelop develop() {
+        return vm.develop;
+    }
+
+    @Nullable
+    @Override
+    public String developStatus() {
+        return vm.developStatus.getValue();
     }
 
     /** A line in the note pill for 6 s (a RAW's limits; P367: full resolution unavailable). */
@@ -598,7 +648,7 @@ public class PhotoEditorFragment extends Fragment implements EditPanels.Host {
      */
     private void updateWatermark() {
         if (watermarkView == null) return;
-        EditSource s = vm.source.getValue();
+        EditSource s = shown();
         com.scamera.app.processing.watermark.WatermarkSpec spec = vm.state.watermark();
         boolean show = s != null && spec != null && tab != TAB_CROP && !before;
         if (show) {
@@ -659,7 +709,7 @@ public class PhotoEditorFragment extends Fragment implements EditPanels.Host {
 
     @Override
     public EditSource source() {
-        return vm.source.getValue();
+        return shown();
     }
 
     @Override
@@ -702,7 +752,7 @@ public class PhotoEditorFragment extends Fragment implements EditPanels.Host {
     }
 
     private double[] oriented() {
-        EditSource s = vm.source.getValue();
+        EditSource s = shown();
         return s != null ? EditorView.oriented(s) : new double[]{1, 1};
     }
 
@@ -827,7 +877,8 @@ public class PhotoEditorFragment extends Fragment implements EditPanels.Host {
         }
         exportBar.setProgress(0);
         // P367: the zoom's reader gives its memory to the export (which waits until it is closed)
-        vm.export(vm.state, gl != null ? gl.closeFullRes() : null);
+        // P665: the developed picture's copy develops the whole DNG (EditDevelop.full) on the export's thread
+        vm.export(vm.state, gl != null ? gl.closeFullRes() : null, shown());
     }
 
     private void onExported(EditExporter.Result r) {

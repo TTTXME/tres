@@ -48,6 +48,11 @@ public class Parameters {
     /** P320: the frames come from a DCG sensor mode (one exposure, high- and low-gain reads fused): see ScamProcessor.dcgLinearity. */
     public boolean dcgShot;
     /**
+     * P679: a LOFIC shot whose pairs were merged before the burst merge (processing.LoficMerge): the frames' codes hold 2^loficLog2
+     * times the Long range, the Long clip at 1 / 2^loficLog2 of white; 0 for every other shot.
+     */
+    public int loficLog2;
+    /**
      * P320: how many times the ISO a DCG mode reports exceeds the gain its photons saw: the stream's range against the declared
      * one when the white is a measured clip (X300 Ultra DCG: (8694 - 1030.75) / (1023 - 64) = 8, the 1336-for-167 ISO of the
      * owner's log, HybridPlan P163); 1 = not a DCG shot or not known. ISO-keyed noise and night rules divide by it.
@@ -2085,6 +2090,7 @@ public class Parameters {
         // what was done to the frames before the merge
         c.rawBinning = rawBinning;
         c.dcgShot = dcgShot;
+        c.loficLog2 = loficLog2;
         c.dcgIsoScale = dcgIsoScale;
         c.dcgNoise = dcgNoise == null ? null : dcgNoise.clone();
         c.rawCrop = rawCrop;

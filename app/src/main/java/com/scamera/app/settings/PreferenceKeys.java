@@ -732,6 +732,17 @@ public class PreferenceKeys {
      * SettingsNumericRules bounds, so a restored config or an old module profile cannot send a value the row cannot show;
      * "" when unset or not a number (the caller then writes the app default, else the worker keeps its own).
      */
+    /**
+     * P665: whether the preference {@code key} goes to the merge (the worker's tuning, {@link #hybridTuningText}): the gallery
+     * developer greys it - its DNG holds the merge's result.
+     */
+    public static boolean mergeTuningKey(String key) {
+        if (key == null || !key.startsWith(HYBRID_PREFIX)) return false;
+        final String suffix = key.substring(HYBRID_PREFIX.length());
+        for (String[] k : TUNING_KEYS) if (k[1].equals(suffix)) return true;
+        return false;
+    }
+
     static String storedTuningValue(String key) {
         final String raw = hybridString(key, "");
         if (raw.isEmpty()) return "";
@@ -812,6 +823,11 @@ public class PreferenceKeys {
         // 1; its share 0..1); "hybrid_fast_light_fill 0" = before
         final float lightFill = hybridValue("fast_light_fill", 1f);
         if (lightFill != 1f) out.append("fastLightFill ").append(Math.max(0f, Math.min(1f, lightFill))).append('\n');
+        // P675 (owner, 2026-11-13: moving leaves and a passing car came out wrong in the night merge): the fast route's night motion
+        // test - a donor that differs from the base beyond the noise around a pixel is rejected there, a donor drifting everywhere
+        // keeps the rejection as before (worker fastNightMotion, default 1; its strength 0..1); "hybrid_fast_night_motion 0" = before
+        final float nightMotion = hybridValue("fast_night_motion", 1f);
+        if (nightMotion != 1f) out.append("fastNightMotion ").append(Math.max(0f, Math.min(1f, nightMotion))).append('\n');
         // P607 «Качество»: an ultrashort frame the GPU homography refused for too few inliers starts its registration from that
         // homography (worker usWeakHom 1), and the Bento blend flags a colour at the ultrashort clip where the frames holding half
         // its weight are clipped (usClipVote 1); "hybrid_us_weak_hom 0" / "hybrid_us_clip_vote 0" = before
@@ -832,6 +848,9 @@ public class PreferenceKeys {
         // in every mode: «Спорт» reads the photo's switch and footprint rows (MotionMode.DEFAULTS replaces none of them), its merge
         // (either route, fastMergeSport) applies the same curve. scam_dev.txt "hybrid_kernel_snr 0" = off.
         out.append("kernelSnr ").append(hybridSwitch("kernel_snr", true) ? 1 : 0).append('\n');
+        // P666: by day the shadows keep the kernel's transition / bokeh of before P647 (worker kernelSnrShadow, on by default: no
+        // line); scam_dev.txt "hybrid_kernel_snr_shadow 0" = P647b's day factors in the shadows too
+        if (!hybridSwitch("kernel_snr_shadow", true)) out.append("kernelSnrShadow 0\n");
         final float dezipper = hybridValue("dezipper", 4.5f);
         if (dezipper > 0f) out.append("dezipper ").append(Math.max(0.5f, Math.min(15f, dezipper))).append('\n');
         // P335 (owner, 2026-10-25: Why's rejections and anti-zipper «улучшить и добавить нам»): the rejection's soft motion prior

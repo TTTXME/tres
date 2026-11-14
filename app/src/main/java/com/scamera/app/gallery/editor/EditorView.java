@@ -158,6 +158,12 @@ public final class EditorView extends GLSurfaceView {
         callbacks = c;
     }
 
+    /** P665: the source shown now. */
+    @Nullable
+    public EditSource source() {
+        return source;
+    }
+
     public void setSource(EditSource s) {
         boolean changed = s != source;
         source = s;

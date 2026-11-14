@@ -95,7 +95,7 @@ JNIEXPORT jboolean JNICALL Java_com_scamera_app_processing_yuv_YuvMergeNative_pa
 /**
  * settings: profile (0 2.7, 1 3.1), global radius, local radius, threshold scale, chroma check, chroma tolerance, luma check, own
  * noise, sharpest base, guided chroma, bracket, de-ghost, threads, transfer (0 sRGB, 1 points, 2 HLG, 3 linear), decode (0 JFIF
- * BT.601, 1 narrow BT.2020). curve: the points' linear inputs then their encoded outputs. noise: S, O of the camera's profile.
+ * BT.601, 1 BT.2020 narrow unless its Y extremes say full, 2 BT.2020 full range, 3 BT.2020 narrow: 2 / 3 the dataspace's range). curve: the points' linear inputs then their encoded outputs. noise: S, O of the camera's profile.
  * stats out: base, mean frames, linear S, linear O, bracket used, ES share, L share, noise measured, measured bins, median frames.
  */
 JNIEXPORT jstring JNICALL Java_com_scamera_app_processing_yuv_YuvMergeNative_merge(
@@ -140,7 +140,11 @@ JNIEXPORT jstring JNICALL Java_com_scamera_app_processing_yuv_YuvMergeNative_mer
         t.build();
         scam_yuv::Decoder d;
         d.bits = bits;
-        d.bt2020 = d.narrow = s[14] > .5f;
+        // P667: 1 narrow unless the Y extremes say full (no range declared), 2 full, 3 narrow (the Image's dataspace declared it)
+        const int decode = std::clamp(int(std::lround(s[14])), 0, 3);
+        d.bt2020 = decode > 0;
+        d.narrow = decode == 1 || decode == 3;
+        d.rangeKnown = decode >= 2;
         const scam_yuv::NoiseFallback fb{nz[0], nz[1]};
         float* out = static_cast<float*>(env->GetDirectBufferAddress(outRgb));
         if (!out || env->GetDirectBufferCapacity(outRgb) < jlong(width) * height * 12) throw std::invalid_argument("RGB buffer too small");

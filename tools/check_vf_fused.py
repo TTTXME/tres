@@ -233,7 +233,10 @@ def find_glslc() -> str | None:
 FUSED_VARIANTS = (('fused', ()), ('fused + COLOUR_LOOK', (('COLOUR_LOOK', '1'),)), ('fused + TONE_OP', (('TONE_OP', '1'),)),
                   ('fused + FILM_LUT', (('FILM_LUT', '1'),)),
                   ('fused + COLOUR_LOOK + TONE_OP + FILM_LUT', (('COLOUR_LOOK', '1'), ('TONE_OP', '1'), ('FILM_LUT', '1'))),
-                  ('fused + P3_OUT', (('P3_OUT', '1'),)))
+                  ('fused + P3_OUT', (('P3_OUT', '1'),)),
+                  # P676: V1's colour after the tone as V2's (LiveWhyTone sets V2_COLOUR as the photo does)
+                  ('fused + TONE_OP + V2_COLOUR', (('TONE_OP', '1'), ('V2_COLOUR', '1'))),
+                  ('fused + COLOUR_LOOK + TONE_OP + P3_OUT + V2_COLOUR', (('COLOUR_LOOK', '1'), ('TONE_OP', '1'), ('P3_OUT', '1'), ('V2_COLOUR', '1'))))
 
 
 def glslc_part() -> None:
@@ -354,7 +357,8 @@ def mosaic(img: np.ndarray, cfa: int, block: int, rng, black, noise=True) -> np.
     return np.clip(np.round(b + v), 0, 1023).astype(np.uint16)
 
 
-def gpu_part() -> None:
+def gpu_part(extra: tuple = ()) -> None:
+    """extra: defines both passes take on top (P676: V2_COLOUR 1, the shipped colour rule, with the signed hue off as LiveWhyTone sets it)."""
     try:
         import moderngl
     except ImportError:
@@ -368,7 +372,7 @@ def gpu_part() -> None:
     combine = read(SH / 'why/combine.glsl')
     vs_raw = read(SH / 'preview/rawdevelop_vs.glsl')
     vs_full = '#version 300 es\nvoid main(){vec2 p=vec2(float((gl_VertexID<<1)&2),float(gl_VertexID&2));gl_Position=vec4(p*2.-1.,0,1);}'
-    fused_fs = read_program(combine, (('POINT_FUSED', '1'), ('RAW_SOURCE', '1')))
+    fused_fs = read_program(combine, (('POINT_FUSED', '1'), ('RAW_SOURCE', '1')) + extra)
     try:
         prog_fused = ctx.program(vertex_shader=vs_raw.replace('#version 300 es', '#version 310 es', 1), fragment_shader=fused_fs)
     except Exception as e:
@@ -378,7 +382,7 @@ def gpu_part() -> None:
         ctx.release()
         return
     prog_lin = ctx.program(vertex_shader=vs_raw, fragment_shader=read(SH / 'preview/rawdevelop_fs.glsl'))
-    prog_tone = ctx.program(vertex_shader=vs_full, fragment_shader=read_program(combine, (('POINT_FUSED', '1'),))
+    prog_tone = ctx.program(vertex_shader=vs_full, fragment_shader=read_program(combine, (('POINT_FUSED', '1'),) + extra)
                             .replace('#version 310 es', '#version 300 es', 1))
     print('GPU: %s (%s), the fused program as #version 310 es' % (ctx.info['GL_RENDERER'], ctx.info['GL_VERSION']))
 
@@ -497,10 +501,10 @@ def gpu_part() -> None:
              ('Quad block 2', 1024, 768, 3, 2, 0, (360, 480), 180, 0, (0, 0), False)]
     # P370 (B2, review): both passes with the signed hue off (signedHueU / u_signed_hue 0, the shaders before P370) and on (the
     # shipped default, scam_dev ccm_signed_hue 1: the linear frame keeps a colour outside sRGB signed), the same frames
-    for signed, name, fw, fh, cfa, block, mode, vp, deg, mirror, origin, flat in [(sg,) + c for sg in (0, 1) for c in cases]:
+    for signed, name, fw, fh, cfa, block, mode, vp, deg, mirror, origin, flat in [(sg,) + c for sg in ((0,) if extra else (0, 1)) for c in cases]:
         if name == cases[0][0]:
             rng = np.random.default_rng(365)
-        name = '%s%s' % (name, ', signed hue' if signed else '')
+        name = '%s%s%s' % (name, ', signed hue' if signed else '', ', V2 colour' if extra else '')
         img = scene(fh, fw, rng, flat)
         raw = mosaic(img, cfa, block, rng, black, noise=not flat)
         t_raw = ctx.texture((fw, fh), 1, raw.tobytes(), dtype='u2')
@@ -536,6 +540,7 @@ def main() -> int:
     source_part()
     glslc_part()
     gpu_part()
+    gpu_part((('V2_COLOUR', '1'),))   # P676: V1's colour as V2's (the viewfinder's default) in both passes
     if FAILURES:
         print('fused viewfinder check FAILED (%d)' % len(FAILURES))
         return 1

@@ -125,6 +125,8 @@ public final class EditState {
     public static final float ASPECT_FREE = 0f, ASPECT_ORIGINAL = -1f;
     public static final float MAX_STRAIGHTEN = 45f;
     static final int JSON_VERSION = 1;
+    /** P665: the version of a state with the develop block ("dv"); a build before it refuses such a state instead of half-reading it. */
+    static final int JSON_VERSION_DEVELOP = 2;
 
     private final float[] values = new float[Param.values().length];
     public int quarterTurns;
@@ -146,6 +148,13 @@ public final class EditState {
      */
     public boolean wmRemove;
     public String wm = "";
+    /**
+     * P665 «Проявка»: {@code develop} - our DNG developed by the camera's own pipeline (offered only for a DNG carrying the camera's
+     * develop record); {@code devChanges} - the camera settings changed over the shot's (preference key -> Boolean or String, as the
+     * camera stores it; a key absent = the shot's value). Tone settings: undo, reset, styles, copy / paste treat them as the sliders.
+     */
+    public boolean develop;
+    public final java.util.TreeMap<String, Object> devChanges = new java.util.TreeMap<>();
     /** FilmSim.DEFAULT_FORMAT (35 mm; EditLookTest holds them equal). */
     public static final String DEFAULT_FILM_FORMAT = "135";
 
@@ -167,9 +176,22 @@ public final class EditState {
         for (int i = 0; i < 4; i++) s.curves[i] = curves[i] != null ? curves[i].clone() : null;
         s.copyLook(this);
         s.copyGeometry(this);
+        s.copyDevelop(this);
         s.wmRemove = wmRemove;
         s.wm = wm;
         return s;
+    }
+
+    /** P665: the develop switch and the changed camera settings of {@code o}. */
+    void copyDevelop(EditState o) {
+        develop = o.develop;
+        devChanges.clear();
+        devChanges.putAll(o.devChanges);
+    }
+
+    /** P665: developed by the camera's pipeline with none of its settings changed. */
+    public boolean isDefaultDevelop() {
+        return !develop && devChanges.isEmpty();
     }
 
     /** Takes the geometry (turns, flip, straighten, crop, aspect) of {@code o}. */
@@ -188,6 +210,8 @@ public final class EditState {
     public EditState withNeutralTone() {
         EditState s = new EditState();
         s.copyGeometry(this);
+        // P665: the developed picture is the source the editor's sliders work on: «before» shows it without them
+        s.copyDevelop(this);
         return s;
     }
 
@@ -195,6 +219,8 @@ public final class EditState {
         for (Param p : Param.values()) values[p.ordinal()] = p.def;
         for (int i = 0; i < 4; i++) curves[i] = null;
         resetLook();
+        develop = false;
+        devChanges.clear();
     }
 
     /** Takes every setting but the geometry from {@code o} (paste settings, presets). */
@@ -202,6 +228,7 @@ public final class EditState {
         System.arraycopy(o.values, 0, values, 0, values.length);
         for (int i = 0; i < 4; i++) curves[i] = o.curves[i] != null ? o.curves[i].clone() : null;
         copyLook(o);
+        copyDevelop(o);
         wm = o.wm; // P633: the watermark goes with the settings; taking this photo's own off stays this photo's
     }
 
@@ -257,7 +284,7 @@ public final class EditState {
 
     public boolean isDefaultTone() {
         for (Param p : Param.values()) if (values[p.ordinal()] != p.def) return false;
-        return !anyCurve() && isDefaultLook();
+        return !anyCurve() && isDefaultLook() && isDefaultDevelop();
     }
 
     public boolean isDefaultGeometry() {
@@ -291,7 +318,7 @@ public final class EditState {
     public String toJson() {
         try {
             JSONObject o = new JSONObject();
-            o.put("v", JSON_VERSION);
+            o.put("v", isDefaultDevelop() ? JSON_VERSION : JSON_VERSION_DEVELOP);
             JSONObject p = new JSONObject();
             for (Param q : Param.values()) {
                 float v = values[q.ordinal()];
@@ -315,6 +342,17 @@ public final class EditState {
                 if (!filmPrint.isEmpty()) l.put("p", filmPrint);
                 if (!DEFAULT_FILM_FORMAT.equals(filmFormat)) l.put("m", filmFormat);
                 o.put("lk", l);
+            }
+            if (!isDefaultDevelop()) {
+                // P665: {"on": develop, "s": {key: value}}, defaults left out
+                JSONObject d = new JSONObject();
+                if (develop) d.put("on", true);
+                if (!devChanges.isEmpty()) {
+                    JSONObject ch = new JSONObject();
+                    for (java.util.Map.Entry<String, Object> e : devChanges.entrySet()) ch.put(e.getKey(), e.getValue());
+                    d.put("s", ch);
+                }
+                o.put("dv", d);
             }
             if (!isDefaultWatermark()) {
                 // P633: {"rm": take the photo's own off, "s": the watermark drawn (WatermarkSpec.toJson)}, defaults left out
@@ -348,7 +386,9 @@ public final class EditState {
         if (json == null || json.isEmpty()) return null;
         try {
             JSONObject o = new JSONObject(json);
-            if (o.optInt("v", 0) != JSON_VERSION) return null;
+            int v = o.optInt("v", 0);
+            // P665: version 2 is written only with the develop block; without it the text is not a state of ours
+            if (v != JSON_VERSION && (v != JSON_VERSION_DEVELOP || o.optJSONObject("dv") == null)) return null;
             EditState s = new EditState();
             JSONObject p = o.optJSONObject("p");
             if (p != null) {
@@ -373,6 +413,18 @@ public final class EditState {
                 s.filmPrint = name(lk.optString("p", ""));
                 String m = name(lk.optString("m", ""));
                 s.filmFormat = m.isEmpty() ? DEFAULT_FILM_FORMAT : m;
+            }
+            JSONObject dv = o.optJSONObject("dv");
+            if (dv != null) {
+                s.develop = dv.optBoolean("on", false);
+                JSONObject ch = dv.optJSONObject("s");
+                JSONArray names = ch == null ? null : ch.names();
+                for (int i = 0; names != null && i < names.length(); i++) {
+                    String key = names.getString(i);
+                    Object value = ch.get(key);
+                    if (devKey(key) && (value instanceof Boolean || value instanceof String && ((String) value).length() <= 4096))
+                        s.devChanges.put(key, value);
+                }
             }
             JSONObject w = o.optJSONObject("wm");
             if (w != null) {
@@ -407,6 +459,17 @@ public final class EditState {
         }
     }
 
+    /** P665: a camera setting's key as the develop block keeps it (letters, digits, «_», «.», «#», at most 128 characters). */
+    static boolean devKey(@Nullable String key) {
+        if (key == null || key.isEmpty() || key.length() > 128) return false;
+        for (int i = 0; i < key.length(); i++) {
+            char ch = key.charAt(i);
+            if (!(ch >= 'a' && ch <= 'z' || ch >= 'A' && ch <= 'Z' || ch >= '0' && ch <= '9' || ch == '_' || ch == '.' || ch == '#'))
+                return false;
+        }
+        return true;
+    }
+
     /** P619: a stored name as kept (a file name or an id; no path separators, at most 255 characters), else "". */
     static String name(@Nullable String v) {
         if (v == null || v.length() > 255 || v.indexOf('/') >= 0 || v.indexOf('\\') >= 0 || v.indexOf('\0') >= 0) return "";
@@ -425,7 +488,7 @@ public final class EditState {
         return Arrays.equals(values, o.values) && Arrays.deepEquals(curves, o.curves) && lut.equals(o.lut) && film.equals(o.film)
                 && filmPrint.equals(o.filmPrint) && filmFormat.equals(o.filmFormat) && quarterTurns == o.quarterTurns && flipH == o.flipH && straighten == o.straighten
                 && cropL == o.cropL && cropT == o.cropT && cropR == o.cropR && cropB == o.cropB && aspect == o.aspect
-                && wmRemove == o.wmRemove && wm.equals(o.wm);
+                && wmRemove == o.wmRemove && wm.equals(o.wm) && develop == o.develop && devChanges.equals(o.devChanges);
     }
 
     @Override
@@ -438,6 +501,7 @@ public final class EditState {
         h = 31 * h + Float.floatToIntBits(cropL) + 7 * Float.floatToIntBits(cropT) + 11 * Float.floatToIntBits(cropR)
                 + 13 * Float.floatToIntBits(cropB);
         h = 31 * h + Float.floatToIntBits(aspect);
+        h = 31 * h + (develop ? 1 : 0) + 5 * devChanges.hashCode();
         return 31 * h + (wmRemove ? 1 : 0) + 3 * wm.hashCode();
     }
 

@@ -795,6 +795,8 @@ struct Transfer {
 /** The YCbCr of the frames: full-range BT.601 (JFIF, the 8-bit YUV_420_888) or narrow-range BT.2020 (10-bit HLG P010). */
 struct Decoder {
     bool bt2020 = false, narrow = false;
+    /** The range is the stream's declared one (P667: the Image's dataspace): no guess from the frame's Y extremes. */
+    bool rangeKnown = false;
     int bits = 8;
     /** Y, U, V samples (chroma order resolved) -> R'G'B' 0..1. */
     void rgbPrime(int y, int u, int v, float* rgb) const {
@@ -1017,7 +1019,9 @@ Report mergeBurst(const std::vector<Frame420<S>>& frames, const std::vector<Fram
     rep.width = w;
     rep.height = h;
     Decoder decoder = decoderIn;
-    if (decoder.narrow) {
+    if (decoder.bt2020 && decoder.rangeKnown) {
+        rep.decodeNote = decoder.narrow ? "narrow range (declared)" : "full range (declared)";
+    } else if (decoder.narrow) {
         // the 0.1 % of the darkest Y of the first frame: a narrow-range stream keeps them near its black (16 on the 8-bit scale)
         std::vector<uint32_t> hist(256, 0);
         for (int y = 0; y < h; y += 4)

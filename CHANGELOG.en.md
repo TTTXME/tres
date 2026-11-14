@@ -2,6 +2,36 @@
 
 English copy of CHANGELOG.md (the Russian file is the one posted to Telegram), from 2026-11-09 on.
 
+## 2026-11-14 — Xiaomi 17 Ultra: LOFIC
+
+- The DCG switch on the main camera has a DCG+LOFIC state: without root the camera captures both LOFIC streams (4:3 first, otherwise 16:10 at 60 fps).
+- The short stream is merged into the long one before our merge: highlights hold several stops higher, without a seam or a jump in grain.
+
+## 2026-11-14 — Tone and colour
+
+- Tone V1 renders colour as V2: yellows no longer turn orange, V1's brightness unchanged.
+- Noise reduction and grain in V1 are now the same as in V2.
+- Tone V2: the bright glow of the sky beside dark objects (beams, twigs, palms) is gone.
+- Noise reduction no longer smears the shadows. «Kernel by the light» and «Adapt to the light» work differently.
+
+## 2026-11-14 — Merge and speed
+
+- «Fast» at night: wind-blown leaves and passing cars are less see-through, daytime unchanged.
+- Faster processing on older GPUs, photos unchanged.
+- On older phones the viewfinder no longer stalls during processing.
+
+## 2026-11-14 — Fixes
+
+- X200 Pro: the front camera is no longer washed out, «YUV: 10 bit» is off by default.
+- X200 Pro: the viewfinder no longer turns pink after a shot.
+- Find X7 Ultra: focus works in 50 MP.
+- Fixed a processing crash when the camera closes.
+
+## 2026-11-13 — Gallery developer
+
+- The gallery editor has a new «Develop» tab: a DNG taken with this SCAMERA version is developed as the camera does it, and every processing setting (tone, highlights, sharpness, noise reduction, colour, film, LUT) can be changed right in the gallery.
+- The film simulation in the developer is the camera's own: with halation, print and frame format.
+
 ## 2026-11-13 — Code cleanup
 
 - The camera code is cleaned up and reorganised.

@@ -173,6 +173,10 @@ public final class ScamHybridBurst implements ScamTransport {
     private String noiseSource = "Camera2 SENSOR_NOISE_PROFILE";
     /** P320: a DCG shot (header flag 32): the worker measures its two noise zones and merges it without exposure brackets. */
     private final boolean dcg;
+    /** P679: the LOFIC shot's headroom exponent (Parameters.loficLog2), 0 for every other shot. */
+    private final int loficLog2;
+
+    int loficLog2() { return loficLog2; }
     private final float dcgIsoScale;
     /** The characteristics the shot was captured with (Parameters.shotCharacteristics; null: the open camera's). */
     private final android.hardware.camera2.CameraCharacteristics shotCamera;
@@ -190,7 +194,9 @@ public final class ScamHybridBurst implements ScamTransport {
     private ScamHybridBurst(List<ImageFrame> source, Parameters p, boolean conservative) throws IOException {
         width = p.rawSize.x; height = p.rawSize.y; white = p.whiteLevel; black = p.cfaBlack.clone();
         cfa = p.cfaPattern;
-        dcg = p.dcgShot;
+        // P679: a LOFIC shot's merged pairs have the DCG burst's two noise zones (the Long read under its clip, k x S above it)
+        dcg = p.dcgShot || p.loficLog2 > 0;
+        loficLog2 = p.loficLog2;
         dcgIsoScale = p.dcgShot && p.dcgIsoScale > 1f ? p.dcgIsoScale : 1f;
         shotCamera = p.shotCharacteristics();
         this.conservative = conservative;
@@ -621,6 +627,12 @@ public final class ScamHybridBurst implements ScamTransport {
             if (!Float.isFinite(offset) || offset < 0) offset = 0f;
             noiseSource = "no valid noise profile for frame " + frame.number + ": " + fallback;
             Log.w("SCAM_HDR", "hybrid: " + noiseSource);
+        }
+        if (loficLog2 > 0) {
+            // P679: a LOFIC shot's merged pairs hold 2^loficLog2 Long ranges (LoficMerge): the Long read's model in those units
+            final float h = (float) Math.scalb(1.0, loficLog2);
+            slope /= h;
+            offset /= h * h;
         }
         if (frame.binnedSamples > 1) {
             // P27: a binned frame (RawBin) averages binnedSamples sensor samples: variance / binnedSamples.
