@@ -82,7 +82,7 @@ public final class EditorViewModel extends AndroidViewModel {
             try {
                 EditSource s = EditSource.open(getApplication(), uri, name, mime);
                 s.absolutePath = path;
-                develop = EditDevelop.open(s); // P665: our DNG's develop record, if it has one
+                develop = EditDevelop.open(s); // P665: our DNG's develop record, if it has one (P696: else one from its tags)
                 boolean drop;
                 synchronized (lock) {
                     drop = cleared;

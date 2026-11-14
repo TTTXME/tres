@@ -46,6 +46,12 @@ public final class DngPreview {
         int[] activeArea;
         double[] cropOrigin, cropSize, blackDeltaH, blackDeltaV;
         byte[] opcodeList2;
+        /**
+         * P696: the list of tag 0xC741 (the DNG specification's OpcodeList2; {@link #opcodeList2} is read from 0xC740, OpcodeList1,
+         * and stays as the viewer and the editor use it): only the gallery developer's lens-shading map of a DNG without its record
+         * reads it (DngRaw.Info.shadingMap).
+         */
+        byte[] stage2Opcodes;
     }
 
     private final ByteBuffer b;
@@ -57,6 +63,14 @@ public final class DngPreview {
     double[] colorMatrix2, forwardMatrix2, cameraCalibration1, cameraCalibration2, analogBalance, asShotWhiteXY;
     int illuminant1, illuminant2;
     boolean dng;
+    /**
+     * P696 (the gallery developer of a DNG without its develop record): Software (0x131), NoiseProfile (0xC761) and the exposure
+     * (ISO 0x8827, ExposureTime 0x829A, FNumber 0x829D, FocalLength 0x920A) of IFD 0 or of the Exif IFD (0x8769; P618 writes
+     * them there); the first value found is kept, 0 / null when absent.
+     */
+    String software;
+    double[] noiseProfile;
+    double iso, exposureTime, fNumber, focalLength;
 
     private DngPreview(ByteBuffer buffer) throws IOException {
         b = buffer.duplicate();
@@ -219,12 +233,65 @@ public final class DngPreview {
                 case 0xC61B: f.blackDeltaH = doubles(type, vo, count); break;
                 case 0xC61C: f.blackDeltaV = doubles(type, vo, count); break;
                 case 0xC740: { f.opcodeList2 = new byte[(int) count]; ByteBuffer d = b.duplicate(); d.position(vo); d.get(f.opcodeList2); break; }
-                default: break;
+                case 0xC741: { f.stage2Opcodes = new byte[(int) count]; ByteBuffer d = b.duplicate(); d.position(vo); d.get(f.stage2Opcodes); break; }
+                case 0x131: if (software == null && type == 2) software = ascii(vo, count); break;
+                case 0xC761: if (noiseProfile == null && count >= 2) noiseProfile = doubles(type, vo, count); break;
+                case 0x8769: if (top && depth == 0) exif = (long) num(type, vo, 0); break;
+                default: exposureTag(tag, type, vo, count); break;
             }
         }
         ifds.add(f);
         if (depth < 3) for (long s : subs) if (s > 0 && s < b.limit()) readIfd(s, depth + 1, false);
+        if (exif > 0 && exif < b.limit()) {
+            final long at = exif;
+            exif = 0;
+            readExif(at);
+        }
         return b.getInt((int) (off + 2 + 12L * n)) & 0xFFFFFFFFL;
+    }
+
+    /** P696: the Exif IFD's offset met in IFD 0 (read after it), 0 for none. */
+    private long exif;
+
+    /** P696: the exposure tags of the Exif IFD at {@code off} (nothing else of it is read). */
+    private void readExif(long off) {
+        if (off + 2 > b.limit()) return;
+        int n = b.getShort((int) off) & 0xFFFF;
+        if (n == 0 || off + 2 + 12L * n > b.limit()) return;
+        for (int i = 0; i < n; ++i) {
+            int e = (int) (off + 2 + 12L * i);
+            int tag = b.getShort(e) & 0xFFFF, type = b.getShort(e + 2) & 0xFFFF;
+            long count = b.getInt(e + 4) & 0xFFFFFFFFL;
+            int size = typeSize(type);
+            if (size == 0 || count == 0 || count > 1 << 16) continue;
+            long bytes = size * count;
+            int vo = bytes <= 4 ? e + 8 : b.getInt(e + 8);
+            if (vo < 0 || vo + bytes > b.limit()) continue;
+            exposureTag(tag, type, vo, count);
+        }
+    }
+
+    /** P696: ISO, exposure time, f-number and focal length (the first positive value of each). */
+    private void exposureTag(int tag, int type, int vo, long count) {
+        if (count < 1) return;
+        switch (tag) {
+            case 0x8827: if (!(iso > 0)) iso = num(type, vo, 0); break;
+            case 0x829A: if (!(exposureTime > 0)) exposureTime = num(type, vo, 0); break;
+            case 0x829D: if (!(fNumber > 0)) fNumber = num(type, vo, 0); break;
+            case 0x920A: if (!(focalLength > 0)) focalLength = num(type, vo, 0); break;
+            default: break;
+        }
+    }
+
+    /** An ASCII value (up to its first NUL). */
+    private String ascii(int vo, long count) {
+        final StringBuilder out = new StringBuilder();
+        for (int i = 0; i < count; ++i) {
+            final int c = b.get(vo + i) & 0xFF;
+            if (c == 0) break;
+            out.append((char) c);
+        }
+        return out.toString().trim();
     }
 
     private static int typeSize(int type) {
