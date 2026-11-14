@@ -208,7 +208,11 @@ public class ToneEaseTest {
         assertFalse("no per-run easing left", src.contains("AE_SMOOTH"));
         assertFalse("the uniforms read the shown values", src.contains("r.clip") || src.contains("r.slope"));
         // vf_why 1 meters on time; the frames are observed (their exposure tracked) on every draw path
-        assertEquals(2, count(src, "if (meterDue(observe(view)))"));
+        // P683: both vf_why 1 paths through meterPoint: the frame observed, then the meter when due (on the GL thread for the first
+        // result, else on the meter's thread)
+        assertEquals(2, count(src, "if (!meterPoint(view))"));
+        assertEquals(1, count(src, "final boolean fresh = observe(view);"));
+        assertEquals(1, count(src, "if (!meterDue(fresh)) return true;"));
         assertEquals(1, count(src, "observe(drawnView);"));
         File cc = new File("src/main/java/com/scamera/app/capture/CaptureController.java");
         if (!cc.isFile()) cc = new File("app/" + cc.getPath());

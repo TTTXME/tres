@@ -249,6 +249,25 @@ public final class GpuPace {
         return setting > 0f ? Math.min(1000f, Math.max(1f, setting)) : 0f;
     }
 
+    /** P683: the first-run calibration's profile (GpuProfile) seeded into this process once. */
+    private static final java.util.concurrent.atomic.AtomicBoolean SEEDED = new java.util.concurrent.atomic.AtomicBoolean();
+
+    /**
+     * P683: the GPU ns per pixel of programs measured by the first-run calibration (GpuProfile) as the starting values of the band
+     * sizing - a program the post measured itself keeps its own value; the viewfinder's keys ("vf:") are not the post's.
+     * Returns how many were taken.
+     */
+    static int seed(java.util.Map<String, Float> nsPerPixel) {
+        int n = 0;
+        if (nsPerPixel == null) return 0;
+        for (java.util.Map.Entry<String, Float> e : nsPerPixel.entrySet()) {
+            final Float v = e.getValue();
+            if (e.getKey() == null || e.getKey().startsWith("vf:") || v == null || !(v > 0f) || Float.isInfinite(v)) continue;
+            if (NS_PER_PIXEL.putIfAbsent(e.getKey(), v) == null) n++;
+        }
+        return n;
+    }
+
     /** P668: the last measured GPU ns per pixel of {@code pass}, or null (tests). */
     static Float measuredNsPerPixel(String pass) {
         return pass == null ? null : NS_PER_PIXEL.get(pass);
@@ -257,6 +276,7 @@ public final class GpuPace {
     /** P668: the measurements forgotten (tests). */
     static void forgetBands() {
         NS_PER_PIXEL.clear();
+        SEEDED.set(false);
         BANDS_LOGGED.set(false);
     }
 
@@ -277,6 +297,14 @@ public final class GpuPace {
             bandMs = 0f;
         }
         if (n > 0) CURRENT.set(new Pacer(GL, n, bandMs));
+        // P683: the first shot of a process starts from the first-run calibration's ns per pixel (GpuProfile), not from 256 rows
+        if (n > 0 && bandMs > 0f && SEEDED.compareAndSet(false, true)) {
+            try {
+                final int seeded = seed(GpuProfile.current());
+                if (seeded > 0) Log.i(TAG, "post GPU bands: " + seeded + " programs start from the first-run GPU calibration " + GpuProfile.current());
+            } catch (RuntimeException | LinkageError ignored) {
+            }
+        }
     }
 
     /** The post run on this thread ends: the pace's line, pacing off. */

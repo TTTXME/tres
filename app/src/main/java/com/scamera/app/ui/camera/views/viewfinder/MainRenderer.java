@@ -635,7 +635,11 @@ public class MainRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFr
         GLES20.glGetIntegerv(GLES20.GL_VIEWPORT, mViewport, 0);
         final com.scamera.app.processing.LiveWhyMeter.View v = mRawRenderer.lastView();
         final boolean busy = com.scamera.app.util.ThermalPolicy.reducedRawViewfinder();
-        // P683: a tone that did not keep up on this GPU at full size (RawPreviewLoad) is drawn at ~1.1 MP
+        // P683: a tone that did not keep up on this GPU at full size (RawPreviewLoad) is drawn at ~1.1 MP; before its first window
+        // the first-run GPU calibration's estimate decides where it starts (GpuProfile)
+        if (mToneFullPixels > 0 && adaptiveTone() && mToneLoad.seed(com.scamera.app.processing.opengl.GpuProfile.nsPerPixel(
+                com.scamera.app.processing.opengl.GpuProfile.VIEWFINDER_TONE) * mToneFullPixels / 1e6, mToneFullPixels))
+            Log.i("VF_RAW", mToneLoad.last());
         final boolean reduced = mToneLoad.reduced() && adaptiveTone();
         if (v == null) {
             mToneFullPixels = (long) Math.max(1, mViewport[2]) * Math.max(1, mViewport[3]);

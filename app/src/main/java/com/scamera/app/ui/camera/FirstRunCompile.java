@@ -24,6 +24,9 @@ import com.scamera.app.util.WorkerSpawn;
  * the screen compiles the merge's GPU programs (the worker's prewarm of the plain, Quad and Tetra routes, the texture maps among
  * them) and the kept post-pipeline programs into their caches, so the first shot no longer compiles them (~2 s on the OPPO
  * Find X7 Ultra). The stamp is written when it finished; an interrupted run starts again at the next launch.
+ * P683: the post's programs include the APK's default recipes (every program the code names: GLProg.warmUp with defaults), then a
+ * short GPU calibration (GpuProfile: ns per pixel of a few programs, kept under this stamp) gives the post's band sizing and the RAW
+ * viewfinder's tone size their starting values; each phase's ms is logged.
  */
 public final class FirstRunCompile {
     private static final String PREFS = "scam_first_run", KEY = "compiled_for";
@@ -32,7 +35,7 @@ public final class FirstRunCompile {
 
     private FirstRunCompile() {}
 
-    static String stamp(Context c) {
+    public static String stamp(Context c) {
         long installed = 0;
         try {
             installed = c.getPackageManager().getPackageInfo(c.getPackageName(), 0).lastUpdateTime;
@@ -66,18 +69,34 @@ public final class FirstRunCompile {
                 .setCancelable(false)
                 .create();
         dialog.show();
-        final int phases = BLOCKS.length + 1;
+        final int phases = BLOCKS.length + 2;
         final long t0 = android.os.SystemClock.elapsedRealtime();
         final Thread worker = new Thread(() -> {
             boolean done = false;
+            // P683: each phase's ms in the log line
+            final StringBuilder times = new StringBuilder();
             try {
                 if (WorkerSpawn.available(app)) {
                     for (int i = 0; i < BLOCKS.length; i++) {
                         final int phase = i;
+                        final long p0 = android.os.SystemClock.elapsedRealtime();
                         ScamNeuralClient.prewarmHybridGpuBlocking(app, BLOCKS[i], (d, n) -> show(activity, bar, phase, d, n, phases));
+                        times.append("merge block ").append(BLOCKS[i]).append(' ').append(android.os.SystemClock.elapsedRealtime() - p0).append(" ms, ");
                     }
                 }
-                GLProg.warmUp(() -> true, (d, n) -> show(activity, bar, phases - 1, d, n, phases));
+                // P683: every post program the code names (the APK's default recipes) besides the kept ones, so the first shot
+                // finds all of them in the disk cache
+                long p0 = android.os.SystemClock.elapsedRealtime();
+                GLProg.warmUp(() -> true, (d, n) -> show(activity, bar, phases - 2, d, n, phases), true);
+                times.append("post programs ").append(android.os.SystemClock.elapsedRealtime() - p0).append(" ms, ");
+                // P683: the GPU's ns per pixel of a few programs - the starting band sizes of the post (GpuPace) and the RAW
+                // viewfinder's starting tone size (RawPreviewLoad); the film data stays decoded at its first use (FilmSpectral,
+                // libscameraFilm): a decode here would be lost with this process, a decoded copy on disk is the size P683 saved
+                p0 = android.os.SystemClock.elapsedRealtime();
+                show(activity, bar, phases - 1, 0, 1, phases);
+                com.scamera.app.processing.opengl.GpuProfile.calibrate(app, stamp, () -> true);
+                show(activity, bar, phases - 1, 1, 1, phases);
+                times.append("GPU calibration ").append(android.os.SystemClock.elapsedRealtime() - p0).append(" ms");
                 done = true;
             } catch (RuntimeException | LinkageError e) {
                 Log.w("SCAM_HDR", "first-run compile: " + e);
@@ -85,7 +104,7 @@ public final class FirstRunCompile {
                 if (done) prefs.edit().putString(KEY, stamp).apply();
                 running = false;
                 Log.i("SCAM_HDR", "first-run compile " + (done ? "done" : "stopped") + " in "
-                        + (android.os.SystemClock.elapsedRealtime() - t0) + " ms");
+                        + (android.os.SystemClock.elapsedRealtime() - t0) + " ms (" + times + ")");
                 activity.runOnUiThread(() -> {
                     if (!activity.isFinishing() && !activity.isDestroyed() && dialog.isShowing()) dialog.dismiss();
                 });

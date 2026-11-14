@@ -29,7 +29,8 @@ import java.util.concurrent.Executors;
  * binary) for GLProg.warmUp to compile while the camera is idle.
  */
 final class GLProgramDiskCache {
-    static final int MAX_FILES = 160;
+    /** P683: 224 (160 before): the APK's 87 default programs, a shot's own variants and the viewfinder's, without evictions. */
+    static final int MAX_FILES = 224;
     static final long MAX_BYTES = 64L << 20;
     private static final int MAGIC = 0x474c5031; // "GLP1"
     /** P237: sources kept for the idle warm-up (a post pipeline has ~40 programs, a few KB each). */

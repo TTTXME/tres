@@ -27,12 +27,37 @@ final class RawPreviewLoad {
     /** A try of the full size this many windows long: one slow window in it reduces again. */
     static final int TRIAL_WINDOWS = 3;
 
-    private boolean reduced;
+    /**
+     * P683: the first-run GPU calibration's estimate (GpuProfile: the viewfinder tone's ns per pixel x the full size's pixels)
+     * above this many ms of GPU time a frame starts the tone reduced - half a 30 fps frame, the rest left to the linear pass, the
+     * upload and the filter / peaking pass.
+     */
+    static final float SEED_GPU_MS = 16f;
+
+    private boolean reduced, seeded;
     private int slow, good, recoverWindows = RECOVER_WINDOWS, trial;
     private String last = "";
 
     boolean reduced() {
         return reduced;
+    }
+
+    /**
+     * P683: the starting size from the first-run GPU calibration, once (before any window): {@code gpuMs} the estimated GPU time of
+     * the full-size tone (NaN: no profile). True when it starts reduced (then {@link #last} says why); the windows correct it as for
+     * a reduction of their own (the full size tried after {@link #RECOVER_WINDOWS} good windows).
+     */
+    boolean seed(double gpuMs, long fullPixels) {
+        if (seeded) return false;
+        seeded = true;
+        if (reduced || !(gpuMs > SEED_GPU_MS) || fullPixels <= REDUCED_PIXELS) return false;
+        reduced = true;
+        slow = good = trial = 0;
+        recoverWindows = RECOVER_WINDOWS;
+        last = String.format(Locale.ROOT, "RAW viewfinder tone starts at ~%.1f MP (not %.1f MP): the first-run GPU calibration puts the"
+                + " full-size tone at ~%.1f ms of GPU a frame (above %.0f); full size tried after %d good windows", REDUCED_PIXELS / 1e6,
+                fullPixels / 1e6, gpuMs, SEED_GPU_MS, recoverWindows);
+        return true;
     }
 
     /** The last switch's text (for the log). */
@@ -46,6 +71,7 @@ final class RawPreviewLoad {
      * was processed during it. True when the size switches (then {@link #last} says why).
      */
     boolean window(double drawMs, double fresh, double arrived, long tonePixels, long fullPixels, boolean processing) {
+        seeded = true; // P683: a measured window comes first: no calibration's start any more
         if (processing || Double.isNaN(drawMs) || !(arrived > 0) || tonePixels <= 0 || fullPixels <= 0) return false;
         final double share = Math.min(1.0, fresh / arrived);
         if (!reduced) {

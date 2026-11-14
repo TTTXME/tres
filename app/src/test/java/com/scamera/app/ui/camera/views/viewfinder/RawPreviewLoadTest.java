@@ -107,6 +107,27 @@ public class RawPreviewLoadTest {
         assertEquals(RawPreviewLoad.MAX_RECOVER_WINDOWS, waited);
     }
 
+    /** P683: the first-run GPU calibration's estimate decides the starting size, once, before any window; the windows correct it. */
+    @Test public void theCalibrationSeedsTheStartingSize() {
+        RawPreviewLoad l = new RawPreviewLoad();
+        assertTrue("a slow GPU (the tone ~25 ms a frame) starts reduced", l.seed(25.0, FULL));
+        assertTrue(l.reduced());
+        assertTrue(l.last(), l.last().contains("first-run GPU calibration"));
+        assertFalse("once", l.seed(25.0, FULL));
+        for (int i = 0; i < 2; i++) assertFalse(l.window(4.0, 30, 30, REDUCED, FULL, false));
+        assertTrue("good windows bring the full size back", l.window(4.0, 30, 30, REDUCED, FULL, false));
+        assertFalse(l.reduced());
+        l = new RawPreviewLoad();
+        assertFalse("a fast GPU keeps the full size", l.seed(5.0, FULL));
+        assertFalse(l.reduced());
+        l = new RawPreviewLoad();
+        assertFalse("no profile", l.seed(Double.NaN, FULL));
+        assertFalse(new RawPreviewLoad().seed(25.0, 900_000));
+        l = new RawPreviewLoad();
+        l.window(4.0, 30, 30, FULL, FULL, false);
+        assertFalse("after a measured window the calibration no longer decides", l.seed(25.0, FULL));
+    }
+
     @Test public void theBudgetTakesTheSmallerCap() {
         assertArrayEquals(new int[]{1440, 1920}, RawPreviewBudget.size(1440, 1920, false, false));
         final int[] r = RawPreviewBudget.size(1260, 1680, false, true);

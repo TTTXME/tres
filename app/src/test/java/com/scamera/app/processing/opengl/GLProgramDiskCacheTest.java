@@ -84,7 +84,7 @@ public class GLProgramDiskCacheTest {
         for (int i = 0; i < GLProgramDiskCache.MAX_FILES + 3; i++) cache.store("d", "e" + i, 1, new byte[]{(byte) i});
         cache.flush();
         final String stats = cache.takeStats();
-        assertTrue(stats, stats.endsWith(" 163 written / 4 evicted")); // k and 163 more: 4 beyond the 160
+        assertTrue(stats, stats.endsWith(" " + (GLProgramDiskCache.MAX_FILES + 3) + " written / 4 evicted")); // k and MAX_FILES + 3 more: 4 beyond
     }
 
     /** P237: the sources are kept apart from the driver, so a new driver's missing binaries can be compiled in idle time. */

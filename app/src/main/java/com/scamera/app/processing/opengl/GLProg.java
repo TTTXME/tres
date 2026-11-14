@@ -183,7 +183,17 @@ public class GLProg implements AutoCloseable {
 
     /** P470: {@link #warmUp(java.util.function.BooleanSupplier)} reporting (done, total) after each program it looked at. */
     public static void warmUp(java.util.function.BooleanSupplier idle, java.util.function.BiConsumer<Integer, Integer> progress) {
-        if (!WARMED.compareAndSet(false, true)) return;
+        warmUp(idle, progress, false);
+    }
+
+    /**
+     * P683: {@code withDefaults} - the APK's default recipes too, whatever was kept (the first-run dialog after an install, an update
+     * or a new system build: every program the code names compiled there, not in the first shot); else only on a clean install.
+     */
+    public static void warmUp(java.util.function.BooleanSupplier idle, java.util.function.BiConsumer<Integer, Integer> progress,
+                              boolean withDefaults) {
+        // (the first-run dialog's run goes ahead even after the idle one: it compiles what that one left out)
+        if (!WARMED.compareAndSet(false, true) && !withDefaults) return;
         final GLProgramDiskCache cache = disk();
         if (cache == null) return;
         GLContext context = null;
@@ -213,7 +223,7 @@ public class GLProg implements AutoCloseable {
                 }
                 // P683: a clean install has kept none («50 compiled in 2004 ms ... disk 0 hit / 50 miss» on its first shot): the
                 // APK's default recipes (assets/shaders/default_recipes.txt, read off the code by tools/make_default_recipes.py)
-                if (kept.isEmpty()) {
+                if (kept.isEmpty() || withDefaults) {
                     for (String recipe : defaultRecipes(assetSource(DEFAULT_RECIPES))) {
                         final String key = recipeKey(recipe, GLProg::assetSource);
                         if (key != null && keys.add(key)) defaultKeys++;

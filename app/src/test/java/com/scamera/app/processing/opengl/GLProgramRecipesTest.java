@@ -203,7 +203,7 @@ public class GLProgramRecipesTest {
         // the warm-up takes them only when no recipe was kept (a clean install)
         String src = new String(java.nio.file.Files.readAllBytes(new File(asset.getParentFile().getParentFile().getParentFile(),
                 "java/com/scamera/app/processing/opengl/GLProg.java").toPath()), StandardCharsets.UTF_8);
-        assertTrue(src.contains("if (kept.isEmpty()) {"));
+        assertTrue(src.contains("if (kept.isEmpty() || withDefaults) {"));
         assertTrue(src.contains("defaultRecipes(assetSource(DEFAULT_RECIPES))"));
     }
 }
