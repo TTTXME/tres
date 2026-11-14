@@ -618,3 +618,15 @@
 "viewer.open_in" = "Open in another app";
 "viewer.edit_elsewhere" = "Edit in another app";
 "viewer.no_app" = "No app for this";
+
+// P499 the player: background play, picture in picture, auto-rotate, the volume boost
+"video.rotate_sensor" = "Auto-rotate";
+"video.background_quick" = "Background";
+"video.background_quick_on" = "Background: on";
+"video.background_on" = "Background play";
+"video.background_off" = "No background play";
+"video.background_hint" = "The sound goes on when you leave";
+"video.pip" = "Picture-in-picture";
+"video.pip_on_home" = "Picture-in-picture on leaving";
+"video.pip_unavailable" = "Picture-in-picture is not available now";
+"video.boost" = "Volume boost";

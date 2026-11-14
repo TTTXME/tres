@@ -10,14 +10,16 @@ import UIKit
 /// SubRip / WebVTT file picked by hand), the sound track, where each video was left (VideoResume), the video's details, share and
 /// delete. Gestures as Android's: double tap ∓ the step at the sides (taps add up), pause in the middle; a sideways drag seeks
 /// (up to 90 s across); a vertical drag the brightness (left) / the volume (right); a long press 2x while held.
-/// Not on the iPhone: the decoder choice (AVPlayer decodes in hardware), the volume boost over 100 % (the player's volume is the
-/// app's share of the system volume), the background play and the picture-in-picture (both need the app's audio background
-/// mode), the auto-rotation by the sensor (the app's screen is portrait: the player turns its own picture).
+/// The volume goes on over 100 % up to 200 % (VideoBoost: up to +10 dB, LoudnessEnhancer's); «Фоновое воспроизведение» keeps the
+/// sound on when the app is left (the lock screen's card with play / pause, VideoPlaybackService's notification); picture in picture
+/// by its button or on leaving the app; «Автоповорот» turns the picture with the phone (the app's screen is portrait: the player
+/// turns its own picture, as for the other rotations). Not on the iPhone: the decoder choice (AVPlayer decodes in hardware).
 @MainActor
 @Observable
 final class VideoPlayerModel {
     enum Repeat: Int { case off, all, one }
-    enum Rotate: Int { case video, landscape, portrait }
+    /// VideoPlayerActivity.Rotate (VIDEO, SENSOR, LANDSCAPE, PORTRAIT); the raw values keep the stored choices of before
+    enum Rotate: Int { case video = 0, landscape = 1, portrait = 2, sensor = 3 }
     enum SubsChoice: Equatable { case off, track(Int), file }
 
     struct Hud: Equatable {
@@ -91,6 +93,20 @@ final class VideoPlayerModel {
     private var lastPreview = Date.distantPast
     private var savedBrightness: CGFloat?
     private var started = false
+    /// «Фоновое воспроизведение», «Картинка в картинке при выходе», picture in picture now
+    private(set) var background: Bool
+    private(set) var pipOnHome: Bool
+    private(set) var pipActive = false
+    /// «Автоповорот»: the phone held sideways and which way (the picture turned +90° or -90°)
+    private(set) var deviceLandscape = false
+    private(set) var deviceTurn: Double = 90
+    /// 1..2: the volume over the full one (VideoBoost)
+    private(set) var boostLevel: Float = 0
+    @ObservationIgnored private let boost = VideoBoost()
+    @ObservationIgnored private let session = VideoBackground()
+    @ObservationIgnored private var observers: [NSObjectProtocol] = []
+    @ObservationIgnored private weak var playerLayer: AVPlayerLayer?
+    @ObservationIgnored private var lastNowPlaying = Date.distantPast
 
     static let prefsKey = "video_player"
     static let steps = [5, 10, 15, 20, 30, 60]
@@ -103,6 +119,8 @@ final class VideoPlayerModel {
         let p = Self.prefs
         repeatMode = Repeat(rawValue: p["repeat"] as? Int ?? 0) ?? .off
         fit = VideoFit(rawValue: p["fit"] as? Int ?? 0) ?? .fit
+        background = p["background"] as? Bool ?? false
+        pipOnHome = p["pip_on_home"] as? Bool ?? false
         rotate = Rotate(rawValue: p["rotate"] as? Int ?? 0) ?? .video
     }
 
@@ -136,8 +154,12 @@ final class VideoPlayerModel {
         case .landscape: return true
         case .portrait: return false
         case .video: return videoSize.width > videoSize.height
+        case .sensor: return deviceLandscape
         }
     }
+
+    /// How far the picture is turned: sideways with the phone's way under «Автоповорот», else +90°.
+    var turnDegrees: Double { landscape ? (rotate == .sensor ? deviceTurn : 90) : 0 }
 
     var current: PHAsset? { items.indices.contains(index) ? items[index] : nil }
     var hasPrevious: Bool { index > 0 || (repeatMode == .all && items.count > 1) }
@@ -151,6 +173,26 @@ final class VideoPlayerModel {
         timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(value: 120, timescale: 1000), queue: .main) { [weak self] t in
             MainActor.assumeIsolated { self?.tick(t.seconds) }
         }
+        session.activate()
+        session.onPipChange = { [weak self] on in
+            self?.pipActive = on
+            if on { self?.panelOpen = false }
+        }
+        session.remote(play: { [weak self] in self?.play() }, pause: { [weak self] in self?.pause() },
+                       toggle: { [weak self] in self?.togglePlay() })
+        // «Автоповорот»: the phone's way (portrait, sideways either way; flat or upside down keeps the last)
+        UIDevice.current.beginGeneratingDeviceOrientationNotifications()
+        let center = NotificationCenter.default
+        observers.append(center.addObserver(forName: UIDevice.orientationDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.deviceTurned() }
+        })
+        observers.append(center.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.wentBackground() }
+        })
+        observers.append(center.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.cameForeground() }
+        })
+        deviceTurned()
         load(index)
     }
 
@@ -165,7 +207,76 @@ final class VideoPlayerModel {
         player.replaceCurrentItem(with: nil)
         UIApplication.shared.isIdleTimerDisabled = false
         restoreBrightness()
+        for o in observers { NotificationCenter.default.removeObserver(o) }
+        observers = []
+        UIDevice.current.endGeneratingDeviceOrientationNotifications()
+        session.deactivate()
         started = false
+    }
+
+    // ---------------------------------------------------------------- P499 background, picture in picture, the phone's way
+
+    private func deviceTurned() {
+        switch UIDevice.current.orientation {
+        case .landscapeLeft:
+            deviceLandscape = true
+            deviceTurn = 90
+        case .landscapeRight:
+            deviceLandscape = true
+            deviceTurn = -90
+        case .portrait:
+            deviceLandscape = false
+        default:
+            break
+        }
+    }
+
+    /// The app left: with «Фоновое воспроизведение» the sound goes on (the picture's layer lets go of the player, as iOS pauses a
+    /// player shown on a layer in the background), else the video pauses; picture in picture keeps both.
+    private func wentBackground() {
+        guard prepared, !pipActive else { return }
+        if background && playing {
+            playerLayer?.player = nil
+            updateNowPlaying(force: true)
+        } else if playing {
+            pause()
+        }
+    }
+
+    private func cameForeground() {
+        if let layer = playerLayer, layer.player !== player { layer.player = player }
+    }
+
+    /// VideoSurface's layer: picture in picture over it.
+    func attach(_ layer: AVPlayerLayer) {
+        playerLayer = layer
+        session.attach(layer, automatic: pipOnHome)
+    }
+
+    var pipSupported: Bool { VideoBackground.pipSupported }
+
+    func startPip() {
+        if !session.startPip() { showPill(L("video.pip_unavailable")) }
+    }
+
+    func toggleBackground() {
+        background.toggle()
+        Self.setPref("background", background)
+        showHud("kb_ui_ic_headphones_rest", background ? L("video.background_on") : L("video.background_off"),
+                background ? L("video.background_hint") : nil)
+    }
+
+    func setPipOnHome(_ on: Bool) {
+        pipOnHome = on
+        Self.setPref("pip_on_home", on)
+        session.setAutomatic(on)
+    }
+
+    /// The lock screen's card: the title, the length, where it is, the speed (at most once a second unless asked).
+    private func updateNowPlaying(force: Bool = false) {
+        guard force || Date().timeIntervalSince(lastNowPlaying) > 1 else { return }
+        lastNowPlaying = Date()
+        session.nowPlaying(title: title, duration: duration, position: position, rate: playing ? speed : 0)
     }
 
     func load(_ i: Int) {
@@ -212,6 +323,8 @@ final class VideoPlayerModel {
                                                              queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.completed() }
         }
+        // the volume boost's tap on the sound track (a file's; a stream or a video without sound plays as it is)
+        if let audio = try? await avAsset.loadTracks(withMediaType: .audio).first { item.audioMix = boost.mix(for: audio) }
         player.replaceCurrentItem(with: item)
         let d = (try? await avAsset.load(.duration))?.seconds ?? 0
         duration = d.isFinite && d > 0 ? d : a.duration
@@ -273,6 +386,7 @@ final class VideoPlayerModel {
         let text = cues.isEmpty ? nil : Subtitles.at(cues, ms)
         if text != subtitle { subtitle = text }
         if playing, Date().timeIntervalSince(lastSave) > 3 { saveResume() }
+        updateNowPlaying()
         if let at = sleepAt, Date() >= at {
             sleepAt = nil
             pause()
@@ -330,6 +444,7 @@ final class VideoPlayerModel {
         player.playImmediately(atRate: speed)
         playing = true
         UIApplication.shared.isIdleTimerDisabled = true
+        updateNowPlaying(force: true)
     }
 
     func pause() {
@@ -337,6 +452,7 @@ final class VideoPlayerModel {
         playing = false
         saveResume()
         UIApplication.shared.isIdleTimerDisabled = false
+        updateNowPlaying(force: true)
     }
 
     func togglePlay() {
@@ -442,14 +558,18 @@ final class VideoPlayerModel {
     }
 
     func cycleRotate() {
-        rotate = Rotate(rawValue: (rotate.rawValue + 1) % 3) ?? .video
+        // Android's order: by the video → auto-rotate → landscape → portrait
+        let order: [Rotate] = [.video, .sensor, .landscape, .portrait]
+        rotate = order[((order.firstIndex(of: rotate) ?? 0) + 1) % order.count]
         Self.setPref("rotate", rotate.rawValue)
+        deviceTurned()
         showHud("kb_ui_ic_rotate_rest", rotateName)
     }
 
     var rotateName: String {
         switch rotate {
         case .video: return L("video.rotate_video")
+        case .sensor: return L("video.rotate_sensor")
         case .landscape: return L("video.rotate_landscape")
         case .portrait: return L("video.rotate_portrait")
         }
@@ -586,7 +706,7 @@ final class VideoPlayerModel {
                 if savedBrightness == nil { savedBrightness = b }
                 dragStart = Double(b)
             case .volume:
-                dragStart = Double(volume)
+                dragStart = Double(volume >= 1 ? 1 + boostLevel : volume)
             }
         }
         switch kind {
@@ -613,11 +733,16 @@ final class VideoPlayerModel {
             screen?.brightness = CGFloat(b)
             showHud("kb_ui_ic_sun_rest", "\(Int((b * 100).rounded())) %", L("video.brightness"), level: b)
         case .volume:
-            let v = Float(min(1, max(0, dragStart - Double(dy) * 1.3)))
+            // setVolumeLevel: 0..1 the player's volume, 1..2 the boost over it (up to +10 dB)
+            let level = Float(min(2, max(0, dragStart - Double(dy) * 2.6)))
+            let v = min(1, level)
             volume = v
             player.volume = v
-            if muted && v > 0 { muted = false; player.isMuted = false }
-            showHud(v == 0 ? "kb_ui_ic_mute_rest" : "kb_ui_ic_sound_rest", "\(Int((v * 100).rounded())) %", L("video.volume"), level: Double(v))
+            boostLevel = max(0, level - 1)
+            boost.gain = powf(10, boostLevel * 10 / 20)
+            if muted && level > 0 { muted = false; player.isMuted = false }
+            showHud(level == 0 ? "kb_ui_ic_mute_rest" : "kb_ui_ic_sound_rest", "\(Int((level * 100).rounded())) %",
+                    level > 1 ? L("video.boost") : L("video.volume"), level: Double(level / 2))
         }
         if ended { dragKind = nil }
     }

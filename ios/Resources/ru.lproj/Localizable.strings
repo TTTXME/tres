@@ -618,3 +618,15 @@
 "viewer.open_in" = "Открыть в другом приложении";
 "viewer.edit_elsewhere" = "Изменить в другом приложении";
 "viewer.no_app" = "Нет подходящего приложения";
+
+// P499 the player: background play, picture in picture, auto-rotate, the volume boost
+"video.rotate_sensor" = "Автоповорот";
+"video.background_quick" = "В фоне";
+"video.background_quick_on" = "В фоне: вкл.";
+"video.background_on" = "Фоновое воспроизведение";
+"video.background_off" = "Без фона";
+"video.background_hint" = "Звук продолжится, когда вы выйдете";
+"video.pip" = "Картинка в картинке";
+"video.pip_on_home" = "Картинка в картинке при выходе";
+"video.pip_unavailable" = "Картинка в картинке сейчас недоступна";
+"video.boost" = "Усиление звука";

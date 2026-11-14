@@ -33,8 +33,9 @@ struct VideoPlayerView: View {
             let turned = model.landscape
             content
                 .frame(width: turned ? geo.size.height : geo.size.width, height: turned ? geo.size.width : geo.size.height)
-                .rotationEffect(.degrees(turned ? 90 : 0))
+                .rotationEffect(.degrees(model.turnDegrees))
                 .frame(width: geo.size.width, height: geo.size.height)
+                .animation(.spring(response: 0.42, dampingFraction: 0.86), value: model.turnDegrees)
         }
         .background(Color.black.ignoresSafeArea())
         .preferredColorScheme(.dark)
@@ -71,7 +72,8 @@ struct VideoPlayerView: View {
                          onDoubleTap: { model.doubleTap(at: $0) },
                          onDrag: { kind, dx, dy, ended in model.drag(kind, dx: dx, dy: dy, ended: ended) },
                          onPinch: { f, d, ended in model.pinch(f, delta: d, ended: ended) },
-                         onHold: { model.hold($0) })
+                         onHold: { model.hold($0) },
+                         onLayer: { model.attach($0) })
             if let text = model.subtitle {
                 VStack {
                     Spacer()
@@ -186,6 +188,8 @@ struct VideoPlayerView: View {
                 quickText(VideoPlayerModel.speedLabel(model.speed), label: L("video.speed"), on: model.speed != 1) { panel = .speed }
                 quick("kb_ui_ic_screenshot_rest", L("video.screenshot"), on: false) { model.screenshot() }
                 quick("kb_ui_ic_rotate_rest", model.rotateName, on: model.rotate != .video) { model.cycleRotate() }
+                quick("kb_ui_ic_headphones_rest", model.background ? L("video.background_quick_on") : L("video.background_quick"),
+                      on: model.background) { model.toggleBackground() }
                 quick("ui_ic_moon", model.sleepLabel, on: model.sleepAt != nil || model.sleepAtEnd) { panel = .sleep }
                 quick(model.muted ? "kb_ui_ic_mute_rest" : "kb_ui_ic_sound_rest", model.muted ? L("video.muted") : L("video.sound"),
                       on: model.muted) { model.toggleMute() }
@@ -254,6 +258,10 @@ struct VideoPlayerView: View {
                 RoundIconButton(icon: "ui_ic_next", label: L("video.next"), enabled: model.hasNext, background: GalleryStyle.bar) { model.next() }
                 Spacer()
                 RoundIconButton(icon: "kb_ui_ic_aspect_rest", label: L("video.fit"), background: GalleryStyle.bar) { model.cycleFit() }
+                if model.pipSupported {
+                    RoundIconButton(icon: "kb_ui_ic_pip_rest", label: L("video.pip"), background: GalleryStyle.bar) { model.startPip() }
+                        .padding(.leading, 8)
+                }
             }
         }
         .padding(.horizontal, 16).padding(.bottom, 14)
@@ -420,6 +428,13 @@ struct VideoPlayerView: View {
             }
             .pickerStyle(.segmented)
             .listRowBackground(GalleryStyle.card)
+        }
+        if model.pipSupported {
+            Section {
+                Toggle(L("video.pip_on_home"), isOn: Binding(get: { model.pipOnHome }, set: { model.setPipOnHome($0) }))
+                    .tint(GalleryStyle.accent)
+                    .listRowBackground(GalleryStyle.card)
+            }
         }
     }
 
