@@ -68,6 +68,11 @@ jobs:
           # the app's default route: «Быстрый» (fastMerge 1), as the phone runs it
           printf 'fastMerge 1\n' > "$RUNNER_TEMP/fast.txt"
           python3 ios/tools/replay_bursts.py run "$RUNNER_TEMP/hybrid_replay" "$RUNNER_TEMP/bursts" "$RUNNER_TEMP/reference/fast" "$RUNNER_TEMP/fast.txt"
+          # the fast route with one of its stages switched off (which stage parts Metal from Mesa)
+          for v in fmFilterGather fastNightMotion fastFlowPick fastLightFill; do
+            printf 'fastMerge 1\n%s 0\n' "$v" > "$RUNNER_TEMP/fast_$v.txt"
+            python3 ios/tools/replay_bursts.py run "$RUNNER_TEMP/hybrid_replay" "$RUNNER_TEMP/bursts" "$RUNNER_TEMP/reference/fast_$v" "$RUNNER_TEMP/fast_$v.txt" > /dev/null || true
+          done
       - uses: actions/upload-artifact@v4
         with:
           name: merge-reference
@@ -77,6 +82,7 @@ jobs:
             ${{ runner.temp }}/reference/post/*.f32
             ${{ runner.temp }}/reference/fast/*.f32
             ${{ runner.temp }}/reference/fast/*.log
+            ${{ runner.temp }}/reference/fast_*/*.f32
           retention-days: 3
 
   merge-metal:
@@ -137,6 +143,10 @@ jobs:
           python3 ios/tools/replay_bursts.py run "$RUNNER_TEMP/hybrid_replay" "$RUNNER_TEMP/bursts" "$RUNNER_TEMP/metal"
           printf 'fastMerge 1\n' > "$RUNNER_TEMP/fast.txt"
           python3 ios/tools/replay_bursts.py run "$RUNNER_TEMP/hybrid_replay" "$RUNNER_TEMP/bursts" "$RUNNER_TEMP/metal/fast" "$RUNNER_TEMP/fast.txt"
+          for v in fmFilterGather fastNightMotion fastFlowPick fastLightFill; do
+            printf 'fastMerge 1\n%s 0\n' "$v" > "$RUNNER_TEMP/fast_$v.txt"
+            python3 ios/tools/replay_bursts.py run "$RUNNER_TEMP/hybrid_replay" "$RUNNER_TEMP/bursts" "$RUNNER_TEMP/metal/fast_$v" "$RUNNER_TEMP/fast_$v.txt" > /dev/null || true
+          done
       - uses: actions/download-artifact@v4
         with:
           name: merge-reference
@@ -148,6 +158,10 @@ jobs:
           echo "post passes (Why V2 shaders through Engine/post/GLCore.hpp):" | tee -a "$RUNNER_TEMP/compare.txt"
           python3 ios/tools/replay_bursts.py compare "$RUNNER_TEMP/reference/post" "$RUNNER_TEMP/metal/post" --max-psnr-drop 70 | tee -a "$RUNNER_TEMP/compare.txt"
           echo "«Быстрый» route (fastMerge 1, the app's default):" | tee -a "$RUNNER_TEMP/compare.txt"
+          for v in fmFilterGather fastNightMotion fastFlowPick fastLightFill; do
+            echo "=== fast route with $v 0: Metal vs Mesa"
+            python3 ios/tools/replay_bursts.py compare "$RUNNER_TEMP/reference/fast_$v" "$RUNNER_TEMP/metal/fast_$v" --max-psnr-drop 70 || true
+          done
           # where the two GPUs part on the fast route: the merge reports without their timings
           for f in "$RUNNER_TEMP/metal/fast/"*.log; do
             n=$(basename "$f"); echo "=== fast $n: Mesa < > Metal"
