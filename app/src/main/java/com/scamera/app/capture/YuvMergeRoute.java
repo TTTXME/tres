@@ -263,14 +263,19 @@ public final class YuvMergeRoute {
     }
 
     /**
-     * The capture tone curve: {@code n} points (the camera's maximum, at most 64) of the sRGB curve, denser in the shadows (input
-     * (i / (n - 1))^2.2). Interleaved (in, out) pairs as TonemapCurve takes them; the processing inverts exactly these points.
+     * The capture tone curve: {@code n} points (the camera's maximum, at most 64) of the sRGB curve at evenly spaced inputs
+     * i / (n - 1). Interleaved (in, out) pairs as TonemapCurve takes them; the processing inverts exactly these points.
+     * <p>
+     * P691: the inputs were (i / (n - 1))^2.2 (denser in the shadows) before. The vivo X200 Ultra (Snapdragon) takes the points'
+     * outputs at evenly spaced inputs - its frames came out ~linear, decoded as light^2.2: the scene's median at 1/25 of the RAW
+     * route's (WHY V2 stats p50 0.00195 against 0.044 - 0.066), the photo dark with crushed shadows. With evenly spaced inputs a
+     * camera that honours the inputs and one that does not apply the same curve.
      */
     public static float[] curvePairs(int n) {
         n = Math.max(2, Math.min(64, n));
         final float[] pairs = new float[2 * n];
         for (int i = 0; i < n; i++) {
-            final float x = (float) Math.pow((double) i / (n - 1), 2.2);
+            final float x = (float) i / (n - 1);
             pairs[2 * i] = x;
             pairs[2 * i + 1] = srgb(x);
         }
