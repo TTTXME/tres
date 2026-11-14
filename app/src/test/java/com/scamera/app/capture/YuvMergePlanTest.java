@@ -124,14 +124,15 @@ public class YuvMergePlanTest {
     @Test public void theFrameCountFollowsTheGeneralZslSetting() {
         // P650 (owner: «привяжи количество кадров в склейке к общей настройке количества кадров»): the N count is the general
         // «Кадры ZSL» setting (getHybridZslFrames), not the old YUV-only cap of 12
-        prefs.when(PreferenceKeys::getHybridZslFrames).thenReturn(30);
+        prefs.when(PreferenceKeys::getHybridZslFrames).thenReturn(60);
         final YuvMergePlan.Tuning t = YuvMergePlan.Tuning.read();
-        assertEquals(30, t.frames);
+        assertEquals(60, t.frames);
         // the series then uses that many N, clamped only by the packed-frame memory budget and the camera's limits
-        final int memCap = (int) Math.max(2, Math.min(16, YuvMergePlan.BUDGET_BYTES / FRAME_8BIT));
+        final int memCap = (int) Math.max(2, Math.min(YuvMergePlan.MAX_FRAMES, YuvMergePlan.BUDGET_BYTES / FRAME_8BIT));
+        assertTrue(memCap < 60);
         final HybridPlan plan = YuvMergePlan.build(20_000_000L, 820, TIMES, ISOS, 0f, 0.01f, t, FRAME_8BIT, true);
         assertEquals(memCap, count(plan, ImageFrame.CaptureRole.NORMAL));
-        assertTrue(plan.description, plan.description.contains("N 30->" + memCap));   // the memory cap is logged, as on the RAW path
+        assertTrue(plan.description, plan.description.contains("N 60->" + memCap));   // the memory cap is logged, as on the RAW path
     }
 
     @Test public void aLowGeneralSettingIsHonouredWithoutAMemoryCapNote() {
@@ -234,7 +235,8 @@ public class YuvMergePlanTest {
     @Test public void theBracketsKeepTheirRoomWhenTheNFillTheBudget() {
         final YuvMergePlan.Tuning twenty = new YuvMergePlan.Tuning(20, true, 3f, 2f);
         final long frame = 18L << 20; // 4096 x 3072 8-bit: 16 frames in the budget
-        final HybridPlan plan = YuvMergePlan.build(8_333_326L, 78, TIMES, ISOS, 0.1681f, 0.162f, twenty, frame, true);
+        final long tight = 288L << 20; // the 16-frame budget of the owner's log
+        final HybridPlan plan = YuvMergePlan.build(8_333_326L, 78, TIMES, ISOS, 0.1681f, 0.162f, twenty, frame, true, tight);
         int n = 0, es = 0, l = 0;
         for (HybridPlan.Request r : plan.requests) {
             if (r.role == ImageFrame.CaptureRole.NORMAL) n++;
@@ -246,7 +248,7 @@ public class YuvMergePlanTest {
         assertEquals(13, n);
         assertTrue(plan.requests.size() <= 16);
         // a scene with nothing clipped and no deep shadows keeps every frame for N
-        assertEquals(16, YuvMergePlan.build(8_333_326L, 78, TIMES, ISOS, 0f, 0.01f, twenty, frame, true).requests.size());
+        assertEquals(16, YuvMergePlan.build(8_333_326L, 78, TIMES, ISOS, 0f, 0.01f, twenty, frame, true, tight).requests.size());
         assertEquals(0, YuvMergePlan.bracketsWanted(twenty, false, 0.2f, 0.2f));
     }
 
@@ -262,11 +264,15 @@ public class YuvMergePlanTest {
         assertEquals("20 N + 2 ES + 1 L", 23, big.requests.size());
         final HybridPlan big10 = YuvMergePlan.build(8_333_326L, 78, TIMES, ISOS, 0.1681f, 0.162f, twenty, ten, true,
                 YuvMergePlan.BUDGET_BYTES_HIGH);
-        assertEquals("18 N + 2 ES + 1 L", 21, big10.requests.size());
+        assertEquals("20 N + 2 ES + 1 L", 23, big10.requests.size());
         assertTrue((long) big10.requests.size() * ten <= YuvMergePlan.BUDGET_BYTES_HIGH);
-        // the low class keeps its 16 frames
-        assertEquals(16, YuvMergePlan.build(8_333_326L, 78, TIMES, ISOS, 0.1681f, 0.162f, twenty, eight, true).requests.size());
+        // P694: 1 GB above 8 GB, 0.5 GB at 8 GB and below - the low class takes the whole series of 4096 x 3072 at 8 bits too
+        assertEquals(1024L << 20, YuvMergePlan.BUDGET_BYTES_HIGH);
+        assertEquals(512L << 20, YuvMergePlan.BUDGET_BYTES);
+        assertEquals(23, YuvMergePlan.build(8_333_326L, 78, TIMES, ISOS, 0.1681f, 0.162f, twenty, eight, true).requests.size());
+        // and at 10 bits 14 frames: 11 N + 2 ES + 1 L
+        assertEquals(14, YuvMergePlan.build(8_333_326L, 78, TIMES, ISOS, 0.1681f, 0.162f, twenty, ten, true).requests.size());
         // the ring of «Из буфера ZSL» follows the budget
-        assertEquals(2 * YuvMergePlan.BUDGET_BYTES_HIGH / eight + 2, YuvMergePlan.ringFrames(100, 98, eight, 4, YuvMergePlan.BUDGET_BYTES_HIGH));
+        assertEquals(2 * YuvMergePlan.BUDGET_BYTES_HIGH / eight + 2, YuvMergePlan.ringFrames(200, 198, eight, 4, YuvMergePlan.BUDGET_BYTES_HIGH));
     }
 }

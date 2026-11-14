@@ -20,14 +20,16 @@ final class YuvMergePlan {
     private YuvMergePlan() {}
 
     /** Packed frames of one series at most (the merge also holds the merged frame and the float RGB). */
-    static final long BUDGET_BYTES = 288L << 20;
+    /** P694 (owner, 2026-11-14: «1гб для тех у кого больше 8гб и 0.5гб для тех у кого 8гб и меньше»): the low class's budget. */
+    static final long BUDGET_BYTES = 512L << 20;
     /**
      * P693 (owner, 2026-11-14: «Увеличь бюджет памяти для yuv»): the packed series' budget of a phone above the low memory class
      * (RamClass: more than 8 GB, not a low-RAM device) - 20 N + 2 ES + 1 L frames of 4096 x 3072 at 8 bits (18 MB each) fit, and
      * 18 + 3 at 10 bits (36 MB); {@link #BUDGET_BYTES} stays the low class's. The frame count's cap rises with it.
      */
-    static final long BUDGET_BYTES_HIGH = 768L << 20;
-    static final int MAX_FRAMES = 16, MAX_FRAMES_HIGH = 32;
+    static final long BUDGET_BYTES_HIGH = 1024L << 20;
+    /** P694: the series' frame cap (the budget is the real bound: 28 frames of 18 MB in 0.5 GB, 56 in 1 GB). */
+    static final int MAX_FRAMES = 32;
 
     /** P693: the packed series' budget of this phone's memory class (RamClass.get(); the low class's when unknown). */
     static long budget(boolean lowClass, long totalBytes) {
@@ -102,11 +104,10 @@ final class YuvMergePlan {
         return build(nNs, nIso, times, isos, clip, shadow, t, frameBytes, bracketAllowed, BUDGET_BYTES);
     }
 
-    /** P693: {@link #build} within {@code budgetBytes} of packed frames (the low class's budget: at most 16 frames, else 32). */
+    /** P693: {@link #build} within {@code budgetBytes} of packed frames (at most {@link #MAX_FRAMES}). */
     static HybridPlan build(long nNs, int nIso, Range<Long> times, Range<Integer> isos, float clip, float shadow, Tuning t,
                             long frameBytes, boolean bracketAllowed, long budgetBytes) {
-        final int frameCap = budgetBytes > BUDGET_BYTES ? MAX_FRAMES_HIGH : MAX_FRAMES;
-        final int maxFrames = (int) Math.max(2, Math.min(frameCap, budgetBytes / Math.max(1, frameBytes)));
+        final int maxFrames = (int) Math.max(2, Math.min(MAX_FRAMES, budgetBytes / Math.max(1, frameBytes)));
         // P690 (owner's log 2026-11-14: 16 N frames filled the 16-frame budget, so a backlit scene - 17 % clipped, 16 % deep
         // shadows - got no short and no long frame): the brackets the scene asks for are kept out of the N's share of the budget
         final int reserved = bracketsWanted(t, bracketAllowed, clip, shadow);
