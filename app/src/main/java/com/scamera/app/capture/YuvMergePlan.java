@@ -22,6 +22,27 @@ final class YuvMergePlan {
     /** Packed frames of one series at most (the merge also holds the merged frame and the float RGB). */
     static final long BUDGET_BYTES = 288L << 20;
     /**
+     * P693 (owner, 2026-11-14: «Увеличь бюджет памяти для yuv»): the packed series' budget of a phone above the low memory class
+     * (RamClass: more than 8 GB, not a low-RAM device) - 20 N + 2 ES + 1 L frames of 4096 x 3072 at 8 bits (18 MB each) fit, and
+     * 18 + 3 at 10 bits (36 MB); {@link #BUDGET_BYTES} stays the low class's. The frame count's cap rises with it.
+     */
+    static final long BUDGET_BYTES_HIGH = 768L << 20;
+    static final int MAX_FRAMES = 16, MAX_FRAMES_HIGH = 32;
+
+    /** P693: the packed series' budget of this phone's memory class (RamClass.get(); the low class's when unknown). */
+    static long budget(boolean lowClass, long totalBytes) {
+        return lowClass || totalBytes <= 0 ? BUDGET_BYTES : BUDGET_BYTES_HIGH;
+    }
+
+    static long budget() {
+        try {
+            final com.scamera.app.util.RamClass ram = com.scamera.app.util.RamClass.get();
+            return budget(ram.low(), ram.totalBytes);
+        } catch (RuntimeException | LinkageError e) {
+            return BUDGET_BYTES;
+        }
+    }
+    /**
      * P656: the «Из буфера ZSL» ring's frames at most in bytes of their packed copies - twice the series' budget (the ring holds
      * the camera's own Images and packs them all at the press). Its count followed «Число кадров в серии» alone (P650: up to 65
      * + 2, the reader's 56): ~1.3 GB of 10-bit frames and as much again packed; the default 20 + 2 stays under it at 8 and 10 bits.
@@ -33,8 +54,13 @@ final class YuvMergePlan {
      * {@link #RING_BUDGET_BYTES} of {@code frameBytes} (0: unknown, no cap) + 2 and at least {@code floor}.
      */
     static int ringFrames(int zslBuffer, int generalFrames, long frameBytes, int floor) {
+        return ringFrames(zslBuffer, generalFrames, frameBytes, floor, BUDGET_BYTES);
+    }
+
+    /** P693: {@link #ringFrames} within twice the series' budget {@code budgetBytes} of this phone's memory class. */
+    static int ringFrames(int zslBuffer, int generalFrames, long frameBytes, int floor, long budgetBytes) {
         int n = Math.min(zslBuffer, generalFrames + 2);
-        if (frameBytes > 0) n = (int) Math.min(n, RING_BUDGET_BYTES / frameBytes + 2);
+        if (frameBytes > 0) n = (int) Math.min(n, 2 * budgetBytes / frameBytes + 2);
         return Math.max(floor, n);
     }
     /** The clipped share (Y >= 250) from which the short frames are taken, and the deep-shadow share (Y <= 24) for the long one. */
@@ -73,7 +99,14 @@ final class YuvMergePlan {
      */
     static HybridPlan build(long nNs, int nIso, Range<Long> times, Range<Integer> isos, float clip, float shadow, Tuning t,
                             long frameBytes, boolean bracketAllowed) {
-        final int maxFrames = (int) Math.max(2, Math.min(16, BUDGET_BYTES / Math.max(1, frameBytes)));
+        return build(nNs, nIso, times, isos, clip, shadow, t, frameBytes, bracketAllowed, BUDGET_BYTES);
+    }
+
+    /** P693: {@link #build} within {@code budgetBytes} of packed frames (the low class's budget: at most 16 frames, else 32). */
+    static HybridPlan build(long nNs, int nIso, Range<Long> times, Range<Integer> isos, float clip, float shadow, Tuning t,
+                            long frameBytes, boolean bracketAllowed, long budgetBytes) {
+        final int frameCap = budgetBytes > BUDGET_BYTES ? MAX_FRAMES_HIGH : MAX_FRAMES;
+        final int maxFrames = (int) Math.max(2, Math.min(frameCap, budgetBytes / Math.max(1, frameBytes)));
         // P690 (owner's log 2026-11-14: 16 N frames filled the 16-frame budget, so a backlit scene - 17 % clipped, 16 % deep
         // shadows - got no short and no long frame): the brackets the scene asks for are kept out of the N's share of the budget
         final int reserved = bracketsWanted(t, bracketAllowed, clip, shadow);

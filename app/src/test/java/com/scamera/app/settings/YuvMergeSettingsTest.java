@@ -140,7 +140,8 @@ public class YuvMergeSettingsTest {
         }
         // a new row of the group must say whether the YUV route reads it (SHARED here, or SettingsAvailability.RAW_MERGE_ONLY)
         assertTrue("rows of «Шумоподавление и склейка» without a YUV role: " + unclassified, unclassified.isEmpty());
-        assertEquals(16, own);
+        // P692: «YUV: 10 бит» left the group for the lens page («Склейка YUV 10 бит», one switch per lens)
+        assertEquals(15, own);
         assertTrue(shared >= 20 && raw >= 40);
     }
 

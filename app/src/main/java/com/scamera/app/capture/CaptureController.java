@@ -8952,7 +8952,8 @@ public class CaptureController {
         // and the after-shutter YUV plan now use; getZslBufferCountValue stays the hard memory ceiling.
         // P656: and within the ring's memory (YuvMergePlan.ringFrames: a 10-bit ring of 65 + 2 frames held ~1.3 GB of Images)
         if (yuv != null) return yuv.afterShutter ? SUSPENDED_RING
-                : YuvMergePlan.ringFrames(PreferenceKeys.getZslBufferCountValue(), PreferenceKeys.getHybridZslFrames(), yuv.frameBytes, SUSPENDED_RING);
+                : YuvMergePlan.ringFrames(PreferenceKeys.getZslBufferCountValue(), PreferenceKeys.getHybridZslFrames(), yuv.frameBytes, SUSPENDED_RING,
+                        YuvMergePlan.budget()); // P693
         // P578 (owner, 2026-11-09: up to 65 frames in the merge): the ring holds at least the merge's N, so a long merge is not cut
         // to the buffer's 50 (ZslRing.create still keeps it within the memory budget)
         return Math.max(PreferenceKeys.getZslBufferCountValue(), Math.min(100, PreferenceKeys.getHybridZslFrames()));
@@ -10667,7 +10668,7 @@ public class CaptureController {
                             mCameraCharacteristics.get(CameraCharacteristics.SENSOR_INFO_SENSITIVITY_RANGE),yuvScene[0],yuvScene[1],
                             YuvMergePlan.Tuning.read(),com.scamera.app.processing.yuv.YuvFrames.packedBytes(
                                     mImageReaderRaw.getWidth(),mImageReaderRaw.getHeight(),yuvRoute.format==YuvMergeRoute.P010?10:8),
-                            yuvRoute.curve||yuvRoute.hlg);
+                            yuvRoute.curve||yuvRoute.hlg,YuvMergePlan.budget()); // P693: the budget of this phone's memory class
                 } else {
                     plan=com.scamera.app.settings.MotionMode.on()
                             ? HybridPlan.autoExposure(Math.min(4, PreferenceKeys.getHybridZslFrames()))

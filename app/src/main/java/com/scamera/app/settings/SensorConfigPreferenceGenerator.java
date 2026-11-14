@@ -497,7 +497,8 @@ public final class SensorConfigPreferenceGenerator {
                 "pref_sensorconfig_" + physicalId + "_fpsprobe",
                 com.scamera.app.capture.SensorModePick.prefKey(physicalId),
                 dualGainKey(physicalId), // P641
-                com.scamera.app.capture.YuvMergeRoute.key(physicalId))); // P646
+                com.scamera.app.capture.YuvMergeRoute.key(physicalId), // P646
+                com.scamera.app.capture.YuvMergeRoute.key10(physicalId))); // P692
         for (int i = category.getPreferenceCount() - 1; i >= 0; i--) {
             androidx.preference.Preference row = category.getPreference(i);
             boolean ours = row instanceof TunableKeyPreference || sectionKeys.contains(row.getKey())

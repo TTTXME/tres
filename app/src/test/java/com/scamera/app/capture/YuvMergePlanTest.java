@@ -225,7 +225,9 @@ public class YuvMergePlanTest {
         } catch (java.io.IOException e) {
             throw new AssertionError(e);
         }
-        assertTrue(src.contains("YuvMergePlan.ringFrames(PreferenceKeys.getZslBufferCountValue(), PreferenceKeys.getHybridZslFrames(), yuv.frameBytes, SUSPENDED_RING)"));
+        // P693: within the budget of the phone's memory class
+        assertTrue(src.contains("YuvMergePlan.ringFrames(PreferenceKeys.getZslBufferCountValue(), PreferenceKeys.getHybridZslFrames(), yuv.frameBytes, SUSPENDED_RING,"));
+        assertTrue(src.contains("YuvMergePlan.budget()); // P693"));
     }
 
     /** P690 (owner's log 2026-11-14): N frames filling the whole budget left no room for the brackets of a backlit scene. */
@@ -246,5 +248,25 @@ public class YuvMergePlanTest {
         // a scene with nothing clipped and no deep shadows keeps every frame for N
         assertEquals(16, YuvMergePlan.build(8_333_326L, 78, TIMES, ISOS, 0f, 0.01f, twenty, frame, true).requests.size());
         assertEquals(0, YuvMergePlan.bracketsWanted(twenty, false, 0.2f, 0.2f));
+    }
+
+    /** P693 (owner, 2026-11-14: «Увеличь бюджет памяти для yuv»): a phone above the low memory class keeps the whole series. */
+    @Test public void aPhoneAboveTheLowClassHasTheLargerBudget() {
+        assertEquals(YuvMergePlan.BUDGET_BYTES, YuvMergePlan.budget(true, 8L << 30));
+        assertEquals(YuvMergePlan.BUDGET_BYTES, YuvMergePlan.budget(false, 0));
+        assertEquals(YuvMergePlan.BUDGET_BYTES_HIGH, YuvMergePlan.budget(false, 16L << 30));
+        final YuvMergePlan.Tuning twenty = new YuvMergePlan.Tuning(20, true, 3f, 2f);
+        final long eight = 18L << 20, ten = 36L << 20; // 4096 x 3072 at 8 / 10 bits
+        final HybridPlan big = YuvMergePlan.build(8_333_326L, 78, TIMES, ISOS, 0.1681f, 0.162f, twenty, eight, true,
+                YuvMergePlan.BUDGET_BYTES_HIGH);
+        assertEquals("20 N + 2 ES + 1 L", 23, big.requests.size());
+        final HybridPlan big10 = YuvMergePlan.build(8_333_326L, 78, TIMES, ISOS, 0.1681f, 0.162f, twenty, ten, true,
+                YuvMergePlan.BUDGET_BYTES_HIGH);
+        assertEquals("18 N + 2 ES + 1 L", 21, big10.requests.size());
+        assertTrue((long) big10.requests.size() * ten <= YuvMergePlan.BUDGET_BYTES_HIGH);
+        // the low class keeps its 16 frames
+        assertEquals(16, YuvMergePlan.build(8_333_326L, 78, TIMES, ISOS, 0.1681f, 0.162f, twenty, eight, true).requests.size());
+        // the ring of «Из буфера ZSL» follows the budget
+        assertEquals(2 * YuvMergePlan.BUDGET_BYTES_HIGH / eight + 2, YuvMergePlan.ringFrames(100, 98, eight, 4, YuvMergePlan.BUDGET_BYTES_HIGH));
     }
 }
