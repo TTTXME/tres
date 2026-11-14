@@ -8,13 +8,16 @@ struct LensModule: Identifiable, Hashable, Sendable {
     let deviceID: String
     let isFront: Bool
     let kind: Kind
-    /// Field of view relative to the back wide camera (label of the button).
-    let zoom: Double
-    /// videoZoomFactor applied on the device (1 for a lens, the native-resolution factor for ISZ).
+    /// Field of view relative to the back wide camera (label of the button; ModuleSettings: the user's ratio).
+    var zoom: Double
+    /// videoZoomFactor applied on the device (1 for a lens, the native-resolution factor for ISZ, times a copy's crop).
     let deviceZoom: Double
     let deviceName: String
+    /// A copy's crop (ModuleSettings, P148: its frame cropped by it); 1 for every other module.
+    var crop: Double = 1
 
-    var label: String { LensMath.label(zoom) + (isFront ? " F" : "") }
+    /// The module's own name (ModuleSettings), else its ratio
+    var label: String { ModuleSettings.name(id) ?? (LensMath.label(zoom) + (isFront ? " F" : "")) }
 }
 
 enum LensMath {

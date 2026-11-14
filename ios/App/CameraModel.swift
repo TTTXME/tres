@@ -73,12 +73,20 @@ final class CameraModel {
     func select(_ module: LensModule) async {
         guard module.id != activeModuleID, activity == .idle else { return }
         do {
+            let previous = activeModuleID
             apply(try await captureService.select(moduleID: module.id))
+            ModuleProfiles.switched(from: previous, to: module.id)   // «Свои настройки для каждого модуля»
             await captureService.applyManual(ManualSettings.load())
             defaults.set(module.id, forKey: "module_active")
         } catch {
             show(error.localizedDescription)
         }
+    }
+
+    /// The settings closed: the modules' names, ratios, buttons and copies as the settings now have them (ModuleSettings)
+    func reloadModules() async {
+        guard status == .running else { return }
+        apply(await captureService.reloadModules())
     }
 
     func setRaw(_ choice: RawChoice) {
