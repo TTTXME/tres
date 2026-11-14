@@ -42,6 +42,65 @@ public final class CameraManager2 {
     /** The lens ids in scan order, as stored. */
     private Set<String> ids = new LinkedHashSet<>();
 
+    // ---- P680: one lens directory while nothing it is built from changes --------------------------------------------------------
+
+    private static final Object CACHE_LOCK = new Object();
+    private static CameraManager2 cached;
+    private static String cachedKey;
+    private static java.lang.ref.WeakReference<CameraManager> cachedManager = new java.lang.ref.WeakReference<>(null);
+
+    /**
+     * P680 (performance audit: the directory was built again - its stored lenses parsed from JSON - at every open,
+     * CameraFragment.cameraOpening, and in every CaptureController): the directory of the last call, while it was built with the
+     * same CameraManager (the activity's; a new activity builds it once) and {@link #cacheKey} is unchanged - the package spoof's
+     * signature, the user's cameras (user_camera_ids), the scan's revisions and the stored scan itself; else a new one.
+     */
+    public static CameraManager2 get(CameraManager cameraManager, SettingsManager settingsManager) {
+        final String key = cacheKey(settingsManager);
+        synchronized (CACHE_LOCK) {
+            if (cached != null && cachedManager.get() == cameraManager && key.equals(cachedKey)) return cached;
+        }
+        final long start = System.nanoTime();
+        final CameraManager2 fresh = new CameraManager2(cameraManager, settingsManager);
+        final String now = cacheKey(settingsManager); // the constructor stores its revisions and a fresh scan
+        synchronized (CACHE_LOCK) {
+            cached = fresh;
+            cachedKey = now;
+            cachedManager = new java.lang.ref.WeakReference<>(cameraManager);
+        }
+        Log.i("PERF", "camera lens directory built in " + (System.nanoTime() - start) / 1_000_000 + " ms (kept while its sources stay)");
+        return fresh;
+    }
+
+    /** P680: what the directory is built from (see {@link #get}). */
+    static String cacheKey(SettingsManager settings) {
+        final StringBuilder key = new StringBuilder();
+        try {
+            key.append(com.scamera.app.capture.spoof.CameraPackageSpoof.signature(settings.getContext()));
+        } catch (RuntimeException | LinkageError e) {
+            key.append("?");
+        }
+        key.append('|').append(settings.getString(CAMERAS, "spoof_signature", ""))
+                .append('|').append(settings.getString(CAMERAS, "aux_revision", ""))
+                .append('|').append(settings.getString(CAMERAS, "scan_revision", ""))
+                .append('|').append(sorted(settings.getStringSet("default_scope", "user_camera_ids", null)))
+                .append('|').append(sorted(settings.getStringSet(CAMERAS, ALL_CAMERA_IDS_KEY, null)))
+                .append('|').append(sorted(settings.getStringSet(CAMERAS, ALL_CAMERA_LENS_KEY, null)).hashCode());
+        return key.toString();
+    }
+
+    private static String sorted(@Nullable Set<String> values) {
+        return values == null ? "-" : new java.util.TreeSet<>(values).toString();
+    }
+
+    /** Tests: the next {@link #get} builds a new directory. */
+    public static void forgetCache() {
+        synchronized (CACHE_LOCK) {
+            cached = null;
+            cachedKey = null;
+        }
+    }
+
     public CameraManager2(CameraManager cameraManager, SettingsManager settingsManager) {
         settings = settingsManager;
         // The scan is cached; a changed package spoof changes which cameras the service exposes (hidden lenses appear), so the

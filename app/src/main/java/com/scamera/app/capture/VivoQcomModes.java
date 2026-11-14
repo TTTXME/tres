@@ -241,15 +241,51 @@ public final class VivoQcomModes {
         return out.toString().trim();
     }
 
+    /** P680: the result keys {@link #onResult} reads, made once (were two new Keys and their names per viewfinder frame). */
+    private static final CaptureResult.Key<int[]> R_SEAMLESS = new CaptureResult.Key<>("vivo.feedback.seamlessMode", int[].class),
+            R_SEAMLESS_CHANGED = new CaptureResult.Key<>("vivo.parameter.seamlessModeChanged", int[].class);
+    /** P680: the values of the last line logged (camera thread only). */
+    private static String lastId;
+    private static Integer lastMode, lastWhite;
+    private static int[] lastSeamless, lastChanged;
+    private static boolean lastKnown;
+
     public static void onResult(@Nullable CaptureResult result, @Nullable String physicalId) {
         if (!enabled() || result == null || activeFactor() == 0 && !Dcg14Mode.on()) return;
-        String state = "camera " + physicalId + " mode=" + SensorModeBand.reportedMode(result)
-                + " seamless=" + value(result, "vivo.feedback.seamlessMode")
-                + " changed=" + value(result, "vivo.parameter.seamlessModeChanged")
-                + " white=" + result.get(CaptureResult.SENSOR_DYNAMIC_WHITE_LEVEL);
+        final Integer mode = SensorModeBand.reportedMode(result), white = result.get(CaptureResult.SENSOR_DYNAMIC_WHITE_LEVEL);
+        final int[] seamless = ints(result, R_SEAMLESS), changed = ints(result, R_SEAMLESS_CHANGED);
+        // P680: the line is made and compared only when a value changed (ints, not a string per frame)
+        if (lastKnown && java.util.Objects.equals(physicalId, lastId) && java.util.Objects.equals(mode, lastMode)
+                && java.util.Objects.equals(white, lastWhite) && java.util.Arrays.equals(seamless, lastSeamless)
+                && java.util.Arrays.equals(changed, lastChanged)) return;
+        lastKnown = true;
+        lastId = physicalId;
+        lastMode = mode;
+        lastWhite = white;
+        lastSeamless = seamless == null ? null : seamless.clone();
+        lastChanged = changed == null ? null : changed.clone();
+        String state = stateLine(physicalId, mode, seamless, changed, white);
         if (!state.equals(lastResult)) {
             lastResult = state;
             Log.i(TAG, state);
+        }
+    }
+
+    /** The logged line (as before P680: «-» for a key the result lacks). */
+    static String stateLine(@Nullable String physicalId, @Nullable Integer mode, @Nullable int[] seamless, @Nullable int[] changed,
+                            @Nullable Integer white) {
+        return "camera " + physicalId + " mode=" + mode
+                + " seamless=" + (seamless == null ? "-" : java.util.Arrays.toString(seamless))
+                + " changed=" + (changed == null ? "-" : java.util.Arrays.toString(changed))
+                + " white=" + white;
+    }
+
+    @Nullable
+    private static int[] ints(CaptureResult result, CaptureResult.Key<int[]> key) {
+        try {
+            return result.get(key);
+        } catch (RuntimeException ignored) {
+            return null;
         }
     }
 
@@ -268,15 +304,6 @@ public final class VivoQcomModes {
             out.append(name).append('=').append(java.util.Arrays.toString(value)).append(' ');
         } catch (RuntimeException e) {
             out.append(name).append(" n/a ");
-        }
-    }
-
-    private static String value(CaptureResult result, String name) {
-        try {
-            int[] v = result.get(new CaptureResult.Key<>(name, int[].class));
-            return v == null ? "-" : java.util.Arrays.toString(v);
-        } catch (RuntimeException ignored) {
-            return "-";
         }
     }
 

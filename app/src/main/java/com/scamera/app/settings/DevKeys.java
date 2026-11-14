@@ -130,8 +130,11 @@ public final class DevKeys {
         k.add(s(cap, "motion_fast_ring", true, Lang.t("Спорт: при 60 к/с и пустой очереди до 12 кадров кольца в окне (вместо 8)", "Sport: at 60 fps with an empty queue up to 12 ring frames inside the window (not 8)")));
         k.add(s(merge, "motion_sharp_priority", true, Lang.t("Спорт: приоритет резкости, строгий отбор доноров и сохранение яркостных деталей в областях отсева", "Sport: sharpness priority, strict donor selection and retained luminance detail in rejected regions")));
         // capture and session
-        k.add(s(cap, "zsl_ring_prefault", true, Lang.t("Новое ZSL-кольцо заранее получает память в фоне (кольцевая часть): копии кадров на потоке камеры не ловят первые обращения к страницам. Выкл — память при первой записи, как раньше",
-                "A new ZSL ring gets its memory ahead in the background (the ring part): the camera thread's frame copies take no first-touch page faults. Off: memory on the first write, as before")));
+        k.add(s(cap, "zsl_ring_prefault", true, Lang.t("Новое ZSL-кольцо заранее получает память в фоне (кольцевая часть, окнами по 6 кадров впереди записи, с низким приоритетом): копии кадров на потоке камеры не ловят первые обращения к страницам. Выкл — память при первой записи, как раньше",
+                "A new ZSL ring gets its memory ahead in the background (the ring part, in windows of 6 frames ahead of the writes, at a low priority): the camera thread's frame copies take no first-touch page faults. Off: memory on the first write, as before")));
+        // P680: the pause's camera close off the main thread
+        k.add(s(cap, "pause_close_async", true, Lang.t("При сворачивании камера закрывается в фоне: экран не ждёт закрытия устройства (~0,1 с). Не при аренде vivo SDK, FULLRES и записи видео. Выкл — закрытие на главном потоке, как раньше",
+                "When the app is left the camera closes in the background: the screen does not wait for the device to close (~0.1 s). Not with a vivo SDK lease, FULLRES or a video being recorded. Off: closed on the main thread, as before")));
         k.add(s(cap, "zsl_memfd_ring", true, Lang.t("ZSL-кольцо в общей памяти (memfd): кадры копируются сразу, камере возвращаются буферы. Выкл — старое кольцо из буферов камеры", "ZSL ring in shared memory (memfd): frames copied on arrival, buffers go back to the camera. Off: the old ring of camera buffers")));
         k.add(n(cap, "vf_min_fps", String.valueOf(com.scamera.app.capture.ViewfinderFps.DEFAULT_FLOOR),
                 Lang.t("Видоискатель не медленнее N к/с (автоматический диапазон AE; 0 — как разрешает камера)",

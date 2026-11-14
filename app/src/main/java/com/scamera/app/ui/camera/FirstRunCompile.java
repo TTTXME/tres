@@ -32,13 +32,24 @@ public final class FirstRunCompile {
 
     private FirstRunCompile() {}
 
+    /** P680: the stamp of this process (an update or a new system build starts a new process). */
+    private static volatile String processStamp;
+
+    /**
+     * The install / system build stamp. P680 (performance audit: CameraActivity.onResume asked the package manager for it at every
+     * resume, twice): read once per process - lastUpdateTime and the fingerprint cannot change while the process runs.
+     */
     static String stamp(Context c) {
+        String stamp = processStamp;
+        if (stamp != null) return stamp;
         long installed = 0;
         try {
             installed = c.getPackageManager().getPackageInfo(c.getPackageName(), 0).lastUpdateTime;
         } catch (Exception ignored) {
         }
-        return installed + "|" + Build.FINGERPRINT;
+        stamp = installed + "|" + Build.FINGERPRINT;
+        if (installed != 0) processStamp = stamp; // an unanswered read is asked again
+        return stamp;
     }
 
     /** Shows the dialog and compiles when this install / system build has not been compiled for yet. */
@@ -71,6 +82,12 @@ public final class FirstRunCompile {
         final Thread worker = new Thread(() -> {
             boolean done = false;
             try {
+                // P680: the phone's memory class and the cache's write speed, once per install / system build (under 1 s)
+                try {
+                    com.scamera.app.util.DeviceMemoryProfile.recordOnce(app, stamp);
+                } catch (RuntimeException | LinkageError e) {
+                    Log.w("PERF", "device profile not recorded: " + e);
+                }
                 if (WorkerSpawn.available(app)) {
                     for (int i = 0; i < BLOCKS.length; i++) {
                         final int phase = i;

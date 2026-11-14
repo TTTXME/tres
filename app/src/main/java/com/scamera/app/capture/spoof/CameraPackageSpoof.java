@@ -33,13 +33,29 @@ public final class CameraPackageSpoof {
         }
     }
 
+    /** P680: the spoof signature the last diagnosis was made for (null: none in this process). */
+    private static String diagnosedSignature;
+
+    /**
+     * P680 (performance audit: the diagnosis read the characteristics of every listed camera and probed ids 0 - 9 at every open):
+     * a diagnosis is due once per process and again when the spoof's {@code signature} changes.
+     */
+    static synchronized boolean diagnosisDue(String signature) {
+        if (signature == null || signature.equals(diagnosedSignature)) return false;
+        diagnosedSignature = signature;
+        return true;
+    }
+
+    /** Tests: the next {@link #diagnosisDue} answers yes. */
+    static synchronized void forgetDiagnosisForTest() {
+        diagnosedSignature = null;
+    }
+
     /** With the spoof enabled: what the camera service now answers (logcat tag SCAMERA_SPOOF). */
     private static void diagnose(Context context, CameraManager manager) {
         try {
-            if (!android.preference.PreferenceManager.getDefaultSharedPreferences(context)
-                    .getBoolean(CameraPackageSpoofSettings.KEY_ENABLED, false)
-                    && com.scamera.app.capture.VivoQcomModes.spoofPackage() == null
-                    && !CameraPackageSpoofSettings.oplusAuto(context)) return;
+            final String signature = signature(context);
+            if ("off".equals(signature) || !diagnosisDue(signature)) return;
             StringBuilder sb = new StringBuilder("spoof oplus=" + CameraPackageSpoofSettings.getOplusPackage(context)
                     + " generic=" + CameraPackageSpoofSettings.getGenericPackage(context)
                     + " binder=" + CameraPackageSpoofSettings.getBinderPackage(context) + " ids=");

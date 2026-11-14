@@ -477,6 +477,8 @@ public class MainRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFr
         glReady = false;
         mWindow8 = window8(config);
         mToneLut.contextLost(); // P630f: the Oldstyle tone's LUT texture went with the old GL context
+        final long createdStart = System.nanoTime(); // P680: its PERF line and Trace section
+        traceSection("MainRenderer.onSurfaceCreated");
         // P57: the viewfinder's GL thread above the processing threads (the post pipeline, encoders, the worker run at the
         // default priority and took its CPU time after a shot: the viewfinder stuttered while the camera kept 30 fps)
         // (scam_dev.txt "vf_priority 0": as before, for A/B)
@@ -503,12 +505,20 @@ public class MainRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFr
         final SurfaceTexture old = ispSurface;
         if (old != null) {
             old.setOnFrameAvailableListener(null);
+            // P680: a camera closed off the main thread at the pause may still be closing: its outputs end before the texture goes
+            final long waited = com.scamera.app.capture.CaptureController.awaitCameraOutputsClosed(500);
+            if (waited > 0) Log.i("PERF", "viewfinder texture released after " + waited + " ms for the camera's close");
             old.release();
         }
         ispSurface = new SurfaceTexture(ispTex);
         // P90: frame callbacks on their own thread, not the main looper (a SurfaceTexture made on the GL thread, which has no
         // looper, posts them to the main thread: every busy moment of the UI during processing held the viewfinder back)
         ispSurface.setOnFrameAvailableListener(this, frameHandler());
+        // P680 (performance audit: the camera's open waited for the programs below to link): the camera opens on this texture now;
+        // a frame that arrives before the programs are linked only marks ispPending - nothing is drawn or latched before glReady,
+        // set at the end of this method on this thread (onDrawFrame runs on it after this returns)
+        host.fireOnSurfaceTextureAvailable(ispSurface, 0, 0);
+        final long textureToldMs = (System.nanoTime() - createdStart) / 1_000_000;
 
         String vertexSrc = ScameraApp.getAssetLoader().getString("shaders/preview/main_vs.glsl");
         String fragmentSrc = oldstyleSplice(LiveLensFilter.splice(ScameraApp.getAssetLoader().getString("shaders/preview/main_fs.glsl"),
@@ -554,9 +564,20 @@ public class MainRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFr
         GLES20.glEnableVertexAttribArray(aUV);
         GLES20.glUniform2f(GLES20.glGetUniformLocation(ispProg, "resolution"), host.getWidth(), host.getHeight());
         glReady = ispProg != 0;
-        host.fireOnSurfaceTextureAvailable(ispSurface, 0, 0);
         // P312: with the RAW viewfinder on, its programs are linked (or their background compile started) while the camera opens
         if (com.scamera.app.settings.PreferenceKeys.isLiveViewfinderRawEnabled()) rawProgramsReady();
+        traceSection(null);
+        Log.i("PERF", "viewfinder onSurfaceCreated in " + (System.nanoTime() - createdStart) / 1_000_000 + " ms (the camera was told after "
+                + textureToldMs + " ms)");
+    }
+
+    /** P680: an android.os.Trace section begins ({@code name}) or ends (null); never a failure of its own. */
+    private static void traceSection(String name) {
+        try {
+            if (name != null) android.os.Trace.beginSection(name);
+            else android.os.Trace.endSection();
+        } catch (RuntimeException | LinkageError ignored) {
+        }
     }
 
     /**

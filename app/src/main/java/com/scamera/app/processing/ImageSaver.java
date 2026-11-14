@@ -192,11 +192,45 @@ public class ImageSaver {
     }
 
     /** Accepts an owned image after preview/still routing by sensor timestamp. */
-    public synchronized void initProcess(Image image) {
+    public void initProcess(Image image) {
         if (image == null) return;
-        if (wanted == -1 || seen < wanted) take(image);
-        else image.close();
-        seen++;
+        synchronized (this) {
+            if (wanted == -1 || seen < wanted) take(image);
+            else image.close();
+            seen++;
+        }
+        framesChanged(); // P680: the series wait looks again
+    }
+
+    // ---- P680: the series wait's signal (CaptureController.awaitSeriesFrames spun in 1 ms sleeps) ------------------------------
+
+    private static final Object FRAMES_CHANGED = new Object();
+
+    /** A frame was taken (or a frame of the series started, Gyro): a series wait checks its condition again. */
+    public static void framesChanged() {
+        synchronized (FRAMES_CHANGED) {
+            FRAMES_CHANGED.notifyAll();
+        }
+    }
+
+    /**
+     * Waits until {@code ready} holds, at most {@code timeoutMs}: woken by {@link #framesChanged}, and every {@code sliceMs} anyway
+     * (a frame added where nothing signals). True when it holds.
+     */
+    public static boolean awaitFrames(java.util.function.BooleanSupplier ready, long timeoutMs, long sliceMs) {
+        final long end = System.nanoTime() + timeoutMs * 1_000_000L;
+        while (!ready.getAsBoolean()) {
+            final long left = (end - System.nanoTime()) / 1_000_000L;
+            if (left <= 0) return ready.getAsBoolean();
+            synchronized (FRAMES_CHANGED) {
+                try {
+                    FRAMES_CHANGED.wait(Math.max(1, Math.min(sliceMs, left)));
+                } catch (InterruptedException e) {
+                    // keep waiting: the series' frames are still on their way (as the 1 ms sleeps did)
+                }
+            }
+        }
+        return true;
     }
 
     private void take(Image image) {
