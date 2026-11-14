@@ -1,8 +1,8 @@
 // «Why тон» V2 (P614), the last step: WhyV2Tone.java one to one - the reference tone's tonemap_final (why/v2_tonemap) on the
 // clean RGB with the fused luma of WhyV2Fusion and our sharpened luminance (WhyLumaSharpen) as its detail luma, into the
 // pipeline's main texture (the display-encoded photo). The own curve: 1024 samples (WhyV2Curve) in an R16F 1024 x 1 texture,
-// LINEAR. The port's output is the RGBA8 photo (runAllToRgba), so QUANT8 is always on (the Java's tenBitOutput off); as in
-// WhyCombine's port there is no Display P3 output (P3_OUT). «Плёночный LUT» (FILM_LUT) as the Java (never a film on this route).
+// LINEAR. The port's output is the RGBA8 photo (runAllToRgba), so QUANT8 is always on (the Java's tenBitOutput off); Display P3
+// output (P3_OUT) with «Цветовое пространство» Display P3 (ShotRun). «Плёночный LUT» (FILM_LUT) as the Java (never a film on this route).
 #pragma once
 
 #include "WhyV2Stats.hpp"
@@ -55,7 +55,7 @@ public:
             curve = makeTexture({CURVE_SAMPLES, 1}, GLFormat(DataType::FLOAT_16, 1), samples.data(), GL_LINEAR, GL_CLAMP_TO_EDGE);
             if (st->inputReleased) glFinish();
             WorkingTexture = pipeline.getMain();
-            const bool p3Output = false, tenBitOutput = false;
+            const bool p3Output = pipeline.p3Output, tenBitOutput = false;
             if (p3Output) prog.setDefine("P3_OUT", 1);
             if (lut) prog.setDefine("FILM_LUT", 1);
             if (v2->fusedScale > 1) prog.setDefine("EF_SCALED", 1);

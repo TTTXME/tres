@@ -292,7 +292,7 @@ final class ProfileLibrary {
         }()
         let data = ConfigXml.write(attributes: [("device", Self.device), ("model", BuildInfo.machine),
                                                 ("app", "iOS \(BuildInfo.version) (\(BuildInfo.build))"), ("created", created)],
-                                   files: [(ConfigXml.main, SettingsStore.shared.values)])
+                                   files: [(ConfigXml.main, SettingsMigration.withMarkers(SettingsStore.shared.values))])
         do {
             try FileManager.default.createDirectory(at: Self.folder, withIntermediateDirectories: true)
             let url = Self.folder.appendingPathComponent(base + ".xml")
@@ -320,7 +320,9 @@ final class ProfileLibrary {
             while start < data.endIndex && [0x20, 0x09, 0x0A, 0x0D].contains(data[start]) { start += 1 }
             let json = start < data.endIndex && data[start] == UInt8(ascii: "{")
             let config = try (json ? ConfigXml.readJson(data.subdata(in: start..<data.endIndex)) : ConfigXml.read(data))
-            guard let main = config.files[ConfigXml.main] else { throw ConfigXml.Failure.bad("the config has no main settings") }
+            guard let raw = config.files[ConfigXml.main] else { throw ConfigXml.Failure.bad("the config has no main settings") }
+            // BackupRestoreUtil.migrate: a config of any Android build (or an old iPhone one) read as this build's settings
+            let main = SettingsMigration.importing(raw, fromIPhone: config.attributes["app"]?.hasPrefix("iOS") ?? false)
             let from = config.attributes["device"]
             let same = from == Self.device
             var merged: [String: Any] = [:]
@@ -368,6 +370,7 @@ final class ProfileLibrary {
             defaults.set(dev, forKey: PostSettings.devKey + ".bak")
             defaults.removeObject(forKey: PostSettings.devKey)
         }
+        ScamDevFile.setAside()   // ScamDevFile.setAside: scam_dev.txt -> scam_dev.txt.bak
         message = Lang.t("Настройки сброшены", "Settings reset")
         SessionLog.i("Settings", "reset to defaults")
     }

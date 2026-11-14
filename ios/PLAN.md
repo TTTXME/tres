@@ -403,10 +403,57 @@ change: `scam-crash.h` keeps only the stage marks on Apple.
   modules list, the SHDR report from the session log, log size / share, about), `SettingsAvailability` (the Android reasons that
   depend on the stored values, the iPhone's device facts, and the rows an iPhone cannot serve: root, package spoofing, vendor
   keys / sensor modes, the lab, scam_dev.txt, DCP, noise model files, the fringe net, RAW crop).
-- Not done: CameraView still opens `SettingsView()` without the camera (pass `SettingsView(camera: camera)` so the format / size
-  cards switch it); ToneCurveCompare (AgX / ACES / Uchimura references and templates need WhyTone's uniforms in Swift); the
-  «Для разработчика» page (DevKeys); config import runs no Android migrations (BrandMigration, SettingsMigration); clearing
-  today's log needs a SessionLog API; many capture / viewfinder rows are stored but not read by the iOS capture yet.
+- Not done: clearing today's log needs a SessionLog API; many capture / viewfinder rows are stored but not read by the iOS capture
+  yet. (ToneCurveCompare, the developer page and the config migrations: «Settings: the Android behaviour» below.)
+
+## Settings: the Android behaviour (2026-11-14)
+Ported (Android Java / XML as the spec, `App/Settings/`):
+- Search (SettingsSearchFragment): the root page's search field; every word of the query among a row's title, its path, summary,
+  key, its words in the other language (both tables are in the catalog) and its help text; the developer lines too. A hit opens the
+  real page (a new page on the stack, as Android's back stack) scrolled to the row, its title in the accent (`settingsHighlight`).
+- Help (SettingHelp, P319 / P592): gen_settings_ui.py carries SettingHelp's EXACT / FAMILIES / STATE_KEYS and strings_help.xml in
+  both languages ("help" in the json; «Google Photos» written as Photos). A row shows its title and its value only (a note without
+  a title leaves the page, a state row keeps its line); the long press is the context menu with the help card as its preview
+  (title, text, «Сейчас» / «По умолчанию» / «Диапазон»), «Описание» opens the sheet, «Вернуть по умолчанию» for a changed slider;
+  a note's tap opens it too. Rows whose own touches take the long press (the curve, the strips, the crop, text fields) have none.
+  The first opening says the two gestures once (tipOnce).
+- PrecisionEditor (P574): a tap on a slider's value opens it - the big value (tap: type it), «Сбросить до N», the slider between its
+  ends, «Точно» − | + repeating while held, «Отмена» / «Готово»; stored as PreferenceNumber.format. DoubleTapReset: a double tap
+  on the value or the bar puts the default back.
+- Modules (ModuleRows / ModuleActions): a card per lens of the phone (`Capture/ModuleSettings.swift`, the Android keys under the
+  iPhone's ids): the name, the zoom ratio, the viewfinder button, copies with a crop (videoZoomFactor for the camera's photo, the
+  burst's zoom times the crop for SabreCrop) and «Свои настройки для каждого модуля» (ModuleProfiles: the local keys swapped on a
+  module switch, CameraModel.select). The camera reloads them when the settings close (CaptureService.reloadModules).
+  Not possible: Camera ID (AVFoundation names its lenses), sensor modes and the sensor crop (no vendor sensor modes).
+- Accent (AccentSettingsFragment / AccentPalette): pref_theme_accent_key; CameraStyle.accent, GalleryStyle.accent, the settings and
+  the app's tint read it; «Из системы» keeps each surface's own yellow (iOS gives apps no system accent).
+- «Название фото» (FileNameDialog / FileNamePattern): the template, the preview, the variables and ready templates; the library's
+  original file name (`PhotoFileName.make`, MediaLibrary) of the photo, its DNG and its JPEG copy.
+- «Расположение» (SettingsLayoutFragment / SettingsLayout): «Группы» and «Пункты» (rows move between the page's open groups), the
+  page's reset, settings_layout in the config; every page arranged by it (a group that gave away every row is not shown). Android
+  orders only (no hiding), so the iPhone does too.
+- «Для разработчика» (DeveloperPreferences / DevKeys / ScamDevFile): Documents/scam_dev.txt read and written as Android's file
+  (gen_settings_ui.py carries DevKeys' 446 lines); PostSettings.json puts its lines over scam.dev as the pipeline's "dev"
+  (Settings::scamDevValue, hybridValue); the full reset sets it aside as scam_dev.txt.bak; hybrid_why_v2_colour 0 ungreys V1's rows.
+- ToneCurveCompare (P177): «Сравнить: AgX / ACES / Uchimura» dashed on the graph with today's uniforms (pref_scam_hybrid_why_*,
+  scam_dev over them), the templates (S-curve, straight, the three operators as nine points).
+- LUT / lens filter / film pages: the before / after preview with a draggable cut (LutCompareView), the samples (LutSamples:
+  landscape, sunset, colour chart, the night street), the card strips in the user's order (ItemOrder, StripReorder: hold and drag);
+  the lens filter previews through DiffusionGauss.apply (ported in Bridge/ScamFilm.mm, checked on the host); the film's preview is
+  its first-phase table with its default print (EditLookThumbs' approximation).
+- «Звуки» (pref_camera_sounds_all): not stored, it reads and writes the shutter and timer switches, which the page hides.
+- Output rows (`Capture/PhotoEncoding.swift`, a call in ShotProcessor.encode and MediaLibrary): «Цветовое пространство» Display P3
+  renders the SHDR photo in P3 (ShotRun sets PostPipeline.p3Output; WhyCombine / WhyV2Tone P3_OUT, as the Java) and writes it with
+  the Display P3 profile; «HEIC 10 бит» through CIContext.heif10Representation (a photo carrying the HDR gain map stays 8-bit:
+  ImageIO writes the ISO gain map only beside an 8-bit image); «Копия в JPEG» saves a HEIC's JPEG as a photo of its own; «Тема
+  галереи» sets the gallery's system sheets / alerts (its own pages stay dark, as Android's GalleryUi).
+- Config import (BackupRestoreUtil.migrate): BrandMigration, migrateMultiFrame / Antibanding / ScamHybrid (every defaults revision)
+  / ShadeTiles / Watermark, removeObsolete, prepare; a config saved on the iPhone carries the one-time markers (as an Android
+  install's own settings), so neither side moves its values as former defaults.
+Not possible on iOS (the row stays, greyed with the reason): WebP / AVIF (ImageIO reads them, has no encoder), «Быстрый кодер JPEG»
+(the system encoder always), «Включить логирование» (the session log is always on), the gallery icon (one app icon), the ZSL buffer
+(no app-sized RAW ring), the lens page's RAW stream format / Bayer filter / levels (AVFoundation and the DNG decide), ETTR (no RAW
+viewfinder stream). Display P3 acts on the SHDR photo only (the camera's own HEIC is Apple's).
 
 ## Camera screen parity: live look, capture settings, EXIF (2026-11-13)
 - Live viewfinder (`Viewfinder/`): Android's default viewfinder is the ISP frame through `shaders/preview/main_fs.glsl` (the

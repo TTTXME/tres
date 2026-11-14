@@ -8,7 +8,8 @@ enum GalleryStyle {
     static let text = Color.white
     static let muted = Color.white.opacity(0.6)
     static let section = Color.white.opacity(0.55)
-    static let accent = Color(red: 0xFF / 255, green: 0xD4 / 255, blue: 0x47 / 255)
+    /// pref_theme_accent_key (AccentPalette): the chosen accent, else the gallery's own yellow
+    static var accent: Color { AccentPalette.chosen ?? Color(red: 0xFF / 255, green: 0xD4 / 255, blue: 0x47 / 255) }
     static let ink = Color(red: 0x1C / 255, green: 0x1C / 255, blue: 0x1E / 255)
     static let warn = Color(red: 0xFF / 255, green: 0x45 / 255, blue: 0x3A / 255)
     static let bar = Color(red: 0x14 / 255, green: 0x14 / 255, blue: 0x16 / 255).opacity(0.9)

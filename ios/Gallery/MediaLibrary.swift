@@ -1,6 +1,7 @@
 import Foundation
 import ImageIO
 import Photos
+import UniformTypeIdentifiers
 
 /// Writes photos to the library (AVCam MediaLibrary): the processed HEIC/JPEG as .photo, the DNG as .alternatePhoto.
 actor MediaLibrary {
@@ -37,8 +38,21 @@ actor MediaLibrary {
         // library (an album needs full access; with add-only access the photo is saved as before)
         let fullAccess = PHPhotoLibrary.authorizationStatus(for: .readWrite) == .authorized
         let album = fullAccess ? GalleryLibrary.album() : nil
+        // «Название фото» (PhotoFileName) and «Копия в JPEG» (PhotoEncoding.companionJPEG: a HEIC's JPEG as a photo of its own)
+        let savedAt = Date()
+        let companion = PhotoEncoding.companionJPEG(for: processed, uti: processedUTI)
         do {
             try await PHPhotoLibrary.shared().performChanges {
+                if let companion {
+                    let copy = PHAssetCreationRequest.forAsset()
+                    let options = PHAssetResourceCreationOptions()
+                    options.uniformTypeIdentifier = UTType.jpeg.identifier
+                    options.originalFilename = PhotoFileName.make(date: savedAt, uti: UTType.jpeg.identifier)
+                    copy.addResource(with: .photo, data: companion, options: options)
+                    if let album, let placeholder = copy.placeholderForCreatedAsset {
+                        PHAssetCollectionChangeRequest(for: album)?.addAssets([placeholder] as NSArray)
+                    }
+                }
                 let request = PHAssetCreationRequest.forAsset()
                 defer {
                     if fullAccess, let placeholder = request.placeholderForCreatedAsset {
@@ -53,9 +67,11 @@ actor MediaLibrary {
                 let rawOptions = PHAssetResourceCreationOptions()
                 rawOptions.shouldMoveFile = true
                 rawOptions.uniformTypeIdentifier = "com.adobe.raw-image"
+                rawOptions.originalFilename = PhotoFileName.make(date: savedAt, uti: "com.adobe.raw-image")
                 if let processed {
                     let options = PHAssetResourceCreationOptions()
                     options.uniformTypeIdentifier = processedUTI
+                    options.originalFilename = PhotoFileName.make(date: savedAt, uti: processedUTI)
                     request.addResource(with: .photo, data: processed, options: options)
                     if let raw { request.addResource(with: .alternatePhoto, fileURL: raw, options: rawOptions) }
                 } else if let raw {

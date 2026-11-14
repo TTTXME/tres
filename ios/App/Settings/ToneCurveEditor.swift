@@ -114,6 +114,8 @@ final class ToneCurveEditing {
 struct ToneCurveGraph: View {
     let model: ToneCurveEditing
     let enabled: Bool
+    /// ToneCurveCompare: the operators drawn dashed beside the own curve
+    var references: [ToneCurveCompare.Reference] = []
     static let aspect: CGFloat = 0.78
     static let pad: CGFloat = 14, bottom: CGFloat = 22
 
@@ -227,6 +229,17 @@ struct ToneCurveGraph: View {
         ctx.draw(Text(Lang.t("0 (серый)", "0 (grey)")).font(.system(size: 10.5)).foregroundStyle(.secondary),
                  at: CGPoint(x: px(0.5, p), y: labelY), anchor: .center)
         ctx.draw(Text("+5 EV").font(.system(size: 10.5)).foregroundStyle(.secondary), at: CGPoint(x: p.maxX, y: labelY), anchor: .trailing)
+        // ToneCurveView.setReferences: each operator dashed in its colour, its name at its end
+        for (k, ref) in references.enumerated() where ref.samples.count > 1 {
+            var path = Path()
+            for (i, v) in ref.samples.enumerated() {
+                let pt = CGPoint(x: px(Float(i) / Float(ref.samples.count - 1), p), y: py(v, p))
+                if i == 0 { path.move(to: pt) } else { path.addLine(to: pt) }
+            }
+            ctx.stroke(path, with: .color(ref.color.opacity(0.9)), style: StrokeStyle(lineWidth: 1.6, dash: [6, 4]))
+            ctx.draw(Text(ref.name).font(.system(size: 10.5, weight: .semibold)).foregroundStyle(ref.color),
+                     at: CGPoint(x: p.maxX - 4, y: p.minY + 10 + CGFloat(k) * 14), anchor: .trailing)
+        }
         let s = model.curve.samples(128)
         var line = Path(), area = Path()
         area.move(to: CGPoint(x: px(0, p), y: p.maxY))
@@ -332,6 +345,7 @@ struct ToneCurveEditor: View {
     @State private var importing = false
     @State private var status: String?
     @State private var files: [CurveFile] = []
+    @State private var references: [ToneCurveCompare.Reference] = []
 
     struct CurveFile: Identifiable {
         let url: URL
@@ -355,7 +369,8 @@ struct ToneCurveEditor: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            ToneCurveGraph(model: model, enabled: enabled)
+            ToneCurveGraph(model: model, enabled: enabled, references: references)
+            ToneCurveCompareChips(references: $references)
             HStack(spacing: 8) {
                 chip(Lang.t("S-кривая", "S-curve")) { model.edit(ToneCurve.defaults()) }
                 chip(Lang.t("Прямая", "Straight")) { model.edit(ToneCurve.identity()) }
@@ -502,9 +517,21 @@ struct ToneCurveEditor: View {
     private var loadSheet: some View {
         NavigationStack {
             List {
+                // ToneCurveCompare.pickTemplate: the S-curve, the straight line and the operators as an own curve of nine points
                 Section(Lang.t("Шаблоны", "Templates")) {
-                    Button(Lang.t("S-кривая", "S-curve")) { model.load(ToneCurve.defaults()); loading = false }
-                    Button(Lang.t("Прямая", "Straight")) { model.load(ToneCurve.identity()); loading = false }
+                    ForEach(Array(ToneCurveCompare.templateNames.enumerated()), id: \.offset) { i, name in
+                        Button {
+                            let t = ToneCurveCompare.template(i)
+                            model.load(t)
+                            status = Lang.t("Кривая загружена: ", "Curve loaded: ") + name
+                            loading = false
+                        } label: {
+                            HStack(spacing: 14) {
+                                ToneCurveThumb(curve: ToneCurveCompare.template(i))
+                                Text(name)
+                            }
+                        }
+                    }
                 }
                 Section {
                     if files.isEmpty {

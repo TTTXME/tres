@@ -60,7 +60,7 @@ actor CaptureService {
     func start(preferredModule: String?, fullResolution: Bool) throws -> State {
         self.fullResolution = fullResolution
         if !isSetUp {
-            modules = DeviceLookup.modules()
+            modules = ModuleSettings.apply(DeviceLookup.modules())
             SessionLog.i("Modules", modules.map { "\($0.id)=\($0.label) \($0.kind.rawValue) zoom=\(String(format: "%.2f", $0.zoom)) \($0.deviceName)" }
                 .joined(separator: "; "))
             guard let module = modules.first(where: { $0.id == preferredModule }) ?? modules.first(where: { $0.zoom == 1 && !$0.isFront })
@@ -133,6 +133,14 @@ actor CaptureService {
         try apply(module)
         if let device = activeInput?.device { createRotationCoordinator(for: device) }
         DeviceProbe.describe(output: photoCapture.output).forEach { SessionLog.i("Probe", $0) }
+        return state
+    }
+
+    /// The modules again with the settings' names, ratios, buttons and copies (ModuleSettings: the settings closed); the open lens stays
+    func reloadModules() -> State {
+        guard isSetUp else { return state }
+        modules = ModuleSettings.apply(DeviceLookup.modules())
+        if let id = activeModule?.id, let now = modules.first(where: { $0.id == id }) { activeModule = now }
         return state
     }
 
@@ -217,7 +225,7 @@ actor CaptureService {
     /// zoom (ZoomController's residual: SabreCrop's window and the photo's crop, BurstProcessor).
     func captureBayerBurst(count: Int) async throws -> BayerBurst {
         guard let device = activeInput?.device else { throw CameraError.videoDeviceUnavailable }
-        let zoom = residual
+        let zoom = residual * (activeModule?.crop ?? 1) // a copy's crop (ModuleSettings) on top of the residual
         var burst = try await photoCapture.captureBayerBurst(count: count, device: device)
         burst.zoom = zoom
         return burst
@@ -320,7 +328,7 @@ actor CaptureService {
     /// The flash shot's one Bayer frame (nil: refused, the camera's own flash photo then)
     func captureFlashFrame() async throws -> BayerBurst? {
         guard let device = activeInput?.device else { throw CameraError.videoDeviceUnavailable }
-        let zoom = residual
+        let zoom = residual * (activeModule?.crop ?? 1) // a copy's crop (ModuleSettings) on top of the residual
         var burst = try await photoCapture.captureFlashFrame(device: device, flash: .on)
         burst?.zoom = zoom
         return burst

@@ -18,7 +18,9 @@ enum PostSettings {
             default: break
             }
         }
-        let dev = defaults.dictionary(forKey: devKey) as? [String: Double] ?? [:]
+        // the app's own developer values, then Documents/scam_dev.txt over them (ScamDevFile: Android's file, its lines win)
+        var dev = defaults.dictionary(forKey: devKey) as? [String: Double] ?? [:]
+        for (key, value) in ScamDevFile.values() { dev[key] = value }
         let object: [String: Any] = ["prefs": prefs, "dev": dev]
         guard let data = try? JSONSerialization.data(withJSONObject: object), let text = String(data: data, encoding: .utf8) else {
             return "{\"prefs\":{},\"dev\":{}}"

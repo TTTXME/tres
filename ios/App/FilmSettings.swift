@@ -139,11 +139,27 @@ private struct StoredSlider: View {
 /// sliders under the Android keys (pref_film_sim_*), the values as the Android page stores them.
 struct FilmSimPage: View {
     @State private var tab = 0
+    @State private var sample = 0
     private var store: SettingsStore { SettingsStore.shared }
     private var stockId: String { store.string("pref_film_sim_stock", "") }
 
+    /// P281: the before / after preview on the three samples - the stock through its first-phase table with its default print and
+    /// no grain (EditLookThumbs' film picture), mixed by the film's strength
+    @ViewBuilder private var preview: some View {
+        let s = sample, stock = FilmCatalog.stock(stockId)?.id ?? ""
+        let before = SampleCache.shared.get("lut|\(s)|480") { LutSamples.draw(s, 480, 360) }
+        let after = stock.isEmpty ? before : SampleCache.shared.get("film|\(s)|480|" + stock) { LutSamples.look(LutSamples.draw(s, 480, 360), lut: "", film: stock) }
+        let strength = PrefValue.number(store.string("pref_film_sim_strength", "100"), 100) / 100
+        VStack(alignment: .leading, spacing: 12) {
+            LutCompareView(before: before?.image, after: after.flatMap { a in before?.mixed(with: a, strength).image })
+            SampleChips(names: (0..<3).map(LutSamples.name), selected: $sample)
+        }
+        .buttonStyle(.borderless)
+    }
+
     var body: some View {
         List {
+            Section { preview }
             Section {
                 Picker("", selection: $tab) {
                     Text(L("film.tab.film")).tag(0)
@@ -233,32 +249,58 @@ struct FilmSimPage: View {
     }
 }
 
-/// FilmLutPreference: «Плёночный LUT» - «None», our five looks and the imported .cube files (Documents/LUT); a choice is stored
-/// under pref_film_lut (its strength set to 100 when it was 0), «Import .cube» copies a file into the folder.
-struct FilmLutPage: View {
+/// FilmLooks.hint: a look's short hint under its card; «свой · .cube» for a file
+enum LookHints {
+    static func hint(_ value: String) -> String {
+        if value.isEmpty { return L("film.hint.none") }
+        if value.hasPrefix("scam:") { return L("film.hint." + value.dropFirst(5)) }
+        return L("film.hint.cube")
+    }
+}
+
+/// FilmLutPreference (P134 / SIMPLE_UI §4c «Плёночный LUT»), on its page as Android draws it: the before / after preview with a
+/// draggable cut (the LUT at the chosen strength), the three samples, «Плёнка» - a strip of cards, each the sample through that LUT
+/// with its name and hint, in the user's order (pref_film_lut_order, a card held and dragged) - and «Импорт .cube» (the file copied
+/// into Documents/LUT). A choice is stored under pref_film_lut (its strength set to 100 when it was 0).
+struct FilmLutCard: View {
+    @State private var sample = 0
     @State private var importing = false
     @State private var failed = false
     @State private var files: [String] = FilmCatalog.luts()
     private var store: SettingsStore { SettingsStore.shared }
+    private static let thumbW = 160, thumbH = 120, previewW = 480, previewH = 360
+
+    private var strength: Double { PrefValue.number(store.string("pref_film_lut_strength", "100"), 100) / 100 }
+
+    private func base(_ w: Int, _ h: Int) -> SamplePixels? {
+        let s = sample
+        return SampleCache.shared.get("lut|\(s)|\(w)") { LutSamples.draw(s, w, h) }
+    }
+
+    private func through(_ value: String, _ w: Int, _ h: Int) -> SamplePixels? {
+        let s = sample
+        return SampleCache.shared.get("lut|\(s)|\(w)|" + value) { LutSamples.look(LutSamples.draw(s, w, h), lut: value) }
+    }
 
     var body: some View {
         let chosen = store.string("pref_film_lut", "")
-        List {
-            Section {
-                ForEach(files, id: \.self) { v in
-                    ChoiceRow(title: FilmCatalog.lutName(v), on: v == chosen) { choose(v) }
-                }
-            } footer: {
-                Text(L("film.lut.hint"))
-            }
-            Section {
-                Button(L("film.lut.import")) { importing = true }
-            }
+        let ordered = ItemOrder.ordered(ItemOrder.lutKey, files)
+        VStack(alignment: .leading, spacing: 12) {
+            let before = base(Self.previewW, Self.previewH), after = through(chosen, Self.previewW, Self.previewH)
+            LutCompareView(before: before?.image, after: after.flatMap { a in before?.mixed(with: a, strength).image })
+            SampleChips(names: (0..<3).map(LutSamples.name), selected: $sample)
+            Text(L("film.strip")).font(.caption.weight(.semibold)).foregroundStyle(.secondary).textCase(.uppercase)
+            CardStrip(items: ordered, chosen: chosen, name: FilmCatalog.lutName, hint: LookHints.hint,
+                      thumb: { through($0, Self.thumbW, Self.thumbH)?.image }, choose: choose,
+                      move: { ItemOrder.move(ItemOrder.lutKey, ordered, from: $0, to: $1) })
+            Text(L("film.lut.hint")).font(.caption).foregroundStyle(.secondary)
+            Button(L("film.lut.import")) { importing = true }
         }
-        .navigationTitle(L("film.lut.title"))
-        .navigationBarTitleDisplayMode(.inline)
+        .padding(.vertical, 6)
+        .buttonStyle(.borderless)
         .fileImporter(isPresented: $importing, allowedContentTypes: [.item]) { result in
             if case .success(let url) = result, let name = FilmCatalog.importCube(url) {
+                SampleCache.shared.forget(containing: "|" + name)
                 files = FilmCatalog.luts()
                 choose(name)
             } else if case .success = result {
@@ -276,41 +318,65 @@ struct FilmLutPage: View {
     }
 }
 
-/// LensFilterPreference: «Фильтр объектива» - none or a diffusion filter (pref_lens_filter), its strength (pref_lens_filter_strength,
-/// 0..100, 50 when a filter is chosen at 0) and its fine controls (pref_lens_filter_tune_<id>: LensFilters.Tune's text).
-struct LensFilterPage: View {
+/// LensFilterPreference (P228 «Фильтр объектива»), on its page: the before / after preview of the chosen filter on the samples
+/// («Огни», «Пейзаж», «Закат»; the filter's diffusion as the photo's model, DiffusionGauss), the strip of filters with live
+/// thumbnails in the user's order (pref_lens_filter_order), «Сила» (pref_lens_filter_strength, 0..100, 50 when a filter is chosen
+/// at 0) and the filter's fine controls (pref_lens_filter_tune_<id>: LensFilters.Tune's text).
+struct LensFilterCard: View {
+    @State private var sample = 0
     private var store: SettingsStore { SettingsStore.shared }
+    private static let thumbW = 160, thumbH = 120, previewW = 400, previewH = 300
 
-    var body: some View {
-        let stored = store.string("pref_lens_filter", "")
-        let chosen = SCAMFilm.lensFilters().contains(stored) ? stored : ""
-        List {
-            Section {
-                ChoiceRow(title: L("film.none"), caption: L("lens.no_filter"), on: chosen.isEmpty) { store.set("pref_lens_filter", "") }
-                ForEach(SCAMFilm.lensFilters(), id: \.self) { id in
-                    ChoiceRow(title: SCAMFilm.lensFilterName(id), caption: L("lens.hint." + id), on: id == chosen) { choose(id) }
-                }
-            }
-            if !chosen.isEmpty { controls(chosen) }
-        }
-        .navigationTitle(L("lens.title"))
-        .navigationBarTitleDisplayMode(.inline)
+    private static func picture(_ s: Int, _ w: Int, _ h: Int) -> SamplePixels {
+        s == 0 ? LutSamples.lights(w, h) : LutSamples.draw(s == 1 ? 0 : 1, w, h)
+    }
+
+    private func base(_ w: Int, _ h: Int) -> SamplePixels? {
+        let s = sample
+        return SampleCache.shared.get("lens|\(s)|\(w)") { Self.picture(s, w, h) }
     }
 
     private func strength() -> Double {
         Double(store.string("pref_lens_filter_strength", "50").replacingOccurrences(of: ",", with: ".")) ?? 50
     }
 
-    private func choose(_ id: String) {
-        store.set("pref_lens_filter", id)
-        if strength() <= 0 { store.set("pref_lens_filter_strength", "50") }
+    private func storedTune(_ id: String) -> String? {
+        let key = "pref_lens_filter_tune_" + id
+        return store.values[key] == nil ? nil : store.string(key, "")
     }
 
-    private func tune(_ id: String) -> [Double] {
-        let key = "pref_lens_filter_tune_" + id
-        let stored = store.values[key] == nil ? nil : store.string(key, "")
-        return SCAMFilm.lensTune(stored, filter: id).map { $0.doubleValue }
+    private func through(_ id: String, _ w: Int, _ h: Int, strength: Double) -> SamplePixels? {
+        guard !id.isEmpty else { return base(w, h) }
+        let tune = storedTune(id), s = sample
+        return SampleCache.shared.get("lens|\(s)|\(w)|\(id)|\(strength)|\(tune ?? "")") {
+            LutSamples.lens(Self.picture(s, w, h), filter: id, strength: strength / 100, tune: tune)
+        }
     }
+
+    var body: some View {
+        let stored = store.string("pref_lens_filter", "")
+        let chosen = SCAMFilm.lensFilters().contains(stored) ? stored : ""
+        let ordered = ItemOrder.ordered(ItemOrder.filterKey, [""] + SCAMFilm.lensFilters())
+        VStack(alignment: .leading, spacing: 12) {
+            LutCompareView(before: base(Self.previewW, Self.previewH)?.image,
+                           after: through(chosen, Self.previewW, Self.previewH, strength: strength())?.image)
+            SampleChips(names: (0..<3).map(LutSamples.lensName), selected: $sample)
+            CardStrip(items: ordered, chosen: chosen, name: FilmCatalog.lensName,
+                      hint: { $0.isEmpty ? L("lens.no_filter") : L("lens.hint." + $0) },
+                      thumb: { through($0, Self.thumbW, Self.thumbH, strength: $0.isEmpty ? 0 : max(strength(), 50))?.image },
+                      choose: choose, move: { ItemOrder.move(ItemOrder.filterKey, ordered, from: $0, to: $1) })
+            if !chosen.isEmpty { controls(chosen) }
+        }
+        .padding(.vertical, 6)
+        .buttonStyle(.borderless)
+    }
+
+    private func choose(_ id: String) {
+        store.set("pref_lens_filter", id)
+        if !id.isEmpty && strength() <= 0 { store.set("pref_lens_filter_strength", "50") }
+    }
+
+    private func tune(_ id: String) -> [Double] { SCAMFilm.lensTune(storedTune(id), filter: id).map { $0.doubleValue } }
 
     private func setTune(_ id: String, _ index: Int, _ v: Double) {
         var t = tune(id)
@@ -319,14 +385,12 @@ struct LensFilterPage: View {
     }
 
     @ViewBuilder private func controls(_ id: String) -> some View {
-        Section {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack { Text(L("lens.strength")); Spacer(); Text("\(Int(strength().rounded()))").font(.footnote.monospacedDigit()).foregroundStyle(.secondary) }
-                Slider(value: Binding(get: { Swift.min(100, Swift.max(0, strength())) },
-                                      set: { store.set("pref_lens_filter_strength", String(Int($0.rounded()))) }), in: 0...100, step: 1)
-            }
+        VStack(alignment: .leading, spacing: 4) {
+            HStack { Text(L("lens.strength")); Spacer(); Text("\(Int(strength().rounded()))").font(.footnote.monospacedDigit()).foregroundStyle(.secondary) }
+            Slider(value: Binding(get: { Swift.min(100, Swift.max(0, strength())) },
+                                  set: { store.set("pref_lens_filter_strength", String(Int($0.rounded()))) }), in: 0...100, step: 1)
         }
-        Section {
+        DisclosureGroup(L("lens.fine")) {
             let t = tune(id)
             ForEach(1..<5, id: \.self) { i in
                 VStack(alignment: .leading, spacing: 4) {
@@ -341,8 +405,7 @@ struct LensFilterPage: View {
                 d[0] = tune(id)[0]
                 store.set("pref_lens_filter_tune_" + id, SCAMFilm.lensTuneText(d.map { NSNumber(value: $0) }))
             }
-        } header: {
-            Text(L("lens.fine"))
         }
     }
 }
+

@@ -346,6 +346,8 @@ public:
         if (oppShare && (!hlB || !oppSize || oppSize->x * input->mSize.y != oppSize->y * input->mSize.x)) { oppShare->close(); oppShare = nullptr; }
         if (oppShare) prog.setDefine("HL_OPPOSED", 1);
         const bool oppOn = oppShare != nullptr;
+        // P46 Display P3: the same shader with P3_OUT 1 (colour source, OKLab and gamut in P3); sRGB sets no define.
+        if (pipeline.p3Output) prog.setDefine("P3_OUT", 1);
         if (colourOn) prog.setDefine("COLOUR_LOOK", 1);
         const bool portraitOn = st.portrait && st.portrait->corrected();
         if (portraitOn) prog.setDefine("PORTRAIT", 1);

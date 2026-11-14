@@ -5,7 +5,10 @@
   (res/values*, res/values-ru*) and the defaults resolved;
 - ios/Resources/Icons.xcassets: the vector drawables the tree (and tools/ios_icons.txt) names, as SVG images;
 - "develop" in the json (P665): the gallery developer's groups (DevelopCatalog.GROUPS: the parts of the tree each takes), the rows
-  fixed at the shot (ScamLabFragment.AT_SHOT, BURST_FRAMES) and the merge's tuning keys (PreferenceKeys.TUNING_KEYS).
+  fixed at the shot (ScamLabFragment.AT_SHOT, BURST_FRAMES) and the merge's tuning keys (PreferenceKeys.TUNING_KEYS);
+- "help" (P319 / P592 SettingHelp): a row's help text by its key (EXACT) or key family (FAMILIES) and the rows whose summary is
+  their state (STATE_KEYS); the texts of res/values*/strings_help.xml go into the en / ru tables;
+- "devKeys": the «Для разработчика» page's scam_dev.txt lines (settings/DevKeys.java: group, key, kind, default, meaning).
 --check: fail when the generated files are out of date."""
 import json
 import pathlib
@@ -287,8 +290,125 @@ def develop():
             'mergeTuning': sorted('pref_scam_hybrid_' + k for k in set(tuning))}
 
 
+LITERAL = r'"(?:[^"\\]|\\.)*"'
+
+
+def java_string(lit):
+    """a Java string literal's text"""
+    return re.sub(r'\\(u[0-9a-fA-F]{4}|.)', lambda m: chr(int(m.group(1)[1:], 16)) if m.group(1)[0] == 'u' and len(m.group(1)) == 5
+                  else {'n': '\n', 't': '\t'}.get(m.group(1), m.group(1)), lit[1:-1])
+
+
+def help_map():
+    """SettingHelp.EXACT / FAMILIES / STATE_KEYS: the help string of a key (its strings go into the tables)"""
+    text = (JAVA / 'ui/settings/SettingHelp.java').read_text()
+    exact, families = {}, []
+    for key, name in re.findall(r'EXACT\.put\("([^"]+)",\s*R\.string\.(\w+)\)', text):
+        if name in EN_S:
+            exact[key] = name
+            used_strings.add(name)
+    for pattern, name in re.findall(r'FAMILIES\.put\(Pattern\.compile\((' + LITERAL + r')\),\s*R\.string\.(\w+)\)', text):
+        if name in EN_S:
+            families.append([java_string(pattern), name])
+            used_strings.add(name)
+    state = re.findall(r'"(\w+)"', java_block(text, 'STATE_KEYS = new java.util.HashSet<>'))
+    return {'exact': exact, 'families': families, 'stateKeys': sorted(state)}
+
+
+def java_args(text):
+    """the top-level comma-separated arguments of a call's text"""
+    args, depth, cur, i = [], 0, '', 0
+    while i < len(text):
+        c = text[i]
+        if c == '"':
+            j = i + 1
+            while text[j] != '"':
+                j += 2 if text[j] == '\\' else 1
+            cur += text[i:j + 1]
+            i = j + 1
+            continue
+        if c in '({':
+            depth += 1
+        elif c in ')}':
+            depth -= 1
+        if c == ',' and depth == 0:
+            args.append(cur.strip())
+            cur = ''
+        else:
+            cur += c
+        i += 1
+    if cur.strip():
+        args.append(cur.strip())
+    return args
+
+
+def java_text(expr):
+    """a string expression of literals joined by +; None for anything else (null, a constant)"""
+    lits = re.findall(LITERAL, expr)
+    if not lits or re.sub(LITERAL + r'|\+|\s', '', expr):
+        return None
+    return ''.join(java_string(x) for x in lits)
+
+
+def lang(expr, names):
+    """Lang.t("ru", "en"), a literal or a group variable as {"ru", "en"}"""
+    expr = expr.strip()
+    if expr in names:
+        return names[expr]
+    m = re.fullmatch(r'Lang\.t\((.*)\)', expr, re.S)
+    if m:
+        a = java_args(m.group(1))
+        if len(a) == 2 and java_text(a[0]) is not None and java_text(a[1]) is not None:
+            return {'ru': java_text(a[0]), 'en': java_text(a[1])}
+        return None
+    t = java_text(expr)
+    return {'ru': t, 'en': t} if t is not None else None
+
+
+def dev_keys():
+    """DevKeys.all(): every k.add(s / sAuto / n (...)) with its group's names"""
+    text = (JAVA / 'settings/DevKeys.java').read_text()
+    body = java_block(text, 'public static synchronized List<Key> all()')
+    names = {}
+    for fn, ru, en in re.findall(r'private static String (\w+)\(\) \{ return Lang\.t\("([^"]*)", "([^"]*)"\); \}', text):
+        names[fn + '()'] = {'ru': ru, 'en': en}
+    for var, expr in re.findall(r'final String (\w+) = ([^;]+);', body):
+        v = lang(expr, names)
+        if v:
+            names[var] = v
+    out, at = [], 0
+    while True:
+        at = body.find('k.add(', at)
+        if at < 0:
+            break
+        call = java_block(body[at:], 'k.add')
+        at += len(call) + 6
+        m = re.match(r'\s*(sAuto|s|n)\((.*)\)\s*$', call, re.S)
+        if not m:
+            continue
+        kind, a = m.group(1), java_args(m.group(2))
+        group, key = lang(a[0], names), java_text(a[1])
+        if group is None or key is None or len(a) < 3:
+            continue
+        if kind == 'sAuto':
+            default, meaning = None, lang(a[2], names)
+        elif kind == 's':
+            default, meaning = '1' if a[2] == 'true' else '0', lang(a[3], names)
+        else:
+            default, meaning = java_text(a[2]), lang(a[3], names)
+        if meaning is None:
+            continue
+        out.append({'g': group, 'k': key, 'n': kind == 'n', 'd': default, 't': meaning})
+    return out
+
+
 def render():
     tree = node(ET.parse(RES / 'xml/preferences.xml').getroot())
+    helps = help_map()
+    # the module cards' texts (ModuleRows / ModuleActions build their rows in code)
+    for name in EN_S:
+        if name.startswith(('module_kind_', 'module_state_', 'module_row_')):
+            used_strings.add(name)
     if EXTRA_ICONS.exists():
         for line in EXTRA_ICONS.read_text().split():
             if drawable(line).exists():
@@ -299,8 +419,16 @@ def render():
                 'arrays': {k: arrays.get(k, fallback_a[k]) if len(arrays.get(k, [])) == len(fallback_a[k]) else fallback_a[k]
                            for k in sorted(used_arrays)}}
     doc = {'generated': 'ios/tools/gen_settings_ui.py from app/src/main/res: do not edit', 'tree': tree,
-           'en': table(EN_S, EN_A, EN_S, EN_A), 'ru': table(RU_S, RU_A, EN_S, EN_A), 'develop': develop()}
-    files = {OUT_JSON: json.dumps(doc, ensure_ascii=False, indent=1, sort_keys=True) + '\n'}
+           'en': table(EN_S, EN_A, EN_S, EN_A), 'ru': table(RU_S, RU_A, EN_S, EN_A), 'develop': develop(),
+           'help': helps, 'devKeys': dev_keys()}
+    text = json.dumps(doc, ensure_ascii=False, indent=1, sort_keys=True) + '\n'
+    # the iOS port never names these (the iPhone's own gallery is «Photos»)
+    for old, new in (('галерея Google Photos', 'приложение «Фото»'), ('Google Photos', 'Photos')):
+        text = text.replace(old, new)
+    for word in ('Google', 'GCam', 'HDR+'):
+        if word in text:
+            sys.exit('a settings text names ' + word + ': add its replacement to render()')
+    files = {OUT_JSON: text}
     files[OUT_ICONS / 'Contents.json'] = json.dumps({'info': {'author': 'xcode', 'version': 1}}, indent=2) + '\n'
     for name in sorted(used_icons):
         s = svg(name)

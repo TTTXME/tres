@@ -67,13 +67,8 @@ enum ShotProcessor {
 
     /// RGBA8 sRGB rows top-down (the pipeline's photo) → HEIC with the camera's EXIF.
     /// «Формат фото» (pref_photo_format, Android default jpeg) and its quality (pref_jpeg_quality 98, pref_heic_quality 90).
-    static var photoFormat: (type: UTType, quality: Double) {
-        let store = SettingsStore.shared
-        if store.string("pref_photo_format", "jpeg") == "heic" {
-            return (.heic, Double(Int(store.string("pref_heic_quality", "90")) ?? 90) / 100)
-        }
-        return (.jpeg, Double(Int(store.string("pref_jpeg_quality", "98")) ?? 98) / 100)
-    }
+    /// PhotoEncoding: also «Цветовое пространство» and «HEIC 10 бит».
+    static var photoFormat: PhotoEncoding.Format { PhotoEncoding.current() }
 
     /// The photo's Ultra HDR gain map (SCAMPhoto.gainMap, Engine/post/UltraHdr.hpp): one byte a pixel, rows top-down, pixel-aligned
     /// with the photo; the codes linear in log2 gain from `min` to `max` (GainMapComputer.Result). Its ISO 21496-1 metadata is
@@ -142,11 +137,11 @@ enum ShotProcessor {
 
     /// `gainMap` (Ultra HDR): written as the ISO gain map on iOS 18 and later, left out before (the photo stays SDR); `log` says which.
     static func encode(rgba bytes: Data, width w: Int, height h: Int, metadata: [String: Any], orientation: Int = 1,
-                       format: (type: UTType, quality: Double) = (.heic, 0.92), gainMap: GainMap? = nil,
+                       format: PhotoEncoding.Format = PhotoEncoding.Format(type: .heic, quality: 0.92), gainMap: GainMap? = nil,
                        log: ((String) -> Void)? = nil) throws -> Data {
         let rowBytes = w * 4
         guard let provider = CGDataProvider(data: bytes as CFData),
-              let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let space = PhotoEncoding.colorSpace(format),
               let image = CGImage(width: w, height: h, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: rowBytes, space: space,
                                   bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipLast.rawValue), provider: provider,
                                   decode: nil, shouldInterpolate: false, intent: .defaultIntent) else {
@@ -172,6 +167,17 @@ enum ShotProcessor {
         }
         properties[kCGImagePropertyTIFFDictionary as String] = tiff
         properties[kCGImageDestinationLossyCompressionQuality as String] = format.quality
+        if format.tenBit && format.type == .heic {
+            // «HEIC 10 бит»: the gain map is only written beside an 8-bit image, so a photo that carries one stays 8-bit
+            var writesGainMap = false
+            if #available(iOS 18.0, *) { writesGainMap = gainMap.map { $0.width == w && $0.height == h } ?? false }
+            if writesGainMap {
+                log?("HEIC 10-bit: written in 8 bits to keep the HDR gain map")
+            } else if let ten = PhotoEncoding.heif10(image, properties: properties, format: format, log: log) {
+                log?("HEIC 10-bit\(format.displayP3 ? ", Display P3" : "")")
+                return ten
+            }
+        }
         CGImageDestinationAddImage(destination, image, properties as CFDictionary)
         if let gainMap {
             if gainMap.width != w || gainMap.height != h {

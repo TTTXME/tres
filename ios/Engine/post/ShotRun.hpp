@@ -294,6 +294,15 @@ inline ShotOutput runShot(const std::string& nchPath, const std::vector<uint8_t>
     GLProg prog(shaders);
     PostPipeline p;
     p.glProg = &prog;
+    // P46 «Цветовое пространство» (ScamProcessor, OutputColour.Space.parse): Display P3 renders the photo in P3 primaries; the app
+    // writes the file with the Display P3 profile (PhotoEncoding). sRGB (the default, anything else stored) as before
+    {
+        std::string space = s.getString("pref_photo_color_space", "srgb");
+        space.erase(0, space.find_first_not_of(" \t"));
+        space.erase(space.find_last_not_of(" \t") + 1);
+        for (char& c : space) c = char(std::tolower(static_cast<unsigned char>(c)));
+        p.p3Output = space == "p3";
+    }
     if (merged.width != plan.outWidth || merged.height != plan.outHeight)
         throw std::runtime_error("the merge returned " + std::to_string(merged.width) + "x" + std::to_string(merged.height) + ", the burst asked for "
                                  + std::to_string(plan.outWidth) + "x" + std::to_string(plan.outHeight));

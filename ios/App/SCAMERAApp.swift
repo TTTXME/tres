@@ -11,6 +11,7 @@ struct SCAMERAApp: App {
             CameraView(camera: camera)
                 .statusBarHidden(true)
                 .preferredColorScheme(.dark)
+                .modifier(AccentTint())
                 .task {
                     DeviceTurn.shared.start()
                     await camera.start()

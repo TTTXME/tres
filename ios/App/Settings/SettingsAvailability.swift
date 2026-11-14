@@ -60,8 +60,8 @@ struct SettingsAvailability {
     private let mosaicStreams = false
     private let fullRes50 = false, fullRes200 = false
     private let bentoBlend = true
-    /// P676: «Why тон» V1 renders its colour by V2's rule (no scam_dev file on the iPhone to switch it off)
-    private let v1V2Colour = true
+    /// P676: «Why тон» V1 renders its colour by V2's rule unless scam_dev.txt says hybrid_why_v2_colour 0
+    private let v1V2Colour = (ScamDevFile.cachedValues()["hybrid_why_v2_colour"] ?? 1) != 0
     private let dcg = false
     private let yuvMerge = false
     private let rawViewfinder = false
@@ -468,10 +468,7 @@ struct SettingsAvailability {
                               "WebP holds no HDR: turn on “JPEG copy” to get it in that JPEG.")
             }
             if let hdrUnavailable { return hdrUnavailable }
-            if photoFormat == "heic" && !on("pref_heic_10bit", false) {
-                return Lang.t("Включите «HEIC 10 бит» или «Копия в JPEG»: HDR хранится в 10-битном HEIC или в JPEG.",
-                              "Turn on “10-bit HEIC” or “JPEG copy”: HDR needs the 10-bit HEIC or a JPEG.")
-            }
+            // the iPhone's HEIC holds the ISO gain map at 8 bits (ImageIO): no 10-bit HEIC needed for HDR here
         }
         if key == "pref_webp_quality" && on("pref_webp_lossless", false) {
             return Lang.t("Не используется в WebP без потерь.", "Not used by lossless WebP.")
@@ -507,13 +504,21 @@ struct SettingsAvailability {
         case "fringe_net_screen": return L("set.na.fringe_net")
         case "expert_module_sensor", "lens_isp_category", "expert_sensor_screen": return L("set.na.vendor_keys")
         case "scam_lab_screen": return L("set.na.lab")
-        case "developer_settings_screen", "pref_scam_hybrid_dev_note": return L("set.na.dev")
         case "pref_dcp_profile_key": return L("set.na.dcp")
         case "pref_noise_model_import_key", "pref_noise_model_export_key", "pref_noise_model_profile_key": return L("set.na.noise_model")
-        case "pref_file_name_pattern": return L("set.na.file_name")
-        case "pref_theme_accent_key": return L("set.na.accent")
-        case "settings_layout_editor": return L("set.na.layout")
         case "scam_recent_messages": return L("set.na.messages")
+        // rows that would show as active but have nothing to act on here
+        case "pref_webp_quality", "pref_webp_lossless", "pref_avif_quality", "pref_avif_lossless", "pref_avif_depth", "pref_avif_chroma",
+             "pref_avif_speed":
+            return L("set.na.webp_avif")
+        case "pref_ettr": return L("set.na.ettr")
+        case "pref_jpeg_fast_encoder": return L("set.na.jpeg_fast")
+        case "scamera_full_debug": return L("set.na.full_debug")
+        case "pref_hide_gallery_icon_key": return L("set.na.gallery_icon")
+        case "pref_zsl_buffer_count_key": return L("set.na.zsl_buffer")
+        case "pref_raw_stream_format": return L("set.na.raw_stream")
+        case "pref_cfa_key": return L("set.na.cfa")
+        case "pref_raw_black_from_data", "pref_raw_lsc_mode": return L("set.na.raw_levels")
         case "pref_raw_crop_auto", "pref_raw_crop_left", "pref_raw_crop_top", "pref_raw_crop_right", "pref_raw_crop_bottom", "raw_crop_preview":
             return L("set.na.raw_crop")
         default: return nil
@@ -524,6 +529,13 @@ struct SettingsAvailability {
     func note(_ key: String) -> String? {
         if key == "pref_scam_hybrid_fringe_method" && text(key, "classic").trimmingCharacters(in: .whitespaces) == "neural" {
             return L("set.note.fringe_neural")
+        }
+        if key == "pref_heic_10bit" && on(key, false) && on("pref_ultrahdr_key", false) { return L("set.note.heic10_hdr") }
+        if key == "pref_photo_color_space" && text(key, "srgb").trimmingCharacters(in: .whitespaces).lowercased() == "p3" {
+            return L("set.note.p3")
+        }
+        if key == "pref_photo_format" && ["webp", "avif"].contains(text(key, "jpeg").trimmingCharacters(in: .whitespaces).lowercased()) {
+            return L("set.na.webp_avif")
         }
         return nil
     }
