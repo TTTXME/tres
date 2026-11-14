@@ -159,8 +159,11 @@ public final class VivoNativeFullRes {
                 if (rows.length == 0 || size == null) return null;
                 final boolean big = twoSizes(phone, cameraId) && large;
                 final int row = live ? rowFor(rows, failures(cameraId, big), forced(role(phone, cameraId, large))) : rows[0];
-                return row < 0 ? null : new VivoSdkFullRes.Profile(size[0], size[1], row, size[2],
-                        stillOnly(size[0], size[1]) && (!live || stillOnlySwitch()));
+                final boolean still = stillOnly(size[0], size[1]) && (!live || stillOnlySwitch());
+                // P684: the X300 Ultra's 200 MP still-only size on its last variant (StillOnly200.Variant.HAL, the stock camera's
+                // whole recipe) is the HAL's remosaicked Bayer (block 1); every other variant the sensor's own Tetra
+                final int block = live && still && phone == Phone.X300_ULTRA && StillOnly200.halBayer(cameraId, size[0], size[1]) ? 1 : size[2];
+                return row < 0 ? null : new VivoSdkFullRes.Profile(size[0], size[1], row, block, still);
             }
             default:
                 // the X200 Ultra (P179, measured on the phone): main / ultra-wide mode 4 Quad, tele mode 0 Tetra / 1 Quad
@@ -442,7 +445,7 @@ public final class VivoNativeFullRes {
         final boolean huge = (long) profile.size.getWidth() * profile.size.getHeight() > 100_000_000L;
         final boolean big = twoSizes(phone, cameraId) && huge;
         final int mp = huge ? 200 : 50;
-        if (profile.nativeBayer()) {
+        if (profile.nativeBayer() && !huge) { // P684: a 200 MP Bayer (the HAL's remosaic variant) is its 200 MP row
             // P194: the hardware-remosaic row is noted on its own (the own rows' trials stay); its 50 MP shots take the own mosaic
             noteHardware(prefs(), cameraId, why, stamp()); // P214h: with its reason, under this build's stamp
             com.scamera.app.util.Log.w("VivoNativeFullRes", "camera " + cameraId + " hardware-remosaic row "

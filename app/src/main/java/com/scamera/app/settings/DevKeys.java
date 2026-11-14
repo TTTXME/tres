@@ -913,6 +913,11 @@ public final class DevKeys {
                 "X100/X300 Ultra FULLRES 200 MP the stock way: the viewfinder in the normal mode, 200 MP for the stills only. Off - the camera held in the 200 MP mode")));
         k.add(s(vivo, "vivo_fullres200_force", false, Lang.t("X100/X300 Ultra FULLRES 200 Мп (как в стоке): ключ режима 200 Мп на кадрах снимка",
                 "X100/X300 Ultra FULLRES 200 MP (the stock way): the 200 MP mode key on the stills")));
+        // P684: the 200 MP still-only route's variant (StillOnly200), else the camera's remembered one; the X300 Ultra's stock keys
+        k.add(n(vivo, "vivo_fullres200_variant", "0", Lang.t("X100/X300 Ultra 200 Мп: способ съёмки кадров (0 — авто: варианты по очереди, проверка каждого кадра, рабочий запоминается; 1 — ключи стоковой камеры без её ремозаика; 2 — то же без onlyDng; 3 — то же с ключом режима; 4 — как стоковая камера, ремозаик камеры (Байер); 5 — только ключ режима; 6 — как раньше)",
+                "X100/X300 Ultra 200 MP: how the stills are asked for (0 - auto: the variants in turn, every still checked, the working one remembered; 1 - the stock camera's keys without its remosaic; 2 - the same without onlyDng; 3 - the same with the mode key; 4 - as the stock camera, the camera's remosaic (Bayer); 5 - the mode key only; 6 - as before)")));
+        k.add(s(vivo, "vivo_x300_fullsize", true, Lang.t("X300 Ultra 200 Мп: ключи стоковой камеры для полноразмерных кадров (кадр решения, ключи кадров). Выкл — как раньше, затем ключ режима",
+                "X300 Ultra 200 MP: the stock camera's full-size keys (the decision frame, the still keys). Off - as before, then the mode key")));
         // P212h (A7 = M14): the vivo FULLRES AE audit (log only) and the 200 MP series' exposure
         k.add(s(vivo, "vivo_ae_audit", true, Lang.t("vivo: замер RAW-видоискателя (медиана, свет, BV) рядом с экспозицией HAL в логе SCAM_AE раз в секунду; только лог",
                 "vivo: the RAW viewfinder's meter (median, highlights, BV) beside the HAL's exposure in the SCAM_AE log once a second; log only")));
