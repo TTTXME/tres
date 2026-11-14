@@ -11,8 +11,10 @@ struct HorizonLevel: View {
 
     var body: some View {
         let turn = DeviceTurn.shared.degrees
+        // read here, not in the renderer: a change redraws the canvas only when the body read it
+        let roll = motion.roll, level = motion.level
         Canvas { context, size in
-            draw(&context, size: size, roll: motion.roll, turn: turn, level: motion.level)
+            draw(&context, size: size, roll: roll, turn: turn, level: level)
         }
         .frame(width: 420, height: 420)
         .allowsHitTesting(false)

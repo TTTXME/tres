@@ -126,7 +126,13 @@ struct CameraView: View {
     // MARK: the layout
 
     private var content: some View {
-        VStack(spacing: 0) {
+        // what the stage's GeometryReader content reads, read in the body too, so a change rebuilds it
+        let _ = (shade.level, lut.open, chrome.mode, chrome.horizon, chrome.gridType, chrome.countdown, chrome.roundEdges,
+                 OldstyleModel.shared.open, OldstyleModel.shared.tab, camera.screenLight, camera.status, camera.locked, camera.zoom,
+                 camera.activity, camera.thumbnail, camera.activeModuleID, ZoomReadoutModel.shared.visible, proOpen, focus.visible,
+                 focus.point, focus.dimmed, focus.pulse, exposurePoint, sunEv, flipTurn)
+        let _ = hudMode > 0 ? CameraHud.shared.sample : nil
+        return VStack(spacing: 0) {
             ZStack(alignment: .top) {
                 TopRowBar(camera: camera, chrome: chrome, lutOn: lut.anyOn, lutOpen: lut.open,
                           onFormat: { size in formatTab = size ? 1 : 0 },

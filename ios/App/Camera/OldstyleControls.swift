@@ -210,6 +210,7 @@ struct PalettePad: View {
     var body: some View {
         let _ = model.revision
         let colour = OldstyleParam.color.value, tone = OldstyleParam.tone.value
+        let touchNow = touch
         GeometryReader { g in
             let w = g.size.width, h = g.size.height, inset: CGFloat = 14
             let px = inset + CGFloat(colour + 100) / 200 * (w - 2 * inset)
@@ -228,14 +229,14 @@ struct PalettePad: View {
                     var x = step / 2
                     while x < size.width {
                         var k: CGFloat = 0
-                        if let t = touch { let d = hypot(x - t.x, y - t.y); k = d < reach ? 1 - d / reach : 0 }
+                        if let t = touchNow { let d = hypot(x - t.x, y - t.y); k = d < reach ? 1 - d / reach : 0 }
                         let r = 1.1 * (1 + 1.8 * k * k)
                         context.fill(Path(ellipseIn: CGRect(x: x - r, y: y - r, width: 2 * r, height: 2 * r)), with: .color(.white.opacity(0.42 + 0.58 * k)))
                         x += step
                     }
                     y += step
                 }
-                if touch == nil {
+                if touchNow == nil {
                     var cross = Path()
                     cross.move(to: CGPoint(x: 0, y: py)); cross.addLine(to: CGPoint(x: size.width, y: py))
                     cross.move(to: CGPoint(x: px, y: 0)); cross.addLine(to: CGPoint(x: px, y: size.height))

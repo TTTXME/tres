@@ -142,6 +142,8 @@ struct TopRowBar: View {
 
     var body: some View {
         let items = TopRow.load().filter { TopRow.available($0) }
+        let _ = (camera.flashShown, chrome.timerSeconds, chrome.grid, chrome.horizon, chrome.ultraHdr, camera.raw, camera.fullResolution,
+                 FormatState.badge(camera), DeviceTurn.shared.degrees)
         GeometryReader { g in
             let widths = items.map { $0 == TopRow.format ? 64.0 : 40.0 }
             let room = g.size.width - 20 - widths.reduce(0, +)

@@ -358,6 +358,7 @@ struct ProRuler: View {
     static let step: CGFloat = 16, fade: CGFloat = 40
 
     var body: some View {
+        let residualNow = residual
         HStack(spacing: 10) {
             Button(action: { Haptics.tick(); onAuto() }) {
                 Text(L("pro.auto_short")).font(.system(size: 14, weight: .semibold))
@@ -373,7 +374,7 @@ struct ProRuler: View {
                 ZStack(alignment: .topLeading) {
                     Canvas { context, size in
                         let base = size.height - 4
-                        let shift = cx - CGFloat(index) * Self.step + residual
+                        let shift = cx - CGFloat(index) * Self.step + residualNow
                         let from = max(0, index - Int((cx / Self.step).rounded(.up)) - 2)
                         let to = min(model.stops.count - 1, index + Int(((w - cx) / Self.step).rounded(.up)) + 2)
                         guard from <= to else { return }

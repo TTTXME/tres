@@ -214,6 +214,7 @@ struct CameraHudView: View {
     let sample: CameraHudSample?
 
     var body: some View {
+        let _ = (CameraHud.shared.histogram?.count, CameraHud.shared.histogramPeak, TripodDetector.shared.onTripod, DeviceTurn.shared.degrees)
         GeometryReader { g in
             if let s = sample {
                 ZStack(alignment: .topLeading) {

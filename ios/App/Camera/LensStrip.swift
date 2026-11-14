@@ -18,6 +18,7 @@ struct LensStrip: View {
 
     var body: some View {
         let lenses = camera.sideModules
+        let _ = (camera.activeModuleID, camera.zoom)
         GeometryReader { g in
             let need = CGFloat(lenses.count) * (Self.width + 2) + 6
             let fit = need > g.size.width ? max(Self.minFit, (g.size.width - 2) / need) : 1
