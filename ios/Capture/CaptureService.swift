@@ -20,6 +20,8 @@ actor CaptureService {
     private var aeAfLocked = false
     /// ZoomController's residual: the digital crop over the module's own zoom
     private var residual = 1.0
+    /// apply() replaced the .photo preset's format with one of larger stills (keepRaw checks that RAW stayed)
+    private var formatOverridden = false
     /// «Про»: the values applied last, and the exposure (ISO x seconds) the AE had when they took over (the software priority)
     private var manual = ManualSettings.load()
     private var autoExposureProduct: Double?
@@ -91,6 +93,7 @@ actor CaptureService {
             // ProRAW is enabled before the session starts: toggling it later reconfigures the whole pipeline.
             if photoCapture.output.isAppleProRAWSupported { photoCapture.output.isAppleProRAWEnabled = true }
             session.commitConfiguration()
+            keepRaw()
             observeNotifications()
             isSetUp = true
         }
@@ -129,8 +132,14 @@ actor CaptureService {
     func select(moduleID: String) throws -> State {
         guard let module = modules.first(where: { $0.id == moduleID }) else { throw CameraError.moduleUnavailable }
         session.beginConfiguration()
-        defer { session.commitConfiguration() }
-        try apply(module)
+        do {
+            try apply(module)
+        } catch {
+            session.commitConfiguration()
+            throw error
+        }
+        session.commitConfiguration()
+        keepRaw()
         if let device = activeInput?.device { createRotationCoordinator(for: device) }
         DeviceProbe.describe(output: photoCapture.output).forEach { SessionLog.i("Probe", $0) }
         return state
@@ -178,8 +187,10 @@ actor CaptureService {
         let presetFormat = device.activeFormat
         let best = DeviceLookup.bestPhotoFormat(for: device)
         try device.lockForConfiguration()
+        formatOverridden = false
         if best != presetFormat, DeviceLookup.maxPhotoArea(best) > DeviceLookup.maxPhotoArea(presetFormat) {
             device.activeFormat = best
+            formatOverridden = true
             SessionLog.i("Capture", "module \(module.id): format with larger stills chosen over the .photo preset format")
         }
         let zoom = min(max(CGFloat(module.deviceZoom), device.minAvailableVideoZoomFactor), device.maxAvailableVideoZoomFactor)
@@ -209,6 +220,33 @@ actor CaptureService {
         activeModule = module
         SessionLog.i("Capture", "module \(module.id) \(module.label) \(module.kind.rawValue) deviceZoom=\(zoom)")
         DeviceProbe.describe(device: device).forEach { SessionLog.i("Probe", $0) }
+    }
+
+    /// AVFoundation offers RAW only with the .photo preset's format (an Apple engineer: «RAW support ... is limited to
+    /// AVCaptureSessionPresetPhoto»): a format of larger stills that leaves the photo output without RAW goes back to the preset's,
+    /// so SHDR keeps its Bayer frames; when the preset gives no RAW either, the larger stills stay.
+    private func keepRaw() {
+        guard formatOverridden, photoCapture.output.availableRawPhotoPixelFormatTypes.isEmpty,
+              let device = activeInput?.device, let module = activeModule else { return }
+        let larger = device.activeFormat
+        session.beginConfiguration()
+        session.sessionPreset = .photo
+        session.commitConfiguration()
+        let raw = photoCapture.output.availableRawPhotoPixelFormatTypes
+        if raw.isEmpty, (try? device.lockForConfiguration()) != nil {
+            device.activeFormat = larger
+            device.unlockForConfiguration()
+            SessionLog.i("Capture", "module \(module.id): no RAW with the .photo preset either: the larger stills kept")
+        } else {
+            formatOverridden = false
+            SessionLog.i("Capture", "module \(module.id): the larger-stills format gives no RAW: the .photo preset's format kept "
+                         + "(\(raw.count) RAW formats, stills \(device.activeFormat.supportedMaxPhotoDimensions.map(\.text)))")
+        }
+        if (try? device.lockForConfiguration()) != nil {
+            device.videoZoomFactor = min(max(CGFloat(module.deviceZoom), device.minAvailableVideoZoomFactor), device.maxAvailableVideoZoomFactor)
+            device.unlockForConfiguration()
+        }
+        photoCapture.updateConfiguration(for: device, fullResolution: fullResolution)
     }
 
     private func addOutput(_ output: AVCaptureOutput) throws {
