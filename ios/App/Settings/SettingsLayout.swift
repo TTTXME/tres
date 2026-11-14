@@ -292,6 +292,7 @@ struct SettingsLayoutPage: View {
             }
         }
         .environment(\.editMode, .constant(.active))
+        .tabletReadableList()
         .navigationTitle(L("set.layout.title"))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {

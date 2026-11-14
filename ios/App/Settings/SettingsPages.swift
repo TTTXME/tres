@@ -164,6 +164,7 @@ struct ShdrReportPage: View {
                 Text(line).font(.caption.monospaced()).textSelection(.enabled)
             }
         }
+        .tabletReadableList()
         .navigationTitle(SettingsCatalog.shared.text(SettingsNode.Text(s: "prefs_shdr_capture_report_title", t: nil)) ?? "SHDR")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {

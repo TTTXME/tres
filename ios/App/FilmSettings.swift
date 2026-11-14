@@ -176,6 +176,7 @@ struct FilmSimPage: View {
             default: filmTab
             }
         }
+        .tabletReadableList()
         .navigationTitle(L("film.title"))
         .navigationBarTitleDisplayMode(.inline)
     }

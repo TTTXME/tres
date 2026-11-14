@@ -167,6 +167,7 @@ struct DeveloperPage: View {
                 guard let highlight else { return }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { withAnimation { proxy.scrollTo(highlight, anchor: .center) } }
             }
+            .tabletReadableList()
         }
         .navigationTitle(SettingsCatalog.shared.text(node.title) ?? "")
         .navigationBarTitleDisplayMode(.inline)

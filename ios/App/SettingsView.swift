@@ -354,6 +354,7 @@ struct SettingsScreen: View {
                     withAnimation { proxy.scrollTo(highlight, anchor: .center) }
                 }
             }
+            .tabletReadableList()
         }
         .modifier(SettingsSearchField(enabled: root, query: $query))
         .navigationTitle(catalog.text(node.title) ?? "SCAMERA")
