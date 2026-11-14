@@ -237,7 +237,6 @@ struct ModulesCard: View {
         }
         row(AndroidText.get("module_row_profile"), AndroidText.get(ModuleProfiles.on && ModuleProfiles.hasOwn(m.id)
                                                                    ? "module_row_profile_value_on" : "module_row_profile_value_off"))
-        row(AndroidText.get("module_row_id"), L("set.modules.id_na")).opacity(0.6)
     }
 
     private func row(_ title: String, _ value: String?) -> some View {

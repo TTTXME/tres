@@ -122,6 +122,10 @@ struct SettingsAvailability {
 
     /// Rows of another choice or of what this phone lacks: hidden (SettingsAvailability.hidden).
     func hidden(_ key: String) -> Bool {
+        // what the iPhone / iPad cannot do at all is not shown (Android greys a row only for a state that can change)
+        if iPhoneReason(key) != nil { return true }
+        if key == "pref_live_viewfinder_raw_key" && !rawViewfinder { return true }
+        if key.hasPrefix("pref_scam_hybrid_mosaic_") && !mosaicStreams { return true }
         if !xiaomiSmoothZoom && key == "pref_xiaomi_smooth_zoom" { return true }
         if !fullResHwRemosaic && key == "pref_fullres_hw_remosaic" { return true }
         if !fullRes50 && (key == "pref_scam_hybrid_fullres50_frames" || key == "pref_scam_hybrid_fullres50_zsl") { return true }
