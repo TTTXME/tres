@@ -194,10 +194,29 @@ public final class PhotoSize {
     private static final java.util.Map<String, int[]> normalStreams = new java.util.concurrent.ConcurrentHashMap<>();
 
     public static void stream(@Nullable String camera, int width, int height) {
+        stream(camera, width, height, true);
+    }
+
+    /**
+     * P688 (owner, 2026-11-14: after a restart with 50 MP chosen the size sheet read «Обычный · 50 Мп»): {@code plainSession} - the
+     * session is no FULLRES one. At a cold start the sizes are not bound yet (current() reads NORMAL), so the size class alone let
+     * the full-size stream in as the «Обычный» size.
+     */
+    public static void stream(@Nullable String camera, int width, int height, boolean plainSession) {
         streamCamera = camera == null ? "" : camera;
         streamWidth = width;
         streamHeight = height;
-        if (current() == NORMAL && width > 0 && height > 0) normalStreams.put(streamCamera, new int[]{width, height});
+        if (normalStream(plainSession, current(), width, height)) normalStreams.put(streamCamera, new int[]{width, height});
+    }
+
+    /** P688: a stream is the camera's «Обычный» size only from a plain session while the normal size is chosen. */
+    static boolean normalStream(boolean plainSession, int current, int width, int height) {
+        return plainSession && current == NORMAL && width > 0 && height > 0;
+    }
+
+    /** Tests. */
+    static void clearNormalStreams() {
+        normalStreams.clear();
     }
 
     /** P319: the «Обычный» size of the bound camera in the gallery's words («12,6 Мп», «8 Мп»); «12 Мп» before its first session. */

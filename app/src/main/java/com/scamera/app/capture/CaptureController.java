@@ -3772,7 +3772,9 @@ public class CaptureController {
         }
         mImageReaderRaw.setOnImageAvailableListener(mRawReaderListener, mBackgroundHandler);
         // P319: the size the session really captures, for the photo size pill (PhotoSize.badge)
-        com.scamera.app.ui.camera.PhotoSize.stream(physicalID, mImageReaderRaw.getWidth(), mImageReaderRaw.getHeight());
+        // P688: a FULLRES session's stream is never the «Обычный» size (a cold start with 50 MP chosen named the plain row «50 Мп»)
+        com.scamera.app.ui.camera.PhotoSize.stream(physicalID, mImageReaderRaw.getWidth(), mImageReaderRaw.getHeight(),
+                mVivoSdkRawSession == null && !mFullResSession);
         mRawMaxFps = ViewfinderFps.maxFps(characteristics, mTargetFormat, mImageReaderRaw.getWidth(), mImageReaderRaw.getHeight(),
                 useMaximumResolutionKey);
         // P230: a DCG mode (60 fps only) has its own limits, not the normal mode's of the same RAW size

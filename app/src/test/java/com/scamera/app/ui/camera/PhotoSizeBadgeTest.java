@@ -8,6 +8,8 @@ import org.robolectric.RobolectricTestRunner;
 import org.robolectric.annotation.Config;
 
 import static org.junit.Assert.assertArrayEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 /**
  * P319 (user report 2026-10-22: «надпись "12 Мп" даже, если камера имеет большее или меньшее разрешение (не забываем про
@@ -33,5 +35,19 @@ public class PhotoSizeBadgeTest {
         assertArrayEquals(new int[]{8192, 6144}, PhotoSize.output(8192, 6144, false, "sensor"));
         // a portrait stream is never cropped to 16:9
         assertArrayEquals(new int[]{2448, 3264}, PhotoSize.output(2448, 3264, true, "sensor"));
+    }
+
+    /** P688 (owner, 2026-11-14): a cold start with 50 MP chosen read «Обычный · 50 Мп» - a FULLRES session's stream is never the plain size. */
+    @Test public void aFullResSessionStreamIsNeverTheNormalSize() {
+        assertTrue(PhotoSize.normalStream(true, PhotoSize.NORMAL, 4080, 3064));
+        // the sizes not bound yet at a cold start read NORMAL: the session itself says it is FULLRES
+        assertFalse(PhotoSize.normalStream(false, PhotoSize.NORMAL, 8192, 6144));
+        assertFalse(PhotoSize.normalStream(false, PhotoSize.NORMAL, 16320, 12256));
+        assertFalse(PhotoSize.normalStream(true, PhotoSize.FULL, 4080, 3064));
+        assertFalse(PhotoSize.normalStream(true, PhotoSize.NORMAL, 0, 0));
+        PhotoSize.clearNormalStreams();
+        PhotoSize.stream("3", 8192, 6144, false);
+        assertFalse(PhotoSize.normalBadge("3").startsWith("50"));
+        PhotoSize.clearNormalStreams();
     }
 }
