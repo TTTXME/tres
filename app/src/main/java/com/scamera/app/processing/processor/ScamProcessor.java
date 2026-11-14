@@ -726,8 +726,8 @@ public class ScamProcessor extends ProcessorBase {
                             stageName = "YUV merge";
                             // P656: the merge's span in SHOT SUMMARY (merge=-1 before: the in-process merge had no marks; log 7's
                             // 969 ms YUV merge read as «gap» between nothing and the post)
+                            keepYuvSeries(images); // P690: «Сохранять RAW-серию» of a YUV shot (no worker keeps it), not merge time
                             com.scamera.app.processing.ShotTimeline.mark("job");
-                            keepYuvSeries(images); // P690: «Сохранять RAW-серию» of a YUV shot (no worker keeps it)
                             scamOwnedOutput = com.scamera.app.processing.yuv.YuvBurst.process(images, processingParameters,
                                     shotCamera, referenceMetadata);
                             com.scamera.app.processing.ShotTimeline.mark("client_done");
