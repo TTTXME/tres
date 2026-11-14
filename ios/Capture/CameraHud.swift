@@ -5,9 +5,10 @@ import SwiftUI
 /// CameraFragment.updateViewfinderHud / SurfaceViewOverViewfinder. Android reads the preview's CaptureResult; the iPhone reads
 /// the lens (AVCaptureDevice) by key-value observing: exposure time, ISO, the lens position, the focus / exposure / white balance
 /// modes and whether they are adjusting, the EV bias and the metering offset, the white balance gains, the points of interest.
-/// Updates at most every 150 ms (HUD_UPDATE_INTERVAL_MS).
-/// Not on the iPhone: the histogram of mode 2 (Android copies the viewfinder's pixels; here the frames belong to the live look),
-/// the OIS and tripod rows (no public OIS state, no tripod detector), the frame number, the LMT flags of IsoExpoSelector.
+/// Updates at most every 150 ms (HUD_UPDATE_INTERVAL_MS); the lens is read whatever the mode (the Pro panel's chips show the metered
+/// values). Mode 2's live RGB histogram comes from the viewfinder's frames (App/Camera/SubjectTracking FrameAnalysis), the
+/// «[TRIPOD]» row from the gyroscope (TripodDetector). Not on the iPhone: the OIS row (no public OIS state), the frame number, the
+/// LMT flags of IsoExpoSelector.
 struct CameraHudSample: Sendable {
     var exposure: Double = 0
     var iso: Float = 0
@@ -96,6 +97,14 @@ struct CameraHudSample: Sendable {
 final class CameraHud {
     static let shared = CameraHud()
     private(set) var sample: CameraHudSample?
+    /// Mode 2's histogram: 64 bins of R, G and B (square-rooted) and their peak
+    private(set) var histogram: [[Int]]?
+    private(set) var histogramPeak = 1
+
+    func setHistogram(_ channels: [[Int]], peak: Int) {
+        histogram = channels
+        histogramPeak = max(1, peak)
+    }
 
     func update(_ sample: CameraHudSample, layer: AVCaptureVideoPreviewLayer?) {
         var s = sample
@@ -106,7 +115,7 @@ final class CameraHud {
         self.sample = s
     }
 
-    func clear() { sample = nil }
+    func clear() { sample = nil; histogram = nil }
 }
 
 /// The key-value observer of the open lens (CaptureService gives it each lens it opens, with the preview layer)
@@ -163,7 +172,7 @@ final class DeviceHudMonitor: @unchecked Sendable {
     }
 
     private func publish() {
-        guard Self.mode > 0, let d = device else {
+        guard let d = device else {
             Task { @MainActor in CameraHud.shared.clear() }
             return
         }
@@ -215,8 +224,15 @@ struct CameraHudView: View {
                             row(s.lensText)
                             row(s.focusText)
                             row(s.whiteBalanceText)
+                            if TripodDetector.shared.onTripod { row("[TRIPOD]") }
                         }
+                        .rotationEffect(.degrees(DeviceTurn.shared.degrees))
                         .padding(.leading, 14).padding(.top, 12)
+                        if mode == 2, let bins = CameraHud.shared.histogram {
+                            HudHistogram(bins: bins, peak: CameraHud.shared.histogramPeak)
+                                .rotationEffect(.degrees(DeviceTurn.shared.degrees))
+                                .position(x: g.size.width - 14 - 36, y: 12 + 18)
+                        }
                     } else if mode == 3 {
                         box(s.focusOnScreen, color: .green, in: g.size)
                         box(s.exposureOnScreen, color: .yellow, in: g.size)
@@ -248,5 +264,41 @@ struct CameraHudView: View {
         if let p = point, p.x.isFinite, p.y.isFinite, p.x >= 0, p.y >= 0, p.x <= size.width, p.y <= size.height {
             Rectangle().stroke(color, lineWidth: 1.5).frame(width: 70, height: 70).position(p)
         }
+    }
+}
+
+/// SurfaceViewOverViewfinder.drawHistogram: a 72 x 36 dark box (black 40 %, a white 35 % frame) with thirds, the R, G and B curves
+/// added over each other
+struct HudHistogram: View {
+    let bins: [[Int]]
+    let peak: Int
+    private static let colours: [Color] = [Color(red: 1, green: 0x1A / 255, blue: 0x1A / 255), Color(red: 0x1A / 255, green: 0xD4 / 255, blue: 0x2A / 255),
+                                           Color(red: 0x2A / 255, green: 0x55 / 255, blue: 1)]
+
+    var body: some View {
+        Canvas { context, size in
+            let w = size.width, h = size.height
+            let frame = Path(CGRect(origin: .zero, size: size))
+            context.fill(frame, with: .color(.black.opacity(0.4)))
+            var thirds = Path()
+            thirds.move(to: CGPoint(x: w / 3, y: 0)); thirds.addLine(to: CGPoint(x: w / 3, y: h))
+            thirds.move(to: CGPoint(x: 2 * w / 3, y: 0)); thirds.addLine(to: CGPoint(x: 2 * w / 3, y: h))
+            context.stroke(frame, with: .color(.white.opacity(0.35)), lineWidth: 1)
+            context.stroke(thirds, with: .color(.white.opacity(0.35)), lineWidth: 1)
+            var layer = context
+            layer.blendMode = .plusLighter
+            for c in 0..<min(3, bins.count) {
+                let count = bins[c].count
+                guard count > 0 else { continue }
+                let step = w / CGFloat(count + 1), scale = h / CGFloat(max(1, peak))
+                var p = Path()
+                p.move(to: CGPoint(x: 0, y: h))
+                for (i, v) in bins[c].enumerated() { p.addLine(to: CGPoint(x: CGFloat(i) * step, y: h - min(CGFloat(v) * scale, h))) }
+                p.addLine(to: CGPoint(x: CGFloat(count) * step, y: h))
+                p.closeSubpath()
+                layer.fill(p, with: .color(Self.colours[c].opacity(0.87)))
+            }
+        }
+        .frame(width: 72, height: 36)
     }
 }

@@ -76,6 +76,14 @@ actor CaptureService {
                 } else {
                     SessionLog.w("Capture", "viewfinder frames output refused: the plain preview only")
                 }
+                // the viewfinder's face boxes (App/Camera/SubjectTracking FaceBoxes)
+                let faces = FaceBoxes.shared.output
+                if session.canAddOutput(faces) {
+                    session.addOutput(faces)
+                    FaceBoxes.shared.configure()
+                } else {
+                    SessionLog.w("Capture", "face metadata output refused: no face boxes")
+                }
                 try apply(module)
             } catch {
                 session.commitConfiguration()
@@ -398,6 +406,45 @@ actor CaptureService {
         }
     }
 
+    /// SubjectFocus: the tracked subject's centre drives the continuous focus and metering (a manual focus or exposure keeps its own)
+    func track(atLayerPoint point: CGPoint) {
+        guard let layer = previewLayer, let device = activeInput?.device else { return }
+        let p = layer.captureDevicePointConverted(fromLayerPoint: point)
+        aeAfLocked = false
+        do {
+            try device.lockForConfiguration()
+            if !manual.focusOn, device.isFocusPointOfInterestSupported, device.isFocusModeSupported(.continuousAutoFocus) {
+                device.focusPointOfInterest = p
+                device.focusMode = .continuousAutoFocus
+            }
+            if !(manual.isoOn || manual.shutterOn), device.isExposurePointOfInterestSupported,
+               device.isExposureModeSupported(.continuousAutoExposure) {
+                device.exposurePointOfInterest = p
+                device.exposureMode = .continuousAutoExposure
+            }
+            device.isSubjectAreaChangeMonitoringEnabled = false
+            device.unlockForConfiguration()
+        } catch {
+            SessionLog.w("Capture", "tracking focus: \(error.localizedDescription)")
+        }
+    }
+
+    /// «Раздельные фокус и экспозиция» (pref_split_af_ae): the exposure square meters at its own point; the focus stays where it is
+    func expose(atLayerPoint point: CGPoint) {
+        guard let layer = previewLayer, let device = activeInput?.device, !(manual.isoOn || manual.shutterOn) else { return }
+        let p = layer.captureDevicePointConverted(fromLayerPoint: point)
+        do {
+            try device.lockForConfiguration()
+            if device.isExposurePointOfInterestSupported, device.isExposureModeSupported(.autoExpose) {
+                device.exposurePointOfInterest = p
+                device.exposureMode = .autoExpose
+            }
+            device.unlockForConfiguration()
+        } catch {
+            SessionLog.w("Capture", "exposure point: \(error.localizedDescription)")
+        }
+    }
+
     /// A tap on the focus ring (TouchFocus.resetFocusCircle + setInitialAFAE): the lock goes, focus and exposure follow the scene.
     func resetFocusAndExposure() {
         aeAfLocked = false
@@ -458,6 +505,7 @@ actor CaptureService {
         photoCapture.setMirrored(front && !disableMirror)
         // «Информация на экране» (pref_show_afdata_key): the HUD follows this lens (Capture/CameraHud)
         hudMonitor.observe(device, layer: layer)
+        FaceBoxes.shared.attach(layer)
         rotationObservation = coordinator.observe(\.videoRotationAngleForHorizonLevelCapture, options: .new) { [weak self] _, change in
             guard let self, let angle = change.newValue else { return }
             Task { await self.updateCaptureRotation(angle) }

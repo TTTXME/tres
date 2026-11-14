@@ -206,13 +206,29 @@ final class ViewfinderRenderer: NSObject, AVCaptureVideoDataOutputSampleBufferDe
         }
     }
 
-    /// The frames on (a look to draw) or off (the plain preview layer), and the Metal view shown accordingly.
-    private func setFrames(_ on: Bool) {
+    /// The settings changed (a LUT step of the viewfinder's swipe): the look read again now, not at the next refresh
+    func refreshNow() {
+        lookQueue.async { [self] in refresh() }
+    }
+
+    /// The look last decided on `lookQueue` (the frames may also run for FrameAnalysis without it)
+    private var lookActive = false
+
+    /// The HUD's histogram or the subject tracking started or stopped: the frames on or off again (lookQueue)
+    func analysisChanged() {
+        lookQueue.async { [self] in setFrames(lookActive) }
+    }
+
+    /// The frames on (a look to draw, or the frames' analysis: App/Camera/SubjectTracking) or off (the plain preview layer), and the
+    /// Metal view shown only while a look draws.
+    private func setFrames(_ active: Bool) {
+        lookActive = active
+        let on = active || FrameAnalysis.shared.wanted
         if let connection = output.connection(with: .video), connection.isEnabled != on { connection.isEnabled = on }
-        guard loggedActive != on else { return }
-        loggedActive = on
-        SessionLog.i("Viewfinder", on ? "the look on the camera's frames" : "the plain preview")
-        if !on {
+        guard loggedActive != active else { return }
+        loggedActive = active
+        SessionLog.i("Viewfinder", active ? "the look on the camera's frames" : "the plain preview")
+        if !active {
             lock.lock()
             let view = self.view
             lock.unlock()
@@ -231,7 +247,7 @@ final class ViewfinderRenderer: NSObject, AVCaptureVideoDataOutputSampleBufferDe
                 connection.automaticallyAdjustsVideoMirroring = false
                 connection.isVideoMirrored = mirrored
             }
-            connection.isEnabled = loggedActive ?? false
+            connection.isEnabled = (loggedActive ?? false) || FrameAnalysis.shared.wanted
         }
     }
 
@@ -281,6 +297,7 @@ final class ViewfinderRenderer: NSObject, AVCaptureVideoDataOutputSampleBufferDe
 
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
         guard let pixels = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+        if FrameAnalysis.shared.wanted { FrameAnalysis.shared.frame(pixels) }
         draw(pixels)
     }
 
