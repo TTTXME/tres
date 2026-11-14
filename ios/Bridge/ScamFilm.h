@@ -41,4 +41,13 @@ NS_ASSUME_NONNULL_BEGIN
     NS_SWIFT_NAME(lookThumbnail(_:width:height:lut:film:));
 @end
 
+/// The lens filter page's preview (LensFilterPreference.render): RGBA8 sRGB pixels as linear light with the highlights' headroom,
+/// through the filter's diffusion (DiffusionGauss.apply of its plan, the frame as long as the picture) at `strength` 0..1 with its
+/// stored fine controls (`tune`, nil: the filter's defaults), back to 8 bits with a soft shoulder above white
+@interface SCAMFilm (LensPreview)
++ (nullable NSData *)lensFilterThumbnail:(NSData *)rgba width:(NSInteger)width height:(NSInteger)height filter:(NSString *)filter
+                                strength:(float)strength tune:(nullable NSString *)tune
+    NS_SWIFT_NAME(lensFilterThumbnail(_:width:height:filter:strength:tune:));
+@end
+
 NS_ASSUME_NONNULL_END
