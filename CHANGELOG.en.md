@@ -2,6 +2,33 @@
 
 English copy of CHANGELOG.md (the Russian file is the one posted to Telegram), from 2026-11-09 on.
 
+## 2026-11-14 (evening) — Speed and memory
+
+- The camera opens and switches lenses faster, with less memory on older phones.
+- Lighter, faster saving: the DNG is written without an in-memory copy (−290 MB at 50 MP, −1.15 GB at 200 MP), beside the photo's processing on phones above 8 GB.
+- The first run builds every processing program and tunes itself to the GPU: the first shot is faster.
+- A smoother viewfinder on weak GPUs. Cleaned up the APK: −5.7 MB.
+- «Быстрый» 50 MP starts its merge ~0.3 s sooner and frees the GPU memory earlier.
+
+## 2026-11-14 (evening) — 50 and 200 MP
+
+- X300 Ultra: 200 MP works — the camera gets the full-size frame keys as in the stock camera; the native mosaic without remosaic is tried first, the working way is remembered.
+- Find X9 Ultra: 50 MP without remosaic and without root on every camera; 200 MP is impossible without root and is not shown.
+- The photo size list no longer reads «Normal · 50 MP» after a restart with 50 MP.
+- X200 Ultra: 200 MP no longer crashes — the merge measures its memory and, when short, merges the frame in bands, the same to the eye.
+
+## 2026-11-14 (evening) — YUV merge
+
+- Fixed the dark tone of YUV shots on the vivo X200 Ultra.
+- Short and long frames are no longer lost when the series fills its memory; the series gets 1 GB on phones above 8 GB, 0.5 GB on the others.
+- Two switches in the lens settings: «YUV merge 8-bit» and «YUV merge 10-bit».
+- «Keep the RAW series» now keeps a YUV series too.
+
+## 2026-11-14 (evening) — 50 MP quality
+
+- Quad and Tetra: windows and sunlit patches without pink and white islands; coloured lights keep their colour.
+- Quad: the sharpening no longer makes steps and a grid on the edges of dark objects on a bright background; detail is kept.
+
 ## 2026-11-14 — Xiaomi 17 Ultra: LOFIC
 
 - The DCG switch on the main camera has a DCG+LOFIC state: without root the camera captures both LOFIC streams (4:3 first, otherwise 16:10 at 60 fps).
