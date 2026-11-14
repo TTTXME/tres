@@ -3,7 +3,8 @@ import ImageIO
 import Photos
 import UniformTypeIdentifiers
 
-/// Writes photos to the library (AVCam MediaLibrary): the processed HEIC/JPEG as .photo, the DNG as .alternatePhoto.
+/// Writes photos to the library (AVCam MediaLibrary): the processed HEIC/JPEG as .photo, the DNG as .alternatePhoto; a DNG alone
+/// («Только RAW») as the .photo itself.
 actor MediaLibrary {
     enum Error: Swift.Error, LocalizedError {
         case unauthorized
@@ -34,6 +35,8 @@ actor MediaLibrary {
         let processed = photo.processed
         let processedUTI = photo.processedUTI
         let raw = photo.rawFile
+        // «Только RAW»: the DNG alone is the asset's photo resource (below); with neither there is nothing to save
+        guard processed != nil || raw != nil else { throw Error.saveFailed(L("capture.not_saved")) }
         // the gallery's «Камера» (Android: DCIM/SCAMERA): the shot also goes into the «SCAMERA» album when the app may read the
         // library (an album needs full access; with add-only access the photo is saved as before)
         let fullAccess = PHPhotoLibrary.authorizationStatus(for: .readWrite) == .authorized

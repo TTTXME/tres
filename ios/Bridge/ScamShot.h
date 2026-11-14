@@ -39,10 +39,11 @@ NS_ASSUME_NONNULL_BEGIN
 /// whether a face was found (also with no boxes: its place in the RAW unknown); shaders: the folder of the app's shader assets.
 /// dngFacts (P165, nil: no merged DNG - RAW saving off): the facts of the shot's files - make, model, device, buildModel, software,
 /// dateTime, subSec, offset (strings), facing, cameraID, filmRecipe (strings), fNumber, focalLength (numbers), focal35, frames,
-/// physicalId (integers), lossless (boolean).
+/// physicalId (integers), lossless (boolean). rawOnly («Только RAW», with dngFacts): the merge and its DNG only (ScamProcessor's
+/// rawSaving 2): no post pipeline, the photo empty (width 0).
 + (nullable SCAMPhoto *)processBurstAtPath:(NSString *)burst dng:(NSData *)dng settings:(NSString *)settings
                                      faces:(NSArray<NSNumber *> *)faces facesDetected:(BOOL)facesDetected front:(BOOL)front
-                                  dngFacts:(nullable NSDictionary<NSString *, id> *)dngFacts
+                                  dngFacts:(nullable NSDictionary<NSString *, id> *)dngFacts rawOnly:(BOOL)rawOnly
                                    shaders:(NSString *)shaders error:(NSError **)error;
 
 /// P620 ScamProcessor.appendDngPreview: the saved photo (RGBA8 rows, upright, sRGB) at most 1024 px, turned back to the sensor's

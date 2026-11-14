@@ -30,14 +30,14 @@ struct FormatPickerCard: View {
         let mode = min(2, max(0, Int(store.string(CameraModel.saveRawKey, "0")) ?? 0))
         let kind = camera?.rawKind ?? storedKind
         VStack(alignment: .leading, spacing: 8) {
-            Text(Lang.t("Фото", "Photo")).font(.caption).foregroundStyle(.secondary)
+            Text(Lang.t("Фото", "Photo")).font(.app(12)).foregroundStyle(.secondary)
             Picker("", selection: Binding(get: { format }, set: { store.set("pref_photo_format", $0) })) {
                 Text("JPEG").tag("jpeg")
                 Text("HEIC").tag("heic")
             }
             .pickerStyle(.segmented)
             .disabled(mode == 2)
-            Text("RAW (DNG)").font(.caption).foregroundStyle(.secondary)
+            Text("RAW (DNG)").font(.app(12)).foregroundStyle(.secondary)
             Picker("", selection: Binding(get: { mode }, set: { v in
                 if let camera { camera.setRawSaving(v) } else { store.set(CameraModel.saveRawKey, String(v)) }
             })) {
@@ -46,7 +46,7 @@ struct FormatPickerCard: View {
                 Text(L("sheet.raw_only")).tag(2)
             }
             .pickerStyle(.segmented)
-            Text(L("sheet.raw_kind")).font(.caption).foregroundStyle(.secondary)
+            Text(L("sheet.raw_kind")).font(.app(12)).foregroundStyle(.secondary)
             Picker("", selection: Binding(get: { kind }, set: { v in
                 if let camera { camera.setRawKind(v) } else { UserDefaults.standard.set(v.rawValue, forKey: CameraModel.rawKindKey) }
             })) {
@@ -57,8 +57,8 @@ struct FormatPickerCard: View {
             .disabled(mode == 0)
             Text(Lang.t("Сохраняется: ", "Saved: ") + (mode == 2 ? "DNG (" + kind.title + ")"
                                                      : format.uppercased() + (mode == 0 ? "" : " + DNG (" + kind.title + ")")))
-                .font(.footnote).foregroundStyle(.secondary)
-            Text(Lang.t("Качество", "Quality")).font(.footnote.weight(.semibold)).foregroundStyle(Color.accentColor).padding(.top, 8)
+                .font(.app(13)).foregroundStyle(.secondary)
+            Text(Lang.t("Качество", "Quality")).font(.app(13, 600)).foregroundStyle(Color.accentColor).padding(.top, 8)
         }
         .padding(.vertical, 4)
     }

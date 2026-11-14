@@ -102,6 +102,9 @@ struct DngRequest {
     int frames = 0;
     std::string cameraID, filmRecipe;
     int physicalId = -1;
+    /// «Только RAW» (ScamProcessor's rawSaving 2): the whole frame merged (no Sabre window: no photo), the DNG written, then the
+    /// shot ends - no post pipeline, no photo, no preview, no develop record
+    bool rawOnly = false;
 };
 
 /// What the shot does after its pipeline (ScamProcessor): the window's remaining crop and its photo size, or the digital zoom's
@@ -208,6 +211,8 @@ inline ShotOutput runShot(const std::string& nchPath, const std::vector<uint8_t>
     std::optional<SabreCrop::Plan> window;
     if (cropShot) {
         if (!s.scamDevSwitch("sabre_crop", true)) log("Sabre crop (P576): zoom x" + javaFloatString(zoom) + ", the whole frame merged and cropped as before (scam_dev sabre_crop 0)");
+        else if (dngRequest && dngRequest->rawOnly)
+            log("Sabre crop (P576): zoom x" + javaFloatString(zoom) + ", the whole frame merged and cropped as before (no photo: the DNG keeps the whole frame)");
         else {
             const std::string mode = s.hybridOutputMode();
             const Point target = SabreCrop::uncroppedPhoto(frameW, frameH, mode, HybridOutput::sabre2xFits(frameW, frameH, gpuMaxSide),
@@ -407,6 +412,13 @@ inline ShotOutput runShot(const std::string& nchPath, const std::vector<uint8_t>
         log("DNG: the merge gave no merged RAW: the reference frame's DNG is kept");
     }
     std::vector<uint16_t>().swap(mergedMosaic);
+    // ScamProcessor (rawSaving 2): the DNG is the shot - «RAW processing finished», no pipeline
+    if (dngRequest && dngRequest->rawOnly) {
+        log("RAW processing finished");
+        out.params = par;
+        out.postMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+        return out;
+    }
     // P665: the record right before the pipeline (DevelopCapture.take's moment), from copies; only beside a merged DNG
     if (!out.dng.empty()) out.develop = developRecord(par, p.merge, w, h, window ? 1.f : zoom, build, log);
     out.photo = runPostPipeline(p);

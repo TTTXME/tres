@@ -85,11 +85,8 @@ enum TopRow {
 enum FormatState {
     static let none = 0, paired = 1, rawOnly = 2
 
-    /// The save mode: the stored one, else what the camera's RAW choice says
-    @MainActor static func rawMode(_ camera: CameraModel) -> Int {
-        if camera.raw == .off { return none }
-        return SettingsStore.shared.string("pref_save_raw_key", "1") == "2" ? rawOnly : paired
-    }
+    /// The save mode: pref_save_raw_key (the one source of whether RAW is saved, as Android's FormatChoice)
+    @MainActor static func rawMode(_ camera: CameraModel) -> Int { camera.rawSaving }
 
     static var photo: String { SettingsStore.shared.string("pref_photo_format", "jpeg") == "heic" ? "HEIC" : "JPEG" }
 
@@ -117,14 +114,7 @@ enum FormatState {
     }
 
     @MainActor static func setRawMode(_ mode: Int, camera: CameraModel) {
-        SettingsStore.shared.set("pref_save_raw_key", String(mode))
-        if mode == none {
-            camera.setRaw(.off)
-        } else if camera.raw == .off {
-            let kind = RawChoice(rawValue: UserDefaults.standard.string(forKey: "raw_choice_kind") ?? "") ?? .bayer
-            camera.setRaw(kind == .off ? .bayer : kind)
-        }
-        if camera.raw != .off { UserDefaults.standard.set(camera.raw.rawValue, forKey: "raw_choice_kind") }
+        camera.setRawSaving(mode)
     }
 }
 
@@ -163,8 +153,8 @@ struct TopRowBar: View {
         case TopRow.format:
             // a tap opens «Формат», a long press «Размер»
             VStack(spacing: 3) {
-                Text(FormatState.badge(camera)).font(.system(size: 13, weight: .bold)).lineLimit(1)
-                Text(FormatState.size(camera)).font(.system(size: 9, weight: .medium)).lineLimit(1)
+                Text(FormatState.badge(camera)).font(.app(13, 700)).lineLimit(1)
+                Text(FormatState.size(camera)).font(.app(9, 500)).lineLimit(1)
             }
             .padding(.horizontal, 6)
             .frame(minWidth: 40, minHeight: 40)
@@ -184,7 +174,7 @@ struct TopRowBar: View {
                     camera.say(seconds > 0 ? String(format: L("timer.seconds"), seconds) : L("timer.off"))
                 }
                 if chrome.timerSeconds > 0 {
-                    Text("\(chrome.timerSeconds)").font(.system(size: 10, weight: .bold)).foregroundStyle(CameraStyle.ink)
+                    Text("\(chrome.timerSeconds)").font(.app(10, 700)).foregroundStyle(CameraStyle.ink)
                         .padding(.horizontal, 3).frame(minWidth: 15, minHeight: 15, maxHeight: 15)
                         .background(CameraStyle.accent, in: Capsule())
                         .padding(.bottom, 2)
@@ -300,13 +290,13 @@ struct TopRowSheet: View {
                         close()
                     }
                 }
-                Text(L("toprow.title")).font(.system(size: 15, weight: .semibold)).foregroundStyle(CameraStyle.text).lineLimit(1)
+                Text(L("toprow.title")).font(.app(15, 600)).foregroundStyle(CameraStyle.text).lineLimit(1)
                     .padding(.horizontal, 96)
                     .accessibilityAddTraits(.isHeader)
             }
             HStack(spacing: 12) {
                 if items.isEmpty {
-                    Text(L("toprow.empty")).font(.system(size: 13)).foregroundStyle(CameraStyle.muted)
+                    Text(L("toprow.empty")).font(.app(13)).foregroundStyle(CameraStyle.muted)
                 }
                 ForEach(items, id: \.self) { id in
                     ZStack(alignment: .topLeading) {
@@ -335,7 +325,7 @@ struct TopRowSheet: View {
             .frame(maxWidth: .infinity, minHeight: 50)
             .background(Capsule().fill(Color.black))
             .overlay(Capsule().stroke(Color.white.opacity(0.18), lineWidth: 1))
-            Text(L("toprow.add").uppercased()).font(.system(size: 12, weight: .semibold)).kerning(1)
+            Text(L("toprow.add").uppercased()).font(.app(12, 600)).kerning(1)
                 .foregroundStyle(Color.white.opacity(0.6))
                 .frame(maxWidth: .infinity, alignment: .leading).padding(.leading, 6)
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 5), spacing: 12) {
@@ -351,7 +341,7 @@ struct TopRowSheet: View {
                         VStack(spacing: 5) {
                             TopRowGlyph(id: id, camera: camera, iconSize: 21, small: true)
                                 .frame(width: 48, height: 48).background(CameraStyle.row, in: Circle())
-                            Text(TopRow.label(id)).font(.system(size: 10, weight: .semibold)).foregroundStyle(CameraStyle.text)
+                            Text(TopRow.label(id)).font(.app(10, 600)).foregroundStyle(CameraStyle.text)
                                 .lineLimit(1)
                         }
                         .frame(maxWidth: .infinity)
@@ -365,7 +355,7 @@ struct TopRowSheet: View {
             Button {
                 withAnimation(CameraMotion.glide) { items = TopRow.defaults }
             } label: {
-                Text(L("toprow.reset")).font(.system(size: 14, weight: .semibold)).foregroundStyle(CameraStyle.accent)
+                Text(L("toprow.reset")).font(.app(14, 600)).foregroundStyle(CameraStyle.accent)
                     .padding(.horizontal, 16).frame(height: 34)
             }
             SheetGrab().onTapGesture { close() }.accessibilityLabel(L("toprow.close"))
@@ -379,7 +369,7 @@ struct TopRowSheet: View {
     /// The head's buttons: 34 pt capsules, 15 pt - «Отмена» regular on #2C2C2E, «Готово» heavy on the accent
     private func pill(_ text: String, fill: Color, ink: Color, bold: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Text(text).font(.system(size: 15, weight: bold ? .bold : .regular)).foregroundStyle(ink).lineLimit(1)
+            Text(text).font(.app(15, bold ? 700 : 400)).foregroundStyle(ink).lineLimit(1)
                 .padding(.horizontal, bold ? 16 : 14).frame(height: 34).background(fill, in: Capsule())
         }
         .buttonStyle(PressScale())
@@ -401,7 +391,7 @@ struct TopRowGlyph: View {
             VStack(spacing: 3) {
                 Text(main).font(.system(size: (small ? 11 : 12) - (main.count > 5 ? 2 : 0), weight: .bold)).lineLimit(1).fixedSize()
                 if id == TopRow.format {
-                    Text(FormatState.size(camera)).font(.system(size: small ? 8 : 9, weight: .semibold)).opacity(0.85).lineLimit(1).fixedSize()
+                    Text(FormatState.size(camera)).font(.app(small ? 8 : 9, 600)).opacity(0.85).lineLimit(1).fixedSize()
                 }
             }
             .foregroundStyle(CameraStyle.text)

@@ -2,7 +2,8 @@
 // lab burst with its DNG (tools/make_test_dng.py) and its prefs; against the Android photo of that burst when given (the app's
 // burst tuning adds the shot's own lines, so the merge is not the lab's: a PSNR, not identity).
 //   shot_run_check <shaders> <meta.json> <burst.nch (a copy: its header flags are set)> <dng> [photo.rgba of the Android run]
-//   SCAM_SHOT_DNG=<file>: with RAW saving - the merged DNG (P165) written there, its develop record (P665) reported
+//   SCAM_SHOT_DNG=<file>: with RAW saving - the merged DNG (P165) written there, its develop record (P665) reported;
+//   SCAM_SHOT_RAW_ONLY=1 beside it: «Только RAW» (the DNG alone, no pipeline)
 // The burst's sidecar <burst.nch>.json (ShotTransport.hpp: the zoom, the captured frames' roles and exposures) is read as the app
 // reads it: {"zoom": 2} makes a digital zoom shot (SabreCrop's window, the photo's crop after the pipeline). With
 // SCAM_SHOT_NO_TAIL=1 the photo is the pipeline's, before that crop (the Android lab renders the pipeline alone). SCAM_SHOT_LAB_PARAMS=1
@@ -172,6 +173,8 @@ int main(int argc, char** argv) {
         dngRequest.facts.dateTime = "2026:11:14 12:00:00";
         dngRequest.facts.subSec = "000";
         dngRequest.facts.offset = "+00:00";
+        // SCAM_SHOT_RAW_ONLY=1 (with SCAM_SHOT_DNG): «Только RAW» - the merge and the DNG, no pipeline
+        if (const char* rawOnly = std::getenv("SCAM_SHOT_RAW_ONLY")) dngRequest.rawOnly = std::string(rawOnly) == "1";
         const ShotOutput out = runShot(argv[3], readAll(argv[4]), job, argv[1], [&](const std::string& l) {
             lines++;
             if (l.rfind("merge: ", 0) != 0) std::printf("%s\n", l.c_str());

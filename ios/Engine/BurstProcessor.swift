@@ -2,12 +2,13 @@ import Foundation
 import ImageIO
 
 import simd
+import UniformTypeIdentifiers
 
 /// A Bayer burst through the Android photo route as ported (Engine/post/ShotRun.hpp, ScamGL on the GPU): NCH transport → the SHDR
 /// merge → the post pipeline («Why тон», the Android nodes and shaders) with the shot's parameters from its DNG → HEIC.
 enum BurstProcessor {
     struct Result {
-        let heic: Data          // the photo in «Формат фото» (JPEG or HEIC)
+        let heic: Data?         // the photo in «Формат фото» (JPEG or HEIC); none for «Только RAW»
         let uti: String
         let log: [String]
         /// P165: the shot's merged DNG as Android saves it - with the photo as its preview (P620) and the gallery developer's record
@@ -51,7 +52,9 @@ enum BurstProcessor {
     /// zoom: the press's digital zoom over the module's own (ZoomController.processingResidual; nil: the burst's, BayerBurst.zoom) -
     /// SabreCrop's window of the frames before the merge and the photo's crop after the pipeline (Engine/post/ShotRun.hpp).
     /// dngFacts (P165): the facts for the merged DNG (dngFacts(metadata:shot:)), nil when no RAW is saved.
-    static func process(_ burst: BayerBurst, metadata: [String: Any], zoom: Double? = nil, dngFacts: [String: Any]? = nil) throws -> Result {
+    /// rawOnly («Только RAW», pref_save_raw_key 2): the merge and its DNG only (ScamProcessor returns after the DNG): no photo.
+    static func process(_ burst: BayerBurst, metadata: [String: Any], zoom: Double? = nil, dngFacts: [String: Any]? = nil,
+                        rawOnly: Bool = false) throws -> Result {
         guard MetalEngine.shared != nil else { throw EngineError.noDevice }
         guard burst.frames.count >= 1, burst.width >= 64, burst.height >= 64 else { throw EngineError.decode("empty burst") }
         var log = burst.report
@@ -110,12 +113,16 @@ enum BurstProcessor {
         do {
             photo = try SCAMShot.processBurst(atPath: nch.path, dng: burst.dng, settings: PostSettings.json(),
                                               faces: faces.boxes.map { NSNumber(value: $0) }, facesDetected: faces.detected, front: burst.front,
-                                              dngFacts: dngFacts, shaders: shaders.path)
+                                              dngFacts: dngFacts, rawOnly: rawOnly && dngFacts != nil, shaders: shaders.path)
         } catch let error as NSError {
             log += (error.userInfo["log"] as? [String]) ?? []
             throw error
         }
         log += photo.log
+        if rawOnly && dngFacts != nil {
+            log.append("RAW processing finished: merge \(Int(photo.mergeMilliseconds)) ms, DNG \(photo.mergedDng?.count ?? 0) bytes, \(memoryFootprint())")
+            return Result(heic: nil, uti: UTType.heic.identifier, log: log, dng: photo.mergedDng)
+        }
         log.append("merge \(Int(photo.mergeMilliseconds)) ms, post \(Int(photo.postMilliseconds)) ms, photo \(photo.width)x\(photo.height), \(memoryFootprint())")
         let format = ShotProcessor.photoFormat
         // P628: the watermark on the finished photo (upright, after every crop and resize) before its encoding; the Ultra HDR gain

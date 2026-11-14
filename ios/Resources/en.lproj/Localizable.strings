@@ -4,6 +4,7 @@
 "camera.interrupted" = "The camera is in use by another app";
 "capture.shutter" = "Take photo";
 "capture.busy" = "The previous shot is still processing. Wait until it finishes.";
+"capture.not_saved" = "The photo could not be saved";
 "raw.title" = "RAW";
 "raw.off" = "Off";
 "raw.short_off" = "RAW off";
@@ -267,6 +268,8 @@
 "sheet.raw_none" = "None";
 "sheet.raw_only" = "RAW only";
 "sheet.raw_help" = "«None»: only the finished photo is saved.\n«+ RAW»: a raw DNG is saved beside the photo, to edit on a computer in Lightroom or RawTherapee, for example.\n«RAW only»: just the DNG, no finished photo.\n\nIf you do not edit your photos yourself, you do not need RAW.";
+"sheet.raw_kind" = "RAW kind";
+"sheet.raw_kind_help" = "«Bayer RAW»: the sensor's frames, merged by SHDR into the DNG (as on Android).\n«ProRAW»: Apple's own processed RAW of the camera's photo; SHDR still saves the merged Bayer DNG.";
 "sheet.saved" = "Saved: ";
 "sheet.selected" = "selected";
 "sheet.size_normal" = "Normal · ";

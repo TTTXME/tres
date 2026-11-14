@@ -16,7 +16,14 @@ final class CameraModel {
     private(set) var supportsFullResolution = false
     private(set) var thumbnail: CGImage?
     private(set) var message: String?
-    private(set) var raw: RawChoice
+    /// The iPhone's RAW kind (Bayer RAW for the SHDR merge, or Apple's ProRAW) - an iPhone setting of its own beside Android's
+    /// pref_save_raw_key, which alone says whether RAW is saved (FormatChoice: 0 the photo, 1 RAW + photo, 2 RAW only)
+    private(set) var rawKind: RawChoice
+    /// pref_save_raw_key (PreferenceKeys.isSaveRaw: 0 the photo, 1 RAW + photo, 2 RAW only)
+    var rawSaving: Int { min(2, max(0, Int(SettingsStore.shared.string(Self.saveRawKey, "0")) ?? 0)) }
+    /// The RAW of the next shot: none without RAW saving, else the kind
+    var raw: RawChoice { rawSaving == 0 ? .off : rawKind }
+    static let saveRawKey = "pref_save_raw_key", rawKindKey = "raw_choice_kind"
     private(set) var fullResolution: Bool
     /// «Тон Why» V2 on the GPU for shots with RAW (the HEIC is rendered from the DNG).
     private(set) var whyTone: Bool
@@ -42,7 +49,9 @@ final class CameraModel {
     nonisolated var previewSource: PreviewSource { captureService.previewSource }
 
     init() {
-        raw = RawChoice(rawValue: UserDefaults.standard.string(forKey: "raw_choice") ?? "") ?? .off
+        Self.migrateRawChoice()
+        let kind = RawChoice(rawValue: UserDefaults.standard.string(forKey: Self.rawKindKey) ?? "") ?? .bayer
+        rawKind = kind == .off ? .bayer : kind
         fullResolution = UserDefaults.standard.object(forKey: "full_resolution") as? Bool ?? true
         whyTone = UserDefaults.standard.object(forKey: "why_tone") as? Bool ?? true
         shdr = UserDefaults.standard.object(forKey: "shdr") as? Bool ?? true
@@ -88,10 +97,42 @@ final class CameraModel {
         apply(await captureService.reloadModules())
     }
 
+    /// The settings' RAW row (off / Bayer / ProRAW): off is pref_save_raw_key 0; a kind keeps a RAW-only choice, else RAW + photo
     func setRaw(_ choice: RawChoice) {
-        raw = choice
-        defaults.set(choice.rawValue, forKey: "raw_choice")
-        SessionLog.i("App", "RAW \(choice.rawValue)")
+        if choice == .off {
+            setRawSaving(0)
+            return
+        }
+        setRawKind(choice)
+        if rawSaving == 0 { setRawSaving(1) }
+    }
+
+    /// pref_save_raw_key (the format sheet, the quick shade)
+    func setRawSaving(_ mode: Int) {
+        SettingsStore.shared.set(Self.saveRawKey, String(min(2, max(0, mode))))
+        SessionLog.i("App", "RAW saving \(rawSaving) (\(rawKind.rawValue))")
+    }
+
+    /// The iPhone's RAW kind: Bayer RAW (merged by SHDR) or ProRAW (the camera's own)
+    func setRawKind(_ kind: RawChoice) {
+        guard kind != .off else { return }
+        rawKind = kind
+        defaults.set(kind.rawValue, forKey: Self.rawKindKey)
+        SessionLog.i("App", "RAW kind \(kind.rawValue)")
+    }
+
+    /// Once: the old single RAW choice (raw_choice: off / bayer / proRAW) into pref_save_raw_key and the RAW kind
+    private static func migrateRawChoice() {
+        let d = UserDefaults.standard
+        guard let old = d.string(forKey: "raw_choice"), let choice = RawChoice(rawValue: old) else { return }
+        if choice != .off {
+            d.set(choice.rawValue, forKey: rawKindKey)
+            if SettingsStore.shared.string(saveRawKey, "0") == "0" { SettingsStore.shared.set(saveRawKey, "1") }
+        } else {
+            SettingsStore.shared.set(saveRawKey, "0")
+        }
+        d.removeObject(forKey: "raw_choice")
+        SessionLog.i("App", "RAW choice \(old) moved to pref_save_raw_key \(SettingsStore.shared.string(saveRawKey, "0"))")
     }
 
     func setFullResolution(_ enabled: Bool) async {
@@ -298,10 +339,16 @@ final class CameraModel {
                                                                            flash: flash ? .on : .off, exif: facts))
             photo.report.forEach { SessionLog.i("Shot", $0) }
             activity = .saving
-            if whyTone, let dng = photo.rawFile {
-                photo = await Self.render(photo, dng: dng, facts: facts)
+            // «Только RAW» (pref_save_raw_key 2): the camera's DNG alone, no photo
+            if rawSaving == 2, let dng = photo.rawFile {
+                photo.processed = nil
+                if let data = try? Data(contentsOf: dng) { thumbnail = MediaLibrary.thumbnail(of: data) }
+            } else {
+                if whyTone, let dng = photo.rawFile {
+                    photo = await Self.render(photo, dng: dng, facts: facts)
+                }
+                if let data = photo.processed { thumbnail = MediaLibrary.thumbnail(of: data) }
             }
-            if let data = photo.processed { thumbnail = MediaLibrary.thumbnail(of: data) }
             try await mediaLibrary.save(photo)
             SessionLog.i("Shot", "saved in \(Int(Date().timeIntervalSince(started) * 1000)) ms, \(memoryFootprint())")
         } catch {
@@ -322,10 +369,11 @@ final class CameraModel {
             } else if flash {
                 // no RAW frame with the flash on this lens: the camera's own flash photo
                 SessionLog.w("SHDR", "flash shot without a RAW frame: the camera's photo")
-                let photo = try await captureService.capturePhoto(PhotoRequest(raw: raw, fullResolution: fullResolution, flash: .on, exif: facts))
+                var photo = try await captureService.capturePhoto(PhotoRequest(raw: raw, fullResolution: fullResolution, flash: .on, exif: facts))
                 photo.report.forEach { SessionLog.i("Shot", $0) }
                 activity = .saving
-                if let data = photo.processed { thumbnail = MediaLibrary.thumbnail(of: data) }
+                if rawSaving == 2, photo.rawFile != nil { photo.processed = nil } // «Только RAW»: the camera's DNG alone
+                if let data = photo.processed ?? photo.rawFile.flatMap({ try? Data(contentsOf: $0) }) { thumbnail = MediaLibrary.thumbnail(of: data) }
                 try await mediaLibrary.save(photo)
                 return
             } else {
@@ -348,11 +396,11 @@ final class CameraModel {
         SessionLog.i("SHDR", "queued for processing pending=\(shots.count), burst \(bytes / 1_048_576) MB "
                      + "(\(burst.frames.count) frames of \(frameBytes / 1_048_576) MB), \(memoryFootprint())")
         // the RAW saving of the press (ScamProcessor.configure at the shot)
-        let wantDng = raw != .off
+        let saving = rawSaving
         let previous = processingTail
         processingTail = Task { [weak self] in
             await previous?.value
-            await self?.process(shot.id, burst: burst, started: started, facts: facts, wantDng: wantDng)
+            await self?.process(shot.id, burst: burst, started: started, facts: facts, rawSaving: saving)
         }
     }
 
@@ -362,7 +410,10 @@ final class CameraModel {
 
     /// One queued shot: merged and processed off the main actor, its DNG and photo saved; a failure is said (processingFailed) and
     /// the queue goes on. The app may go to the background meanwhile (ProcessingKeepAlive: as long as iOS gives it time).
-    private func process(_ id: UUID, burst: BayerBurst, started: Date, facts: ShotExif, wantDng: Bool) async {
+    /// rawSaving: pref_save_raw_key at the press (1: the merged DNG beside the photo; 2 «Только RAW»: the merged DNG alone, as
+    /// ScamProcessor returns after it - no post pipeline, no photo, no preview, no develop record).
+    private func process(_ id: UUID, burst: BayerBurst, started: Date, facts: ShotExif, rawSaving: Int) async {
+        let wantDng = rawSaving >= 1, rawOnly = rawSaving == 2
         let keepAlive = BackgroundTime()
         keepAlive.id = UIApplication.shared.beginBackgroundTask(withName: "SCAMERA shot") { MainActor.assumeIsolated { keepAlive.end() } }
         defer {
@@ -390,7 +441,8 @@ final class CameraModel {
                 do {
                     // P165: a merged DNG when RAW is saved (ScamProcessor: rawSaving >= 1)
                     let r = try BurstProcessor.process(burst, metadata: metadata, zoom: burst.zoom,
-                                                       dngFacts: wantDng ? BurstProcessor.dngFacts(metadata: metadata, shot: shot) : nil)
+                                                       dngFacts: wantDng ? BurstProcessor.dngFacts(metadata: metadata, shot: shot) : nil,
+                                                       rawOnly: rawOnly)
                     return (r.heic, r.uti, r.log, nil, r.dng)
                 } catch {
                     return (nil, UTType.heic.identifier, burst.report, error.localizedDescription, nil)
@@ -411,6 +463,20 @@ final class CameraModel {
             if let error = result.error {
                 SessionLog.e("SHDR", "processing failed: \(error)")
                 show(error)
+            }
+            if rawOnly {
+                // ScamProcessor (rawSaving 2): the DNG is the shot (imageSaved with its file, else «could not be saved»), then
+                // «RAW processing finished»
+                guard let rawFile else {
+                    SessionLog.e("SHDR", "the shot was not saved (no DNG)")
+                    show(L("capture.not_saved"))
+                    return
+                }
+                if let data = try? Data(contentsOf: rawFile) { thumbnail = MediaLibrary.thumbnail(of: data) }
+                try await mediaLibrary.save(CapturedPhoto(processed: nil, processedUTI: UTType.heic.identifier, rawFile: rawFile, report: []))
+                SessionLog.i("SHDR", "RAW processing finished: the DNG saved in \(Int(Date().timeIntervalSince(started) * 1000)) ms, "
+                             + "\(shots.count - 1) more queued, \(memoryFootprint())")
+                return
             }
             let heic = result.heic ?? burst.processed
             if let heic { thumbnail = MediaLibrary.thumbnail(of: heic) }

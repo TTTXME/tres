@@ -653,7 +653,13 @@ viewfinder stream). Display P3 acts on the SHDR photo only (the camera's own HEI
   «Apple <hw model>» without « camera N» (no physical camera id), Software «SCAMERA iOS ...», the lens from the photo's EXIF (no
   lens tables: LensSpecification / LensInfo are written only from Parameters' lens tables, which the iPhone's DNG does not give),
   FocalLengthIn35mmFilm of the DNG's field (the photo's over the zoom's crop).
-- Not on the iPhone: «RAW only» (rawSaving 2: the app has no such choice; the photo is always saved), the Quad / Tetra mosaic DNG
+- «Только RAW» (pref_save_raw_key 2, 2026-11-14): as ScamProcessor - the whole frame merged (SabreCrop: «no photo: the DNG keeps
+  the whole frame»), the merged DNG written, then «RAW processing finished» (DngRequest.rawOnly: no post pipeline, no photo, no P620
+  preview, no develop record); the asset is the DNG alone (MediaLibrary: the .photo resource), the gallery card its thumbnail. The
+  non-SHDR capture keeps the camera's DNG alone. pref_save_raw_key is the one switch of RAW saving (format sheet, quick shade,
+  settings); the iPhone's RAW kind (Bayer RAW / ProRAW, raw_choice_kind) is a row of its own; the old raw_choice moved once.
+  shot_run_check SCAM_SHOT_RAW_ONLY=1: «Лента» merge 37 s, the DNG byte for byte the RAW + photo shot's, post 0.
+- Not on the iPhone: the Quad / Tetra mosaic DNG
   (P258 / P267: no mosaic streams), the DCG NoiseProfile (P320), the reference frame written by our writer when the merge gives no
   mosaic (the camera's DNG of frame 0 stays then). The non-SHDR capture (PhotoCapture) keeps the camera's DNG.
 - Checks: tools/dng_check.cpp against ios/tools/android-host (HostPostRender ... DNG=1: the Android P165 block, ImageSaver /

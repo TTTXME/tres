@@ -4,6 +4,7 @@
 "camera.interrupted" = "Камера занята другим приложением";
 "capture.shutter" = "Снять";
 "capture.busy" = "Предыдущий снимок ещё обрабатывается. Дождитесь завершения.";
+"capture.not_saved" = "Не удалось сохранить снимок";
 "raw.title" = "RAW";
 "raw.off" = "Выкл.";
 "raw.short_off" = "RAW выкл.";
@@ -267,6 +268,8 @@
 "sheet.raw_none" = "Нет";
 "sheet.raw_only" = "Только RAW";
 "sheet.raw_help" = "«Нет» — сохраняется только готовое фото.\n«+ RAW» — рядом с фото ложится сырой снимок DNG, чтобы обработать его на компьютере, например в Lightroom или RawTherapee.\n«Только RAW» — один DNG, без готового фото.\n\nЕсли вы не обрабатываете снимки сами, RAW не нужен.";
+"sheet.raw_kind" = "Вид RAW";
+"sheet.raw_kind_help" = "«Bayer RAW»: кадры сенсора, склеенные SHDR в DNG (как на Android).\n«ProRAW»: собственный обработанный RAW Apple для фото камеры; SHDR всё равно сохраняет склеенный Bayer DNG.";
 "sheet.saved" = "Сохранится: ";
 "sheet.selected" = "выбрано";
 "sheet.size_normal" = "Обычный · ";

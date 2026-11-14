@@ -31,7 +31,7 @@ struct FormatSizeSheet: View {
         .padding(.horizontal, 8).padding(.bottom, 8)
         .frame(maxHeight: .infinity, alignment: .bottom)
         .presentationBackground(.clear)
-        .presentationDetents([.height(tab == 0 ? 330 : 300)])
+        .presentationDetents([.height(tab == 0 ? 410 : 300)])
         .presentationDragIndicator(.hidden)
         .preferredColorScheme(.dark)
         .sheet(isPresented: Binding(get: { help != nil }, set: { if !$0 { help = nil } })) {
@@ -50,12 +50,21 @@ struct FormatSizeSheet: View {
             .onLongPressGesture(minimumDuration: 0.5) { help = (L("sheet.photo"), L("sheet.photo_help")) }
             .accessibilityLabel(L("sheet.photo"))
             .accessibilityValue(mode == FormatState.rawOnly ? L("sheet.photo_not_saved") : "")
-            Text(L("sheet.no_webp")).font(.system(size: 12)).foregroundStyle(CameraStyle.summary).padding(.leading, 6).padding(.top, 6)
+            Text(L("sheet.no_webp")).font(.app(12)).foregroundStyle(CameraStyle.summary).padding(.leading, 6).padding(.top, 6)
             groupTitle("RAW (DNG)")
             CameraSegmented(labels: [L("sheet.raw_none"), "+ RAW", L("sheet.raw_only")], selected: mode) {
                 FormatState.setRawMode($0, camera: camera)
             }
             .onLongPressGesture(minimumDuration: 0.5) { help = ("RAW (DNG)", L("sheet.raw_help")) }
+            .padding(.bottom, 12)
+            // the iPhone's RAW kind (its own setting beside pref_save_raw_key): Bayer RAW for the SHDR merge, or Apple's ProRAW
+            groupTitle(L("sheet.raw_kind"))
+            CameraSegmented(labels: [RawChoice.bayer.title, RawChoice.proRAW.title], selected: camera.rawKind == .proRAW ? 1 : 0,
+                            disabled: mode == FormatState.none) {
+                camera.setRawKind($0 == 1 ? .proRAW : .bayer)
+            }
+            .onLongPressGesture(minimumDuration: 0.5) { help = (L("sheet.raw_kind"), L("sheet.raw_kind_help")) }
+            .accessibilityLabel(L("sheet.raw_kind"))
             .padding(.bottom, 12)
         }
         .accessibilityElement(children: .contain)
@@ -81,7 +90,7 @@ struct FormatSizeSheet: View {
 
     private func sizeRow(_ title: String, about: String, on: Bool, pick: @escaping () -> Void) -> some View {
         HStack(spacing: 12) {
-            Text(title).font(.system(size: 16, weight: .semibold)).foregroundStyle(CameraStyle.text)
+            Text(title).font(.app(16, 600)).foregroundStyle(CameraStyle.text)
             Spacer(minLength: 0)
             Image("cv_check").renderingMode(.template).resizable().scaledToFit().frame(width: 20, height: 20)
                 .foregroundStyle(CameraStyle.accent).opacity(on ? 1 : 0)
@@ -98,7 +107,7 @@ struct FormatSizeSheet: View {
 
     /// A group title: 12 pt semibold caps, letter-spaced, white 55 %
     private func groupTitle(_ text: String) -> some View {
-        Text(text.uppercased()).font(.system(size: 12, weight: .semibold)).kerning(1).foregroundStyle(Color.white.opacity(0.55))
+        Text(text.uppercased()).font(.app(12, 600)).kerning(1).foregroundStyle(Color.white.opacity(0.55))
             .padding(.leading, 6).padding(.top, 4).padding(.bottom, 8)
     }
 }
@@ -111,8 +120,8 @@ struct SettingHelpSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             SheetGrab().frame(maxWidth: .infinity)
-            Text(title).font(.system(size: 16.5, weight: .semibold)).foregroundStyle(CameraStyle.text)
-            ScrollView { Text(text).font(.system(size: 15)).foregroundStyle(CameraStyle.muted).lineSpacing(3).frame(maxWidth: .infinity, alignment: .leading) }
+            Text(title).font(.app(16.5, 600)).foregroundStyle(CameraStyle.text)
+            ScrollView { Text(text).font(.app(15)).foregroundStyle(CameraStyle.muted).lineSpacing(3).frame(maxWidth: .infinity, alignment: .leading) }
         }
         .padding(.horizontal, 18).padding(.top, 12).padding(.bottom, 18)
         .presentationBackground(CameraStyle.control)
