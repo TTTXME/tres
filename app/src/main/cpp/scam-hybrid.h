@@ -1245,6 +1245,9 @@ struct HybridTuning {
     // (kFastOutput fill, P497) only between two sides of recovered light (two opposite rays found it, or one and the frame's edge
     // the other) and never darker than the merged light; 0 = the fill everywhere it ran, as before
     float fastLightFill=1.f;
+    // P675 (owner, 2026-11-13: moving leaves and cars at night come out wrong in the merge): the fast route's night motion test
+    // (kFastRejection with NIGHT_MOTION; Bayer streams at SNR keys below 20) at this strength; 0 = the rejection as before
+    float fastNightMotion=1.f;
     // fastMergeSelect: the fast merge's frame selector (base frame by sharpness, donors vetted by translation / sharpness); 0 = frames[0]
     // the base, every normal frame a donor
     int fastMergeSelect=1;
@@ -1715,6 +1718,7 @@ inline HybridTuning loadHybridTuning(const std::string& jobDir,const std::functi
             ||set("mosaicQuadTextureNight",&t.mosaicQuadTextureNight) // P647
             ||set("fastFlowPick",nullptr,&t.fastFlowPick) // P601
             ||set("fastLightFill",&t.fastLightFill) // P607
+            ||set("fastNightMotion",&t.fastNightMotion) // P675
             ||set("fmFilterGather",nullptr,&t.fmFilterGather)||set("fmMergeBatch",nullptr,&t.fmMergeBatch)
             ||set("fastMergeSport",nullptr,&t.fastMergeSport)||set("rejPixDiff",&t.rejPixDiff)||set("donorShiftMax",&t.donorShiftMax) // P488
             ||set("denoise",nullptr,&t.denoise); // P600

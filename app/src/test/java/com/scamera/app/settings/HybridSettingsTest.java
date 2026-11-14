@@ -341,6 +341,22 @@ public class HybridSettingsTest {
         for(String own:new String[]{"kernel_texture","kernel_bokeh","kernel_transition"})assertFalse(own,MotionMode.replaces(own));
     }
 
+    /** P675: the fast route's night motion test is the worker's default (no line); a stored strength off it reaches the worker, clamped. */
+    @Test public void nightMotionReachesTheWorkerOnlyOffItsDefault() {
+        String tuning=PreferenceKeys.hybridTuningText();
+        assertFalse(tuning,tuning.contains("fastNightMotion "));
+        manager.set("default_scope","pref_scam_hybrid_fast_night_motion","0");
+        tuning=PreferenceKeys.hybridTuningText();
+        assertTrue(tuning,tuning.contains("fastNightMotion 0.0\n"));
+        assertEquals(tuning,tuning.indexOf("fastNightMotion "),tuning.lastIndexOf("fastNightMotion "));
+        manager.set("default_scope","pref_scam_hybrid_fast_night_motion","0.5");
+        assertTrue(PreferenceKeys.hybridTuningText().contains("fastNightMotion 0.5\n"));
+        manager.set("default_scope","pref_scam_hybrid_fast_night_motion","-2");
+        assertTrue(PreferenceKeys.hybridTuningText().contains("fastNightMotion 0.0\n"));
+        manager.set("default_scope","pref_scam_hybrid_fast_night_motion","1");
+        assertFalse(PreferenceKeys.hybridTuningText().contains("fastNightMotion "));
+    }
+
     @Test public void roundFiveWorkerKeysReachTheTuningFile() {
         // Unset: the worker keeps its own defaults (cell clip, outlier sites, SCAM Bento checks); the Sabre 6.1 kernel has an app
         // default since P68 (always), written also when unset.

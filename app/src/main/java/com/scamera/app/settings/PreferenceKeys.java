@@ -823,6 +823,11 @@ public class PreferenceKeys {
         // 1; its share 0..1); "hybrid_fast_light_fill 0" = before
         final float lightFill = hybridValue("fast_light_fill", 1f);
         if (lightFill != 1f) out.append("fastLightFill ").append(Math.max(0f, Math.min(1f, lightFill))).append('\n');
+        // P675 (owner, 2026-11-13: moving leaves and a passing car came out wrong in the night merge): the fast route's night motion
+        // test - a donor that differs from the base beyond the noise around a pixel is rejected there, a donor drifting everywhere
+        // keeps the rejection as before (worker fastNightMotion, default 1; its strength 0..1); "hybrid_fast_night_motion 0" = before
+        final float nightMotion = hybridValue("fast_night_motion", 1f);
+        if (nightMotion != 1f) out.append("fastNightMotion ").append(Math.max(0f, Math.min(1f, nightMotion))).append('\n');
         // P607 «Качество»: an ultrashort frame the GPU homography refused for too few inliers starts its registration from that
         // homography (worker usWeakHom 1), and the Bento blend flags a colour at the ultrashort clip where the frames holding half
         // its weight are clipped (usClipVote 1); "hybrid_us_weak_hom 0" / "hybrid_us_clip_vote 0" = before

@@ -570,6 +570,26 @@ public:
         if(gather==rejFilterGather)return;
         prog[pRejFilter]=rejFilterProgram(gather);rejFilterGather=gather;locs.clear(); // (uniform locations are per program)
     }
+    // P675 fastNightMotion: the rejection with the night motion test (kFastRejection with NIGHT_MOTION defined, built on first
+    // use); without it the program of the init, unchanged
+    GLuint rejectVariant[2]{};bool rejectNight=false;
+    bool selectReject(bool night){
+        if(night==rejectNight)return true;
+        GLuint& q=rejectVariant[night?1:0];
+        if(!q){
+            if(!night)q=prog[pReject];
+            else{
+                std::string src(fastmerge::kFastRejection);
+                const std::string v="#version 310 es\n";
+                if(src.compare(0,v.size(),v)!=0)return false;
+                src.insert(v.size(),"#define NIGHT_MOTION 1\n");
+                try{q=fs(src.c_str());}catch(const std::exception& e){notes.push_back(std::string("FAST MERGE GPU: night motion test off (")+e.what()+")");return false;}
+            }
+        }
+        if(!rejectVariant[0])rejectVariant[0]=prog[pReject];
+        prog[pReject]=q;rejectNight=night;locs.clear(); // (uniform locations are per program)
+        return true;
+    }
     void hlMaskOutProgram(){if(!prog[pHlMaskOut])prog[pHlMaskOut]=cs(fastmerge::kFastHlMaskOut);} // P480
     void flowPickProgram(bool rescue){ // P601 (throws when one does not build)
         if(!prog[pFlowPick])prog[pFlowPick]=fs(fastmerge::kFastFlowPick);
@@ -799,6 +819,7 @@ private:
             freeObjects();
             for(GLuint p:prog)if(p)glDeleteProgram(p);
             for(GLuint v:rejFilterVariant)if(v&&v!=prog[pRejFilter])glDeleteProgram(v); // P484
+            for(GLuint v:rejectVariant)if(v&&v!=prog[pReject])glDeleteProgram(v); // P675
             eglMakeCurrent(display,EGL_NO_SURFACE,EGL_NO_SURFACE,EGL_NO_CONTEXT);
         }
         if(surface!=EGL_NO_SURFACE)eglDestroySurface(display,surface);
