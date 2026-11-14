@@ -1,6 +1,6 @@
 # SCAMERA changes
 
-English copy of CHANGELOG.md (the Russian file is the one posted to Telegram), from 2026-11-09 on.
+English copy of CHANGELOG.md, from 2026-11-09 on; the build post carries both, section for section (same date, same place).
 
 ## 2026-11-14 (evening) — Speed and memory
 
