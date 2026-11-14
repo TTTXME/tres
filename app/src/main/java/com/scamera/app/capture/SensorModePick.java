@@ -106,6 +106,12 @@ public final class SensorModePick {
         @Nullable public final String route;
         /** P631: the row's session leaves the ISP stream out whatever «Поток ISP» (a Xiaomi row, XiaomiSensorRow). */
         public final boolean ispOff;
+        /**
+         * P695: {@link #block} is the camera's own row map's (XiaomiPeriscopeIsz: the HAL's map of the Xiaomi 15 Ultra periscope's
+         * rows), not a guess from the table's sizes: the session starts from it and a stored mosaic block of another size gives way
+         * (MosaicStream.startSession); the frames' confident measurements still decide.
+         */
+        public final boolean rowMap;
 
         Pick(int mode, int width, int height) {
             this(mode, width, height, false);
@@ -120,7 +126,12 @@ public final class SensorModePick {
         }
 
         Pick(int mode, int width, int height, boolean fullRes, int block, @Nullable String route, boolean ispOff) {
+            this(mode, width, height, fullRes, block, route, ispOff, false);
+        }
+
+        Pick(int mode, int width, int height, boolean fullRes, int block, @Nullable String route, boolean ispOff, boolean rowMap) {
             this.size = new Size(width, height);
+            this.rowMap = rowMap && (block == 2 || block == 4);
             this.mode = mode;
             this.fullRes = fullRes;
             this.width = width;
@@ -132,7 +143,12 @@ public final class SensorModePick {
 
         /** P631: this pick, its session without the ISP stream. */
         Pick withoutIsp() {
-            return ispOff ? this : new Pick(mode, width, height, fullRes, block, route, true);
+            return ispOff ? this : new Pick(mode, width, height, fullRes, block, route, true, rowMap);
+        }
+
+        /** P695: this pick with the colour block {@code b} of the camera's row map (2 / 4). */
+        Pick withRowMapBlock(int b) {
+            return new Pick(mode, width, height, fullRes, b, route, ispOff, true);
         }
 
         /** P586: an ISZ row without the remosaic (the OnePlus 16 main / tele row 11): no ISP stream in its session, whatever «Поток ISP». */
@@ -147,7 +163,7 @@ public final class SensorModePick {
 
         @Override public String toString() {
             return "mode " + mode + " " + width + "x" + height + (fullRes ? " (FULLRES)" : "") + (route == null ? "" : " (" + route + ")")
-                    + (ispOff ? " (RAW only)" : "");
+                    + (ispOff ? " (RAW only)" : "") + (rowMap ? " (the row map's block " + block + ")" : "");
         }
     }
 
@@ -205,7 +221,9 @@ public final class SensorModePick {
             final Pick p = of(row, table);
             // P631: a Xiaomi row whose HAL runs it only without the ISP stream
             // P641: the Xiaomi 17 Ultra 75 mm's 4x ISZ rows (the kit's: a Tetra block; the stock row 12: refused)
-            return p == null ? null : XiaomiTeleIsz.mark(physicalId, XiaomiSensorRow.mark(physicalId, OplusIsz.mark(physicalId, slot, p), table), table);
+            // P695: the Xiaomi 15 Ultra periscope's 4x ISZ rows (the HAL's row map: the 16-cell mosaic, a Tetra block)
+            return p == null ? null : XiaomiPeriscopeIsz.mark(physicalId,
+                    XiaomiTeleIsz.mark(physicalId, XiaomiSensorRow.mark(physicalId, OplusIsz.mark(physicalId, slot, p), table), table), table);
         } catch (RuntimeException e) {
             return null;
         }
@@ -325,6 +343,12 @@ public final class SensorModePick {
             if ((r[1] * 2 == e[0] && r[2] * 2 == e[1]) || (r[1] * 4 == e[0] && r[2] * 4 == e[1]))
                 return OppoNativeFullRes.block(e[0], e[1]);
         return 0;
+    }
+
+    /** P695: the block of the session pick's row map (MosaicStream.startSession), 0 when the pick has none. */
+    public static int rowMapBlock() {
+        final Pick p = sSession;
+        return p != null && p.rowMap ? p.block : 0;
     }
 
     /** The declared block of the session's pick (0: none / unknown). */

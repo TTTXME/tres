@@ -722,6 +722,9 @@ public final class DevKeys {
         k.add(n(xiaomi15, "xiaomi_dcg_opmode", String.valueOf(com.scamera.app.capture.XiaomiDcg.OPERATION_MODE), Lang.t("DCG: режим работы сессии (37379 = 0x9203, 0 — без него)", "DCG: session operation mode (37379 = 0x9203, 0 none)")));
         k.add(n(xiaomi15, "xiaomi_dcg_mode", String.valueOf(com.scamera.app.capture.XiaomiDcg.DCG_MODE), Lang.t("DCG: current_mode сенсора (24; -1 — не задавать)", "DCG: sensor current_mode (24; -1 not set)")));
         k.add(n(xiaomi15, "xiaomi_dcg_fps", String.valueOf(com.scamera.app.capture.XiaomiDcg.FPS), Lang.t("DCG: кадров в секунду (0 — как в видоискателе)", "DCG: frames per second (0 as the viewfinder)")));
+        // P695: the periscope's 4x ISZ rows 6 / 17 (the HAL's row map) declared a Tetra block
+        k.add(s(xiaomi15, "xiaomi15_isz_block", true, Lang.t("Перископ: режимы сенсора 6 / 17 (4x ISZ) — мозаика Tetra по карте режимов HAL (кадры всё равно проверяются)",
+                "Periscope: sensor modes 6 / 17 (4x ISZ) are a Tetra mosaic by the HAL's row map (the frames are still measured)")));
         k.add(n(xiaomi15, "dcg_band_crop", "1", Lang.t("DCG (15 Ultra, X200 Ultra): пустые строки под режимом (0 — не резать, 1 — если пустые, 2 — всегда снизу)", "DCG (15 Ultra, X200 Ultra): empty rows under the mode (0 keep, 1 cut when empty, 2 always the bottom)")));
         // vivo
         k.add(s(vivo, "vivo_sdk_fullres", true, Lang.t("X200 Ultra, основная камера 3: SDK RAW 50 Мп, последовательная съёмка после нажатия, Hybrid", "X200 Ultra, main camera 3: SDK 50 MP RAW, serial post-shutter capture, Hybrid")));
@@ -831,7 +834,7 @@ public final class DevKeys {
                 "FULLRES 50 MP: the camera runs its plain session while the shot merges (less heat and memory). Off: the 50 MP stream keeps running")));
         // P685: a 50 MP «Быстрый» merge does not wait for the camera's close (the worker sizes its memory itself)
         k.add(s(cap, "fullres_close_wait", false, Lang.t("FULLRES 50 Мп, «Быстрый»: склейка ждёт закрытия камеры (~0,3 с), как до P685. Выкл — склейка начинается сразу, воркер сам меряет память (выше 100 Мп ждёт всегда)",
-                "FULLRES 50 MP, «Быстрый»: the merge waits for the camera's close (~0.3 s), as before P685. Off: the merge starts at once, the worker measures the memory itself (above 100 MP it always waits)")));
+                "FULLRES 50 MP, «Fast»: the merge waits for the camera's close (~0.3 s), as before P685. Off: the merge starts at once, the worker measures the memory itself (above 100 MP it always waits)")));
         // P222: the stills a native FULLRES series keeps in flight (FullResInFlight)
         k.add(n(cap, "fullres_in_flight", null, Lang.t("FULLRES: сколько кадров серии отправлено камере одновременно (1–8). По умолчанию 6 до 100 Мп, 3 выше 100 Мп и после сбоя серии на этой камере и размере; 3 — как до P222. SDK-путь X200 Ultra всегда по одному",
                 "FULLRES: the stills of a series sent to the camera at once (1-8). Default 6 up to 100 MP, 3 above 100 MP and after a failed series on this camera and size; 3 = as before P222. The X200 Ultra's SDK route always one at a time")));

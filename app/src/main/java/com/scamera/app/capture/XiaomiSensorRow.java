@@ -123,17 +123,97 @@ public final class XiaomiSensorRow {
     // ---------------------------------------------------------------- the first frame of a session
 
     private static volatile String armed;
+    private static int linesTaken;
+    private static long nextLineAtMs;
+    /**
+     * P695: frame lines of a session - its first frame, then one every {@link #FRAME_LINE_EVERY_MS} (the 15 Ultra periscope's row 6
+     * turned to stripes a few seconds in: what its frames became is in the later lines).
+     */
+    public static final int FRAME_LINES = 5;
+    static final long FRAME_LINE_EVERY_MS = 3000;
 
-    /** CaptureController: a session with {@code pick} starts; its first frame is described once ({@link #takeFrameLog}). */
+    /** CaptureController: a session with {@code pick} starts; its first frames are described ({@link #takeFrameLog}). */
     public static void armFrameLog(@Nullable String camera, @Nullable SensorModePick.Pick pick) {
-        armed = camera != null && pick != null && device() ? key(camera, pick.mode) : null;
+        armFrameLog(camera, pick, device());
+    }
+
+    /** {@link #armFrameLog(String, SensorModePick.Pick)} on a phone that is ({@code xiaomi}) a Xiaomi one or not (tests). */
+    static synchronized void armFrameLog(@Nullable String camera, @Nullable SensorModePick.Pick pick, boolean xiaomi) {
+        armed = camera != null && pick != null && xiaomi ? key(camera, pick.mode) : null;
+        linesTaken = 0;
+        nextLineAtMs = Long.MIN_VALUE;
     }
 
     /** True once per armed session, for its first frame. */
     public static synchronized boolean takeFrameLog(@Nullable String camera, int mode) {
-        if (armed == null || !armed.equals(key(camera, mode))) return false;
-        armed = null;
-        return true;
+        return takeFrameLog(camera, mode, Long.MIN_VALUE) == 0;
+    }
+
+    /**
+     * P695: the index of the frame line due now ({@code nowMs}, uptime), -1 when none: the session's first frame (0), then one every
+     * {@link #FRAME_LINE_EVERY_MS}, {@link #FRAME_LINES} in all; {@code nowMs} Long.MIN_VALUE: the first only.
+     */
+    public static synchronized int takeFrameLog(@Nullable String camera, int mode, long nowMs) {
+        if (armed == null || !armed.equals(key(camera, mode))) return -1;
+        if (nowMs == Long.MIN_VALUE) {
+            if (linesTaken > 0) return -1;
+            armed = null;
+            return 0;
+        }
+        if (linesTaken > 0 && nowMs < nextLineAtMs) return -1;
+        final int line = linesTaken++;
+        nextLineAtMs = nowMs + FRAME_LINE_EVERY_MS;
+        if (linesTaken >= FRAME_LINES) armed = null;
+        return line;
+    }
+
+    /**
+     * P695: {mean |d| down, mean |d| across} of sites 8 apart (the same colour in a Bayer, Quad or Tetra frame) at least 32 DN over
+     * {@code floor}, in the frame's centre; {0, 0} when nothing is read. A picture has both of the same order; a frame whose rows
+     * repeat one line (vertical stripes in the sensor's frame, horizontal on the portrait screen) has «down» near 0 against
+     * «across», and the other way round for repeated columns.
+     */
+    static double[] repeatStats(@Nullable ByteBuffer raw, int width, int height, int rowStride, float floor) {
+        final double[] out = {0, 0};
+        if (raw == null || width < 64 || height < 64 || rowStride < width * 2) return out;
+        final ByteBuffer b = raw.duplicate().order(ByteOrder.LITTLE_ENDIAN);
+        final int base = b.position(), limit = b.limit();
+        final int min = Math.round(floor) + 32;
+        double down = 0, across = 0;
+        long nDown = 0, nAcross = 0;
+        for (int y = height / 10; y + 8 < height * 9 / 10; y += 16) {
+            final long row = base + (long) y * rowStride, below = row + 8L * rowStride;
+            if (below + 2L * width > limit) break;
+            for (int x = width / 10; x + 8 < width * 9 / 10; x += 7) {
+                final int v = b.getShort((int) (row + 2L * x)) & 0xFFFF;
+                if (v < min) continue;
+                final int r = b.getShort((int) (row + 2L * (x + 8))) & 0xFFFF;
+                final int d = b.getShort((int) (below + 2L * x)) & 0xFFFF;
+                if (r >= min) { across += Math.abs(v - r); nAcross++; }
+                if (d >= min) { down += Math.abs(v - d); nDown++; }
+            }
+        }
+        if (nDown < 500 || nAcross < 500) return out;
+        return new double[]{down / nDown, across / nAcross};
+    }
+
+    /** P695: what {@link #repeatStats} says: "rows repeat", "columns repeat", "a picture" or "too dark to tell". */
+    static String repeatText(double[] s) {
+        if (s == null || s.length < 2 || s[0] + s[1] <= 0) return "too dark to tell";
+        if (s[0] < 0.2 * s[1] && s[1] >= 2) return "ROWS REPEAT (stripes)";
+        if (s[1] < 0.2 * s[0] && s[0] >= 2) return "COLUMNS REPEAT (stripes)";
+        return "a picture";
+    }
+
+    /** P695: the tail of a frame line - its index, the stream's packed format, the frame's exposure and its repeat statistics. */
+    public static String laterText(int line, @Nullable Integer packedFormat, @Nullable Long exposureNs, @Nullable Integer iso,
+                                   @Nullable ByteBuffer raw, int width, int height, int rowStride) {
+        final float floor = frameFloor(raw, width, height, rowStride);
+        final double[] r = repeatStats(raw, width, height, rowStride, Math.max(0f, floor));
+        return " | frame line " + (line + 1) + "/" + FRAME_LINES + (packedFormat == null ? "" : ", format " + packedFormat + " unpacked")
+                + ", exposure " + (exposureNs == null ? "?" : String.format(Locale.ROOT, "%.3f ms", exposureNs / 1e6)) + " ISO "
+                + (iso == null ? "?" : iso) + ", |d| 8 sites down / across " + String.format(Locale.ROOT, "%.1f / %.1f", r[0], r[1])
+                + " -> " + repeatText(r) + " (P695)";
     }
 
     /**
